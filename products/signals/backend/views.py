@@ -22,6 +22,7 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from products.signals.backend.api import emit_signal
 from products.signals.backend.models import SignalReport
 from products.signals.backend.serializers import SignalReportArtefactSerializer, SignalReportSerializer
+from products.tasks.backend.temporal.client import execute_video_segment_clustering_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -113,18 +114,14 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        from products.tasks.backend.temporal.client import execute_video_segment_clustering_workflow
-
         try:
-            lookback_hours = 7 * 24  # 7 days
-            result = execute_video_segment_clustering_workflow(team_id=self.team.id, lookback_hours=lookback_hours)
+            result = execute_video_segment_clustering_workflow(team_id=self.team.id)
 
             response_status = status.HTTP_200_OK if result.get("success") else status.HTTP_500_INTERNAL_SERVER_ERROR
 
             return Response(
                 {
                     "workflow_id": result["workflow_id"],
-                    "lookback_hours": lookback_hours,
                     "success": result.get("success"),
                     "error": result.get("error"),
                     "segments_processed": result.get("segments_processed"),
