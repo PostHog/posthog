@@ -160,31 +160,26 @@ async def _get_backfill_info_for_events(
     """
     team_id = batch_export.team_id
 
-    count_conditions = []
+    date_conditions = ""
     if start_at is not None:
-        count_conditions.append("timestamp >= %(count_start_at)s")
+        date_conditions += "AND timestamp >= %(start_at)s "
         # Convert to UTC to avoid ClickHouse timezone parsing issues (e.g., UTC+05:45)
-        extra_query_parameters["count_start_at"] = start_at.astimezone(dt.UTC)
+        extra_query_parameters["start_at"] = start_at.astimezone(dt.UTC)
     if end_at is not None:
-        count_conditions.append("timestamp < %(count_end_at)s")
-        extra_query_parameters["count_end_at"] = end_at.astimezone(dt.UTC)
-
-    if count_conditions:
-        count_condition = " AND ".join(count_conditions)
-        count_expr = f"countIf({count_condition})"
-    else:
-        count_expr = "count(*)"
+        date_conditions += "AND timestamp < %(end_at)s "
+        extra_query_parameters["end_at"] = end_at.astimezone(dt.UTC)
 
     query = f"""
         SELECT
             MIN(timestamp) as min_timestamp,
-            {count_expr} as record_count
+            count() as record_count
         FROM events
         WHERE team_id = %(team_id)s
         AND timestamp > '2000-01-01'
         AND (length(%(include_events)s) = 0 OR event IN %(include_events)s)
         AND (length(%(exclude_events)s) = 0 OR event NOT IN %(exclude_events)s)
         {filters_str}
+        {date_conditions}
         FORMAT JSONEachRow
     """
 

@@ -1122,9 +1122,9 @@ class TestGetBackfillInfoForEvents:
             extra_query_parameters={},
         )
 
-        # earliest_start should still be the earliest event overall
-        assert earliest_start == dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
-        # but count should only include events after start_at
+        # earliest_start should be the earliest event within the date range
+        assert earliest_start == dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
+        # count should only include events after start_at
         assert record_count == 15
 
     async def test_counts_only_events_before_end_at(self, ateam, generate_events, make_batch_export):
@@ -1146,6 +1146,7 @@ class TestGetBackfillInfoForEvents:
             extra_query_parameters={},
         )
 
+        # earliest_start should be the earliest event within the date range
         assert earliest_start == dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
         # count should only include events before end_at
         assert record_count == 10
@@ -1173,7 +1174,8 @@ class TestGetBackfillInfoForEvents:
             extra_query_parameters={},
         )
 
-        assert earliest_start == dt.datetime(2021, 1, 5, 0, 0, 0, tzinfo=dt.UTC)
+        # earliest_start should be the earliest event within the date range
+        assert earliest_start == dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC)
         # count should only include the middle batch (10 events)
         assert record_count == 10
 
