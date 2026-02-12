@@ -41,14 +41,7 @@ export const commentsLogic = kea<commentsLogicType>([
 
     connect(() => ({
         actions: [sidePanelDiscussionLogic, ['incrementCommentCount', 'scrollToLastComment']],
-        values: [
-            userLogic,
-            ['user'],
-            sceneLogic,
-            ['activeTab'],
-            membersLogic,
-            ['meFirstMembers'],
-        ],
+        values: [userLogic, ['user'], sceneLogic, ['activeTab'], membersLogic, ['meFirstMembers']],
     })),
 
     actions({
