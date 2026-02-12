@@ -117,7 +117,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                 <div className="flex flex-wrap gap-1">
                     {evaluation.conditions.map((condition) => (
                         <LemonTag key={condition.id} type="option">
-                            {condition.rollout_percentage}%
+                            {parseFloat(condition.rollout_percentage.toFixed(2))}%
                             {condition.properties.length > 0 &&
                                 ` when ${condition.properties.length} condition${condition.properties.length !== 1 ? 's' : ''}`}
                         </LemonTag>
@@ -147,7 +147,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         <div className="text-sm">
                             {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
                         </div>
-                        <div className={`font-semibold ${passRateColor}`}>{stats.pass_rate}%</div>
+                        <div className={`font-semibold ${passRateColor}`}>{parseFloat(stats.pass_rate.toFixed(2))}%</div>
                     </div>
                 )
             },
