@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconChevronRight, IconExpand } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -19,35 +19,13 @@ export const scene: SceneExport = {
     logic: inboxSceneLogic,
 }
 
-function relativeTime(dateStr: string): string {
-    const date = dayjs(dateStr)
-    const now = dayjs()
-    const diffMinutes = now.diff(date, 'minute')
-
-    if (diffMinutes < 1) {
-        return 'Just now'
-    }
-    if (diffMinutes < 60) {
-        return `${diffMinutes}m ago`
-    }
-    const diffHours = now.diff(date, 'hour')
-    if (diffHours < 24) {
-        return `${diffHours}h ago`
-    }
-    const diffDays = now.diff(date, 'day')
-    if (diffDays < 7) {
-        return `${diffDays}d ago`
-    }
-    return humanFriendlyDetailedTime(dateStr, 'MMM D', 'h:mm A')
-}
-
 function ArtefactCard({ artefact }: { artefact: SignalReportArtefact }): JSX.Element {
     const content = artefact.content
     return (
         <div className="border rounded p-3 bg-surface-primary">
             <div className="flex items-center gap-2 mb-1">
                 <LemonTag size="small">{artefact.type.replace('_', ' ')}</LemonTag>
-                <span className="text-xs text-tertiary">{relativeTime(artefact.created_at)}</span>
+                <TZLabel time={artefact.created_at} />
             </div>
             {content.session_id && (
                 <p className="text-sm text-secondary m-0 mt-1 truncate">
@@ -114,7 +92,7 @@ function ReportRow({ report }: { report: SignalReport }): JSX.Element {
                     {report.artefact_count > 0 && (
                         <LemonBadge.Number count={report.artefact_count} maxDigits={3} size="small" />
                     )}
-                    <span className="whitespace-nowrap">{relativeTime(report.updated_at)}</span>
+                    <TZLabel time={report.updated_at} />
                 </div>
             </button>
 
