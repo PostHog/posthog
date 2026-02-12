@@ -294,4 +294,5 @@ export interface HogflowTestResult {
     nextActionId: string | null
     errors?: string[]
     variables?: Record<string, any>
+    execResult?: unknown
 }
