@@ -269,6 +269,37 @@ class TestResourceTransferTransfer(APIBaseTest):
         assert transfer.resource_id == str(insight.pk)
         assert transfer.duplicated_resource_id != ""
 
+    def test_transfer_rejects_substitution_from_wrong_team(self) -> None:
+        other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=self.organization)
+        other_team = Team.objects.create(id=other_project.id, project=other_project, organization=self.organization)
+
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        wrong_team_insight = Insight.objects.create(team=other_team, name="Wrong team insight")
+
+        response = self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Dashboard",
+                "resource_id": str(dashboard.pk),
+                "substitutions": [
+                    {
+                        "source_resource_kind": "Insight",
+                        "source_resource_id": str(insight.pk),
+                        "destination_resource_kind": "Insight",
+                        "destination_resource_id": str(wrong_team_insight.pk),
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_transfer_rejects_same_team(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My insight")
         response = self.client.post(

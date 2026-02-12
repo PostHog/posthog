@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useState } from 'react'
+import { useCallback } from 'react'
 
 import { LemonButton, LemonInputSelect, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { InsightShortId } from '~/types'
 
 import {
     type PreviewResource,
@@ -15,6 +16,7 @@ import {
     type SubstitutionChoice,
     resourceTransferLogic,
 } from './resourceTransferLogic'
+import { resourceTransferRowLogic } from './resourceTransferRowLogic'
 
 export const scene: SceneExport<ResourceTransferLogicProps> = {
     component: ResourceTransfer,
@@ -101,7 +103,7 @@ export function ResourceTransfer(props: ResourceTransferLogicProps): JSX.Element
                                                     resourceKey={key}
                                                     choice={choice}
                                                     onChoiceChange={setSubstitutionChoice}
-                                                    logic={logic}
+                                                    logicProps={props}
                                                 />
                                             )
                                         })}
@@ -130,7 +132,7 @@ function sourceResourceUrl(resourceKind: string, resourceId: string): string {
         case 'Dashboard':
             return urls.dashboard(resourceId)
         case 'Insight':
-            return urls.insightView(resourceId as any)
+            return urls.insightView(resourceId as InsightShortId)
         default:
             return urls.projectHomepage()
     }
@@ -141,18 +143,17 @@ function ResourceRow({
     resourceKey,
     choice,
     onChoiceChange,
-    logic,
+    logicProps,
 }: {
     resource: PreviewResource
     resourceKey: string
     choice: SubstitutionChoice
     onChoiceChange: (resourceKey: string, choice: SubstitutionChoice) => void
-    logic: ReturnType<typeof resourceTransferLogic>
+    logicProps: ResourceTransferLogicProps
 }): JSX.Element {
-    const { searchResources } = useActions(logic)
-    const { searchResults, searchResultsLoading } = useValues(logic)
-
-    const [isSearching, setIsSearching] = useState(false)
+    const rowLogic = resourceTransferRowLogic({ resourceKey, transferLogicProps: logicProps })
+    const { searchResources, setIsSearching } = useActions(rowLogic)
+    const { searchResults, searchResultsLoading, isSearching } = useValues(rowLogic)
 
     const handleModeChange = useCallback(
         (mode: string | null) => {
@@ -164,7 +165,7 @@ function ResourceRow({
                 searchResources(resource.resource_kind, '')
             }
         },
-        [resourceKey, resource.resource_kind, onChoiceChange, searchResources]
+        [resourceKey, resource.resource_kind, onChoiceChange, searchResources, setIsSearching]
     )
 
     const handleSearchInput = useCallback(
@@ -191,7 +192,7 @@ function ResourceRow({
                 setIsSearching(false)
             }
         },
-        [searchResults, resourceKey, onChoiceChange]
+        [searchResults, resourceKey, onChoiceChange, setIsSearching]
     )
 
     const modeValue = isSearching || choice.mode === 'substitute' ? 'substitute' : 'copy'

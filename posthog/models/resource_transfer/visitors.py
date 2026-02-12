@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from abc import abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import models
 from django.db.models import query_utils
@@ -14,9 +16,12 @@ from posthog.models.resource_transfer.types import (
 )
 from posthog.models.utils import UUIDTClassicModel
 
+if TYPE_CHECKING:
+    from posthog.models import Team
+
 
 class ResourceTransferVisitor:
-    __VISITORS: list[type["ResourceTransferVisitor"]] = []
+    __VISITORS: list[type[ResourceTransferVisitor]] = []
 
     kind: ResourceKind
     excluded_fields: list[str]
@@ -64,8 +69,16 @@ class ResourceTransferVisitor:
             return str(resource.name)
         return f"{cls.kind} {resource.pk}"
 
+    @classmethod
+    def get_resource_team(cls, resource: Any) -> Team:
+        """
+        Return the team that owns a resource instance. Most resources have a `team` foreign key;
+        override in subclasses for models where ownership is determined differently.
+        """
+        return resource.team
+
     @staticmethod
-    def get_visitor(kind_or_value: ResourceKind | Any) -> type["ResourceTransferVisitor"] | None:
+    def get_visitor(kind_or_value: ResourceKind | Any) -> type[ResourceTransferVisitor] | None:
         if isinstance(kind_or_value, str):
             return next(
                 (visitor for visitor in ResourceTransferVisitor.__VISITORS if visitor.kind == kind_or_value), None

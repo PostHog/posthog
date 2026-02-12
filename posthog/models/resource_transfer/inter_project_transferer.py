@@ -54,10 +54,13 @@ def duplicate_resources_from_dag(
     :param dag: The DAG of vertices. Call `dag_sort_duplication_graph` to get this. Anything that isn't a DAG will likely result in a ValueError.
     :param source_team: The team the resources are being copied from.
     :param new_team: The team to copy the resources to.
+    :param substitutions: A list of (source_key, destination_key) pairs representing substitutions to use.
+
+    :returns: A list of the newly created resources
     """
     consumed_vertices: ResourceMap = {}
     transfer_records: list[ResourceTransfer] = []
-    mapped_substitutions = _get_mapped_substitutions(substitutions)
+    mapped_substitutions = _get_mapped_substitutions(substitutions, target_team=new_team)
 
     for vertex in dag:
         visitor = ResourceTransferVisitor.get_visitor(vertex.model)
@@ -80,15 +83,16 @@ def duplicate_resources_from_dag(
 
         consumed_vertices[vertex.key] = vertex
 
-        transfer_records.append(
-            ResourceTransfer(
-                source_team=source_team,
-                destination_team=new_team,
-                resource_kind=visitor.kind,
-                resource_id=str(vertex.source_resource.pk),
-                duplicated_resource_id=str(vertex.duplicated_resource.pk),
+        if vertex.key not in mapped_substitutions:
+            transfer_records.append(
+                ResourceTransfer(
+                    source_team=source_team,
+                    destination_team=new_team,
+                    resource_kind=visitor.kind,
+                    resource_id=str(vertex.source_resource.pk),
+                    duplicated_resource_id=str(vertex.duplicated_resource.pk),
+                )
             )
-        )
 
     ResourceTransfer.objects.bulk_create(transfer_records)
     return [x.duplicated_resource for x in consumed_vertices.values()]
@@ -261,6 +265,7 @@ def get_suggested_substitutions(
 
 def _get_mapped_substitutions(
     substitutions: list[tuple[ResourceTransferKey, ResourceTransferKey]],
+    target_team: Team | None = None,
 ) -> dict[ResourceTransferKey, Any]:
     """
     Build a mapping from source resource keys to destination resource instances.
@@ -268,6 +273,8 @@ def _get_mapped_substitutions(
     Each substitution is a pair of (source_key, destination_key) where:
     - source_key identifies the resource in the source team's DAG
     - destination_key identifies the existing resource in the destination team to use instead
+
+    If target_team is provided, every destination resource is verified to belong to that team.
     """
     mapped_substitutions: dict[ResourceTransferKey, Any] = {}
 
@@ -292,6 +299,14 @@ def _get_mapped_substitutions(
             dest_resource = dest_model.objects.get(pk=dest_pk)
         except ObjectDoesNotExist:
             raise ValueError(f"Could not find substituted resource: {dest_kind} {dest_pk}")
+
+        if target_team is not None:
+            resource_team = dest_visitor.get_resource_team(dest_resource)
+            if resource_team.pk != target_team.pk:
+                raise ValueError(
+                    f"Substitution resource {dest_kind} {dest_pk} belongs to team {resource_team.pk}, "
+                    f"not destination team {target_team.pk}"
+                )
 
         normalized_key: ResourceTransferKey = (source_kind, source_resource.pk)
         mapped_substitutions[normalized_key] = dest_resource

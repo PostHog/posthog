@@ -1,5 +1,6 @@
 from typing import Any, cast
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Q
 
 from rest_framework import exceptions, serializers, status, viewsets
@@ -107,7 +108,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                             "resource_id": str(dest_pk),
                             "display_name": dest_visitor.get_display_name(dest_resource),
                         }
-                    except dest_visitor.get_model().DoesNotExist:
+                    except ObjectDoesNotExist:
                         pass
 
             resources.append(entry)
@@ -134,6 +135,13 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         self._check_access_controls(user, source_team, destination_team, dag)
 
+        for sub in data["substitutions"]:
+            if sub["source_resource_kind"] != sub["destination_resource_kind"]:
+                raise exceptions.ValidationError(
+                    f"Substitution kind mismatch: cannot substitute {sub['source_resource_kind']} "
+                    f"with {sub['destination_resource_kind']}"
+                )
+
         substitution_pairs: list[tuple[ResourceTransferKey, ResourceTransferKey]] = [
             (
                 (sub["source_resource_kind"], sub["source_resource_id"]),
@@ -142,7 +150,10 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             for sub in data["substitutions"]
         ]
 
-        duplicated = duplicate_resource_to_new_team(resource, destination_team, substitution_pairs)
+        try:
+            duplicated = duplicate_resource_to_new_team(resource, destination_team, substitution_pairs)
+        except (ValueError, TypeError) as e:
+            raise exceptions.ValidationError(str(e))
         mutable_results = [r for r in duplicated if r is not None and not _is_immutable(r)]
 
         return Response(
@@ -166,6 +177,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         Search for resources of a given kind in a target team. Used by the frontend
         to let users pick an existing resource as a substitution.
         """
+        user = cast(User, request.user)
         serializer = ResourceSearchSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -180,6 +192,15 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise exceptions.ValidationError(f"Cannot search for immutable resource kind: {data['resource_kind']}")
 
         model = visitor.get_model()
+
+        # model_to_resource accepts both instances and classes at runtime via _meta
+        resource_type = model_to_resource(model)  # type: ignore[arg-type]
+        if resource_type is not None:
+            ac = UserAccessControl(user=user, team=team)
+            if not ac.check_access_level_for_resource(resource_type, required_level="viewer"):
+                raise exceptions.PermissionDenied(
+                    f"You do not have read access to {visitor.kind} resources in this project"
+                )
         qs = model.objects.filter(team=team)
 
         query = data.get("q", "").strip()
@@ -219,7 +240,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         model = visitor.get_model()
         try:
             return model.objects.get(pk=resource_id, team=source_team)
-        except model.DoesNotExist:
+        except ObjectDoesNotExist:
             raise exceptions.NotFound(f"{resource_kind} with id {resource_id} not found in source team")
 
     def _check_access_controls(

@@ -209,8 +209,6 @@ posthog/api/plugin.py:0: error: Item "None" of "Team | None" has no attribute "o
 posthog/api/plugin.py:0: error: Item "None" of "Team | None" has no attribute "organization"  [union-attr]
 posthog/api/plugin.py:0: error: Item "None" of "Team | None" has no attribute "organization"  [union-attr]
 posthog/api/plugin.py:0: error: Unused "type: ignore" comment  [unused-ignore]
-posthog/api/resource_transfer.py:0: error: "type[Model]" has no attribute "DoesNotExist"  [attr-defined]
-posthog/api/resource_transfer.py:0: error: "type[Model]" has no attribute "DoesNotExist"  [attr-defined]
 posthog/api/resource_transfer.py:0: error: "type[Model]" has no attribute "objects"  [attr-defined]
 posthog/api/resource_transfer.py:0: error: "type[Model]" has no attribute "objects"  [attr-defined]
 posthog/api/resource_transfer.py:0: error: "type[Model]" has no attribute "objects"  [attr-defined]

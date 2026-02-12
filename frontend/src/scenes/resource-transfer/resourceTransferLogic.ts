@@ -70,7 +70,6 @@ export const resourceTransferLogic = kea<resourceTransferLogicType>([
             resourceKey,
             choice: choice as SubstitutionChoice,
         }),
-        searchResources: (resourceKind: string, query: string) => ({ resourceKind, query }),
         initializeSubstitutionChoices: (choices: Record<string, SubstitutionChoice>) => ({ choices }),
     }),
     reducers({
@@ -131,26 +130,6 @@ export const resourceTransferLogic = kea<resourceTransferLogicType>([
                             resource_kind: logicProps.resourceKind,
                             resource_id: logicProps.resourceId,
                             substitutions: substitutionPayload,
-                        }
-                    )
-                },
-            },
-        ],
-        searchResults: [
-            null as SearchResponse | null,
-            {
-                searchResources: async ({ resourceKind, query }) => {
-                    const { destinationTeamId, currentOrganization } = values
-                    if (!destinationTeamId || !currentOrganization) {
-                        throw new Error('Missing required fields for search')
-                    }
-
-                    return await api.create<SearchResponse>(
-                        `api/organizations/${currentOrganization.id}/resource_transfers/search/`,
-                        {
-                            team_id: destinationTeamId,
-                            resource_kind: resourceKind,
-                            q: query,
                         }
                     )
                 },
