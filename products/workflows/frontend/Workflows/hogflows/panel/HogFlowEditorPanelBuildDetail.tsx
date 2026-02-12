@@ -98,6 +98,9 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
         [persistMappings]
     )
 
+    const [shakePickButton, setShakePickButton] = useState(false)
+    const shakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
     const [testLoading, setTestLoading] = useState(false)
     const [testError, setTestError] = useState<string | null>(null)
     const [testResultData, setTestResultData] = useState<any>(null)
@@ -308,6 +311,16 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                                 }
                                                                 setMappingsState(updated)
                                                                 persistMappings(updated)
+                                                                if (!shakePickButton) {
+                                                                    setShakePickButton(true)
+                                                                    if (shakeTimerRef.current) {
+                                                                        clearTimeout(shakeTimerRef.current)
+                                                                    }
+                                                                    shakeTimerRef.current = setTimeout(
+                                                                        () => setShakePickButton(false),
+                                                                        1000
+                                                                    )
+                                                                }
                                                             }}
                                                             placeholder="body.results[0].id"
                                                             size="small"
@@ -331,6 +344,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     icon={<IconPlay />}
                                                     size="small"
                                                     type="primary"
+                                                    className={shakePickButton ? 'animate-shake' : ''}
                                                     loading={testLoading}
                                                     tooltip="Executes a real HTTP request to this step's endpoint and shows the response so you can pick which property to store."
                                                     disabledReason={
