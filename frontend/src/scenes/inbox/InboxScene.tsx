@@ -19,16 +19,6 @@ export const scene: SceneExport = {
     logic: inboxSceneLogic,
 }
 
-function priorityLabel(weight: number): { text: string; status: 'danger' | 'warning' | 'default' } {
-    if (weight >= 0.8) {
-        return { text: 'Critical', status: 'danger' }
-    }
-    if (weight >= 0.5) {
-        return { text: 'Important', status: 'warning' }
-    }
-    return { text: 'Info', status: 'default' }
-}
-
 function relativeTime(dateStr: string): string {
     const date = dayjs(dateStr)
     const now = dayjs()
@@ -74,7 +64,6 @@ function ReportRow({ report }: { report: SignalReport }): JSX.Element {
     const { setExpandedReportId, loadArtefacts } = useActions(inboxSceneLogic)
 
     const isExpanded = expandedReportId === report.id
-    const priority = priorityLabel(report.total_weight)
     const reportArtefacts = artefacts[report.id]
 
     const handleToggle = (): void => {
@@ -103,9 +92,7 @@ function ReportRow({ report }: { report: SignalReport }): JSX.Element {
 
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
-                        <LemonTag type={priority.status} size="small">
-                            {priority.text}
-                        </LemonTag>
+                        <LemonTag size="small">Weight: {report.total_weight.toFixed(2)}</LemonTag>
                         <h3 className="text-sm font-semibold m-0 truncate flex-1">
                             {report.title || 'Untitled report'}
                         </h3>
