@@ -24,7 +24,7 @@ function ArtefactCard({ artefact }: { artefact: SignalReportArtefact }): JSX.Ele
     return (
         <div className="border rounded p-3 bg-surface-primary">
             <div className="flex items-center gap-2 mb-1">
-                <LemonTag size="small">{artefact.type.replace('_', ' ')}</LemonTag>
+                <LemonTag size="small">{artefact.type}</LemonTag>
                 <TZLabel time={artefact.created_at} />
             </div>
             {content.session_id && (
@@ -106,12 +106,6 @@ function ReportRow({ report }: { report: SignalReport }): JSX.Element {
                             <span>Created {humanFriendlyDetailedTime(report.created_at)}</span>
                         </div>
                     </div>
-
-                    {report.summary && (
-                        <div className="mb-3">
-                            <p className="text-sm text-primary m-0">{report.summary}</p>
-                        </div>
-                    )}
 
                     <div>
                         <h4 className="text-xs font-semibold text-tertiary uppercase tracking-wide mb-2">Artefacts</h4>
