@@ -354,7 +354,7 @@ export const commentsLogic = kea<commentsLogicType>([
             (s) => [s.user],
             (user) => {
                 return (comment: CommentType): string | null =>
-                    comment.created_by?.uuid === user?.uuid ? null : "You can only delete your own comments"
+                    comment.created_by?.uuid === user?.uuid ? null : 'You can only delete your own comments'
             },
         ],
     }),
