@@ -81,7 +81,7 @@ describe('addToDashboardModalLogic', () => {
             })
     })
 
-    it('addDashboardSuccess sets navigation target and triggers insight update', async () => {
+    it('addDashboardSuccess sets navigation target and triggers addToDashboard', async () => {
         logic = addToDashboardModalLogic({ dashboardItemId: Insight1 })
         logic.mount()
 
@@ -94,9 +94,15 @@ describe('addToDashboardModalLogic', () => {
         await expectLogic(logic, () => {
             dashboardsModel.actions.addDashboardSuccess(newDashboard)
         })
-            .toDispatchActions(['setDashboardToNavigateTo', 'addToDashboard', 'updateInsight'])
+            .toDispatchActions(['setDashboardToNavigateTo', 'addToDashboard'])
             .toMatchValues({
                 _dashboardToNavigateTo: 99,
+            })
+            // The addToDashboard async listener navigates immediately and
+            // clears _dashboardToNavigateTo back to null
+            .toDispatchActions(['setDashboardToNavigateTo'])
+            .toMatchValues({
+                _dashboardToNavigateTo: null,
             })
     })
 })

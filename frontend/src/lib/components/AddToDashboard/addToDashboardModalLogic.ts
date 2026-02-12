@@ -7,6 +7,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -39,6 +40,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         addToDashboard: (dashboardId: number) => ({ dashboardId }),
         removeFromDashboard: (dashboardId: number) => ({ dashboardId }),
         setDashboardToNavigateTo: (dashboardId: number | null) => ({ dashboardId }),
+        setDashboardWithActiveAPICall: (dashboardId: number | null) => ({ dashboardId }),
     }),
     reducers({
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
@@ -48,6 +50,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
             {
                 addToDashboard: (_, { dashboardId }) => dashboardId,
                 removeFromDashboard: (_, { dashboardId }) => dashboardId,
+                setDashboardWithActiveAPICall: (_, { dashboardId }) => dashboardId,
                 updateInsightSuccess: () => null,
                 updateInsightFailure: () => null,
             },
@@ -102,34 +105,53 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
 
         [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {
             actions.reportCreatedDashboardFromModal()
+            // Navigate to the new dashboard immediately, before the updateInsight
+            // API call. The dashboard is already created at this point. We can't
+            // wait for updateInsight because it goes through insightLogic's shared
+            // loader, which can be cancelled by concurrent loadInsight calls
+            // triggered by the hideNewDashboardModal URL hash change.
             actions.setDashboardToNavigateTo(dashboard.id)
             actions.addToDashboard(dashboard.id)
             actions.setScrollIndex(values.orderedDashboards.findIndex((d) => d.id === dashboard.id))
         },
 
         addToDashboard: async ({ dashboardId }) => {
-            // TODO be able to update not by patching `dashboards` against insight
-            // either patch dashboard_tiles on the insight or add a dashboard_tiles API
-            actions.updateInsight(
-                {
-                    dashboards: [...(values.insight.dashboards || []), dashboardId],
-                },
-                () => {
-                    actions.reportSavedInsightToDashboard(values.insight, dashboardId)
-                    dashboardsModel.actions.tileAddedToDashboard(dashboardId)
-                    if (values._dashboardToNavigateTo === dashboardId) {
-                        actions.setDashboardToNavigateTo(null)
-                        router.actions.push(urls.dashboard(dashboardId))
-                    } else {
-                        lemonToast.success('Insight added to dashboard', {
-                            button: {
-                                label: 'View dashboard',
-                                action: () => router.actions.push(urls.dashboard(dashboardId)),
-                            },
-                        })
-                    }
+            const shouldNavigate = values._dashboardToNavigateTo === dashboardId
+
+            // Navigate immediately if this is a "create new dashboard" flow.
+            // Don't wait for the PATCH call — it can be cancelled by concurrent
+            // loadInsight actions on the shared Kea loader (race condition).
+            if (shouldNavigate) {
+                actions.setDashboardToNavigateTo(null)
+                router.actions.push(urls.dashboard(dashboardId))
+            }
+
+            // Update the insight's dashboards list via direct API call instead
+            // of insightLogic's updateInsight loader, to avoid cancellation by
+            // concurrent loadInsight calls on the same loader.
+            try {
+                const insightId = values.insight.id
+                if (insightId) {
+                    await insightsApi.update(insightId as number, {
+                        dashboards: [...(values.insight.dashboards || []), dashboardId],
+                    })
                 }
-            )
+                actions.reportSavedInsightToDashboard(values.insight, dashboardId)
+                dashboardsModel.actions.tileAddedToDashboard(dashboardId)
+                if (!shouldNavigate) {
+                    lemonToast.success('Insight added to dashboard', {
+                        button: {
+                            label: 'View dashboard',
+                            action: () => router.actions.push(urls.dashboard(dashboardId)),
+                        },
+                    })
+                }
+            } catch (e) {
+                lemonToast.error('Failed to add insight to dashboard')
+                throw e
+            } finally {
+                actions.setDashboardWithActiveAPICall(null)
+            }
         },
         removeFromDashboard: async ({ dashboardId }): Promise<void> => {
             actions.updateInsight(
