@@ -45,6 +45,10 @@ def _cache_key(prefix: str, nonce: str) -> str:
     return f"{prefix}:{nonce}"
 
 
+def _split_redirect_uris(redirect_uris: str) -> list[str]:
+    return [uri for uri in redirect_uris.split(" ") if uri]
+
+
 def normalize_base_url_for_oauth(base_url: str) -> str:
     """
     OAuth redirect URI validation requires HTTPS for non-loopback hosts.
@@ -80,16 +84,18 @@ def get_or_create_toolbar_oauth_application(base_url: str, user: User) -> OAuthA
     app_name = settings.TOOLBAR_OAUTH_APPLICATION_NAME
 
     existing = OAuthApplication.objects.filter(
+        organization=user.organization,
         name=app_name,
         client_type=OAuthApplication.CLIENT_PUBLIC,
         authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
     ).first()
 
     if existing:
-        # Keep redirect URIs in sync for this deployment URL.
-        if redirect_uri not in existing.redirect_uris.split(" "):
-            existing.redirect_uris = redirect_uri
-            existing.save()
+        # Keep redirect URIs in sync for this organization deployment URLs.
+        existing_redirect_uris = _split_redirect_uris(existing.redirect_uris)
+        if redirect_uri not in existing_redirect_uris:
+            existing.redirect_uris = " ".join([*existing_redirect_uris, redirect_uri])
+            existing.save(update_fields=["redirect_uris"])
         return existing
 
     # NOTE: Keep as non-first-party for now to avoid potential security issues.
