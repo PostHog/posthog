@@ -472,14 +472,16 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
 
     settings_dict = team.conversations_settings or {}
     configured_channel = settings_dict.get("slack_channel_id")
-
-    if not configured_channel or configured_channel != channel:
-        return
-
     thread_ts = event.get("thread_ts")
     message_ts = event.get("ts")
 
     if thread_ts:
+        # Thread replies should sync even outside the dedicated channel when a ticket
+        # already exists for that thread (e.g. ticket created via @mention flow).
+        if not Ticket.objects.filter(team=team, slack_channel_id=channel, slack_thread_ts=thread_ts).exists():
+            if not configured_channel or configured_channel != channel:
+                return
+
         # Thread reply -> add message to existing ticket
         create_or_update_slack_ticket(
             team=team,
@@ -492,19 +494,23 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
             is_thread_reply=True,
             slack_team_id=slack_team_id,
         )
-    else:
-        # Top-level message -> create new ticket, use message ts as thread_ts
-        create_or_update_slack_ticket(
-            team=team,
-            slack_channel_id=channel,
-            thread_ts=message_ts or "",
-            slack_user_id=slack_user_id,
-            text=text,
-            blocks=blocks,
-            files=files,
-            is_thread_reply=False,
-            slack_team_id=slack_team_id,
-        )
+        return
+
+    if not configured_channel or configured_channel != channel:
+        return
+
+    # Top-level message -> create new ticket, use message ts as thread_ts
+    create_or_update_slack_ticket(
+        team=team,
+        slack_channel_id=channel,
+        thread_ts=message_ts or "",
+        slack_user_id=slack_user_id,
+        text=text,
+        blocks=blocks,
+        files=files,
+        is_thread_reply=False,
+        slack_team_id=slack_team_id,
+    )
 
 
 def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
