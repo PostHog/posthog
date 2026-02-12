@@ -7,6 +7,8 @@ import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { MenuSeparator } from 'lib/ui/Menus/Menus'
+import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -35,14 +37,13 @@ interface CreateProjectItem {
 
 type ListItem = ProjectListItem | CreateProjectItem
 
-export function ProjectSwitcher(): JSX.Element | null {
+export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
-    const { closeProjectSwitcher } = useActions(newAccountMenuLogic)
-
+    const { closeProjectSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const [searchValue, setSearchValue] = useState('')
     const inputRef = useRef<HTMLInputElement>(null!)
 
@@ -92,9 +93,16 @@ export function ProjectSwitcher(): JSX.Element | null {
     const handleItemClick = useCallback(
         (item: ListItem) => {
             if (item.type === 'create') {
-                guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
-                    currentUsage: currentOrganization?.teams?.length,
-                })
+                guardAvailableFeature(
+                    AvailableFeature.ORGANIZATIONS_PROJECTS,
+                    () => {
+                        showCreateProjectModal()
+                        setAccountMenuOpen(false)
+                    },
+                    {
+                        currentUsage: currentOrganization?.teams?.length,
+                    }
+                )
                 closeProjectSwitcher()
             } else if (!item.isCurrent) {
                 const targetUrl = getProjectSwitchTargetUrl(
@@ -132,6 +140,8 @@ export function ProjectSwitcher(): JSX.Element | null {
         return null
     }
 
+    const spacingClass = dialog ? 'p-2' : 'p-1'
+
     return (
         <Combobox.Root
             items={filteredItems}
@@ -143,8 +153,15 @@ export function ProjectSwitcher(): JSX.Element | null {
         >
             <div className="flex flex-col overflow-hidden">
                 {/* Search Input */}
-                <div className="p-2 border-b border-primary">
-                    <label className="group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2">
+                <div className={`${spacingClass} ${dialog && 'border-b border-primary'}`}>
+                    <label
+                        className={cn(
+                            'group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2',
+                            {
+                                'h-[30px]': !dialog,
+                            }
+                        )}
+                    >
                         <Combobox.Icon
                             render={
                                 <IconSearch className="size-4 shrink-0 text-tertiary group-focus-within:text-primary" />
@@ -183,7 +200,10 @@ export function ProjectSwitcher(): JSX.Element | null {
                     styledScrollbars
                     className="flex-1 overflow-y-auto max-h-[400px]"
                 >
-                    <Combobox.List className="flex flex-col gap-px p-2" tabIndex={-1}>
+                    <Combobox.List
+                        className={`flex flex-col gap-px ${spacingClass} bg-surface-primary ${!dialog && 'pt-0.5'}`}
+                        tabIndex={-1}
+                    >
                         {/* Current Project */}
                         {currentProject && (
                             <Combobox.Group items={[currentProject]}>
@@ -193,17 +213,8 @@ export function ProjectSwitcher(): JSX.Element | null {
                                             key={item.id}
                                             value={item}
                                             onClick={() => handleItemClick(item)}
-                                            disabled
                                             render={(props) => (
-                                                <ButtonPrimitive
-                                                    {...props}
-                                                    menuItem
-                                                    active
-                                                    className="flex-1"
-                                                    tabIndex={-1}
-                                                    disabled={true}
-                                                    data-disabled="true"
-                                                >
+                                                <ButtonPrimitive {...props} menuItem active className="flex-1">
                                                     <IconCheck className="text-tertiary" />
                                                     <ProjectName team={item.team} />
                                                 </ButtonPrimitive>
@@ -241,6 +252,8 @@ export function ProjectSwitcher(): JSX.Element | null {
                             </Combobox.Group>
                         )}
 
+                        <MenuSeparator />
+
                         {/* Create New Project */}
                         {createItem && (
                             <Combobox.Group items={[createItem]}>
@@ -255,7 +268,6 @@ export function ProjectSwitcher(): JSX.Element | null {
                                                     {...props}
                                                     menuItem
                                                     fullWidth
-                                                    tabIndex={-1}
                                                     disabled={!canCreateProject}
                                                     tooltip={
                                                         !canCreateProject
@@ -278,19 +290,21 @@ export function ProjectSwitcher(): JSX.Element | null {
                 </ScrollableShadows>
 
                 {/* Footer */}
-                <div className="menu-legend border-t border-primary p-1">
-                    <div className="px-2 py-1 text-xxs text-tertiary font-medium flex items-center gap-2">
-                        <span>
-                            <KeyboardShortcut arrowup arrowdown preserveOrder /> navigate
-                        </span>
-                        <span>
-                            <KeyboardShortcut enter /> select
-                        </span>
-                        <span>
-                            <KeyboardShortcut escape /> close
-                        </span>
+                {dialog && (
+                    <div className="menu-legend border-t border-primary p-1">
+                        <div className="px-2 py-1 text-xxs text-tertiary font-medium flex items-center gap-2">
+                            <span>
+                                <KeyboardShortcut arrowup arrowdown preserveOrder /> navigate
+                            </span>
+                            <span>
+                                <KeyboardShortcut enter /> select
+                            </span>
+                            <span>
+                                <KeyboardShortcut escape /> close
+                            </span>
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </Combobox.Root>
     )

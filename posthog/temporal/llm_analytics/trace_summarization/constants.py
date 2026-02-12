@@ -61,7 +61,7 @@ TRACE_CAPTURE_RANGE = timedelta(minutes=10)
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
 # Coordinator concurrency settings
-DEFAULT_MAX_CONCURRENT_TEAMS = 5  # Max teams to process in parallel
+DEFAULT_MAX_CONCURRENT_TEAMS = 8  # Max teams to process in parallel
 
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)

@@ -136,6 +136,9 @@ export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDelet
                     is_identified: Number(person.is_identified),
                     is_deleted: Number(isDeleted),
                     version: person.version + (isDeleted ? 100 : 0), // keep in sync with delete_person in posthog/models/person/util.py
+                    last_seen_at: person.last_seen_at
+                        ? castTimestampOrNow(person.last_seen_at, TimestampFormat.ClickHouseSecondPrecision)
+                        : null,
                 } as Omit<ClickHousePerson, 'timestamp'>),
             },
         ],

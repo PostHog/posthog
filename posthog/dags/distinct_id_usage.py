@@ -359,8 +359,8 @@ def send_alerts(
         # Upload detailed report as a file
         csv_report = generate_csv_report(results)
         timestamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
-        slack_client.files_upload(
-            channels=channel,
+        slack_client.files_upload_v2(
+            channel=channel,
             content=csv_report,
             filename=f"distinct_id_usage_report_{timestamp}.csv",
             title="Distinct ID Usage Report",
