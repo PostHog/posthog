@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
@@ -498,9 +498,7 @@ where
             );
             if let Err(e) = consumer_command_tx.send(ConsumerCommand::Resume(resume_tpl)) {
                 error!("Failed to send resume command after store setup: {e:#}");
-                return Err(Err::<(), _>(e)
-                    .with_context(|| "Failed to send resume command")
-                    .unwrap_err());
+                return Err(anyhow::Error::from(e).context("Failed to send resume command"));
             }
         }
 

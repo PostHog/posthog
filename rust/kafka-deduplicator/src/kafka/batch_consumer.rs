@@ -414,9 +414,7 @@ where
                                     kafka_error_count = 0;
                                 }
                                 Err(e) => {
-                                    let wrapped_err = Err::<(), _>(e)
-                                        .with_context(|| "Error deserializing message")
-                                        .unwrap_err();
+                                    let wrapped_err = e.context("Error deserializing message");
                                     batch.push_error(BatchError::new(
                                         wrapped_err,
                                         Some(Partition::new(

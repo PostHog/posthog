@@ -437,14 +437,10 @@ impl IngestionEventsBatchProcessor {
                     "Failed to publish event with key {} to {}: {e:#}",
                     key, output_topic
                 );
-                Err(Err::<(), _>(e)
-                    .with_context(|| {
-                        format!(
-                            "Failed to publish event with key '{}' to topic '{}'",
-                            key, output_topic
-                        )
-                    })
-                    .unwrap_err())
+                Err(anyhow::Error::from(e).context(format!(
+                    "Failed to publish event with key '{}' to topic '{}'",
+                    key, output_topic
+                )))
             }
         }
     }

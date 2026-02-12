@@ -314,14 +314,10 @@ impl RocksDbStore {
                 rocksdb_error = ?e,
                 "RocksDB write_opt failed"
             );
-            Err::<(), _>(e)
-                .with_context(|| {
-                    format!(
-                        "Failed to put batch ({} entries, {} bytes)",
-                        entry_count, batch_size_bytes
-                    )
-                })
-                .unwrap_err()
+            anyhow::Error::from(e).context(format!(
+                "Failed to put batch ({} entries, {} bytes)",
+                entry_count, batch_size_bytes
+            ))
         })
     }
 
@@ -427,9 +423,7 @@ impl RocksDbStore {
             Ok(_) => Ok(()),
             Err(e) => {
                 self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
-                Err(Err::<(), _>(e)
-                    .with_context(|| "Failed to flush")
-                    .unwrap_err())
+                Err(anyhow::Error::from(e).context("Failed to flush"))
             }
         }
     }

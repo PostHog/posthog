@@ -199,9 +199,8 @@ impl CheckpointWorker {
                 "Checkpoint worker: failed to create local directory: {e:#}"
             );
 
-            return Err(Err::<(), _>(e)
-                .with_context(|| "Checkpoint worker: failed to create local directory")
-                .unwrap_err());
+            return Err(anyhow::Error::from(e)
+                .context("Checkpoint worker: failed to create local directory"));
         }
 
         Ok(())
