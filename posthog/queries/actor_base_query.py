@@ -34,6 +34,7 @@ class MatchedRecording(TypedDict):
 class CommonActor(TypedDict):
     id: Union[uuid.UUID, str]
     created_at: Optional[str]
+    last_seen_at: Optional[str]
     properties: dict[str, Any]
     matched_recordings: list[MatchedRecording]
     value_at_data_point: Optional[float]
@@ -303,6 +304,7 @@ def get_serialized_people(
             id=uuid,
             uuid=uuid,
             created_at=person_dict["created_at"],
+            last_seen_at=person_dict["last_seen_at"],
             properties=person_dict["properties"],
             is_identified=person_dict["is_identified"],
             name=get_person_name_helper(

@@ -1394,6 +1394,7 @@ export interface PersonType {
     distinct_ids: string[]
     properties: Record<string, any>
     created_at?: string
+    last_seen_at?: string
     is_identified?: boolean
 }
 
