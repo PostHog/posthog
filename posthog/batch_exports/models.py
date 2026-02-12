@@ -413,6 +413,8 @@ class BatchExportBackfill(UUIDTModel):
     def workflow_id(self) -> str:
         """Return the Workflow id that corresponds to this BatchExportBackfill model."""
         end_at = self.end_at.astimezone(tz=dt.UTC).isoformat() if self.end_at else "END"
+        # we use the start_at rather than adjusted_start_at here since the workflow ID for this batch export is created
+        # before the backfill is started
         start_at = self.start_at.astimezone(tz=dt.UTC).isoformat() if self.start_at else "START"
 
         return f"{self.batch_export.id}-Backfill-{start_at}-{end_at}"
@@ -420,8 +422,9 @@ class BatchExportBackfill(UUIDTModel):
     @property
     def total_expected_runs(self) -> int | None:
         """Return the total number of expected runs for this backfill, based on the number of intervals."""
+        start_at = self.adjusted_start_at or self.start_at
         # if no start_at then it means we're backfilling all data in a single run
-        if self.start_at is None:
+        if start_at is None:
             return 1
 
         end_at = self.end_at
@@ -438,7 +441,7 @@ class BatchExportBackfill(UUIDTModel):
         elif not end_at:
             # we didn't always populated finished_at in the past, so probably don't have enough information
             return None
-        return ceil((end_at - self.start_at) / self.batch_export.interval_time_delta)
+        return ceil((end_at - start_at) / self.batch_export.interval_time_delta)
 
     def get_finished_runs(self) -> int:
         """Return the number of finished runs for this backfill.
