@@ -301,6 +301,12 @@ build:
     build:products:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
+    build:skills:
+        cmd: python products/posthog_ai/scripts/build_skills.py
+        description: Build agent skills from products/*/skills/ into dist/skills/ and dist/skills.zip
+    init:skill:
+        cmd: python products/posthog_ai/scripts/build_skills.py --init
+        description: Scaffold a new agent skill directory with SKILL.md boilerplate
 docker:
     # docker:services:up is a Python command in common/hogli/devenv/cli.py that respects intent config
     docker:services:down:
@@ -489,6 +495,9 @@ quality:
     format:python:
         cmd: ./bin/ruff.sh format
         description: Format Python files
+    lint:skills:
+        cmd: python products/posthog_ai/scripts/build_skills.py --lint
+        description: Validate agent skill sources (syntax, frontmatter, depth constraints)
     lint:python:fix:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues

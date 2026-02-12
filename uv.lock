@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = "==3.12.12"
 resolution-markers = [
     "platform_python_implementation != 'PyPy' and sys_platform != 'emscripten'",
@@ -4816,7 +4816,7 @@ requires-dist = [
     { name = "selenium", specifier = "==4.28.1" },
     { name = "semantic-version", specifier = "==2.8.5" },
     { name = "simple-salesforce", specifier = "~=1.12.6" },
-    { name = "slack-sdk", specifier = "==3.17.1" },
+    { name = "slack-sdk", specifier = "==3.39.0" },
     { name = "snowflake-connector-python", specifier = "==4.1.1" },
     { name = "snowflake-sqlalchemy", specifier = "==1.8.2" },
     { name = "social-auth-app-django", specifier = "~=5.4.3" },
@@ -6291,11 +6291,11 @@ wheels = [
 
 [[package]]
 name = "slack-sdk"
-version = "3.17.1"
+version = "3.39.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/35/f6/8d894a14d751216705fb4b5f5b552cdc50b6963fcd58c6e0da9cea3dfb4c/slack_sdk-3.17.1.tar.gz", hash = "sha256:20a170698fa1affde9c642d78ea1e8947e9dd37920685cb0f2c5a2df7c48abd4", size = 205437, upload-time = "2022-06-14T04:47:35.244Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b6/dd/645f3eb93fce38eadbb649e85684730b1fc3906c2674ca59bddc2ca2bd2e/slack_sdk-3.39.0.tar.gz", hash = "sha256:6a56be10dc155c436ff658c6b776e1c082e29eae6a771fccf8b0a235822bbcb1", size = 247207, upload-time = "2025-11-20T15:27:57.556Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c9/a6/388ea894e55980067b28345f695e07c97b7b28fcd88353920ecd0810b97e/slack_sdk-3.17.1-py2.py3-none-any.whl", hash = "sha256:50fa984d9513226d3f982ba7d596d3d68127f58865f83dcc1825f52012e908ab", size = 265476, upload-time = "2022-06-14T04:47:32.84Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/1f/32bcf088e535c1870b1a1f2e3b916129c66fdfe565a793316317241d41e5/slack_sdk-3.39.0-py2.py3-none-any.whl", hash = "sha256:b1556b2f5b8b12b94e5ea3f56c4f2c7f04462e4e1013d325c5764ff118044fa8", size = 309850, upload-time = "2025-11-20T15:27:55.729Z" },
 ]
 
 [[package]]
