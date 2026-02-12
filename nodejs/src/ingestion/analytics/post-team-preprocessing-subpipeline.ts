@@ -29,13 +29,13 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
 ): PipelineBuilder<TInput, TInput, TContext> {
     const { eventIngestionRestrictionManager, eventSchemaEnforcementManager, eventSchemaEnforcementEnabled } = config
 
-    let pipeline = builder.pipe(createValidateEventMetadataStep()).pipe(createValidateEventPropertiesStep())
+    const validated = builder.pipe(createValidateEventMetadataStep()).pipe(createValidateEventPropertiesStep())
 
-    if (eventSchemaEnforcementEnabled) {
-        pipeline = pipeline.pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager))
-    }
+    const schemaChecked = eventSchemaEnforcementEnabled
+        ? validated.pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager))
+        : validated
 
-    return pipeline
+    return schemaChecked
         .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
         .pipe(createValidateEventUuidStep())
         .pipe(createDropOldEventsStep())
