@@ -119,7 +119,7 @@ impl PipelineBuilder {
             PipelineType::IngestionEvents => {
                 self.build_ingestion_events(rebalance_tracker, offset_tracker, shutdown_rx)
             }
-            PipelineType::ClickHouseEvents => {
+            PipelineType::ClickhouseEvents => {
                 self.build_clickhouse_events(rebalance_tracker, offset_tracker, shutdown_rx)
             }
         }
