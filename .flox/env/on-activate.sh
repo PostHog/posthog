@@ -163,7 +163,7 @@ fi
 # ── Step 2: Node packages ──────────────────────────────────────────
 run_step "Node packages" pnpm install
 
-# ── Step 4: /etc/hosts ──────────────────────────────────────────────
+# ── Step 3: /etc/hosts ──────────────────────────────────────────────
 if grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
   done_step "System hosts"
 else
@@ -171,7 +171,7 @@ else
   done_step "System hosts (updated)"
 fi
 
-# ── Step 5: Environment variables ───────────────────────────────────
+# ── Step 4: Environment variables ───────────────────────────────────
 if [[ ! -f "$DOTENV_FILE" ]] && [[ -f ".env.example" ]]; then
   cp .env.example "$DOTENV_FILE"
 fi
