@@ -548,7 +548,7 @@ const ReplayFiltersTab = ({
     return (
         <div className={clsx('relative bg-surface-primary w-full h-full', className)}>
             {appliedSavedFilter && (
-                <div className="border-b px-2 py-3 flex items-center justify-between gap-2">
+                <div className="border-b px-2 py-3 flex flex-wrap items-center gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                         <span className="font-medium whitespace-nowrap flex-shrink-0">Loaded saved filter:</span>
                         <LemonTag
@@ -568,7 +568,7 @@ const ReplayFiltersTab = ({
                         </LemonTag>
                     </div>
                     {hasFilterChanges && (
-                        <div className="flex gap-2 flex-shrink-0">
+                        <div className="flex gap-2 ml-auto">
                             <LemonButton
                                 data-attr="replay-filters-discard-changes-button"
                                 type="secondary"
@@ -585,12 +585,11 @@ const ReplayFiltersTab = ({
                                 type="secondary"
                                 status="danger"
                                 size="small"
+                                className="max-w-xs"
+                                truncate
                                 onClick={() => void updateSavedFilter()}
-                                className="max-w-72"
                             >
-                                <span className="truncate">
-                                    Save changes to "{appliedSavedFilter.name || 'Unnamed'}"
-                                </span>
+                                Save changes to "{appliedSavedFilter.name || 'Unnamed'}"
                             </LemonButton>
                         </div>
                     )}
