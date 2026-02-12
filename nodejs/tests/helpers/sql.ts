@@ -501,6 +501,7 @@ export async function fetchPostgresPersons(postgres: PostgresRouter, teamId: num
                 ...rawPerson,
                 created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
                 version: Number(rawPerson.version || 0),
+                last_seen_at: rawPerson.last_seen_at ? DateTime.fromISO(rawPerson.last_seen_at).toUTC() : null,
             }) as InternalPerson
     )
 }

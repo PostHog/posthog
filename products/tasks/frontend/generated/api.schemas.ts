@@ -130,6 +130,29 @@ export interface PatchedTaskApi {
 }
 
 /**
+ * * `interactive` - interactive
+ * `background` - background
+ */
+export type TaskRunCreateRequestModeEnumApi =
+    (typeof TaskRunCreateRequestModeEnumApi)[keyof typeof TaskRunCreateRequestModeEnumApi]
+
+export const TaskRunCreateRequestModeEnumApi = {
+    interactive: 'interactive',
+    background: 'background',
+} as const
+
+/**
+ * Request body for creating a new task run
+ */
+export interface TaskRunCreateRequestApi {
+    /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+
+* `interactive` - interactive
+* `background` - background */
+    mode?: TaskRunCreateRequestModeEnumApi
+}
+
+/**
  * * `not_started` - Not Started
  * `queued` - Queued
  * `in_progress` - In Progress
@@ -353,6 +376,14 @@ export interface TaskRunArtifactPresignResponseApi {
     expires_in: number
 }
 
+/**
+ * Response containing a JWT token for direct sandbox connection
+ */
+export interface ConnectionTokenResponseApi {
+    /** JWT token for authenticating with the sandbox */
+    token: string
+}
+
 export type TasksListParams = {
     /**
      * Filter by creator user ID
@@ -397,4 +428,27 @@ export type TasksRunsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type TasksRunsSessionLogsRetrieveParams = {
+    /**
+     * Only return events after this ISO8601 timestamp
+     */
+    after?: string
+    /**
+     * Comma-separated list of event types to include
+     * @minLength 1
+     */
+    event_types?: string
+    /**
+     * Comma-separated list of event types to exclude
+     * @minLength 1
+     */
+    exclude_types?: string
+    /**
+     * Maximum number of entries to return (default 1000, max 5000)
+     * @minimum 1
+     * @maximum 5000
+     */
+    limit?: number
 }

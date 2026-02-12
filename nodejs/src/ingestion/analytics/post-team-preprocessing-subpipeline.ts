@@ -1,7 +1,11 @@
+import { Message } from 'node-rdkafka'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { EventHeaders, Hub, IncomingEventWithTeam, Team } from '../../types'
+import { EventHeaders, Hub, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
@@ -20,8 +24,9 @@ import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-build
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 
 export interface PostTeamPreprocessingSubpipelineInput {
+    message: Message
     headers: EventHeaders
-    eventWithTeam: IncomingEventWithTeam
+    event: PluginEvent
     team: Team
 }
 

@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -23,9 +25,65 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
+import { findNewEvents } from './sessionRecordingPlayerLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
 jest.mock('./snapshot-processing/DecompressionWorkerManager')
+
+const makeEvent = (timestamp: number, type: number = EventType.IncrementalSnapshot): eventWithTime =>
+    ({ timestamp, type, data: { source: IncrementalSource.MouseMove } }) as unknown as eventWithTime
+
+describe('findNewEvents', () => {
+    it.each([
+        {
+            description: 'forward-only: new events appended at end',
+            all: [100, 200, 300, 400, 500],
+            current: [100, 200, 300],
+            expected: [400, 500],
+        },
+        {
+            description: 'backward: new events inserted before existing',
+            all: [100, 200, 300, 400, 500],
+            current: [300, 400, 500],
+            expected: [100, 200],
+        },
+        {
+            description: 'mixed: new events at both ends',
+            all: [100, 200, 300, 400, 500],
+            current: [200, 300, 400],
+            expected: [100, 500],
+        },
+        {
+            description: 'equal timestamps: correctly counts duplicates',
+            all: [100, 100, 100, 200],
+            current: [100, 100],
+            expected: [100, 200],
+        },
+        {
+            description: 'no new events',
+            all: [100, 200, 300],
+            current: [100, 200, 300],
+            expected: [],
+        },
+        {
+            description: 'empty current: all events are new',
+            all: [100, 200, 300],
+            current: [],
+            expected: [100, 200, 300],
+        },
+        {
+            description: 'interleaved: new events fill gaps',
+            all: [100, 150, 200, 250, 300],
+            current: [100, 200, 300],
+            expected: [150, 250],
+        },
+    ])('$description', ({ all, current, expected }) => {
+        const allSnapshots = all.map((ts) => makeEvent(ts))
+        const currentEvents = current.map((ts) => makeEvent(ts))
+        const result = findNewEvents(allSnapshots, currentEvents)
+        expect(result.map((e) => e.timestamp)).toEqual(expected)
+    })
+})
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
