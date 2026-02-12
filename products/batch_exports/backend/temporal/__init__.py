@@ -54,12 +54,18 @@ from products.batch_exports.backend.temporal.monitoring import (
     reconcile_event_counts,
     update_batch_export_runs,
 )
-from products.batch_exports.backend.temporal.noop import NoOpWorkflow, noop_activity
+from products.batch_exports.backend.temporal.noop import (
+    NoOpBatchExportWorkflow,
+    NoOpWorkflow,
+    insert_into_noop_activity_from_stage,
+    noop_activity,
+)
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 
 WORKFLOWS = [
     BackfillBatchExportWorkflow,
     BigQueryBatchExportWorkflow,
+    NoOpBatchExportWorkflow,
     NoOpWorkflow,
     PostgresBatchExportWorkflow,
     RedshiftBatchExportWorkflow,
@@ -87,6 +93,7 @@ ACTIVITIES = [
     copy_into_redshift_activity_from_stage,
     insert_into_snowflake_activity_from_stage,
     noop_activity,
+    insert_into_noop_activity_from_stage,
     get_batch_export,
     get_clickhouse_event_counts,
     update_batch_export_runs,

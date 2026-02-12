@@ -894,7 +894,7 @@ async def events_batch_export(temporal_client, ateam, clickhouse_client):
         team_id=ateam.pk,
         name="events-export-for-backfill-info",
         destination_data={
-            "type": "NoOp",
+            "type": "NoOpExport",
             "config": {},
         },
         interval="hour",
