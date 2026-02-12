@@ -104,7 +104,7 @@ The executor handles concurrent queries that need the same preaggregated data.
 
 ### Waiting for pending jobs
 
-When query B requests data that query A is already computing, query B waits for A to finish rather than creating duplicate work. The executor polls the job status until it becomes READY or FAILED (configurable timeout, default 3 minutes).
+When query B requests data that query A is already computing, query B waits for A to finish rather than creating duplicate work. The executor subscribes to Redis pubsub channels for each pending job and wakes up instantly when a job completes (configurable timeout, default 3 minutes). This avoids wasteful PG polling — PG is only queried on initial entry and after receiving a notification.
 
 ### One INSERT per job ID
 
@@ -129,7 +129,13 @@ Each waiter tracks their own attempt count locally. After a configurable number 
 
 ### Stale pending jobs
 
-If an executor crashes while a job is PENDING, other waiters detect this via the `updated_at` timestamp. When a PENDING job hasn't been updated for longer than the stale threshold (default 10 minutes, DEFAULT_STALE_PENDING_THRESHOLD_SECONDS), waiters mark it as FAILED and trigger the normal replacement flow. This means that we can recover from crashes of the process we were waiting for.
+If an executor crashes while a job is PENDING, other waiters detect this via Redis-based ClickHouse liveness checks (no PG queries needed). The detection has two stages:
+
+1. **CH INSERT not started**: Each executor sets a Redis key (`preagg:ch_started:{job_id}`) before running the INSERT. If this key doesn't exist and the job is older than the grace period (default 60s), it's considered stale — the executor likely crashed before reaching the INSERT.
+
+2. **CH INSERT started but heartbeat expired**: `poll_query_performance` sets a heartbeat key with a 10s TTL for every active ClickHouse query. If the CH start marker exists but the heartbeat key has expired and the job is older than the stale threshold (default 60s), the query is no longer running and the job is stale.
+
+Stale jobs are marked FAILED and the normal replacement flow kicks in. This means we can recover from crashes of the process we were waiting for.
 
 ## Limitations
 
@@ -140,10 +146,7 @@ If an executor crashes while a job is PENDING, other waiters detect this via the
 
 ## TODOs
 
-- If we are waiting for another executor to insert a job that we need, right now we poll pg with an exp backoff. We should use a better mechanism like redis pubsub or pgnotify
 - While we are waiting, we block an entire django thread despite not doing any useful work. We should make it easier for people to use e.g. celery with this, this would involve using async queries though.
 - The TTL of an inserted job should be conditional on how recent the data is. Data from the same day might want a very short (e.g. 15 mins!) TTL, or to be skipped entirely and UNION'ed with real data, which we could make a bit easier.
-- Our stale job detection just waits for the default timeout of a clickhouse query. Instead the executor could send a heartbeat, triggered by the `progress` arg, and we could mark a job as stale if it misses N heartbeats
-- If we're generating a lot of updates (e.g. heartbeat timestamps) we might want to move that off of the main pg, either to a redis or other pg instance.
 - The stale enum value isn't used for anything, we just mark stale jobs as errored
 - Add posthog logging for state transitions
