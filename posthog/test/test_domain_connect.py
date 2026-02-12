@@ -1,4 +1,7 @@
+import re
+import json
 import base64
+from pathlib import Path
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -19,8 +22,29 @@ from posthog.domain_connect import (
     extract_root_domain_and_host,
     get_available_providers,
     get_service_id_for_region,
+    resolve_email_context,
+    resolve_proxy_context,
     sign_query_string,
 )
+
+TEMPLATE_DIR = (
+    Path(__file__).resolve().parents[2] / "frontend" / "src" / "lib" / "components" / "DomainConnect" / "templates"
+)
+
+
+def _load_template(filename: str) -> dict:
+    return json.loads((TEMPLATE_DIR / filename).read_text())
+
+
+def _extract_template_variables(template: dict) -> set[str]:
+    """Extract all %variable% placeholders from a template's records."""
+    variables: set[str] = set()
+    pattern = re.compile(r"%(\w+)%")
+    for record in template.get("records", []):
+        for value in record.values():
+            if isinstance(value, str):
+                variables.update(pattern.findall(value))
+    return variables
 
 
 class TestExtractRootDomainAndHost(BaseTest):
@@ -63,7 +87,8 @@ class TestBuildSyncApplyUrl(BaseTest):
             provider_id="posthog.com",
             service_id="reverse-proxy-us",
             domain="example.com",
-            variables={"host": "ph", "target": "abc123.proxy.posthog.com"},
+            variables={"target": "abc123.proxy.posthog.com"},
+            host="ph",
         )
 
         self.assertIn("/v2/domainTemplates/providers/posthog.com/services/reverse-proxy-us/apply?", url)
@@ -71,13 +96,27 @@ class TestBuildSyncApplyUrl(BaseTest):
         self.assertIn("host=ph", url)
         self.assertIn("target=abc123.proxy.posthog.com", url)
 
+    def test_url_without_host(self) -> None:
+        url = build_sync_apply_url(
+            url_sync_ux="https://dns.provider.example/sync",
+            provider_id="posthog.com",
+            service_id="email-verification-us",
+            domain="example.com",
+            variables={"verifyToken": "abc123"},
+        )
+
+        self.assertNotIn("host=", url)
+        self.assertIn("domain=example.com", url)
+        self.assertIn("verifyToken=abc123", url)
+
     def test_url_with_redirect(self) -> None:
         url = build_sync_apply_url(
             url_sync_ux="https://dns.provider.example/sync",
             provider_id="posthog.com",
             service_id="reverse-proxy-us",
             domain="example.com",
-            variables={"host": "ph", "target": "abc.proxy.posthog.com"},
+            variables={"target": "abc.proxy.posthog.com"},
+            host="ph",
             redirect_uri="https://us.posthog.com/settings?domain_connect=proxy",
         )
 
@@ -91,7 +130,8 @@ class TestBuildSyncApplyUrl(BaseTest):
             provider_id="posthog.com",
             service_id="reverse-proxy-us",
             domain="example.com",
-            variables={"host": "ph", "target": "abc.proxy.posthog.com"},
+            variables={"target": "abc.proxy.posthog.com"},
+            host="ph",
             private_key=private_key,
             key_id="_dck1",
         )
@@ -105,7 +145,8 @@ class TestBuildSyncApplyUrl(BaseTest):
             provider_id="posthog.com",
             service_id="reverse-proxy-us",
             domain="example.com",
-            variables={"host": "ph", "target": "abc.proxy.posthog.com"},
+            variables={"target": "abc.proxy.posthog.com"},
+            host="ph",
         )
 
         self.assertNotIn("sig=", url)
@@ -195,3 +236,74 @@ class TestGetAvailableProviders(BaseTest):
             providers = get_available_providers()
 
         self.assertEqual(providers, [])
+
+
+class TestTemplateResolverAlignment(BaseTest):
+    """Ensure backend resolvers produce variables that exactly match the template placeholders."""
+
+    @parameterized.expand(
+        [
+            ("posthog.com.reverse-proxy-us.json", "US"),
+            ("posthog.com.reverse-proxy-eu.json", "EU"),
+        ]
+    )
+    @patch("posthog.models.ProxyRecord")
+    def test_proxy_resolver_variables_match_template(
+        self, template_file: str, region: str, mock_proxy_cls: MagicMock
+    ) -> None:
+        template = _load_template(template_file)
+        expected_vars = _extract_template_variables(template)
+
+        mock_record = MagicMock()
+        mock_record.domain = "ph.example.com"
+        mock_record.target_cname = "abc.proxy.posthog.com"
+        mock_proxy_cls.objects.get.return_value = mock_record
+
+        with self.settings(CLOUD_DEPLOYMENT=region):
+            domain, service_id, host, variables = resolve_proxy_context("test-id", "test-org")
+
+        self.assertEqual(set(variables.keys()), expected_vars)
+        self.assertEqual(service_id, template["serviceId"])
+        if template.get("hostRequired"):
+            self.assertTrue(host, "hostRequired template but resolver returned empty host")
+
+    @parameterized.expand(
+        [
+            ("posthog.com.email-verification-us.json", "US"),
+            ("posthog.com.email-verification-eu.json", "EU"),
+        ]
+    )
+    @patch("posthog.models.integration.EmailIntegration")
+    @patch("posthog.models.integration.Integration")
+    def test_email_resolver_variables_match_template(
+        self, template_file: str, region: str, mock_integration_cls: MagicMock, mock_email_cls: MagicMock
+    ) -> None:
+        template = _load_template(template_file)
+        expected_vars = _extract_template_variables(template)
+
+        mock_instance = MagicMock()
+        mock_instance.kind = "email"
+        mock_instance.config = {"domain": "example.com", "mail_from_subdomain": "feedback"}
+        mock_integration_cls.objects.get.return_value = mock_instance
+
+        mock_email = MagicMock()
+        mock_email.verify.return_value = {
+            "dnsRecords": [
+                {
+                    "type": "verification",
+                    "recordType": "TXT",
+                    "recordHostname": "_amazonses.example.com",
+                    "recordValue": "verify-token-123",
+                },
+                {"type": "dkim", "recordHostname": "aaa._domainkey.example.com"},
+                {"type": "dkim", "recordHostname": "bbb._domainkey.example.com"},
+                {"type": "dkim", "recordHostname": "ccc._domainkey.example.com"},
+            ]
+        }
+        mock_email_cls.return_value = mock_email
+
+        with self.settings(CLOUD_DEPLOYMENT=region, SES_REGION="us-east-1"):
+            domain, service_id, variables = resolve_email_context(1, 1)
+
+        self.assertEqual(set(variables.keys()), expected_vars)
+        self.assertEqual(service_id, template["serviceId"])

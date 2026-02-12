@@ -81,6 +81,7 @@ def build_sync_apply_url(
     service_id: str,
     domain: str,
     variables: dict[str, str],
+    host: str | None = None,
     redirect_uri: str | None = None,
     private_key: RSAPrivateKey | None = None,
     key_id: str | None = None,
@@ -90,12 +91,17 @@ def build_sync_apply_url(
     Constructs the URL that the user's browser is redirected to in order to
     approve DNS record changes at their provider.
 
+    If host is provided, it is included as a protocol-level parameter (used with
+    hostRequired templates to scope the template to a specific subdomain).
+
     If private_key is provided, the query string is signed with RS256 and
     sig= / key= parameters are appended (required by providers like Cloudflare).
     """
     base = f"{url_sync_ux}/v2/domainTemplates/providers/{provider_id}/services/{service_id}/apply"
 
     params: dict[str, str] = {"domain": domain}
+    if host:
+        params["host"] = host
     params.update(variables)
     if redirect_uri:
         params["redirect_uri"] = redirect_uri
@@ -115,6 +121,7 @@ def build_provider_apply_url(
     service_id: str,
     domain: str,
     variables: dict[str, str],
+    host: str | None = None,
     redirect_uri: str | None = None,
     private_key: RSAPrivateKey | None = None,
     key_id: str | None = None,
@@ -134,6 +141,7 @@ def build_provider_apply_url(
         service_id=service_id,
         domain=domain,
         variables=variables,
+        host=host,
         redirect_uri=redirect_uri,
         private_key=private_key,
         key_id=key_id,
@@ -301,10 +309,12 @@ def resolve_email_context(integration_id: int, team_id: int) -> tuple[str, str, 
     return (domain, service_id, variables)
 
 
-def resolve_proxy_context(proxy_record_id: str, organization_id: str) -> tuple[str, str, dict[str, str]]:
+def resolve_proxy_context(proxy_record_id: str, organization_id: str) -> tuple[str, str, str, dict[str, str]]:
     """Resolve Domain Connect parameters for a proxy record.
 
     Extracts the root domain and host from the proxy record's FQDN.
+    Returns (domain, service_id, host, variables) — host is a protocol-level
+    parameter (for hostRequired templates), not a template variable.
     """
     from posthog.models import ProxyRecord
 
@@ -313,16 +323,16 @@ def resolve_proxy_context(proxy_record_id: str, organization_id: str) -> tuple[s
 
     service_id = get_service_id_for_region("reverse-proxy")
     variables = {
-        "host": host,
         "target": record.target_cname,
     }
-    return (root_domain, service_id, variables)
+    return (root_domain, service_id, host, variables)
 
 
 def generate_apply_url(
     domain: str,
     service_id: str,
     variables: dict[str, str],
+    host: str | None = None,
     provider_endpoint: str | None = None,
     redirect_uri: str | None = None,
 ) -> str:
@@ -340,6 +350,7 @@ def generate_apply_url(
             service_id=service_id,
             domain=domain,
             variables=variables,
+            host=host,
             redirect_uri=redirect_uri,
             private_key=signing_key,
             key_id=key_id,
@@ -355,6 +366,7 @@ def generate_apply_url(
         service_id=service_id,
         domain=domain,
         variables=variables,
+        host=host,
         redirect_uri=redirect_uri,
         private_key=signing_key,
         key_id=key_id,

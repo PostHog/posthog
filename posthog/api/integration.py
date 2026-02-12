@@ -533,6 +533,8 @@ class IntegrationViewSet(
         redirect_uri = request.data.get("redirect_uri")
         provider_endpoint = request.data.get("provider_endpoint")
 
+        host: str | None = None
+
         if context == "email":
             integration_id = request.data.get("integration_id")
             if not integration_id:
@@ -548,7 +550,7 @@ class IntegrationViewSet(
                 raise ValidationError("proxy_record_id is required for proxy context")
             organization = self.organization
             try:
-                domain, service_id, variables = resolve_proxy_context(proxy_record_id, str(organization.id))
+                domain, service_id, host, variables = resolve_proxy_context(proxy_record_id, str(organization.id))
             except ValueError as e:
                 raise ValidationError(str(e))
 
@@ -560,6 +562,7 @@ class IntegrationViewSet(
                 domain=domain,
                 service_id=service_id,
                 variables=variables,
+                host=host,
                 provider_endpoint=provider_endpoint,
                 redirect_uri=redirect_uri,
             )
