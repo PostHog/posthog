@@ -42,8 +42,8 @@ GUARANTEED_TEAM_IDS: list[int] = [
 ]
 
 # Default sample percentage for gradual rollout.
-# 0.0 = only guaranteed teams, 0.25 = 25% of remaining, 1.0 = all teams with AI events.
-SAMPLE_PERCENTAGE: float = 0.25
+# 0.0 = only guaranteed teams, 0.5 = 50% of remaining, 1.0 = all teams with AI events.
+SAMPLE_PERCENTAGE: float = 0.5
 
 # How far back to look for teams with AI events. Intentionally wider than any
 # individual workflow's data window (e.g. 7 days for clustering, 60 min for
