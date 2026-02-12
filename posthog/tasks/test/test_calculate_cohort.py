@@ -581,8 +581,38 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             self.assertLess(b_index, c_index, "Cohort B must be processed before C (dependency)")
             self.assertLess(c_index, d_index, "Cohort C must be processed before D (dependency)")
 
+            # Verify is_chained: first task in chain should be False, all subsequent True
+            is_chained_values = [call[0][3] for call in actual_calls]
+            self.assertFalse(is_chained_values[0], "First task in chain should not have is_chained=True")
+            for i in range(1, len(is_chained_values)):
+                self.assertTrue(is_chained_values[i], f"Task at index {i} should have is_chained=True")
+
             mock_chain.assert_called_once_with(mock_task, mock_task, mock_task, mock_task)
             mock_chain_instance.apply_async.assert_called_once()
+
+        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+        def test_increment_version_and_enqueue_single_cohort_does_not_pass_is_chained(
+            self, mock_calculate_cohort_ch_delay: MagicMock
+        ) -> None:
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="Standalone Cohort",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"key": "$some_prop", "value": "something", "type": "person"}],
+                    }
+                },
+                is_static=False,
+            )
+
+            increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
+
+            mock_calculate_cohort_ch_delay.assert_called_once()
+            call_args = mock_calculate_cohort_ch_delay.call_args[0]
+            self.assertEqual(
+                len(call_args), 3, "Single cohort path should pass exactly 3 positional args (no is_chained)"
+            )
 
         @patch("posthog.tasks.calculate_cohort.chain")
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")

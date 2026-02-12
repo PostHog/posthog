@@ -252,6 +252,7 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
                         current_cohort.id,
                         current_cohort.pending_version,
                         initiating_user.id if initiating_user else None,
+                        len(task_chain) > 0,
                     )
                 )
 
@@ -283,7 +284,15 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
 
 
 @shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)
-def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
+def calculate_cohort_ch(
+    cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None, is_chained: bool = False
+) -> None:
+    # Temporary mitigation for ClickHouse replica lag when calculating chained cohorts.
+    # When cohort A depends on cohort B and both are in a Celery chain, B's new rows may
+    # not have replicated to the CH replica by the time A starts. See #47618.
+    if is_chained:
+        time.sleep(2)
+
     with posthoganalytics.new_context():
         posthoganalytics.tag("feature", Feature.COHORT.value)
         posthoganalytics.tag("cohort_id", cohort_id)
