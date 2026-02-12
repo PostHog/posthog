@@ -149,15 +149,12 @@ jobs:
                   fi
 
     playwright:
-        name: Playwright E2E tests (${{ matrix.shard }}/${{ strategy.job-total }})
+        name: Playwright E2E tests
         needs: [changes, detect-snapshot-mode, get_clickhouse_versions]
         if: needs.changes.outputs.shouldRun == 'true'
+        # WARNING: Runner size is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-16
         timeout-minutes: 30
-        strategy:
-            fail-fast: false
-            matrix:
-                shard: [1, 2, 3, 4]
         steps:
             - uses: actions/checkout@v6
               with:
@@ -217,7 +214,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -239,6 +236,9 @@ jobs:
 
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -299,9 +299,7 @@ jobs:
                   ./bin/download-mmdb
 
             - name: Setup Emscripten for WASM build
-              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
-              with:
-                  version: '4.0.23'
+              uses: ./.github/actions/setup-emsdk
 
             - name: Install Ninja
               run: sudo apt-get install -y ninja-build
@@ -366,7 +364,8 @@ jobs:
             - name: Start PostHog web & Celery worker
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
-                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 4 &> /tmp/server.log &
+                  # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
+                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -383,17 +382,16 @@ jobs:
             - name: Run Playwright tests
               id: playwright-tests
               shell: bash
-              # Run 6 Playwright workers against 4 granian workers
-              # This balances parallelism with server capacity to avoid timeouts
-              # Sharding splits tests across 4 parallel jobs for faster execution and retries
+              # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
+              # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
               run: |
                   set +e  # Allow snapshot update retry
                   # Attempt 1: Always verify (fast path when snapshots match)
                   # Attempt 2: Update snapshots if previous failure was screenshot-related (UPDATE mode only)
                   # Note: Playwright's built-in retry (3x per test) handles test flakiness
-                  echo "Attempt 1: Running Playwright tests (shard ${{ matrix.shard }}/4)"
+                  echo "Attempt 1: Running Playwright tests"
                   set -o pipefail
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=6 --shard=${{ matrix.shard }}/4 2>&1 | tee /tmp/playwright-output-attempt-1.log
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 2>&1 | tee /tmp/playwright-output-attempt-1.log
                   EXIT_CODE=$?
                   set +o pipefail
 
@@ -411,9 +409,9 @@ jobs:
                       cp -r playwright/playwright-report/* playwright/playwright-report-attempt-1/ 2>/dev/null || true
 
                       # Attempt 2: Update snapshots
-                      echo "Attempt 2: Running Playwright tests with --update-snapshots (shard ${{ matrix.shard }}/4)"
+                      echo "Attempt 2: Running Playwright tests with --update-snapshots"
                       set -o pipefail
-                      pnpm --filter=@posthog/playwright exec playwright test --workers=6 --shard=${{ matrix.shard }}/4 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
+                      pnpm --filter=@posthog/playwright exec playwright test --workers=4 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
                       EXIT_CODE=$?
                       set +o pipefail
 
@@ -463,7 +461,7 @@ jobs:
               if: steps.create-patch.outputs.has-changes == 'true' && (success() || failure())
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: playwright-patch-${{ matrix.shard }}
+                  name: playwright-patch
                   path: /tmp/patches/playwright-patch.patch
                   retention-days: 1
                   if-no-files-found: ignore
@@ -477,7 +475,7 @@ jobs:
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: playwright-test-results-${{ matrix.shard }}
+                  name: playwright-test-results
                   path: |
                       playwright/playwright-report/
                       playwright/playwright-report-attempt-*/
@@ -493,7 +491,7 @@ jobs:
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: junit-results-playwright-${{ matrix.shard }}
+                  name: junit-results-playwright
                   path: playwright/junit-results.xml
                   if-no-files-found: ignore
 
@@ -501,10 +499,13 @@ jobs:
         name: Capture run time
         runs-on: ubuntu-latest
         needs: [changes, playwright]
-        if: needs.changes.outputs.shouldRun == 'true'
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
+            always() &&
+            needs.changes.outputs.shouldRun == 'true' && (
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
             - name: Capture running time to PostHog
-              if: github.repository == 'PostHog/posthog'
               uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
@@ -512,6 +513,7 @@ jobs:
                   capture-run-duration: true
                   capture-job-durations: true
                   github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Playwright tests pass'
                   runner: 'depot'
 
     # Aggregate all screenshot artifacts and commit once
@@ -539,7 +541,7 @@ jobs:
               continue-on-error: true
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
-                  pattern: playwright-patch-*
+                  pattern: playwright-patch
                   path: /tmp/screenshot-patches/
                   merge-multiple: true
 

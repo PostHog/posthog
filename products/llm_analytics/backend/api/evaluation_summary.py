@@ -31,6 +31,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
+from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
     LLMAnalyticsSummarizationBurstThrottle,
     LLMAnalyticsSummarizationDailyThrottle,
@@ -73,7 +74,6 @@ class EvaluationPatternSerializer(serializers.Serializer):
     title = serializers.CharField()
     description = serializers.CharField()
     frequency = serializers.CharField()
-    example_reasoning = serializers.CharField()
     example_generation_ids = serializers.ListField(child=serializers.CharField())
 
 
@@ -228,7 +228,8 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     to prevent client-side data manipulation.
     """
 
-    scope_object = "llm_analytics"  # type: ignore[assignment]
+    scope_object = "llm_analytics"
+    permission_classes = [AccessControlPermission]
 
     def get_throttles(self):
         """Apply rate limiting to prevent abuse of summarization endpoint."""
@@ -291,7 +292,6 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                             "title": "Clear Communication",
                             "description": "Responses consistently provided well-structured information",
                             "frequency": "common",
-                            "example_reasoning": "Good formatting and clear explanation",
                             "example_generation_ids": ["gen_abc123", "gen_ghi789"],
                         }
                     ],
@@ -300,7 +300,6 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                             "title": "Factual Errors",
                             "description": "Some responses contained inaccurate information",
                             "frequency": "occasional",
-                            "example_reasoning": "Response contained factual errors",
                             "example_generation_ids": ["gen_def456"],
                         }
                     ],

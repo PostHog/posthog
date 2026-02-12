@@ -8,6 +8,7 @@ import structlog
 
 from posthog.models.comment import Comment
 
+from .events import capture_message_received, capture_message_sent
 from .models import Ticket
 
 logger = structlog.get_logger(__name__)
@@ -45,6 +46,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     # Capture values for closure (avoid referencing instance in deferred callback)
     team_id = instance.team_id
     item_id = instance.item_id
+    comment_id = str(instance.id)
     created_at = instance.created_at
     content = instance.content
     item_context = instance.item_context
@@ -69,6 +71,16 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             update_fields["unread_customer_count"] = F("unread_customer_count") + 1
 
         Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
+
+        # Emit analytics events for workflow triggers
+        try:
+            ticket = Ticket.objects.get(id=item_id, team_id=team_id)
+            if is_team_message:
+                capture_message_sent(ticket, comment_id, content or "", created_by_id)
+            else:
+                capture_message_received(ticket, comment_id, content or "")
+        except Ticket.DoesNotExist:
+            pass
 
     transaction.on_commit(do_update)
 

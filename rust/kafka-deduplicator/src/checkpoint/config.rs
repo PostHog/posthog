@@ -7,8 +7,7 @@ pub struct CheckpointConfig {
     pub checkpoint_interval: Duration,
 
     /// How many incremental checkpoint attempts to perform between full
-    /// uploads of all checkpoint files. If 0, we allways perform a
-    /// full upload on every attempt
+    /// uploads of all checkpoint files. If 0, we always perform a full upload on every attempt.
     pub checkpoint_full_upload_interval: u32,
 
     /// Base directory for local checkpoints

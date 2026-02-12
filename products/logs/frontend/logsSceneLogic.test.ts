@@ -7,8 +7,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator } from '~/types'
 
+import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
+
 import { logsSceneLogic } from './logsSceneLogic'
-import { LogsFilters } from './types'
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
@@ -23,7 +24,7 @@ describe('logsSceneLogic', () => {
     beforeEach(async () => {
         useMocks({
             post: {
-                '/api/environments/:team_id/logs/query/': () => [200, { results: [] }],
+                '/api/environments/:team_id/logs/query/': () => [200, { results: [], maxExportableLogs: 5000 }],
                 '/api/environments/:team_id/logs/sparkline/': () => [200, []],
             },
         })
@@ -135,7 +136,7 @@ describe('logsSceneLogic', () => {
                 router.actions.push('/logs', { severityLevels: urlValue })
             }).toFinishAllListeners()
 
-            expect(logic.values.severityLevels).toEqual(expected)
+            expect(logic.values.filters.severityLevels).toEqual(expected)
         })
 
         it.each([
@@ -146,7 +147,7 @@ describe('logsSceneLogic', () => {
                 router.actions.push('/logs', { serviceNames: urlValue })
             }).toFinishAllListeners()
 
-            expect(logic.values.serviceNames).toEqual(expected)
+            expect(logic.values.filters.serviceNames).toEqual(expected)
         })
 
         it('filters out malformed JSON as invalid severity level', async () => {
@@ -155,7 +156,7 @@ describe('logsSceneLogic', () => {
             }).toFinishAllListeners()
 
             // parseTagsFilter falls back to comma-separated parsing, then validation filters invalid levels
-            expect(logic.values.severityLevels).toEqual([])
+            expect(logic.values.filters.severityLevels).toEqual([])
         })
 
         it('filters out non-array JSON as invalid severity level', async () => {
@@ -164,7 +165,7 @@ describe('logsSceneLogic', () => {
             }).toFinishAllListeners()
 
             // parseTagsFilter falls back to comma-separated parsing, then validation filters invalid levels
-            expect(logic.values.severityLevels).toEqual([])
+            expect(logic.values.filters.severityLevels).toEqual([])
         })
 
         it('handles comma-separated values via parseTagsFilter', async () => {
@@ -172,7 +173,7 @@ describe('logsSceneLogic', () => {
                 router.actions.push('/logs', { severityLevels: 'error,warn,info' })
             }).toFinishAllListeners()
 
-            expect(logic.values.severityLevels).toEqual(['error', 'warn', 'info'])
+            expect(logic.values.filters.severityLevels).toEqual(['error', 'warn', 'info'])
         })
 
         it.each([
@@ -185,12 +186,12 @@ describe('logsSceneLogic', () => {
                 router.actions.push('/logs', { severityLevels: urlValue })
             }).toFinishAllListeners()
 
-            expect(logic.values.severityLevels).toEqual(expected)
+            expect(logic.values.filters.severityLevels).toEqual(expected)
         })
     })
 
     describe('filter history', () => {
-        const createFilters = (searchTerm: string): LogsFilters => ({
+        const createFilters = (searchTerm: string): LogsViewerFilters => ({
             dateRange: { date_from: '-1h', date_to: null },
             searchTerm,
             severityLevels: [],
@@ -287,8 +288,10 @@ describe('logsSceneLogic', () => {
                 })
                     .toDispatchActions(['restoreFiltersFromHistory', 'setFilters'])
                     .toMatchValues({
-                        searchTerm: 'restored query',
-                        severityLevels: ['error', 'warn'],
+                        filters: expect.objectContaining({
+                            searchTerm: 'restored query',
+                            severityLevels: ['error', 'warn'],
+                        }),
                     })
             })
 

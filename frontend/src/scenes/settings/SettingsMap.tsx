@@ -94,6 +94,7 @@ import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
+import { MembersPlatformAddonAd } from './organization/MembersPlatformAddonAd'
 import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
@@ -467,6 +468,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WebAnalyticsEnablePreAggregatedTables />,
                 flag: 'WEB_ANALYTICS_API',
             },
+            {
+                id: 'web-vitals-autocapture',
+                title: 'Web vitals autocapture',
+                component: <WebVitalsAutocaptureSettings />,
+            },
         ],
     },
     {
@@ -494,6 +500,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-network',
                 title: 'Network capture',
                 component: <NetworkCaptureSettings />,
+            },
+            {
+                id: 'web-vitals-autocapture',
+                title: 'Web vitals',
+                component: <WebVitalsAutocaptureSettings />,
             },
             {
                 id: 'replay-authorized-domains',
@@ -705,7 +716,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-approvals',
         title: 'Approvals',
-        flag: 'APPROVALS',
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         settings: [
             {
@@ -869,6 +879,11 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'organization-members',
         title: 'Members',
         settings: [
+            {
+                id: 'banner',
+                title: null,
+                component: <MembersPlatformAddonAd />,
+            },
             {
                 id: 'invites',
                 title: 'Pending invites',

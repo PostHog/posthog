@@ -72,6 +72,7 @@ class TestWebExperiment(APIBaseTest):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "web_experiments",
+                "source": "web",
             },
         )
 
@@ -284,3 +285,56 @@ class TestWebExperiment(APIBaseTest):
 
         # New variant should not have transforms (not in original experiment)
         assert "transforms" not in variants["new_variant"]
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_sanitizes_xss_in_transforms(self, mock_capture):
+        """Test that XSS attacks in text and html fields are sanitized"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/web_experiments/",
+            data={
+                "name": "XSS Test Experiment",
+                "variants": {
+                    "control": {
+                        "transforms": [
+                            {
+                                "html": "",
+                                "text": "Safe text",
+                                "selector": "#page > #body > .header h1",
+                            }
+                        ],
+                        "rollout_percentage": 50,
+                    },
+                    "test": {
+                        "transforms": [
+                            {
+                                "html": "<img src=x onerror=\"alert('XSS')\">",
+                                "text": '<script>alert("XSS")</script>Hello',
+                                "selector": "#page > #body > .header h1",
+                            }
+                        ],
+                        "rollout_percentage": 50,
+                    },
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        # Verify the experiment was created and XSS was sanitized
+        experiment_id = response_data["id"]
+        web_experiment = WebExperiment.objects.get(id=experiment_id)
+
+        # Check that the script tags and event handlers were removed
+        assert web_experiment.variants is not None
+        test_variant = web_experiment.variants["test"]
+        transforms = test_variant["transforms"][0]
+
+        # Script tags should be removed but safe text should remain
+        assert "<script>" not in transforms["text"]
+        assert "alert" not in transforms["text"]
+        assert "Hello" in transforms["text"]
+
+        # Event handlers should be removed but img tag may remain
+        assert "onerror" not in transforms["html"]
+        assert "alert" not in transforms["html"]

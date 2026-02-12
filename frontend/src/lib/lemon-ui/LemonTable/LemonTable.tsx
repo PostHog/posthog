@@ -211,8 +211,19 @@ export function LemonTable<T extends Record<string, any>>({
     }, [dataSource, currentSorting, columns])
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
+    const previousPageRef = useRef<number | null>(null)
 
     useEffect(() => {
+        // Don't auto-scroll on initial mount
+        if (previousPageRef.current === null) {
+            previousPageRef.current = paginationState.currentPage
+            return
+        }
+        if (previousPageRef.current === paginationState.currentPage) {
+            return
+        }
+        previousPageRef.current = paginationState.currentPage
+
         // When the current page changes, scroll back to the top of the table
         if (scrollRef.current) {
             const realTableOffsetTop = scrollRef.current.getBoundingClientRect().top - 320 // Extra breathing room

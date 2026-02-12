@@ -5,7 +5,6 @@ import calendar
 from datetime import timedelta
 from typing import TypedDict, cast
 
-from django.core.exceptions import ObjectDoesNotExist
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -116,6 +115,42 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
 
 
 class OAuthValidator(OAuth2Validator):
+    def rotate_refresh_token(self, request) -> bool:
+        """
+        Don't rotate refresh tokens for DCR (MCP) clients.
+
+        MCP clients (v0, Claude Code, Cursor, etc.) don't reliably save the new
+        refresh token returned during rotation, causing sessions to break when
+        they reuse the original token after the grace period. This matches the
+        behavior of Google, Apple, Okta (for native apps), and AWS Cognito which
+        all issue non-rotating refresh tokens.
+
+        Non-DCR OAuth clients still get rotation per the default setting.
+        """
+        if hasattr(request, "client") and request.client:
+            if getattr(request.client, "is_dcr_client", False):
+                return False
+        return oauth2_settings.ROTATE_REFRESH_TOKEN
+
+    def _get_token_expires_in(self, request) -> int:
+        """
+        Returns access token expiry in seconds.
+        DCR (MCP) clients get extended TTL since they don't reliably refresh.
+        """
+        if hasattr(request, "client") and request.client:
+            if getattr(request.client, "is_dcr_client", False):
+                return 60 * 60 * 24 * 7  # 7 days
+        return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
+
+    def save_bearer_token(self, token, request, *args, **kwargs):
+        """
+        Override to use custom token expiry for certain clients.
+        Sets token["expires_in"] before calling parent, which uses this value
+        when calculating the actual expiry datetime stored in the database.
+        """
+        token["expires_in"] = self._get_token_expires_in(request)
+        return super().save_bearer_token(token, request, *args, **kwargs)
+
     def get_additional_claims(self, request):
         return {
             "given_name": request.user.first_name,
@@ -457,15 +492,21 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
     if the client_id and client_secret are provided, the request is
     authenticated using client credentials and does not require the `introspection` scope.
 
-    Self-introspection: A token can always introspect itself without requiring
-    the `introspection` scope. This allows MCP clients to discover their own
-    token's scopes and permissions during initialization.
+    Self-introspection: An access token can always introspect itself without
+    requiring the `introspection` scope. This allows MCP clients to discover
+    their own token's scopes and permissions during initialization. Refresh
+    tokens cannot self-introspect (they are not usable as Bearer credentials).
     """
 
     required_scopes = ["introspection"]
 
     def _is_self_introspection(self, request) -> bool:
-        """Check if the request is a self-introspection (token introspecting itself)."""
+        """
+        Check if the request is an access token introspecting itself.
+
+        Self-introspection only applies to access tokens — refresh tokens cannot
+        be used as Bearer tokens per OAuth 2.0, so they never reach this path.
+        """
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             return False
@@ -481,48 +522,88 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
                 except (json.JSONDecodeError, ValueError):
                     pass
 
-        return bearer_token and token_to_introspect and bearer_token == token_to_introspect
+        return bool(bearer_token and token_to_introspect and bearer_token == token_to_introspect)
 
     def verify_request(self, request):
-        """Allow self-introspection without the introspection scope."""
+        """
+        Allow self-introspection without the introspection scope.
+
+        Only access tokens can self-introspect (they're the only token type
+        usable as Bearer credentials). We validate the Bearer token is a valid
+        access token before granting access.
+        """
         if self._is_self_introspection(request):
             bearer_token = request.headers.get("Authorization", "")[7:]
+            token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
             try:
-                token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
-                token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
-                if token.is_valid():
-                    return True, request
-            except ObjectDoesNotExist:
-                pass
+                access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
+            except OAuthAccessToken.DoesNotExist:
+                return False, request
+            if access_token.is_valid():
+                return True, request
             return False, request
         return super().verify_request(request)
 
     @staticmethod
     def get_token_response(token_value=None):
+        """
+        RFC 7662 Token Introspection response.
+
+        Per Section 2.2, inactive/unknown tokens MUST return {"active": false} with no
+        additional information. Active tokens include the required "active" field plus
+        optional fields (token_type, scope, client_id, exp) as applicable.
+
+        We search across all supported token types (access then refresh) per Section 2.1:
+        "If the server is unable to locate the token using the given hint, it MUST extend
+        its search across all of its supported token types."
+        """
         if not token_value:
             return JsonResponse({"active": False}, status=200)
 
+        # Try access token first (indexed lookup via token_checksum)
+        token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
         try:
-            token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
-            token = OAuthAccessToken.objects.get(token_checksum=token_checksum) or OAuthRefreshToken.objects.get(
-                token_checksum=token_checksum
-            )
-        except ObjectDoesNotExist:
-            return JsonResponse({"active": False}, status=200)
+            access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
+        except OAuthAccessToken.DoesNotExist:
+            access_token = None
 
-        if token.is_valid():
+        if access_token:
+            # RFC 7662 Section 2.2: expired tokens MUST return {"active": false}
+            if not access_token.is_valid():
+                return JsonResponse({"active": False}, status=200)
             data = {
                 "active": True,
-                "scope": token.scope,
-                "scoped_teams": token.scoped_teams or [],
-                "scoped_organizations": token.scoped_organizations or [],
-                "exp": int(calendar.timegm(token.expires.timetuple())),
+                "token_type": "access_token",
+                "scope": access_token.scope,
+                "scoped_teams": access_token.scoped_teams or [],
+                "scoped_organizations": access_token.scoped_organizations or [],
+                "exp": int(calendar.timegm(access_token.expires.timetuple())),
             }
-            if token.application:
-                data["client_id"] = token.application.client_id
+            if access_token.application:
+                data["client_id"] = access_token.application.client_id
             return JsonResponse(data)
-        else:
-            return JsonResponse({"active": False}, status=200)
+
+        # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has
+        # no token_checksum field; revoked tokens filtered via revoked__isnull=True)
+        try:
+            refresh_token = OAuthRefreshToken.objects.get(token=token_value, revoked__isnull=True)
+        except OAuthRefreshToken.DoesNotExist:
+            refresh_token = None
+
+        if refresh_token:
+            # Refresh tokens lack scope and exp fields on AbstractRefreshToken,
+            # so we only return the fields that are available
+            data = {
+                "active": True,
+                "token_type": "refresh_token",
+                "scoped_teams": refresh_token.scoped_teams or [],
+                "scoped_organizations": refresh_token.scoped_organizations or [],
+            }
+            if refresh_token.application:
+                data["client_id"] = refresh_token.application.client_id
+            return JsonResponse(data)
+
+        return JsonResponse({"active": False}, status=200)
 
     def get(self, request, *args, **kwargs):
         """

@@ -492,9 +492,10 @@ export function LemonInputSelect<T = string>({
             popoverFocusRef.current = false
             inputRef.current?.focus()
             _onFocus()
-            if (hasCustomValue) {
-                _onActionItem(inputValue.trim(), null)
-            }
+            // Don't add custom values here - if the user clicked on a popover option,
+            // the click handler will handle the selection. Adding it here causes a
+            // double-fire: the value gets added by _onBlur, the component re-renders,
+            // and then the click handler sees it already exists and removes it.
             return
         }
         if (hasCustomValue) {

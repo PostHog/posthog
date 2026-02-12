@@ -25,6 +25,7 @@ import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
+import { SidePanelOfframpModal } from './sidepanel/SidePanelOfframpModal'
 import { sidePanelStateLogic } from './sidepanel/sidePanelStateLogic'
 import { themeLogic } from './themeLogic'
 
@@ -193,6 +194,7 @@ export function Navigation({
                     {!isRemovingSidePanelFlag && <SidePanel className="right-nav" />}
                 </ProjectDragAndDropProvider>
             </div>
+            {isRemovingSidePanelFlag && <SidePanelOfframpModal />}
         </>
     )
 }

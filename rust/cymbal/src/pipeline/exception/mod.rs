@@ -209,6 +209,8 @@ mod test {
             group3_created_at: None,
             group4_created_at: None,
             person_mode: common_types::PersonMode::Full,
+            captured_at: None,
+            historical_migration: None,
         }
     }
 

@@ -46,16 +46,6 @@ def has_task_tool_feature_flag(team: Team, user: User) -> bool:
     )
 
 
-def has_upsert_dashboard_feature_flag(team: Team, user: User) -> bool:
-    return posthoganalytics.feature_enabled(
-        "phai-upsert-dashboards",
-        str(user.distinct_id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
-    )
-
-
 def has_error_tracking_mode_feature_flag(team: Team, user: User) -> bool:
     return posthoganalytics.feature_enabled(
         "posthog-ai-error-tracking-mode",
@@ -106,9 +96,29 @@ def has_survey_mode_feature_flag(team: Team, user: User) -> bool:
     )
 
 
+def has_experiment_summary_tool_feature_flag(team: Team, user: User) -> bool:
+    return posthoganalytics.feature_enabled(
+        "experiment-ai-summary",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
 def is_core_memory_disabled(team: Team, user: User) -> bool:
     return posthoganalytics.feature_enabled(
         "phai-core-mem-disabled",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
+def has_flags_mode_feature_flag(team: Team, user: User) -> bool:
+    return posthoganalytics.feature_enabled(
+        "posthog-ai-flags-mode",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},

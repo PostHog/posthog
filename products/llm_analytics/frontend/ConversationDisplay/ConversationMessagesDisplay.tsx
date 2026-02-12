@@ -240,7 +240,7 @@ export const ImageMessageDisplay = ({
         return <img src={content.image} alt="User sent image" />
     }
 
-    return <span>{content}</span>
+    return <span>{String(content ?? '')}</span>
 }
 
 function renderContentItem(item: MultiModalContentItem, searchQuery?: string): JSX.Element | null {
@@ -565,7 +565,7 @@ export const LLMMessageDisplay = React.memo(
                         ? 'bg-[var(--color-bg-fill-success-tertiary)] not-last:mb-2'
                         : role === 'user'
                           ? 'bg-[var(--color-bg-fill-tertiary)]'
-                          : role === 'assistant'
+                          : role.startsWith('assistant')
                             ? 'bg-[var(--color-bg-fill-info-tertiary)]'
                             : null
                 )}
