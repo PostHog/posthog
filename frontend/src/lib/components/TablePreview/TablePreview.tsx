@@ -24,9 +24,11 @@ export function TablePreview({
                   const isSelectedKey = selectedKey === column.name
                   return {
                       key: column.name,
+                      dataIndex: column.name,
                       className: isSelectedKey
                           ? 'bg-warning-highlight border-l-2 border-r-2 border-warning'
                           : undefined,
+                      width: 120,
                       title: (
                           <div className="min-w-0 max-w-32">
                               <div className="font-medium text-xs truncate" title={column.name}>
@@ -35,8 +37,6 @@ export function TablePreview({
                               <div className="text-muted text-xxs">{column.type}</div>
                           </div>
                       ),
-                      dataIndex: column.name,
-                      width: 120,
                       render: (value) => (
                           <div className="text-xs truncate max-w-32" title={String(value || '')}>
                               {value !== null && value !== undefined ? String(value) : '-'}
@@ -52,9 +52,9 @@ export function TablePreview({
                 {table ? (
                     <LemonTable
                         size="small"
+                        className="w-full h-full"
                         embedded
                         loading={loading}
-                        style={{ width: '100%', height: '100%' }}
                         columns={columns}
                         dataSource={previewData}
                         rowKey={(_, index) => index}
