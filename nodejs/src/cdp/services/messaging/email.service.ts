@@ -5,7 +5,6 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Integr
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
-import { isFeatureFlagEnabled } from '~/utils/posthog'
 
 import { Hub } from '../../../types'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
@@ -80,21 +79,7 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, params)
                     break
                 case 'ses':
-                    if (
-                        await isFeatureFlagEnabled('workflows-ses-v2', `${invocation.teamId}`, {
-                            groups: { project: `${invocation.teamId}` },
-                            groupProperties: {
-                                project: {
-                                    id: `${invocation.teamId}`,
-                                },
-                            },
-                            sendFeatureFlagEvents: false,
-                        })
-                    ) {
-                        await this.sendEmailWithSESv2(result, params)
-                    } else {
-                        await this.sendEmailWithSES(result, params)
-                    }
+                    await this.sendEmailWithSES(result, params)
                     break
 
                 case 'unsupported':
@@ -166,59 +151,6 @@ export class EmailService {
     }
 
     private async sendEmailWithSES(
-        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
-        params: CyclotronInvocationQueueParametersEmailType
-    ): Promise<void> {
-        const trackingCode = generateEmailTrackingCode(result.invocation)
-        const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
-        const htmlWithTrackingAndPreheader = params.preheader
-            ? maybeAddPreheaderToEmail(htmlWithTracking, params.preheader)
-            : htmlWithTracking
-
-        const sendEmailParams: AWS.SES.SendEmailRequest = {
-            Source: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
-            ReturnPath: params.from.email,
-            Destination: {
-                ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
-            },
-            Message: {
-                Subject: {
-                    Data: params.subject,
-                    Charset: 'UTF-8',
-                },
-                Body: {
-                    Html: {
-                        Data: htmlWithTrackingAndPreheader,
-                        Charset: 'UTF-8',
-                    },
-                    Text: {
-                        Data: params.text,
-                        Charset: 'UTF-8',
-                    },
-                },
-            },
-            ConfigurationSetName: 'posthog-messaging', // This triggers the SNS notifications for email tracking
-            Tags: [{ Name: 'ph_id', Value: trackingCode }],
-        }
-
-        if (params.replyTo && params.replyTo.trim()) {
-            sendEmailParams.ReplyToAddresses = params.replyTo
-                .split(',')
-                .map((addr) => addr.trim())
-                .filter((addr) => addr.length > 0)
-        }
-
-        try {
-            const response = await this.ses.sendEmail(sendEmailParams).promise()
-            if (!response.MessageId) {
-                throw new Error('No messageId returned from SES')
-            }
-        } catch (error) {
-            throw new Error(`Failed to send email via SES: ${error.message}`)
-        }
-    }
-
-    private async sendEmailWithSESv2(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
