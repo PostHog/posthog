@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Toolbar authorization</title>
+</head>
+<body>
+    <p id="toolbar-oauth-callback-status">Finishing authorization...</p>
+    {{ payload|json_script:"toolbar-oauth-payload" }}
+    <script>
+        (function () {
+            const payloadElement = document.getElementById("toolbar-oauth-payload")
+            const statusElement = document.getElementById("toolbar-oauth-callback-status")
+            if (!payloadElement || !statusElement) {
+                return
+            }
+
+            const payload = JSON.parse(payloadElement.textContent || "{}")
+            const openerWindow = window.opener
+            const targetOrigin = "{{ target_origin|escapejs }}"
+
+            if (openerWindow && !openerWindow.closed) {
+                openerWindow.postMessage(payload, targetOrigin)
+                window.close()
+                return
+            }
+
+            statusElement.textContent = "Authorization complete. You can close this window."
+        })()
+    </script>
+</body>
+</html>
