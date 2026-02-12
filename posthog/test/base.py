@@ -1426,7 +1426,7 @@ def failhard_threadhook_context():
         if hasattr(exc, "code") and exc.code == 60 and "kafka_" in str(exc) and "posthog_test" in str(exc):
             return  # Silently ignore expected Kafka table errors
 
-            thread_exceptions.append(exc)
+        thread_exceptions.append(exc)
 
     old_hook, threading.excepthook = threading.excepthook, collect_hook
     try:
