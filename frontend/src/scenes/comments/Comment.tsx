@@ -177,7 +177,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
 }
 
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const {} = useValues(commentsLogic)
+    const { disabledReasonFor } = useValues(commentsLogic)
     const { deleteComment, setEditingComment, setReplyingComment } = useActions(commentsLogic)
 
     return (
@@ -210,7 +210,7 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
                             icon: <IconTrash />,
                             label: 'Delete',
                             onClick: () => deleteComment(comment),
-                            // disabledReason: "Only admins can archive other peoples comments"
+                            disabledReason: disabledReasonFor(comment),
                         },
                     ]}
                 >

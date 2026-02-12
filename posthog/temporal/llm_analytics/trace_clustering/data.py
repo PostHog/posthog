@@ -153,7 +153,7 @@ def fetch_generation_ids_for_traces(
         )
 
     rows = result.results or []
-    return [row[0] for row in rows if row[0]]
+    return [str(row[0]) for row in rows if row[0]]
 
 
 def fetch_item_embeddings_for_clustering(
