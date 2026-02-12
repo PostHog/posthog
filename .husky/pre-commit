@@ -1,6 +1,10 @@
 #!/bin/sh
 . "$(dirname "$0")/_/husky.sh"
 
+# Skip lint-staged during merges — staged files include the entire merge diff,
+# not just your changes, making it slow and pointless
+[ -f .git/MERGE_HEAD ] && exit 0
+
 # Activate Flox environment if available and not already active
 # This ensures lint-staged commands work in GUI Git clients (GitHub Desktop, etc.)
 if command -v flox &> /dev/null && [ -d ".flox/cache" ] && [ -z "$FLOX_ENV" ]; then
