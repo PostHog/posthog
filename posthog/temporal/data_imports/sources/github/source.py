@@ -10,9 +10,10 @@ from posthog.schema import (
     SourceFieldSelectConfig,
 )
 
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import GithubSourceConfig
@@ -26,7 +27,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class GithubSource(SimpleSource[GithubSourceConfig]):
+class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GITHUB
@@ -101,22 +102,6 @@ class GithubSource(SimpleSource[GithubSourceConfig]):
             "Bad credentials": "Your GitHub connection is invalid or expired. Please reconnect.",
         }
 
-    def _get_github_integration(self, integration_id: int, team_id: int) -> Integration:
-        """Get GitHub integration and refresh token if needed"""
-        if not integration_id:
-            raise ValueError("Missing GitHub integration ID")
-
-        integration = Integration.objects.filter(id=integration_id, team_id=team_id, kind="github").first()
-        if not integration:
-            raise ValueError(f"GitHub integration not found: {integration_id}")
-
-        # Refresh token if expired
-        github_integration = GitHubIntegration(integration)
-        if github_integration.access_token_expired():
-            github_integration.refresh_access_token()
-
-        return integration
-
     def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:
         if config.auth_method.selection == "pat":
             if not config.auth_method.personal_access_token:
@@ -125,7 +110,12 @@ class GithubSource(SimpleSource[GithubSourceConfig]):
 
         if not config.auth_method.github_integration_id:
             raise ValueError("Missing GitHub integration ID")
-        integration = self._get_github_integration(config.auth_method.github_integration_id, team_id)
+        integration = self.get_oauth_integration(config.auth_method.github_integration_id, team_id)
+
+        github_integration = GitHubIntegration(integration)
+        if github_integration.access_token_expired():
+            github_integration.refresh_access_token()
+
         if not integration.access_token:
             raise ValueError("GitHub access token not found")
         return integration.access_token
