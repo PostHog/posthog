@@ -152,9 +152,9 @@ backend_files:
                 This is the ONLY module other products are allowed to import.
 
                 Responsibilities:
-                - Accept contract types as input parameters
+                - Accept frozen dataclasses as input parameters
                 - Call business logic (logic.py)
-                - Convert Django models to contract types before returning
+                - Convert Django models to frozen dataclasses before returning
                 - Enforce transactions where needed
                 - Remain thin and stable
 
@@ -166,7 +166,7 @@ backend_files:
 
                 from . import contracts
 
-                # --- Converters (model -> contract type) ---
+                # --- Converters (model -> frozen dataclass) ---
                 #
                 # These look repetitive when fields align 1:1. The value is having ONE place
                 # where "internal" becomes "external contract". When models and contracts drift,
@@ -219,7 +219,7 @@ backend_files:
                 """
                 DRF serializers for {product}.
 
-                Converts contract types to/from JSON. Can be auto-generated from
+                Converts frozen dataclasses to/from JSON. Can be auto-generated from
                 dataclasses using DataclassSerializer.
                 """
                 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -234,9 +234,9 @@ backend_files:
 
                 Responsibilities:
                 - Validate incoming JSON (via serializers)
-                - Convert JSON to contract types
+                - Convert JSON to frozen dataclasses
                 - Call facade methods (facade/api.py)
-                - Convert contract types to JSON responses
+                - Convert frozen dataclasses to JSON responses
 
                 No business logic here - that belongs in logic.py via the facade.
                 """

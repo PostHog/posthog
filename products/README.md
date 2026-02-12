@@ -8,7 +8,7 @@ Backend and frontend are sub-parts of that package.
 
 This is the (future) home for all PostHog products ([RFC](https://github.com/PostHog/product-internal/pull/703)).
 
-For the detailed architecture rationale (contract types, facades, isolated testing), see [architecture.md](./architecture.md).
+For the detailed architecture rationale (frozen dataclasses, facades, isolated testing), see [architecture.md](./architecture.md).
 
 ## Folder structure
 
@@ -28,7 +28,7 @@ products/
       facade/               # cross-product Python interface
         __init__.py
         api.py              # facade methods
-        contracts.py        # frozen dataclass contract types (+ enums)
+        contracts.py        # frozen dataclasses (+ enums)
         enums.py            # optional: exported enums/shared types
       presentation/         # DRF views/serializers
         __init__.py

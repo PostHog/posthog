@@ -5,7 +5,7 @@
 This document defines the future architectural direction for our Django monolith, focusing on:
 
 - Establishing a clear, Django-friendly **folder structure** for product boundaries
-- Using **frozen dataclasses** as stable contract types between products
+- Using **frozen dataclasses** as the stable interface between products
 - Introducing **facades** as the only public interface for products
 - Enforcing **isolation** between products to avoid accidental cross-product coupling
 - Enabling **selective testing** via Turbo (task caching) and tach (import boundary enforcement)
@@ -89,7 +89,7 @@ myproduct/
 
     presentation/
       __init__.py
-      serializers.py   # DRF serializers (contract types <-> JSON)
+      serializers.py   # DRF serializers (frozen dataclasses <-> JSON)
       views.py         # DRF views (HTTP endpoints)
       urls.py          # HTTP routing
 
@@ -111,16 +111,16 @@ myproduct/
 
 For the broader monorepo structure (products, services, platform), see [monorepo-layout.md](/docs/internal/monorepo-layout.md).
 
-# 4. Contract Types
+# 4. Contracts (`contracts.py`)
 
-Contract types are **stable, framework-free frozen dataclasses** that define what a product exposes to the rest of the codebase. They live in `backend/facade/contracts.py`.
+Each product defines its public interface as **frozen dataclasses** in `backend/facade/contracts.py`. These are the only data structures that cross product boundaries — facades accept and return them, and other products import them.
 
-### Characteristics:
+### Rules:
 
 - No Django imports
 - Immutable (`frozen=True`)
 - Small, hashable, stable
-- Used by facades as inputs and outputs
+- Facades accept them as inputs and return them as outputs
 
 ### Example
 
@@ -137,7 +137,7 @@ class Artifact:
     created_at: datetime
 ```
 
-Contract types **should not depend on**:
+Contracts **should not depend on**:
 
 - Django models
 - DRF serializers
@@ -151,9 +151,9 @@ Each product exposes a facade via `backend/facade/api.py`. This is the **only** 
 
 ### Responsibilities
 
-- Accept contract types as input parameters
+- Accept frozen dataclasses as input parameters
 - Call business logic (`logic.py`)
-- Convert Django models → contract types before returning
+- Convert Django models → frozen dataclasses before returning
 - Enforce transactions where needed
 - Remain thin and stable
 
@@ -175,7 +175,7 @@ class ArtifactAPI:
 
 ### Why explicit mappers?
 
-Facades convert ORM models to contract types via mapper functions. These look repetitive when fields align 1:1:
+Facades convert ORM models to frozen dataclasses via mapper functions. These look repetitive when fields align 1:1:
 
 ```python
 def _to_artifact(instance) -> contracts.Artifact:
@@ -186,11 +186,11 @@ def _to_artifact(instance) -> contracts.Artifact:
     )
 ```
 
-The value isn't the copying — it's having **one place** where "internal" becomes "external contract":
+The value isn't the copying — it's having **one place** where "internal" becomes "external":
 
-1. **Explicit contract** — contract types define exactly what callers receive. Internal fields don't accidentally leak.
+1. **Explicit boundary** — the frozen dataclass defines exactly what callers receive. Internal fields don't accidentally leak.
 2. **Transformation point** — add computed fields, flatten relations, rename for consistency.
-3. **Drift absorption** — when models and contract types diverge, mappers handle it cleanly instead of changes leaking everywhere.
+3. **Drift absorption** — when models and the exposed dataclass diverge, the mapper absorbs it instead of changes leaking everywhere.
 
 The alternative — returning ORM objects — works until it doesn't, then you're retrofitting isolation under pressure.
 
@@ -209,7 +209,7 @@ Examples:
 
 - Facades must stay thin and stable
 - Presentation should not contain business rules
-- Contract types remain pure data
+- Frozen dataclasses remain pure data
 - Logic is internal implementation — changes here don't affect other products' tests
 
 # 7. Presentation Layer (DRF)
@@ -219,9 +219,9 @@ Located in `backend/presentation/`.
 Responsibilities:
 
 - Validate incoming JSON (via DRF serializers)
-- Convert incoming JSON → contract types
+- Convert incoming JSON → frozen dataclasses
 - Call facade methods
-- Convert contract types → JSON responses
+- Convert frozen dataclasses → JSON responses
 - No business logic
 
 ### Why not mix with the facade?
@@ -231,7 +231,7 @@ Responsibilities:
 
 ### Don't API views leak implementation?
 
-No. Views only call facades, and facades only return contract types. The presentation layer remains decoupled from internal details — when the facade hasn't changed, nothing outside the product is affected.
+No. Views only call facades, and facades only return frozen dataclasses. The presentation layer remains decoupled from internal details — when the facade hasn't changed, nothing outside the product is affected.
 
 # 8. Isolation Rules
 
@@ -245,7 +245,7 @@ No. Views only call facades, and facades only return contract types. The present
 ### Allowed
 
 - Importing another product's `backend.facade` (the facade)
-- Using contract types returned by facades
+- Using frozen dataclasses returned by facades
 - Calling business logic from within the same product
 - Presentation calling its own product's facade
 
@@ -257,7 +257,7 @@ No. Views only call facades, and facades only return contract types. The present
 # products/revenue_analytics/backend/logic.py
 from products.data_warehouse.backend.facade import DataWarehouseAPI
 
-# OK: calling the facade, getting back contract types
+# OK: calling the facade, getting back frozen dataclasses
 tables = DataWarehouseAPI.list_tables(team_id=team_id)
 ```
 
@@ -278,7 +278,7 @@ async def emit_signal(team_id, source_product, source_type, source_id, descripti
     ...
 ```
 
-**Using contract types from another product:**
+**Using contracts from another product:**
 
 ```python
 # products/other_product/backend/logic.py
@@ -318,8 +318,8 @@ Turbo uses file-based inputs to determine cache validity. The key distinction:
 
 **Contract inputs** (used by `backend:contract-check`):
 
-- `backend/facade/contracts.py` — contract type definitions (enums can live here too)
-- `backend/facade/enums.py` — optional, for exported enums/constants/shared types when contracts.py gets large
+- `backend/facade/contracts.py` — frozen dataclasses (enums can live here too)
+- `backend/facade/enums.py` — optional, for exported enums/constants/shared types when contracts.py grows
 
 **Implementation inputs** (used by `backend:test`):
 
@@ -370,7 +370,7 @@ pnpm turbo run backend:contract-check
 This document outlines the **future direction** of our codebase:
 
 - Django-idiomatic layout with product boundaries
-- Frozen dataclasses as stable contract types
+- Frozen dataclasses as the stable interface between products
 - Thin facades as the only public interface
 - Business logic isolated and testable
 - DRF presentation decoupled from core logic

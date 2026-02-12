@@ -182,10 +182,11 @@ jobs:
 
     # Fast pre-job: determines which products need testing and if Django should run
     # Only needs pnpm + node — no Python, Docker, or services
+    # Runs on depot for turbo remote cache access (cache status drives Django gating)
     turbo-discover:
         needs: changes
         if: needs.changes.outputs.backend == 'true'
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         name: Discover product tests
         outputs:
