@@ -64,6 +64,7 @@
           ExternalDataSourceType.METAADS: MetaAdsSourceConfig,
           ExternalDataSourceType.MONGODB: MongoDBSourceConfig,
           ExternalDataSourceType.MYSQL: MySQLSourceConfig,
+          ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
           ExternalDataSourceType.POLAR: PolarSourceConfig,
           ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
           ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
