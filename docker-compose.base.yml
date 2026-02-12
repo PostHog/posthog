@@ -434,11 +434,11 @@ services:
     temporal:
         restart: on-failure
         healthcheck:
-            test: ['CMD', 'tctl', '--address', 'localhost:7233', 'cluster', 'health']
-            interval: 5s
-            timeout: 10s
-            retries: 30
-            start_period: 30s
+            test: ['CMD', 'nc', '-z', 'localhost', '7233']
+            interval: 3s
+            timeout: 5s
+            retries: 60
+            start_period: 10s
         environment:
             - DB=postgresql
             - DB_PORT=5432
