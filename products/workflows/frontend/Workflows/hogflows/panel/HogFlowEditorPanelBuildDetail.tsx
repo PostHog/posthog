@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconExternal, IconPlay, IconPlus } from '@posthog/icons'
+import { IconExternal, IconPlay, IconPlus, IconX } from '@posthog/icons'
 import {
     LemonBadge,
     LemonBanner,
@@ -30,28 +30,73 @@ import type { HogFlowAction } from '../types'
 import { OutputTestResultTree } from './OutputTestResultTree'
 import { createExampleEvent, hogFlowEditorTestLogic } from './testing/hogFlowEditorTestLogic'
 
+type OutputMapping = { key: string; result_path: string }
+
+function normalizeOutputVariable(raw: HogFlowAction['output_variable']): OutputMapping[] {
+    if (!raw) {
+        return []
+    }
+    if (Array.isArray(raw)) {
+        return raw.map((v) => ({ key: v.key, result_path: v.result_path || '' }))
+    }
+    if (raw.key) {
+        return [{ key: raw.key, result_path: raw.result_path || '' }]
+    }
+    return []
+}
+
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, workflow, categories, categoriesLoading, hogFunctionTemplatesById } =
         useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setMode } = useActions(hogFlowEditorLogic)
 
-    /**
-     * Tricky: Since resultPath is stored inside an object, we need separate state to manage
-     * its value to prevent cursor jumping while typing. Updating the parent object causes
-     * a re-render due to the new object reference being set on each keystroke.
-     */
-    const [outputResultPath, setOutputResultPath] = useState(selectedNode?.data.output_variable?.result_path || '')
+    const [mappings, setMappingsState] = useState<OutputMapping[]>(() =>
+        normalizeOutputVariable(selectedNode?.data.output_variable)
+    )
+    // Path clicked in the response tree that's waiting for the user to pick a target variable
+    const [pendingPath, setPendingPath] = useState<string | null>(null)
+    const assignToRef = useRef<HTMLDivElement>(null)
+
+    // Track which node we're currently editing to reset state on node switch
+    const currentNodeId = useRef(selectedNode?.data.id)
+
+    // Sync local state when the selected node changes
     useEffect(() => {
-        if (selectedNode?.data.output_variable?.key) {
+        if (selectedNode?.data.id !== currentNodeId.current) {
+            currentNodeId.current = selectedNode?.data.id
+            setMappingsState(normalizeOutputVariable(selectedNode?.data.output_variable))
+            setPendingPath(null)
+        }
+    }, [selectedNode?.data.id, selectedNode?.data.output_variable])
+
+    // Persist mappings back to the workflow action
+    const persistMappings = useCallback(
+        (newMappings: OutputMapping[]) => {
+            if (!selectedNode) {
+                return
+            }
+            const filtered = newMappings.filter((m) => m.key)
+            const outputVariable =
+                filtered.length === 0
+                    ? null
+                    : filtered.length === 1
+                      ? { ...filtered[0], result_path: filtered[0].result_path || null }
+                      : filtered.map((m) => ({ ...m, result_path: m.result_path || null }))
             setWorkflowAction(selectedNode.data.id, {
                 ...selectedNode.data,
-                output_variable: {
-                    ...selectedNode.data.output_variable,
-                    result_path: outputResultPath ?? null,
-                },
+                output_variable: outputVariable,
             } as HogFlowAction)
-        }
-    }, [outputResultPath]) // oxlint-disable-line react-hooks/exhaustive-deps
+        },
+        [selectedNode, setWorkflowAction]
+    )
+
+    const setMappings = useCallback(
+        (newMappings: OutputMapping[]) => {
+            setMappingsState(newMappings)
+            persistMappings(newMappings)
+        },
+        [persistMappings]
+    )
 
     const [testLoading, setTestLoading] = useState(false)
     const [testError, setTestError] = useState<string | null>(null)
@@ -195,47 +240,93 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                             panels={[
                                 {
                                     key: 'outputs',
-                                    header: <span className="flex-1">Output variable</span>,
+                                    header: (
+                                        <>
+                                            <span className="flex-1">Output variables</span>
+                                            <LemonBadge.Number
+                                                count={mappings.filter((m) => m.key).length}
+                                                showZero={false}
+                                            />
+                                        </>
+                                    ),
                                     content: (
-                                        <div className="flex flex-col items-start gap-2">
-                                            <LemonField.Pure label="Select a workflow variable to store the output of this step">
-                                                <LemonSelect
-                                                    options={[
-                                                        { value: null, label: 'Do not store' },
-                                                        ...(workflow.variables || []).map(({ key }) => ({
-                                                            value: key,
-                                                            label: key,
-                                                        })),
-                                                    ]}
-                                                    value={action.output_variable?.key || null}
-                                                    onChange={(value) =>
-                                                        setWorkflowAction(action.id, {
-                                                            ...action,
-                                                            output_variable: value
-                                                                ? { key: value, result_path: null }
-                                                                : null,
-                                                        })
-                                                    }
-                                                />
-                                            </LemonField.Pure>
-                                            <LemonField.Pure
-                                                label="Result path (optional)"
-                                                info="Specify a path within the step result to store. For example, to store a user ID from a webhook response, you might use 'body.results[0].id'. To store the entire result, leave this blank."
-                                                className="w-full"
+                                        <div className="flex flex-col items-start gap-2 max-h-96 overflow-y-auto">
+                                            {mappings.map((mapping, index) => (
+                                                <div
+                                                    key={index}
+                                                    className="flex flex-col gap-1 w-full rounded border border-border p-2"
+                                                >
+                                                    <div className="flex items-center gap-1">
+                                                        <LemonField.Pure label="Variable" className="flex-1">
+                                                            <LemonSelect
+                                                                options={[
+                                                                    { value: '', label: 'Select variable...' },
+                                                                    ...(workflow.variables || []).map(({ key }) => ({
+                                                                        value: key,
+                                                                        label: key,
+                                                                    })),
+                                                                ]}
+                                                                value={mapping.key || ''}
+                                                                onChange={(value) => {
+                                                                    const updated = [...mappings]
+                                                                    updated[index] = {
+                                                                        ...updated[index],
+                                                                        key: value || '',
+                                                                    }
+                                                                    setMappings(updated)
+                                                                }}
+                                                                size="small"
+                                                            />
+                                                        </LemonField.Pure>
+                                                        <LemonButton
+                                                            icon={<IconX />}
+                                                            size="small"
+                                                            tooltip="Remove mapping"
+                                                            onClick={() => {
+                                                                const updated = mappings.filter((_, i) => i !== index)
+                                                                setMappings(updated)
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    <LemonField.Pure
+                                                        label="Result path"
+                                                        info="Specify a path within the step result to store, e.g. 'body.results[0].id'. Leave blank for the entire result."
+                                                        className="w-full"
+                                                    >
+                                                        <LemonInput
+                                                            disabledReason={
+                                                                !mapping.key ? 'Select a variable first.' : undefined
+                                                            }
+                                                            type="text"
+                                                            prefix={<span>result.</span>}
+                                                            value={mapping.result_path}
+                                                            onChange={(value) => {
+                                                                const updated = [...mappings]
+                                                                updated[index] = {
+                                                                    ...updated[index],
+                                                                    result_path: value,
+                                                                }
+                                                                setMappingsState(updated)
+                                                                persistMappings(updated)
+                                                            }}
+                                                            placeholder="body.results[0].id"
+                                                            size="small"
+                                                        />
+                                                    </LemonField.Pure>
+                                                </div>
+                                            ))}
+                                            <LemonButton
+                                                icon={<IconPlus />}
+                                                size="small"
+                                                type="secondary"
+                                                onClick={() => {
+                                                    const updated = [...mappings, { key: '', result_path: '' }]
+                                                    setMappings(updated)
+                                                }}
                                             >
-                                                <LemonInput
-                                                    disabledReason={
-                                                        !action.output_variable?.key
-                                                            ? 'Select a variable above to enable setting a result path.'
-                                                            : undefined
-                                                    }
-                                                    type="text"
-                                                    prefix={<span>result.</span>}
-                                                    value={outputResultPath}
-                                                    onChange={(value) => setOutputResultPath(value)}
-                                                    placeholder="body.results[0].id"
-                                                />
-                                            </LemonField.Pure>
+                                                Add mapping
+                                            </LemonButton>
+                                            <LemonDivider className="my-1" />
                                             <LemonButton
                                                 icon={<IconPlay />}
                                                 size="small"
@@ -264,12 +355,73 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     <div className="max-h-64 overflow-auto border rounded p-1">
                                                         <OutputTestResultTree
                                                             data={testResultData}
-                                                            selectedPath={outputResultPath}
+                                                            selectedPath={pendingPath || ''}
                                                             onPathSelect={(path) => {
-                                                                setOutputResultPath(path)
+                                                                if (mappings.length <= 1) {
+                                                                    if (mappings.length === 0) {
+                                                                        setMappings([{ key: '', result_path: path }])
+                                                                    } else {
+                                                                        const updated = [...mappings]
+                                                                        updated[0] = {
+                                                                            ...updated[0],
+                                                                            result_path: path,
+                                                                        }
+                                                                        setMappings(updated)
+                                                                    }
+                                                                    setPendingPath(null)
+                                                                } else {
+                                                                    setPendingPath(path)
+                                                                }
                                                             }}
                                                         />
                                                     </div>
+                                                    {pendingPath && mappings.length >= 2 && (
+                                                        <div
+                                                            ref={(el) => {
+                                                                ;(
+                                                                    assignToRef as React.MutableRefObject<HTMLDivElement | null>
+                                                                ).current = el
+                                                                el?.scrollIntoView({
+                                                                    behavior: 'smooth',
+                                                                    block: 'nearest',
+                                                                })
+                                                            }}
+                                                            className="mt-2 p-2 rounded border border-primary bg-primary-highlight"
+                                                        >
+                                                            <p className="text-xs font-semibold mb-1">
+                                                                Assign{' '}
+                                                                <code className="text-xs">result.{pendingPath}</code>{' '}
+                                                                to:
+                                                            </p>
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {mappings.map((mapping, index) => (
+                                                                    <LemonButton
+                                                                        key={index}
+                                                                        size="xsmall"
+                                                                        type="secondary"
+                                                                        onClick={() => {
+                                                                            const updated = [...mappings]
+                                                                            updated[index] = {
+                                                                                ...updated[index],
+                                                                                result_path: pendingPath,
+                                                                            }
+                                                                            setMappings(updated)
+                                                                            setPendingPath(null)
+                                                                        }}
+                                                                    >
+                                                                        {mapping.key || `Row ${index + 1}`}
+                                                                    </LemonButton>
+                                                                ))}
+                                                                <LemonButton
+                                                                    size="xsmall"
+                                                                    type="tertiary"
+                                                                    onClick={() => setPendingPath(null)}
+                                                                >
+                                                                    Cancel
+                                                                </LemonButton>
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                             <LemonDivider className="my-1" />
