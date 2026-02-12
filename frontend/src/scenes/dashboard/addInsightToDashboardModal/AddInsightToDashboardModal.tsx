@@ -29,7 +29,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
     const { dashboard } = useValues(dashboardLogic)
 
     const handleClose = (): void => {
-        posthog.capture('insight dashboard modal closed')
+        posthog.capture('insight dashboard modal - closed')
         hideAddInsightToDashboardModal()
     }
 
