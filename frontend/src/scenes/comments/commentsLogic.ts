@@ -353,7 +353,7 @@ export const commentsLogic = kea<commentsLogicType>([
             },
         ],
 
-        canDeleteComment: [
+        disabledReasonFor: [
             (s) => [s.user, s.isAdminOrOwner],
             (user, isAdminOrOwner) => {
                 return (comment: CommentType): string | null => {
