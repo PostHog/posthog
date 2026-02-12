@@ -1,7 +1,15 @@
 import posthog from 'posthog-js'
 import { useEffect, useMemo, useState } from 'react'
 
-import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDropdown,
+    LemonInput,
+    LemonLabel,
+    LemonModal,
+    LemonSegmentedButton,
+    LemonSelect,
+} from '@posthog/lemon-ui'
 
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -13,6 +21,15 @@ import { AnyPropertyFilter } from '~/types'
 
 import { TablePreview } from './TablePreview'
 import { DataWarehouseTableForInsight } from './types'
+
+const AGGREGATION_TARGET_KEY_ORDER = ['distinct_id_field', 'timestamp_field', 'id_field'] as const
+const AGGREGATION_TARGET_KEY_SET = new Set<string>(AGGREGATION_TARGET_KEY_ORDER)
+
+const AGGREGATION_TARGET_LABELS: Record<(typeof AGGREGATION_TARGET_KEY_ORDER)[number], string> = {
+    distinct_id_field: 'Aggregation target',
+    timestamp_field: 'Timestamp',
+    id_field: 'Unique ID',
+}
 
 interface DataWarehouseFunnelStepDefinitionModalValues {
     customName: string
@@ -50,6 +67,7 @@ export function DataWarehouseFunnelStepDefinitionPopover({
     const [fieldMappings, setFieldMappings] = useState<Record<string, string | null | undefined>>(
         initialValues.fieldMappings
     )
+    const [selectedAggregationTargetKey, setSelectedAggregationTargetKey] = useState<string | null>(null)
     const [tablePreviewData, setTablePreviewData] = useState<Record<string, any>[]>([])
     const [tablePreviewLoading, setTablePreviewLoading] = useState(false)
 
@@ -104,6 +122,30 @@ export function DataWarehouseFunnelStepDefinitionPopover({
     }, [isOpen, table?.name])
 
     const schemaColumns = useMemo(() => (table ? Object.values(table.fields ?? {}) : []), [table])
+    const aggregationTargetFields = useMemo(() => {
+        const fieldsByKey = new Map(dataWarehousePopoverFields.map((field) => [field.key, field]))
+        return AGGREGATION_TARGET_KEY_ORDER.map((key) => fieldsByKey.get(key)).filter(
+            (field): field is DataWarehousePopoverField => !!field
+        )
+    }, [dataWarehousePopoverFields])
+    const nonAggregationTargetFields = useMemo(
+        () => dataWarehousePopoverFields.filter((field) => !AGGREGATION_TARGET_KEY_SET.has(field.key)),
+        [dataWarehousePopoverFields]
+    )
+    const selectedAggregationTargetField = useMemo(() => {
+        if (!aggregationTargetFields.length) {
+            return null
+        }
+
+        if (!selectedAggregationTargetKey) {
+            return aggregationTargetFields[0]
+        }
+
+        return (
+            aggregationTargetFields.find((field) => field.key === selectedAggregationTargetKey) ||
+            aggregationTargetFields[0]
+        )
+    }, [aggregationTargetFields, selectedAggregationTargetKey])
 
     const hasRequiredMappings = dataWarehousePopoverFields.every(
         ({ key, optional }) => optional || (key in fieldMappings && fieldMappings[key])
@@ -114,6 +156,67 @@ export function DataWarehouseFunnelStepDefinitionPopover({
         : !hasRequiredMappings
           ? 'All required field mappings must be specified'
           : null
+
+    useEffect(() => {
+        if (!isOpen) {
+            return
+        }
+
+        setSelectedAggregationTargetKey(aggregationTargetFields[0]?.key || null)
+    }, [isOpen, aggregationTargetFields])
+
+    const renderFieldMapping = (
+        { key, label, allowHogQL, hogQLOnly, optional, type }: DataWarehousePopoverField,
+        currentTable: DataWarehouseTableForInsight
+    ): JSX.Element => {
+        const fieldValue = fieldMappings[key]
+        const useHogQL = !!fieldValue && isUsingHogQLExpression(currentTable, fieldValue)
+
+        return (
+            <div key={key}>
+                <div className="mb-1 text-sm font-medium">
+                    {label}
+                    {!optional && <span className="text-muted"> *</span>}
+                </div>
+                {!hogQLOnly && (
+                    <LemonSelect
+                        fullWidth
+                        allowClear={!!optional}
+                        value={useHogQL ? '' : (fieldValue ?? undefined)}
+                        options={[
+                            ...schemaColumns
+                                .filter((column) => !type || column.type === type)
+                                .map((column) => ({
+                                    label: `${column.name} (${column.type})`,
+                                    value: column.name,
+                                })),
+                            ...(allowHogQL ? [{ label: 'SQL expression', value: '' }] : []),
+                        ]}
+                        onChange={(value) =>
+                            setFieldMappings((prev) => ({
+                                ...prev,
+                                [key]: value,
+                            }))
+                        }
+                    />
+                )}
+                {((allowHogQL && useHogQL) || hogQLOnly) && (
+                    <div className="mt-2">
+                        <HogQLDropdown
+                            hogQLValue={fieldValue || ''}
+                            tableName={currentTable.name}
+                            onHogQLValueChange={(value) =>
+                                setFieldMappings((prev) => ({
+                                    ...prev,
+                                    [key]: value,
+                                }))
+                            }
+                        />
+                    </div>
+                )}
+            </div>
+        )
+    }
 
     return (
         <LemonModal
@@ -138,6 +241,26 @@ export function DataWarehouseFunnelStepDefinitionPopover({
         >
             {table ? (
                 <div className="space-y-4">
+                    <LemonLabel className="mb-1">Table</LemonLabel>
+                    <LemonDropdown
+                        // overlay={taxonomicFilter}
+                        placement="bottom-start"
+                        // visible={dropdownOpen}
+                        // onClickOutside={closeDropdown}
+                    >
+                        <LemonButton
+                            type="secondary"
+                            // icon={!valuePresent ? <IconPlusSmall /> : undefined}
+                            // data-attr={'property-select-toggle-' + index}
+                            sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
+                            // onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                            // size={size}
+                            truncate={true}
+                        >
+                            {table.name}
+                        </LemonButton>
+                    </LemonDropdown>
+                    <hr className="separator" />
                     <div>
                         <LemonLabel className="mb-1" showOptional>
                             Step name
@@ -158,55 +281,25 @@ export function DataWarehouseFunnelStepDefinitionPopover({
                             dataWarehouseTableName={table.name}
                         />
                     </div>
-                    {dataWarehousePopoverFields.map(({ key, label, allowHogQL, hogQLOnly, optional, type }) => {
-                        const fieldValue = fieldMappings[key]
-                        const useHogQL = !!fieldValue && isUsingHogQLExpression(table, fieldValue)
-
-                        return (
-                            <div key={key}>
-                                <div className="mb-1 text-sm font-medium">
-                                    {label}
-                                    {!optional && <span className="text-muted"> *</span>}
-                                </div>
-                                {!hogQLOnly && (
-                                    <LemonSelect
-                                        fullWidth
-                                        allowClear={!!optional}
-                                        value={useHogQL ? '' : (fieldValue ?? undefined)}
-                                        options={[
-                                            ...schemaColumns
-                                                .filter((column) => !type || column.type === type)
-                                                .map((column) => ({
-                                                    label: `${column.name} (${column.type})`,
-                                                    value: column.name,
-                                                })),
-                                            ...(allowHogQL ? [{ label: 'SQL expression', value: '' }] : []),
-                                        ]}
-                                        onChange={(value) =>
-                                            setFieldMappings((prev) => ({
-                                                ...prev,
-                                                [key]: value,
-                                            }))
-                                        }
-                                    />
-                                )}
-                                {((allowHogQL && useHogQL) || hogQLOnly) && (
-                                    <div className="mt-2">
-                                        <HogQLDropdown
-                                            hogQLValue={fieldValue || ''}
-                                            tableName={table.name}
-                                            onHogQLValueChange={(value) =>
-                                                setFieldMappings((prev) => ({
-                                                    ...prev,
-                                                    [key]: value,
-                                                }))
-                                            }
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        )
-                    })}
+                    <hr className="separator" />
+                    {aggregationTargetFields.length > 1 && (
+                        <div>
+                            <LemonLabel className="mb-1">Configuration</LemonLabel>
+                            <LemonSegmentedButton
+                                fullWidth
+                                value={selectedAggregationTargetField?.key}
+                                onChange={(value) => setSelectedAggregationTargetKey(String(value))}
+                                options={aggregationTargetFields.map((field) => ({
+                                    value: field.key,
+                                    label: AGGREGATION_TARGET_LABELS[
+                                        field.key as keyof typeof AGGREGATION_TARGET_LABELS
+                                    ],
+                                }))}
+                            />
+                        </div>
+                    )}
+                    {selectedAggregationTargetField ? renderFieldMapping(selectedAggregationTargetField, table) : null}
+                    {nonAggregationTargetFields.map((field) => renderFieldMapping(field, table))}
                     <div>
                         <LemonLabel className="mb-1">Table preview</LemonLabel>
                         <TablePreview
