@@ -60,6 +60,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
         clearDraft,
         saveExperiment,
         validateField,
+        switchToWizard,
     } = useActions(logic)
 
     const handleCancel = (): void => {
@@ -181,7 +182,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                                     Use the guided wizard
                                 </>
                             ),
-                            to: urls.experimentWizard(),
+                            onClick: switchToWizard,
                         }}
                     >
                         Need more guidance to create your experiment?

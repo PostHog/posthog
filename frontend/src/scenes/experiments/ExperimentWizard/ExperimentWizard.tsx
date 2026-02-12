@@ -1,33 +1,19 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ExperimentWizardStepper } from './ExperimentWizardStepper'
-import { ExperimentWizardLogicProps, experimentWizardLogic } from './experimentWizardLogic'
+import { experimentWizardLogic } from './experimentWizardLogic'
 import { AboutStep } from './steps/AboutStep'
 import { AnalyticsStep } from './steps/AnalyticsStep'
 import { VariantsStep } from './steps/VariantsStep'
 
-export const scene: SceneExport<ExperimentWizardLogicProps> = {
-    component: ExperimentWizardScene,
-    paramsToProps: ({ params: { id } }): ExperimentWizardLogicProps => ({ id: id || 'new' }),
-}
-
-function ExperimentWizardScene({ id }: ExperimentWizardLogicProps): JSX.Element {
-    return (
-        <BindLogic logic={experimentWizardLogic} props={{ id: id || 'new' }}>
-            <ExperimentWizard />
-        </BindLogic>
-    )
-}
-
-function ExperimentWizard(): JSX.Element {
+export function ExperimentWizard(): JSX.Element {
     const { currentStep, isLastStep, isFirstStep, isExperimentSubmitting } = useValues(experimentWizardLogic)
-    const { nextStep, prevStep, setStep, saveExperiment } = useActions(experimentWizardLogic)
+    const { nextStep, prevStep, setStep, saveExperiment, openFullEditor } = useActions(experimentWizardLogic)
 
     return (
         <div className="min-h-screen bg-bg-light">
@@ -78,6 +64,13 @@ function ExperimentWizard(): JSX.Element {
                         )}
                     </div>
                 </div>
+
+                <p className="text-center text-xs text-muted">
+                    Need more control?{' '}
+                    <button type="button" onClick={openFullEditor} className="text-link hover:underline cursor-pointer">
+                        Open full editor
+                    </button>
+                </p>
             </div>
         </div>
     )

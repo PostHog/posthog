@@ -174,6 +174,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         setSharedMetrics: (sharedMetrics: { primary: ExperimentMetric[]; secondary: ExperimentMetric[] }) => ({
             sharedMetrics,
         }),
+        switchToWizard: true,
     })),
     reducers(({ props }) => ({
         experiment: [
@@ -321,6 +322,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         },
     })),
     listeners(({ values, actions, props }) => ({
+        switchToWizard: () => {
+            router.actions.push(urls.experimentWizard())
+        },
         clearDraft: () => {
             if (props.experiment || values.experiment.id !== 'new') {
                 return

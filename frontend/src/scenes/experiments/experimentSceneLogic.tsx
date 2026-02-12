@@ -30,6 +30,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
     tabAwareScene(),
     actions({
         setActiveTabKey: (activeTabKey: string) => ({ activeTabKey }),
+        setWizardMode: (wizardMode: boolean) => ({ wizardMode }),
         setSceneState: (experimentId: Experiment['id'], formMode: FormModes) => ({ experimentId, formMode }),
         setExperimentLogicRef: (
             logic: BuiltLogic<experimentLogicType> | null,
@@ -60,6 +61,12 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             (props: ExperimentSceneLogicProps) => props.formMode ?? FORM_MODES.update,
             {
                 setSceneState: (_, { formMode }) => formMode,
+            },
+        ],
+        wizardMode: [
+            false,
+            {
+                setWizardMode: (_, { wizardMode }) => wizardMode,
             },
         ],
         experimentLogicRef: [
@@ -242,6 +249,8 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             if (!id || (id !== 'new' && isNaN(parseInt(id, 10)))) {
                 return
             }
+
+            actions.setWizardMode(query?.mode === 'wizard')
 
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 

@@ -1,23 +1,11 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import api from 'lib/api'
-import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import {
-    ExperimentExposureCriteria,
-    ExperimentMetric,
-    ProductIntentContext,
-    ProductKey,
-} from '~/queries/schema/schema-general'
-import type { Experiment, MultivariateFlagVariant } from '~/types'
+import type { Experiment } from '~/types'
 
-import { NEW_EXPERIMENT } from '../constants'
+import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import type { experimentWizardLogicType } from './experimentWizardLogicType'
 
 export type ExperimentWizardStep = 'about' | 'variants' | 'analytics'
@@ -31,7 +19,7 @@ const STEP_ORDER: Record<ExperimentWizardStep, number> = {
 }
 
 export interface ExperimentWizardLogicProps {
-    id: string
+    tabId: string
 }
 
 export const experimentWizardLogic = kea<experimentWizardLogicType>([
@@ -39,37 +27,32 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
 
     props({} as ExperimentWizardLogicProps),
 
-    key((props) => props.id),
+    key((props) => props.tabId),
 
-    connect({
-        actions: [eventUsageLogic, ['reportExperimentCreated'], teamLogic, ['addProductIntent']],
-    }),
+    connect((props: ExperimentWizardLogicProps) => ({
+        values: [
+            createExperimentLogic({ tabId: props.tabId }),
+            ['experiment', 'sharedMetrics', 'isExperimentSubmitting'],
+        ],
+        actions: [
+            createExperimentLogic({ tabId: props.tabId }),
+            [
+                'setExperiment',
+                'setExperimentValue',
+                'setFeatureFlagConfig',
+                'setExposureCriteria',
+                'setSharedMetrics',
+                'saveExperiment',
+            ],
+        ],
+    })),
 
     actions({
         setStep: (step: ExperimentWizardStep) => ({ step }),
         nextStep: true,
         prevStep: true,
         resetWizard: true,
-
-        setExperimentValue: (name: string, value: any) => ({ name, value }),
-        setExperiment: (experiment: Experiment) => ({ experiment }),
-        setFeatureFlagConfig: (config: {
-            feature_flag_key?: string
-            feature_flag_variants?: MultivariateFlagVariant[]
-            parameters?: {
-                feature_flag_variants?: MultivariateFlagVariant[]
-                ensure_experience_continuity?: boolean
-            }
-        }) => ({ config }),
-        setExposureCriteria: (criteria: ExperimentExposureCriteria) => ({ criteria }),
-        setSharedMetrics: (sharedMetrics: { primary: ExperimentMetric[]; secondary: ExperimentMetric[] }) => ({
-            sharedMetrics,
-        }),
-
-        saveExperiment: true,
-        saveExperimentStarted: true,
-        saveExperimentSuccess: (experiment: Experiment) => ({ experiment }),
-        saveExperimentFailure: (error: string) => ({ error }),
+        openFullEditor: true,
     }),
 
     reducers(() => ({
@@ -86,49 +69,6 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                     return WIZARD_STEPS[Math.max(currentIndex - 1, 0)]
                 },
                 resetWizard: () => 'about',
-            },
-        ],
-        experiment: [
-            { ...NEW_EXPERIMENT } as Experiment,
-            {
-                setExperiment: (_, { experiment }) => experiment,
-                setExperimentValue: (state, { name, value }) => ({ ...state, [name]: value }),
-                setExposureCriteria: (state, { criteria }) => ({
-                    ...state,
-                    exposure_criteria: {
-                        ...state.exposure_criteria,
-                        ...criteria,
-                    },
-                }),
-                setFeatureFlagConfig: (state, { config }) => ({
-                    ...state,
-                    ...(config.feature_flag_key !== undefined && {
-                        feature_flag_key: config.feature_flag_key,
-                    }),
-                    parameters: {
-                        ...state.parameters,
-                        ...(config.feature_flag_variants !== undefined && {
-                            feature_flag_variants: config.feature_flag_variants,
-                        }),
-                        ...(config.parameters && config.parameters),
-                    },
-                }),
-                resetWizard: () => ({ ...NEW_EXPERIMENT }),
-            },
-        ],
-        sharedMetrics: [
-            { primary: [], secondary: [] } as { primary: ExperimentMetric[]; secondary: ExperimentMetric[] },
-            {
-                setSharedMetrics: (_, { sharedMetrics }) => sharedMetrics,
-                resetWizard: () => ({ primary: [], secondary: [] }),
-            },
-        ],
-        isExperimentSubmitting: [
-            false,
-            {
-                saveExperimentStarted: () => true,
-                saveExperimentSuccess: () => false,
-                saveExperimentFailure: () => false,
             },
         ],
     })),
@@ -181,65 +121,9 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
-        saveExperiment: async () => {
-            if (values.isExperimentSubmitting) {
-                return
-            }
-
-            actions.saveExperimentStarted()
-
-            try {
-                const schedulingConfig = {
-                    ...values.experiment?.scheduling_config,
-                    timeseries: true,
-                }
-
-                const savedMetrics = [
-                    ...values.sharedMetrics.primary.map((metric) => ({
-                        id: metric.sharedMetricId!,
-                        metadata: { type: 'primary' as const },
-                    })),
-                    ...values.sharedMetrics.secondary.map((metric) => ({
-                        id: metric.sharedMetricId!,
-                        metadata: { type: 'secondary' as const },
-                    })),
-                ]
-
-                const experimentPayload: Experiment = {
-                    ...values.experiment,
-                    scheduling_config: schedulingConfig,
-                    saved_metrics_ids: savedMetrics,
-                }
-
-                const response = (await api.create(
-                    'api/projects/@current/experiments',
-                    experimentPayload
-                )) as Experiment
-
-                if (response.id) {
-                    refreshTreeItem('experiment', String(response.id))
-                    if (response.feature_flag?.id) {
-                        refreshTreeItem('feature_flag', String(response.feature_flag.id))
-                    }
-
-                    actions.reportExperimentCreated(response)
-                    actions.addProductIntent({
-                        product_type: ProductKey.EXPERIMENTS,
-                        intent_context: ProductIntentContext.EXPERIMENT_CREATED,
-                    })
-                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateExperiment)
-
-                    actions.saveExperimentSuccess(response)
-                }
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to save experiment')
-                actions.saveExperimentFailure(String(error))
-            }
-        },
-        saveExperimentSuccess: ({ experiment }) => {
-            lemonToast.success('Experiment created successfully!')
-            router.actions.push(urls.experiment(experiment.id))
+    listeners(() => ({
+        openFullEditor: () => {
+            router.actions.push(urls.experiment('new'))
         },
     })),
 
