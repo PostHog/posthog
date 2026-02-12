@@ -6,10 +6,10 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../config/config'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
 import {
-    RestrictionPipelineInput,
-    RestrictionPipelineOutput,
-    applyRestrictions,
-    createRestrictionPipeline,
+    SessionReplayPipelineInput,
+    SessionReplayPipelineOutput,
+    createSessionReplayPipeline,
+    runSessionReplayPipeline,
 } from '../ingestion/session_replay'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
@@ -89,9 +89,9 @@ export class SessionRecordingIngester {
     private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
     private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    private readonly restrictionPipeline: BatchPipelineUnwrapper<
-        RestrictionPipelineInput,
-        RestrictionPipelineOutput,
+    private readonly sessionReplayPipeline: BatchPipelineUnwrapper<
+        SessionReplayPipelineInput,
+        SessionReplayPipelineOutput,
         { message: Message }
     >
     private readonly kafkaMetadataProducer: KafkaProducerWrapper
@@ -250,7 +250,7 @@ export class SessionRecordingIngester {
             sessionFilter,
         })
 
-        this.restrictionPipeline = createRestrictionPipeline({
+        this.sessionReplayPipeline = createSessionReplayPipeline({
             kafkaProducer: this.kafkaMessageProducer,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: !this.consumeOverflow,
@@ -297,10 +297,10 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
-        // Apply event ingestion restrictions before parsing
+        // Apply event procssessing pipeline steps first
         const messagesToProcess = await instrumentFn(
-            `recordingingesterv2.handleEachBatch.applyRestrictions`,
-            async () => await applyRestrictions(this.restrictionPipeline, messages)
+            `recordingingesterv2.handleEachBatch.runPipeline`,
+            async () => await runSessionReplayPipeline(this.sessionReplayPipeline, messages)
         )
 
         const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.parseBatch`, async () => {
