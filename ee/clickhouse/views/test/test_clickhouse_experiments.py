@@ -1087,6 +1087,23 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "metrics")
 
+    def test_rejects_metrics_with_invalid_kind(self):
+        """Regression test: invalid metric kinds should be rejected, not silently skipped."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Invalid kind experiment",
+                "feature_flag_key": "invalid-kind-flag",
+                "parameters": {},
+                "filters": {},
+                "metrics": [{"kind": "ExperimentEventMetric", "event": "test"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "metrics")
+
     def test_accepts_metrics_with_array_properties(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -2792,8 +2809,21 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "filters": {"events": [{"order": 0, "id": "$pageview"}]},
-                "metrics": [{"metric_type": "count", "count_query": {"events": [{"id": "$pageview"}]}}],
-                "metrics_secondary": [{"metric_type": "count", "count_query": {"events": [{"id": "$click"}]}}],
+                "metrics": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    }
+                ],
+                "metrics_secondary": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$click"}]},
+                    }
+                ],
                 "stats_config": {"method": "bayesian"},
                 "exposure_criteria": {"filterTestAccounts": True},
             },
@@ -2900,8 +2930,21 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "filters": {"events": [{"order": 0, "id": "$pageview"}]},
-                "metrics": [{"metric_type": "count", "count_query": {"events": [{"id": "$pageview"}]}}],
-                "metrics_secondary": [{"metric_type": "count", "count_query": {"events": [{"id": "$click"}]}}],
+                "metrics": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    }
+                ],
+                "metrics_secondary": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$click"}]},
+                    }
+                ],
             },
         )
 
