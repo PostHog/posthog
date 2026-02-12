@@ -321,7 +321,6 @@ posthog/dags/property_definitions.py:0: error: Module "datetime" is not valid as
 posthog/dags/property_definitions.py:0: error: Module "datetime" is not valid as a type  [valid-type]
 posthog/dags/property_definitions.py:0: error: Return type "TimeRange" of "validate" incompatible with return type "PropertyDefinitionsConfig" in supertype "pydantic.main.BaseModel"  [override]
 posthog/dags/property_definitions.py:0: error: datetime? has no attribute "isoformat"  [attr-defined]
-posthog/dags/slack_alerts.py:0: error: Argument "blocks" to "chat_postMessage" of "WebClient" has incompatible type "list[object]"; expected "Sequence[dict[Any, Any] | Block] | None"  [arg-type]
 posthog/dags/tests/test_backfill_materialized_column.py:0: error: "str" has no attribute "day"  [attr-defined]
 posthog/dags/tests/test_backfill_materialized_column.py:0: error: "str" has no attribute "month"  [attr-defined]
 posthog/dags/tests/test_backfill_materialized_column.py:0: error: "str" has no attribute "year"  [attr-defined]

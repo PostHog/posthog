@@ -285,8 +285,8 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                 "totalCost": 12.0,
             },
         )
-        assert trace.person is not None
-        self.assertEqual(trace.person.distinct_id, "person1")
+        self.assertEqual(trace.distinctId, "person1")
+        self.assertIsNone(trace.person)
 
         # Detail view returns all events
         self.assertEqual(len(trace.events), 2)
@@ -347,7 +347,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
 
     @freeze_time("2025-01-01T00:00:00Z")
     def test_person_properties(self):
-        """Test that person properties are correctly included."""
+        """Test that person data is not loaded server-side (frontend handles it via lazy loader)."""
         _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "test@posthog.com"})
         _create_ai_generation_event(
             distinct_id="person1",
@@ -359,10 +359,8 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             query=TraceQuery(traceId="trace1"),
         ).calculate()
         self.assertEqual(len(response.results), 1)
-        assert response.results[0].person is not None
-        self.assertEqual(response.results[0].person.created_at, "2025-01-01T00:00:00+00:00")
-        self.assertEqual(response.results[0].person.properties, {"email": "test@posthog.com"})
-        self.assertEqual(response.results[0].person.distinct_id, "person1")
+        self.assertEqual(response.results[0].distinctId, "person1")
+        self.assertIsNone(response.results[0].person)
 
     @freeze_time("2025-01-16T00:00:00Z")
     def test_date_range(self):

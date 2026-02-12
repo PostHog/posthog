@@ -146,6 +146,7 @@ async def eval_surveys(pytestconfig, demo_org_team_user):
 
         # Check if survey was created
         if artifact and "survey_id" in artifact:
+            # nosemgrep: idor-lookup-without-team (CI eval script, IDs from test fixtures)
             survey_exists = await Survey.objects.filter(id=artifact["survey_id"], archived=False).aexists()
             result["survey_created"] = survey_exists
             result["survey_id"] = artifact["survey_id"]
@@ -153,6 +154,7 @@ async def eval_surveys(pytestconfig, demo_org_team_user):
 
             # Fetch the created survey for detailed checks
             if survey_exists:
+                # nosemgrep: idor-lookup-without-team (CI eval script, IDs from test fixtures)
                 survey = await Survey.objects.aget(id=artifact["survey_id"])
                 result["question_count"] = len(survey.questions) if survey.questions else 0
                 result["is_launched"] = survey.start_date is not None

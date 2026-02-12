@@ -2836,6 +2836,7 @@
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
+         "posthog_experiment"."exposure_preaggregation_enabled",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
   FROM "posthog_experiment"

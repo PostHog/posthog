@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict
 
 from posthog.hogql.base import Expr
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.errors import NotImplementedError, ResolutionError
 
 if TYPE_CHECKING:
@@ -163,6 +164,7 @@ class FieldTraverser(FieldOrTable):
 
 class Table(FieldOrTable):
     fields: dict[str, FieldOrTable]
+    top_level_settings: Optional[HogQLQuerySettings] = None
     model_config = ConfigDict(extra="forbid")
 
     def has_field(self, name: str | int) -> bool:
