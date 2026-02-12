@@ -52,7 +52,8 @@ class QueryRetrievalError(Exception):
 class QueryStatusManager:
     STATUS_TTL_SECONDS = 60 * 20  # 20 minutes
     DEDUP_TTL_SECONDS = 60 * 20  # 20 minutes
-    HEARTBEAT_TTL_SECONDS = 10  # Expires if poll_query_performance stops seeing the query
+    POLL_INTERVAL_SECONDS = 20
+    HEARTBEAT_TTL_SECONDS = POLL_INTERVAL_SECONDS * 3
     KEY_PREFIX_ASYNC_RESULTS = "query_async"
     KEY_PREFIX_RUNNING_QUERIES = "running_queries"
 

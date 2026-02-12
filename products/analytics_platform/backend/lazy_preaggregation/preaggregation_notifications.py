@@ -4,10 +4,11 @@ import redis as redis_lib
 
 from posthog import redis
 from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 PREAGG_JOB_CHANNEL_PREFIX = "preagg:job:"
 PREAGG_CH_STARTED_PREFIX = "preagg:ch_started:"
-CH_STARTED_TTL_SECONDS = 15 * 60  # 15 minutes
+CH_STARTED_TTL_SECONDS = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 def job_channel(job_id: uuid.UUID) -> str:
@@ -30,7 +31,7 @@ def subscribe_to_jobs(job_ids: list[uuid.UUID]) -> redis_lib.client.PubSub:
 
 
 def set_ch_query_started(job_id: uuid.UUID) -> None:
-    """Mark that the CH INSERT has begun. Key: preagg:ch_started:{job_id}, TTL 15min.
+    """Mark that the CH INSERT has begun. Key: preagg:ch_started:{job_id}.
 
     Uses SET NX — fails if the key already exists, since each job ID must map
     to exactly one INSERT. A duplicate means a bug (job ID reuse).

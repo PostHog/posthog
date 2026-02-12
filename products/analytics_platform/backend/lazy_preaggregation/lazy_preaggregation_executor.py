@@ -25,6 +25,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.team import Team
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.analytics_platform.backend.lazy_preaggregation.preaggregation_notifications import (
     has_ch_query_started,
@@ -431,7 +432,12 @@ def run_preaggregation_insert(
     set_ch_query_started(job.id)
     with tags_context(client_query_id=str(job.id), team_id=team.id):
         sync_execute(
-            insert_sql, values, settings=HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True)
+            insert_sql,
+            values,
+            settings={
+                "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
+                **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
+            },
         )
 
 
@@ -617,22 +623,23 @@ class PreaggregationExecutor:
         """Check if a PENDING job is stale using Redis-based CH liveness.
 
         Uses only Redis checks (no PG queries):
+        - If CH heartbeat is alive: never stale (query is running)
         - If CH INSERT never started: stale after ch_start_grace_period_seconds
         - If CH INSERT started but heartbeat expired: stale after stale_pending_threshold_seconds
         """
+        if is_ch_query_alive(job.team_id, job.id):
+            return False
+
         if not has_ch_query_started(job.id):
             job_age = (django_timezone.now() - job.created_at).total_seconds()
             return job_age > self.ch_start_grace_period_seconds
-
-        if is_ch_query_alive(job.team_id, job.id):
-            return False
 
         job_age = (django_timezone.now() - job.created_at).total_seconds()
         return job_age > self.stale_pending_threshold_seconds
 
     def _wait_for_notification(self, pubsub: redis_lib.client.PubSub, timeout: float) -> dict | None:
         """Block until a pubsub message arrives or timeout. Extracted for testability."""
-        return pubsub.get_message(timeout=timeout)
+        return pubsub.get_message(ignore_subscribe_messages=True, timeout=timeout)
 
 
 def ensure_preaggregated(
@@ -729,7 +736,12 @@ def ensure_preaggregated(
         set_ch_query_started(job.id)
         with tags_context(client_query_id=str(job.id), team_id=t.id):
             sync_execute(
-                insert_sql, values, settings=HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True)
+                insert_sql,
+                values,
+                settings={
+                    **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
+                    "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
+                },
             )
 
     executor = PreaggregationExecutor(ttl_seconds=ttl_seconds)

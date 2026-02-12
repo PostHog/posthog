@@ -104,7 +104,7 @@ The executor handles concurrent queries that need the same preaggregated data.
 
 ### Waiting for pending jobs
 
-When query B requests data that query A is already computing, query B waits for A to finish rather than creating duplicate work. The executor subscribes to Redis pubsub channels for each pending job and wakes up instantly when a job completes (configurable timeout, default 3 minutes). This avoids wasteful PG polling — PG is only queried on initial entry and after receiving a notification.
+When query B requests data that query A is already computing, query B waits for A to finish rather than creating duplicate work. The executor subscribes to Redis pubsub channels for each pending job and wakes up instantly when a job completes (configurable timeout, default 3 minutes). This reduces PG polling — PG is queried on initial entry, after inserts, and on wake-up from notifications or pubsub timeouts.
 
 ### One INSERT per job ID
 
