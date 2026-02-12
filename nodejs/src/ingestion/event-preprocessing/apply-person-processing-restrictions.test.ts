@@ -58,7 +58,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         )
     })
 
-    it('should set $process_person_profile to false and force_disable_person_processing to true if team opted out of person processing', async () => {
+    it('should set $process_person_profile to false but not force_disable_person_processing if team opted out of person processing', async () => {
         const event = createTestPipelineEvent()
         const team = createTestTeam({ person_processing_opt_out: true })
         const headers = createTestEventHeaders({ token: 'opt-out-token-ghi', distinct_id: 'opt-out-user-789' })
@@ -68,7 +68,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
 
         expect(result).toEqual(ok(input))
         expect(input.event.properties?.$process_person_profile).toBe(false)
-        expect(input.headers.force_disable_person_processing).toBe(true)
+        expect(input.headers.force_disable_person_processing).toBe(false)
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'opt-out-token-ghi',
             expect.objectContaining({
