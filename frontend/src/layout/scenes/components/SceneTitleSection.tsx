@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
+import { IconEllipsis, IconPencil, IconSidePanel, IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -32,44 +32,55 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
     const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
     if (isRemovingSidePanelFlag) {
-        // Open Info tab if scene has panel content, otherwise default to Discussion
-        const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Discussion
+        // Open Info tab if scene has panel content, otherwise default to PostHog AI
+        const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
+
+        if (sidePanelOpen) {
+            return null
+        }
+
         return (
-            <AppShortcut
-                name="OpenSidePanel"
-                keybind={[keyBinds.toggleRightNav]}
-                intent="Open side panel"
-                interaction="click"
-            >
+            <>
+                <ButtonPrimitive
+                    className="size-[33px] group -mr-[2px]"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        openSidePanel(SidePanelTab.Max)
+                    }}
+                    tooltip="Open PostHog AI"
+                    tooltipPlacement="bottom-end"
+                    tooltipCloseDelayMs={0}
+                    iconOnly
+                >
+                    <IconSparkles className="text-ai" />
+                </ButtonPrimitive>
+
                 {/* Size to mimic lemon button small */}
                 <ButtonPrimitive
                     className="size-[33px] group -mr-[2px]"
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
-                        if (sidePanelOpen) {
-                            closeSidePanel()
-                        } else {
-                            openSidePanel(defaultTab)
-                        }
+                        openSidePanel(defaultTab)
                     }}
-                    tooltip={sidePanelOpen ? 'Close side panel' : 'Open side panel'}
+                    tooltip={
+                        <>
+                            {sidePanelOpen ? 'Close scene panel' : 'Open scene panel'}{' '}
+                            <RenderKeybind className="relative -top-px" keybind={[keyBinds.toggleRightNav]} />
+                        </>
+                    }
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
                     iconOnly
-                    active={sidePanelOpen}
                 >
-                    {sidePanelOpen ? (
-                        <IconX className="text-primary size-3 group-hover:text-primary z-10" />
-                    ) : (
-                        <IconEllipsis className="text-primary group-hover:text-primary z-10" />
-                    )}
+                    <IconSidePanel className="text-primary group-hover:text-primary z-10" />
                 </ButtonPrimitive>
-            </AppShortcut>
+            </>
         )
     }
 

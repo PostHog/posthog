@@ -397,9 +397,13 @@ export const featureFlagsActivityRetrieve = async (
 }
 
 /**
- * Bulk delete feature flags by IDs.
-Accepts a list of feature flag IDs and soft-deletes them.
-Returns success/error per flag.
+ * Bulk delete feature flags by filter criteria or explicit IDs.
+
+Accepts either:
+- {"filters": {...}} - Same filter params as list endpoint (search, active, type, etc.)
+- {"ids": [...]} - Explicit list of flag IDs (no limit)
+
+Returns same format as bulk_delete for UI compatibility.
  */
 export const getFeatureFlagsBulkDeleteCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/bulk_delete/`
@@ -504,6 +508,22 @@ export const featureFlagsLocalEvaluationRetrieve = async (
     options?: RequestInit
 ): Promise<LocalEvaluationResponseApi> => {
     return apiMutator<LocalEvaluationResponseApi>(getFeatureFlagsLocalEvaluationRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Get IDs of all feature flags matching the current filters.
+Uses the same filtering logic as the list endpoint.
+Returns only IDs that the user has permission to edit.
+ */
+export const getFeatureFlagsMatchingIdsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/feature_flags/matching_ids/`
+}
+
+export const featureFlagsMatchingIdsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getFeatureFlagsMatchingIdsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
