@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="eventdefinition",
             index=models.Index(
-                fields=["enforcement_mode"],
+                fields=["team_id"],
                 name="posthog_eventdef_enforce_idx",
                 condition=models.Q(enforcement_mode="reject"),
             ),

@@ -47,7 +47,7 @@ class EventDefinition(UUIDTModel):
                 opclasses=["gin_trgm_ops"],
             ),  # To speed up DB-based fuzzy searching
             models.Index(
-                fields=["enforcement_mode"],
+                fields=["team_id"],
                 name="posthog_eventdef_enforce_idx",
                 condition=models.Q(enforcement_mode="reject"),
             ),
