@@ -1004,8 +1004,6 @@ products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_tabl
 products/notebooks/backend/api/notebook.py:0: error: Incompatible types in assignment (expression has type "int", variable has type "str | None")  [assignment]
 products/revenue_analytics/dags/exchange_rate.py:0: error: Argument "context" to "store_exchange_rates_in_clickhouse" has incompatible type "AssetExecutionContext"; expected "OpExecutionContext"  [arg-type]
 products/revenue_analytics/dags/exchange_rate.py:0: error: Argument "context" to "store_exchange_rates_in_clickhouse" has incompatible type "AssetExecutionContext"; expected "OpExecutionContext"  [arg-type]
-products/slack_app/backend/api.py:0: error: Unused "type: ignore" comment  [unused-ignore]
-products/slack_app/backend/api.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 products/surveys/backend/test_max_tools.py:0: error: Argument 1 to "len" has incompatible type "Any | None"; expected "Sized"  [arg-type]
 products/surveys/backend/test_max_tools.py:0: error: Value of type "Any | None" is not indexable  [index]
 products/surveys/backend/test_max_tools.py:0: error: Value of type "Any | None" is not indexable  [index]
