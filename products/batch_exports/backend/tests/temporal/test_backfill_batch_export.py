@@ -894,8 +894,15 @@ async def events_batch_export(temporal_client, ateam, clickhouse_client):
         team_id=ateam.pk,
         name="events-export-for-backfill-info",
         destination_data={
-            "type": "NoOpExport",
-            "config": {},
+            "type": "S3",
+            "config": {
+                "bucket_name": "test-batch-exports",
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+                "aws_access_key_id": "object_storage_root_user",
+                "aws_secret_access_key": "object_storage_root_password",
+                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            },
         },
         interval="hour",
         paused=True,

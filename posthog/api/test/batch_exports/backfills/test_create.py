@@ -3,7 +3,6 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import _create_event
 from unittest.mock import patch
 
 from django.test.client import Client as HttpClient
@@ -82,23 +81,6 @@ def test_batch_export_backfill_success(client: HttpClient, organization, team, u
 
     client.force_login(user)
 
-    # ensure there is data to backfill, otherwise validation will fail
-    if model == "events":
-        _create_event(
-            team=team,
-            event="$pageview",
-            distinct_id="person_1",
-            timestamp=dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
-        )
-    else:
-        create_person(
-            team_id=team.pk,
-            properties={"distinct_id": "1"},
-            uuid=None,
-            version=0,
-            timestamp=dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
-        )
-
     batch_export = _create_batch_export_ok(client, team, model)
     batch_export_id = batch_export["id"]
 
@@ -129,14 +111,6 @@ def test_batch_export_backfill_for_daily_schedule(
     """
 
     client.force_login(user)
-
-    # ensure there is data to backfill, otherwise validation will fail
-    _create_event(
-        team=team,
-        event="$pageview",
-        distinct_id="person_1",
-        timestamp=dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
-    )
 
     batch_export = _create_batch_export_ok(client, team, "events", "day", timezone, None, offset_hour)
     batch_export_id = batch_export["id"]
@@ -202,23 +176,13 @@ def test_batch_export_backfill_for_weekly_schedule(
     """
     client.force_login(user)
 
-    # ensure there is data to backfill, otherwise validation will fail
     # Use dates that match the offset_day: Jan 4, 2026 is a Sunday (offset_day=0), Jan 7, 2026 is a Wednesday (offset_day=3)
     if offset_day == 0:
-        event_date = dt.datetime(2026, 1, 4, 0, 0, 0, tzinfo=dt.UTC)  # Sunday
         start_date = "2026-01-04"  # Sunday
         end_date = "2026-01-11"  # Sunday
     else:  # offset_day == 3 (Wednesday)
-        event_date = dt.datetime(2026, 1, 7, 0, 0, 0, tzinfo=dt.UTC)  # Wednesday
         start_date = "2026-01-07"  # Wednesday
         end_date = "2026-01-14"  # Wednesday
-
-    _create_event(
-        team=team,
-        event="$pageview",
-        distinct_id="person_1",
-        timestamp=event_date,
-    )
 
     batch_export = _create_batch_export_ok(client, team, "events", "week", timezone, offset_day, offset_hour)
     batch_export_id = batch_export["id"]
@@ -315,14 +279,6 @@ def test_batch_export_backfill_with_end_at_in_the_future(client: HttpClient, org
 
     test_time = dt.datetime.now(dt.UTC)
     client.force_login(user)
-
-    # ensure there is data to backfill, otherwise validation will fail
-    _create_event(
-        team=team,
-        event="$pageview",
-        distinct_id="person_1",
-        timestamp=test_time + dt.timedelta(minutes=10),
-    )
 
     batch_export = _create_batch_export_ok(client, team, "events")
 
@@ -443,11 +399,6 @@ def test_batch_export_backfill_created_in_timezone(client: HttpClient, temporal,
     """
 
     client.force_login(user)
-
-    # ensure there is data to backfill, otherwise validation will fail
-    _create_event(
-        team=team, event="$pageview", distinct_id="person_1", timestamp=dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
-    )
 
     batch_export = _create_batch_export_ok(client, team, "events")
     batch_export_id = batch_export["id"]

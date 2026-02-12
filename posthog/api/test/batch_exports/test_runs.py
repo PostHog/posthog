@@ -2,7 +2,7 @@ import asyncio
 import datetime as dt
 
 import pytest
-from posthog.test.base import _create_event
+from posthog.test.base import _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from django.test.client import Client as HttpClient
@@ -167,8 +167,6 @@ def test_cancelling_a_batch_export_run(client: HttpClient, temporal, organizatio
         )
         batch_export_id = batch_export["id"]
 
-        start_at = "2023-10-23T00:00:00+00:00"
-        end_at = "2023-10-24T00:00:00+00:00"
         # ensure there is data to backfill, otherwise validation will fail
         _create_event(
             team=team,
@@ -176,6 +174,10 @@ def test_cancelling_a_batch_export_run(client: HttpClient, temporal, organizatio
             distinct_id="person_1",
             timestamp=dt.datetime(2023, 10, 23, 0, 1, 0, tzinfo=dt.UTC),
         )
+        flush_persons_and_events()
+
+        start_at = "2023-10-23T00:00:00+00:00"
+        end_at = "2023-10-24T00:00:00+00:00"
         backfill_batch_export_ok(client, team.pk, batch_export_id, start_at, end_at)
 
         # In order for a run to be cancelable we need a running workflow execution

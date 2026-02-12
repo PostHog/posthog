@@ -358,16 +358,6 @@ class NoOpInputs(BaseBatchExportInputs):
     arg: str = ""
 
 
-@dataclass(kw_only=True)
-class NoOpBatchExportInputs(BaseBatchExportInputs):
-    """NoOp Batch Export Workflow for testing that follows the full batch export pattern.
-
-    Unlike the simple NoOpInputs, this workflow uses execute_batch_export_using_internal_stage.
-    """
-
-    pass
-
-
 DESTINATION_WORKFLOWS = {
     "S3": ("s3-export", S3BatchExportInputs),
     "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
@@ -378,7 +368,6 @@ DESTINATION_WORKFLOWS = {
     "AzureBlob": ("azure-blob-export", AzureBlobBatchExportInputs),
     "HTTP": ("http-export", HttpBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
-    "NoOpExport": ("no-op-export", NoOpBatchExportInputs),
     "Workflows": ("workflows-export", WorkflowsBatchExportInputs),
 }
 
