@@ -9,7 +9,7 @@ from django.test import override_settings
 from rest_framework import status
 
 from posthog.api.oauth.toolbar_service import CALLBACK_PATH, get_or_create_toolbar_oauth_application
-from posthog.models import Organization, User
+from posthog.models import Organization, Team, User
 
 
 @override_settings(TOOLBAR_OAUTH_ENABLED=True)
@@ -50,6 +50,9 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
 
         parsed = urlparse(data["authorization_url"])
         qs = parse_qs(parsed.query)
+        self.assertEqual(parsed.scheme, "https")
+        self.assertEqual(parsed.netloc, "testserver")
+        self.assertEqual(qs["redirect_uri"][0], "https://testserver/toolbar_oauth/callback")
         self.assertIn("state", qs)
         self.assertEqual(qs["code_challenge_method"][0], "S256")
 
@@ -75,6 +78,21 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "invalid_json")
+
+    def test_start_rejects_invalid_code_challenge_method(self):
+        response = self.client.post(
+            "/api/user/toolbar_oauth_start/",
+            data=json.dumps(
+                {
+                    "app_url": self.team.app_urls[0],
+                    "code_challenge": "test_challenge_value",
+                    "code_challenge_method": "plain",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "invalid_request")
 
     def test_oauth_application_is_scoped_per_organization(self):
         base_url = "https://us.posthog.example"
@@ -153,6 +171,64 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["access_token"], "pha_abc")
+
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_exchange_rejects_tampered_state(self, mock_post):
+        start_data = self._start()
+        state = parse_qs(urlparse(start_data["authorization_url"]).query)["state"][0]
+        tampered_state = f"{state[:-1]}x"
+
+        response = self.client.post(
+            "/api/user/toolbar_oauth_exchange/",
+            data=json.dumps({"code": "test_code", "state": tampered_state, "code_verifier": "test_verifier"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "invalid_state")
+        mock_post.assert_not_called()
+
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_exchange_rejects_state_user_mismatch(self, mock_post):
+        start_data = self._start()
+        state = parse_qs(urlparse(start_data["authorization_url"]).query)["state"][0]
+
+        other_user = User.objects.create_user(
+            email="toolbar-oauth-other-user@example.com",
+            first_name="Other",
+            password="password",
+            current_organization=self.organization,
+            current_team=self.team,
+        )
+        self.organization.members.add(other_user)
+        self.client.force_login(other_user)
+
+        response = self.client.post(
+            "/api/user/toolbar_oauth_exchange/",
+            data=json.dumps({"code": "test_code", "state": state, "code_verifier": "test_verifier"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "state_user_mismatch")
+        mock_post.assert_not_called()
+
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_exchange_rejects_state_team_mismatch(self, mock_post):
+        start_data = self._start()
+        state = parse_qs(urlparse(start_data["authorization_url"]).query)["state"][0]
+
+        other_team = Team.objects.create(organization=self.organization, name="Different Team")
+        self.user.current_team = other_team
+        self.user.save(update_fields=["current_team"])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            "/api/user/toolbar_oauth_exchange/",
+            data=json.dumps({"code": "test_code", "state": state, "code_verifier": "test_verifier"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "state_team_mismatch")
+        mock_post.assert_not_called()
 
     def test_exchange_rejects_invalid_json_body(self):
         response = self.client.post(

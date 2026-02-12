@@ -828,7 +828,10 @@ def toolbar_oauth_start(request):
         return JsonResponse({"code": "invalid_json", "detail": "Request body must be valid JSON"}, status=400)
 
     serializer = ToolbarOAuthStartSerializer(data=body)
-    serializer.is_valid(raise_exception=True)
+    try:
+        serializer.is_valid(raise_exception=True)
+    except exceptions.ValidationError as exc:
+        return JsonResponse({"code": "invalid_request", "detail": exc.detail}, status=400)
 
     team = request.user.team
     if not team:
@@ -884,9 +887,11 @@ def toolbar_oauth_exchange(request):
     except json.JSONDecodeError:
         return JsonResponse({"code": "invalid_json", "detail": "Request body must be valid JSON"}, status=400)
 
-    # Validate the request
     serializer = ToolbarOAuthExchangeSerializer(data=body)
-    serializer.is_valid(raise_exception=True)
+    try:
+        serializer.is_valid(raise_exception=True)
+    except exceptions.ValidationError as exc:
+        return JsonResponse({"code": "invalid_request", "detail": exc.detail}, status=400)
 
     # Check if the user has a team
     team = request.user.team
