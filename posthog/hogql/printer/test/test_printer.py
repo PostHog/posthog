@@ -3007,6 +3007,27 @@ class TestPrinter(BaseTest):
                 dialect="clickhouse",
             )
 
+    def test_fails_on_placeholder_macro_expansion_depth_limit(self):
+        query = parse_select(
+            "SELECT date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', now()))))))))))"
+        )
+        with pytest.raises(QueryError, match="exceeded maximum placeholder macro depth"):
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+    def test_fails_on_placeholder_macro_output_size_limit(self):
+        large_string = "a" * 40_000
+        query = parse_select(f"SELECT split_part('{large_string}', '.', 1)")
+        with pytest.raises(QueryError, match="exceeded maximum placeholder macro output size"):
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
     def test_team_id_guarding_events(self):
         sql = self._select(
             "SELECT event FROM events",
