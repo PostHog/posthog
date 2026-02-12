@@ -85,10 +85,20 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
                         Authorization: `Bearer ${values.currentTeam.live_events_token}`,
                     },
                 })
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`)
+                }
                 const data: LiveUserCountStats = await response.json()
+                cache.consecutiveFailures = 0
                 actions.setStats(data, new Date())
-            } catch (error) {
-                console.error('Failed to poll stats:', error)
+            } catch {
+                cache.consecutiveFailures = (cache.consecutiveFailures ?? 0) + 1
+                if (cache.consecutiveFailures === 1) {
+                    console.warn('Failed to poll live user stats, will keep retrying in the background.')
+                }
+                if (cache.consecutiveFailures >= 3) {
+                    actions.pauseStream()
+                }
             }
         },
         setIsHovering: ({ isHovering }) => {
@@ -108,6 +118,7 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
             cache.disposables.dispose('statsInterval')
         },
         resumeStream: () => {
+            cache.consecutiveFailures = 0
             actions.pollStats()
             cache.disposables.add(() => {
                 const intervalId = setInterval(() => {
