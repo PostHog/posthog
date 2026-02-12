@@ -1,12 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { PipelineEvent, Team } from '../../types'
+import { Team } from '../../types'
 import { PipelineResult, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface HogTransformEventInput {
-    event: PipelineEvent
+    event: PluginEvent
     team: Pick<Team, 'id'>
 }
 
@@ -22,35 +22,23 @@ export function createHogTransformEventStep<T extends HogTransformEventInput>(
     hogTransformer: HogTransformerService | null
 ): ProcessingStep<T, T> {
     return async function hogTransformEventStep(input: T): Promise<PipelineResult<T>> {
-        const { event, team } = input
+        const { event } = input
 
         // If no transformer configured, pass through unchanged
         if (!hogTransformer) {
             return ok(input)
         }
 
-        // Convert PipelineEvent to PluginEvent for transformation
-        const pluginEvent: PluginEvent = {
-            ...event,
-            team_id: team.id,
-        }
-
-        const result = await hogTransformer.transformEventAndProduceMessages(pluginEvent)
+        const result = await hogTransformer.transformEventAndProduceMessages(event)
 
         // If transformation dropped the event, return drop result
         if (result.event === null) {
             return drop('dropped_by_transformation')
         }
 
-        // Convert back to PipelineEvent (preserve team_id as optional)
-        const transformedEvent: PipelineEvent = {
-            ...result.event,
-            team_id: result.event.team_id,
-        }
-
         return ok({
             ...input,
-            event: transformedEvent,
+            event: result.event,
         })
     }
 }
