@@ -20,6 +20,7 @@ from posthog.domain_connect import (
     build_sync_apply_url,
     discover_domain_connect,
     extract_root_domain_and_host,
+    generate_apply_url,
     get_available_providers,
     get_service_id_for_region,
     resolve_email_context,
@@ -236,6 +237,32 @@ class TestGetAvailableProviders(BaseTest):
             providers = get_available_providers()
 
         self.assertEqual(providers, [])
+
+
+class TestGenerateApplyUrl(BaseTest):
+    def test_rejects_unknown_provider_endpoint(self) -> None:
+        with self.assertRaises(ValueError, msg="Unsupported provider endpoint"):
+            generate_apply_url(
+                domain="example.com",
+                service_id="reverse-proxy-us",
+                variables={"target": "abc.proxy.posthog.com"},
+                provider_endpoint="evil.internal.service",
+            )
+
+    @patch("posthog.domain_connect._fetch_provider_settings")
+    def test_allows_known_provider_endpoint(self, mock_settings: MagicMock) -> None:
+        mock_settings.return_value = {"urlSyncUX": "https://dash.cloudflare.com/domainconnect"}
+
+        # TODO: Remove patch once Cloudflare is in DOMAIN_CONNECT_PROVIDERS
+        with patch.dict(DOMAIN_CONNECT_PROVIDERS, {"api.cloudflare.com/dc": "Cloudflare"}):
+            url = generate_apply_url(
+                domain="example.com",
+                service_id="reverse-proxy-us",
+                variables={"target": "abc.proxy.posthog.com"},
+                provider_endpoint="api.cloudflare.com/dc",
+            )
+
+        self.assertIn("domain=example.com", url)
 
 
 class TestTemplateResolverAlignment(BaseTest):

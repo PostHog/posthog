@@ -528,11 +528,19 @@ class IntegrationViewSet(
         The backend resolves the domain, template variables, and service ID
         based on context, then builds the signed apply URL.
         """
-        from posthog.domain_connect import generate_apply_url, resolve_email_context, resolve_proxy_context
+        from posthog.domain_connect import (
+            DOMAIN_CONNECT_PROVIDERS,
+            generate_apply_url,
+            resolve_email_context,
+            resolve_proxy_context,
+        )
 
         context = request.data.get("context")
         redirect_uri = request.data.get("redirect_uri")
         provider_endpoint = request.data.get("provider_endpoint")
+
+        if provider_endpoint and provider_endpoint not in DOMAIN_CONNECT_PROVIDERS:
+            raise ValidationError("Unsupported provider endpoint")
 
         host: str | None = None
 

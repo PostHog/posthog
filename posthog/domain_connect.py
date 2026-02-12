@@ -340,6 +340,9 @@ def generate_apply_url(
 
     Handles signing automatically if a private key is configured.
     """
+    if provider_endpoint and provider_endpoint not in DOMAIN_CONNECT_PROVIDERS:
+        raise ValueError(f"Unsupported provider endpoint: {provider_endpoint}")
+
     signing_key = get_signing_key()
     key_id = get_key_id() if signing_key else None
 
