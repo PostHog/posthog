@@ -7,17 +7,30 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { NotebookNodeType } from '../types'
 
-export function isTabularData(text: string): boolean {
+export type TabularFormat = 'tsv' | 'csv'
+
+export function detectTabularFormat(text: string): TabularFormat | null {
     const lines = text.replace(/\n+$/, '').split('\n')
     if (lines.length < 2) {
-        return false
+        return null
     }
-    return lines.every((line) => line.includes('\t'))
+    if (lines.every((line) => line.includes('\t'))) {
+        return 'tsv'
+    }
+    const commaCounts = lines.map((line) => (line.match(/,/g) || []).length)
+    if (commaCounts[0] >= 1 && commaCounts.every((c) => c === commaCounts[0])) {
+        return 'csv'
+    }
+    return null
 }
 
-export function parseTabularDataToTipTapTable(text: string): JSONContent {
+export function isTabularData(text: string): boolean {
+    return detectTabularFormat(text) !== null
+}
+
+export function parseTabularDataToTipTapTable(text: string, delimiter: string = '\t'): JSONContent {
     const lines = text.replace(/\n+$/, '').split('\n')
-    const rows = lines.map((line) => line.split('\t'))
+    const rows = lines.map((line) => line.split(delimiter))
 
     const maxCols = Math.max(...rows.map((row) => row.length))
 
@@ -140,17 +153,19 @@ export const DropAndPasteHandlerExtension = Extension.create({
                             return false
                         }
 
-                        // Detect tab-separated values (from spreadsheets without HTML, or plain TSV)
+                        // Detect tab-separated or comma-separated values
                         const text = event.clipboardData?.getData('text/plain')
-                        if (text && isTabularData(text)) {
-                            const tableContent = parseTabularDataToTipTapTable(text)
-                            const lines = text.replace(/\n+$/, '').split('\n')
-                            const rows = lines.map((line) => line.split('\t'))
+                        const format = text ? detectTabularFormat(text) : null
+                        if (text && format) {
+                            const delimiter = format === 'tsv' ? '\t' : ','
+                            const tableContent = parseTabularDataToTipTapTable(text, delimiter)
+                            const rows = tableContent.content?.length ?? 0
+                            const cols = tableContent.content?.[0]?.content?.length ?? 0
                             this.editor.chain().focus().insertContent(tableContent).run()
                             posthog.capture('notebook table pasted', {
-                                rows: rows.length,
-                                cols: Math.max(...rows.map((r) => r.length)),
-                                source: 'tsv',
+                                rows,
+                                cols,
+                                source: format,
                             })
                             return true
                         }

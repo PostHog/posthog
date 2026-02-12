@@ -1,4 +1,0 @@
-BRANCH=feature/notebook-paste-table
-WORKTREE_PATH=/Users/yasen/projects/posthog-feature/notebook-paste-table
-CREATED=2026-02-06T16:55:00+00:00
-FEATURE=Notebook paste table from Excel/CSV clipboard data

@@ -9,6 +9,10 @@ import { richContentEditorLogic } from 'lib/components/RichContentEditor/richCon
 export function TableMenu(): JSX.Element | null {
     const { ttEditor } = useValues(richContentEditorLogic)
 
+    if (!ttEditor) {
+        return null
+    }
+
     return (
         <BubbleMenu
             editor={ttEditor}
@@ -19,17 +23,17 @@ export function TableMenu(): JSX.Element | null {
         >
             <div className="NotebookTableMenu flex bg-surface-primary rounded border items-center text-secondary p-1 gap-x-0.5 text-xs">
                 <LemonButton onClick={() => ttEditor.chain().focus().addRowBefore().run()} size="small">
-                    Row above
+                    Add row above
                 </LemonButton>
                 <LemonButton onClick={() => ttEditor.chain().focus().addRowAfter().run()} size="small">
-                    Row below
+                    Add row below
                 </LemonButton>
                 <LemonDivider vertical />
                 <LemonButton onClick={() => ttEditor.chain().focus().addColumnBefore().run()} size="small">
-                    Column left
+                    Add column left
                 </LemonButton>
                 <LemonButton onClick={() => ttEditor.chain().focus().addColumnAfter().run()} size="small">
-                    Column right
+                    Add column right
                 </LemonButton>
                 <LemonDivider vertical />
                 <LemonButton onClick={() => ttEditor.chain().focus().deleteRow().run()} size="small" status="danger">
