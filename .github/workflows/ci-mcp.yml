@@ -143,6 +143,7 @@ jobs:
             NO_RESTART_LOOP: 1
             DISABLE_SECURE_SSL_REDIRECT: 'True'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
+            CELERY_METRICS_PORT: 8999
 
         steps:
             - uses: actions/checkout@v6
@@ -289,8 +290,14 @@ jobs:
                   print(f'TEST_PROJECT_ID={team.id}')
                   " >> $GITHUB_ENV
 
-            - name: Start PostHog server
+            - name: Source celery queues
               run: |
+                  source ./bin/celery-queues.env
+                  echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
+
+            - name: Start PostHog web & Celery worker
+              run: |
+                  python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --workers 1 &> /tmp/server.log &
 
             - name: Wait for PostHog to be ready
@@ -312,6 +319,10 @@ jobs:
             - name: Show server logs on failure
               if: failure()
               run: cat /tmp/server.log || true
+
+            - name: Show celery logs on failure
+              if: failure()
+              run: cat /tmp/celery.log || true
 
             - name: Show docker compose logs on failure
               if: failure()
