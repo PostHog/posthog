@@ -68,7 +68,7 @@ export interface JoinedIngestionPipelineContext {
     message: Message
 }
 
-type PostTeamOutputWithGroupStore = PostTeamPreprocessingSubpipelineInput & {
+type PreprocessingOutput = PostTeamPreprocessingSubpipelineInput & {
     groupStoreForBatch: GroupStoreForBatch
 }
 
@@ -91,7 +91,7 @@ function getTokenAndDistinctId(input: PerDistinctIdPipelineInput): string {
 }
 
 function mapToPerEventInput<C>(
-    element: OkResultWithContext<PostTeamOutputWithGroupStore, C>
+    element: OkResultWithContext<PreprocessingOutput, C>
 ): OkResultWithContext<PerDistinctIdPipelineInput, C> {
     const input = element.result.value
     return {
