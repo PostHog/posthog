@@ -5,6 +5,8 @@ import posthog from 'posthog-js'
 import { hogqlQuery } from '~/queries/query'
 import { hogql } from '~/queries/utils'
 
+import type { databaseTablePreviewLogicType } from './databaseTablePreviewLogicType'
+
 export interface DatabaseTablePreviewLogicProps {
     logicKey: string
     tableName?: string
@@ -14,7 +16,7 @@ export interface DatabaseTablePreviewLogicProps {
 
 const DEFAULT_LIMIT = 10
 
-export const databaseTablePreviewLogic = kea([
+export const databaseTablePreviewLogic = kea<databaseTablePreviewLogicType>([
     path((logicKey) => ['lib', 'components', 'TablePreview', 'databaseTablePreviewLogic', logicKey]),
     props({} as DatabaseTablePreviewLogicProps),
     key((props) => props.logicKey),
