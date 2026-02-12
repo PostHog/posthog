@@ -10,6 +10,7 @@ export interface TablePreviewProps {
     previewData?: Record<string, any>[]
     loading?: boolean
     selectedKey?: string | null
+    bordered?: boolean
 }
 
 const SELECTED_COLUMN_CLASS = 'TablePreview__selected-column'
@@ -20,6 +21,7 @@ export function TablePreview({
     previewData = [],
     loading = false,
     selectedKey = null,
+    bordered = false,
 }: TablePreviewProps): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
     const tableName = table?.name
@@ -68,7 +70,13 @@ export function TablePreview({
 
     return (
         <div ref={containerRef} className="flex-1 min-w-0">
-            <div className="mt-2 border-t border-border rounded overflow-hidden h-64">
+            <div
+                className={
+                    bordered
+                        ? 'border border-primary rounded overflow-hidden h-64'
+                        : 'border-t border-border rounded overflow-hidden h-64'
+                }
+            >
                 {table ? (
                     <LemonTable
                         size="small"

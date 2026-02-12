@@ -423,15 +423,17 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                             </div>
                         </div>
                     </div>
-                    {selectedSourceTable && (
-                        <TablePreview
-                            table={selectedSourceTable}
-                            emptyMessage="Select a source table to view preview"
-                            previewData={sourceTablePreviewData}
-                            loading={sourceTablePreviewLoading}
-                            selectedKey={selectedSourceKey}
-                        />
-                    )}
+                    <div className="pt-2">
+                        {selectedSourceTable && (
+                            <TablePreview
+                                table={selectedSourceTable}
+                                emptyMessage="Select a source table to view preview"
+                                previewData={sourceTablePreviewData}
+                                loading={sourceTablePreviewLoading}
+                                selectedKey={selectedSourceKey}
+                            />
+                        )}
+                    </div>
                 </LemonCard>
 
                 <div className="flex items-center mt-16">
@@ -505,7 +507,7 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                             </div>
                         </div>
                     </div>
-                    <div className="space-y-4">
+                    <div className="space-y-4 pt-2">
                         {selectedJoiningTable && (
                             <TablePreview
                                 table={selectedJoiningTable}
