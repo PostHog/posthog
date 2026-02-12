@@ -459,6 +459,88 @@ def get_all_ai_dimension_breakdowns(
     )
 
 
+@dataclass
+class TeamLLMSurveyMetrics:
+    """Survey metrics for a single team linked to LLM traces."""
+
+    active_survey_count: int = 0
+    response_count: int = 0
+
+
+def _combine_llm_survey_results(results_list: list) -> dict[int, TeamLLMSurveyMetrics]:
+    """
+    Combine results from split queries that return (team_id, survey_id, response_count) rows.
+
+    Deduplicates survey IDs across splits and sums response counts.
+    """
+    team_survey_responses: dict[int, dict[str, int]] = {}
+
+    for results in results_list:
+        for team_id, survey_id, response_count in results:
+            if team_id not in team_survey_responses:
+                team_survey_responses[team_id] = {}
+            surveys = team_survey_responses[team_id]
+            surveys[survey_id] = surveys.get(survey_id, 0) + (response_count or 0)
+
+    return {
+        team_id: TeamLLMSurveyMetrics(
+            active_survey_count=len(surveys),
+            response_count=sum(surveys.values()),
+        )
+        for team_id, surveys in team_survey_responses.items()
+    }
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_llm_feedback_survey_metrics(
+    begin: datetime,
+    end: datetime,
+    team_ids: list[int],
+) -> dict[int, TeamLLMSurveyMetrics]:
+    """
+    Get LLM feedback survey metrics per team.
+
+    Finds 'survey sent'/'survey shown' events with a $ai_trace_id property
+    during the period and computes:
+    - active_survey_count: distinct survey IDs seen (active surveys attached to traces)
+    - response_count: number of 'survey sent' events (submitted responses)
+
+    Groups by (team_id, survey_id) so the split query combiner can properly
+    deduplicate survey IDs across time splits.
+
+    Returns:
+        dict mapping team_id to TeamLLMSurveyMetrics
+    """
+    ai_trace_id_expr, _ = get_property_string_expr("events", "$ai_trace_id", "'$ai_trace_id'", "properties")
+
+    query_template = f"""
+        SELECT
+            team_id,
+            JSONExtractString(properties, '$survey_id') as survey_id,
+            countIf(event = 'survey sent') as response_count
+        FROM events
+        WHERE team_id IN %(team_ids)s
+          AND event IN ('survey sent', 'survey shown')
+          AND {ai_trace_id_expr} != ''
+          AND JSONExtractString(properties, '$survey_id') != ''
+          AND timestamp >= %(begin)s
+          AND timestamp < %(end)s
+        GROUP BY team_id, survey_id
+    """
+
+    return _execute_split_query(
+        begin,
+        end,
+        query_template,
+        {},
+        num_splits=2,
+        combine_results_func=_combine_llm_survey_results,
+        team_ids=team_ids,
+        query_name="Get LLM feedback survey metrics",
+    )
+
+
 # Celery task configuration
 LLM_ANALYTICS_USAGE_REPORT_TASK_KWARGS = {
     "queue": CeleryQueue.USAGE_REPORTS.value,
@@ -508,6 +590,11 @@ def _get_all_llm_analytics_reports(
     all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
     logger.info(f"Retrieved breakdowns for {len(all_breakdowns)} teams")
 
+    # Phase 4: Get LLM feedback survey metrics
+    logger.info("Querying LLM feedback survey metrics")
+    survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
+    logger.info(f"Retrieved survey metrics for {len(survey_metrics)} teams")
+
     # Get team to organization mapping
     teams = Team.objects.filter(id__in=team_ids).select_related("organization")
     team_to_org: dict[int, str] = {team.id: str(team.organization_id) for team in teams}
@@ -530,6 +617,8 @@ def _get_all_llm_analytics_reports(
                 "ai_metric_count": 0,
                 "ai_feedback_count": 0,
                 "ai_evaluation_count": 0,
+                "active_llm_feedback_survey_count": 0,
+                "llm_feedback_survey_response_count": 0,
                 "total_ai_cost_usd": 0.0,
                 "input_cost_usd": 0.0,
                 "output_cost_usd": 0.0,
@@ -576,6 +665,12 @@ def _get_all_llm_analytics_reports(
             report["total_reasoning_tokens"] += metrics.reasoning_tokens
             report["total_cache_read_tokens"] += metrics.cache_read_tokens
             report["total_cache_creation_tokens"] += metrics.cache_creation_tokens
+
+        # Add LLM feedback survey metrics
+        team_survey = survey_metrics.get(team_id)
+        if team_survey:
+            report["active_llm_feedback_survey_count"] += team_survey.active_survey_count
+            report["llm_feedback_survey_response_count"] += team_survey.response_count
 
         # Add dimension breakdowns from TeamDimensionBreakdowns dataclass
         breakdowns = all_breakdowns.get(team_id)

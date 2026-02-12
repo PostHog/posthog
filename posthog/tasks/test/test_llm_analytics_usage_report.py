@@ -19,6 +19,7 @@ from posthog.tasks.llm_analytics_usage_report import (
     _get_all_llm_analytics_reports,
     get_all_ai_dimension_breakdowns,
     get_all_ai_metrics,
+    get_llm_feedback_survey_metrics,
     get_teams_with_ai_events,
     send_llm_analytics_usage_reports,
 )
@@ -291,6 +292,65 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert breakdowns.cost_model_provider_breakdown.get("custom") == 5
         assert breakdowns.cost_model_provider_breakdown.get("anthropic") == 3
 
+    def test_get_llm_feedback_survey_metrics(self) -> None:
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period_start, period_end = get_previous_day()
+        timestamp = datetime.now(UTC) - timedelta(hours=12)
+
+        survey_id_1 = str(uuid4())
+        survey_id_2 = str(uuid4())
+        trace_id = str(uuid4())
+
+        # "survey shown" for survey 1 with ai_trace_id
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "survey shown",
+            1,
+            properties={"$survey_id": survey_id_1, "$ai_trace_id": trace_id},
+            timestamp=timestamp,
+        )
+        # "survey sent" (response) for survey 1 with ai_trace_id
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "survey sent",
+            3,
+            properties={"$survey_id": survey_id_1, "$ai_trace_id": trace_id},
+            timestamp=timestamp,
+        )
+        # "survey sent" for survey 2 with ai_trace_id
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "survey sent",
+            2,
+            properties={"$survey_id": survey_id_2, "$ai_trace_id": trace_id},
+            timestamp=timestamp,
+        )
+        # "survey sent" without ai_trace_id — should be excluded
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "survey sent",
+            10,
+            properties={"$survey_id": str(uuid4())},
+            timestamp=timestamp,
+        )
+
+        # Need AI events so get_teams_with_ai_events finds this team
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 1)
+
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+        survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
+
+        assert self.team.id in survey_metrics
+        metrics = survey_metrics[self.team.id]
+        assert metrics.active_survey_count == 2  # survey_id_1 and survey_id_2
+        assert metrics.response_count == 5  # 3 + 2 (only "survey sent" events)
+
     def test_full_llm_analytics_report(self) -> None:
         """Test the full LLM Analytics report generation."""
         # Create second organization and team
@@ -332,6 +392,15 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
                 "$ai_cost_model_source": "openrouter",
                 "$ai_cost_model_provider": "openai",
             },
+        )
+
+        # Create survey events linked to LLM traces for team 1
+        self._create_ai_events(
+            self.team,
+            distinct_id_1,
+            "survey sent",
+            4,
+            properties={"$survey_id": str(uuid4()), "$ai_trace_id": str(uuid4())},
         )
 
         # Create AI events for team 2
@@ -379,6 +448,8 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert org_1_report["cost_model_used_breakdown"] == {"openai/gpt-4o-mini": 3}
         assert org_1_report["cost_model_source_breakdown"] == {"openrouter": 3}
         assert org_1_report["cost_model_provider_breakdown"] == {"openai": 3}
+        assert org_1_report["active_llm_feedback_survey_count"] == 1
+        assert org_1_report["llm_feedback_survey_response_count"] == 4
 
         # Verify org 2 report
         org_2_report = org_reports[str(org_2.id)]
@@ -386,6 +457,8 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert org_2_report["ai_embedding_count"] == 7
         assert org_2_report["ai_generation_count"] == 2
         assert org_2_report["total_ai_cost_usd"] == pytest.approx(0.050, rel=1e-6)  # 2 * 0.025
+        assert org_2_report["active_llm_feedback_survey_count"] == 0
+        assert org_2_report["llm_feedback_survey_response_count"] == 0
 
     @patch("posthog.tasks.llm_analytics_usage_report.capture_llm_analytics_report")
     @patch("posthog.tasks.llm_analytics_usage_report.get_ph_client")
