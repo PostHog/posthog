@@ -108,7 +108,9 @@ const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }
                                 'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
                         }}
                     />
-                    <span>Not released to {formatPercentage(excludedPercentage, { precise: true })}</span>
+                    <span>
+                        Not released to {formatPercentage(excludedPercentage, { precise: true, compact: true })}
+                    </span>
                 </div>
             </div>
             <div className="h-10 rounded bg-fill-secondary border border-primary overflow-hidden flex relative">
@@ -151,9 +153,9 @@ const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }
                         key={`${variant.key}-label`}
                         className="text-xs text-secondary text-center truncate"
                         style={{ width: `${variant.previewPercentage}%` }}
-                        title={`${variant.key} (${formatPercentage(variant.previewPercentage, { precise: true })})`}
+                        title={`${variant.key} (${formatPercentage(variant.previewPercentage, { precise: true, compact: true })})`}
                     >
-                        {formatPercentage(variant.previewPercentage, { precise: true })}
+                        {formatPercentage(variant.previewPercentage, { precise: true, compact: true })}
                     </div>
                 ))}
             </div>
@@ -357,7 +359,9 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                         />
                                                     ) : (
                                                         <div className="flex items-center h-10 px-2">
-                                                            {formatPercentage(variant.rollout_percentage)}
+                                                            {formatPercentage(variant.rollout_percentage, {
+                                                                compact: true,
+                                                            })}
                                                         </div>
                                                     )}
                                                     {!disabled && variants.length > 2 && index > 0 && (
