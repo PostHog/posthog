@@ -10,7 +10,7 @@ AUTH_TYPE_CHOICES = [
 ]
 
 OAUTH_KIND_MAP: dict[str, str] = {
-    "https://mcp.linear.app": "linear",
+    "https://mcp.linear.app/mcp": "linear",
 }
 
 RECOMMENDED_SERVERS = [
@@ -23,7 +23,7 @@ RECOMMENDED_SERVERS = [
     },
     {
         "name": "Linear",
-        "url": "https://mcp.linear.app",
+        "url": "https://mcp.linear.app/mcp",
         "description": "Manage Linear issues, projects, and teams directly from your AI agent.",
         "icon_url": "",
         "auth_type": "oauth",

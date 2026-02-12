@@ -130,15 +130,15 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         kind = OAUTH_KIND_MAP.get(server.url)
         if kind:
-            return self._authorize_known_provider(kind, server_id)
+            try:
+                return self._authorize_known_provider(kind, server_id)
+            except NotImplementedError:
+                pass
 
         return self._authorize_dcr(server, server_id)
 
     def _authorize_known_provider(self, kind: str, server_id: str) -> HttpResponse:
-        try:
-            oauth_config = OauthIntegration.oauth_config_for_kind(kind)
-        except NotImplementedError:
-            return Response({"detail": f"OAuth for {kind} is not configured"}, status=status.HTTP_400_BAD_REQUEST)
+        oauth_config = OauthIntegration.oauth_config_for_kind(kind)
 
         token = secrets.token_urlsafe(32)
         state_params = urlencode(
@@ -228,7 +228,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         kind = OAUTH_KIND_MAP.get(server.url)
         if kind:
-            token_data = self._exchange_known_provider_token(kind, code)
+            try:
+                token_data = self._exchange_known_provider_token(kind, code)
+            except NotImplementedError:
+                token_data = self._exchange_dcr_token(request, server, code)
         else:
             token_data = self._exchange_dcr_token(request, server, code)
 
@@ -258,10 +261,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
     def _exchange_known_provider_token(self, kind: str, code: str) -> dict | Response:
-        try:
-            oauth_config = OauthIntegration.oauth_config_for_kind(kind)
-        except NotImplementedError:
-            return Response({"detail": f"OAuth for {kind} is not configured"}, status=status.HTTP_400_BAD_REQUEST)
+        oauth_config = OauthIntegration.oauth_config_for_kind(kind)
 
         token_response = requests.post(
             oauth_config.token_url,

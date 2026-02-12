@@ -162,7 +162,7 @@ export function McpStoreScene(): JSX.Element {
                         ]}
                         expandable={{
                             isRowExpanded: (server) => configuringServerId === server.id,
-                            expandedRowContent: (server) => <ServerConfigRow server={server} />,
+                            expandedRowRender: (server) => <ServerConfigRow server={server} />,
                             noIndent: true,
                         }}
                     />

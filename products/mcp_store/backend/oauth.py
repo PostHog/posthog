@@ -11,23 +11,8 @@ logger = structlog.get_logger(__name__)
 TIMEOUT = 10
 
 
-def discover_oauth_metadata(server_url: str) -> dict:
-    origin = f"{urlparse(server_url).scheme}://{urlparse(server_url).netloc}"
-
-    # RFC 9728: OAuth Protected Resource Metadata
-    resource_url = f"{origin}/.well-known/oauth-protected-resource"
-    resource_resp = requests.get(resource_url, timeout=TIMEOUT)
-    resource_resp.raise_for_status()
-    resource_data = resource_resp.json()
-
-    auth_servers = resource_data.get("authorization_servers", [])
-    if not auth_servers:
-        raise ValueError("No authorization_servers found in protected resource metadata")
-
-    auth_server = auth_servers[0]
-
-    # RFC 8414: OAuth Authorization Server Metadata
-    parsed = urlparse(auth_server)
+def _fetch_auth_server_metadata(auth_server_url: str) -> dict:
+    parsed = urlparse(auth_server_url)
     metadata_url = f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-authorization-server"
     if parsed.path and parsed.path != "/":
         metadata_url = f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-authorization-server{parsed.path}"
@@ -41,6 +26,29 @@ def discover_oauth_metadata(server_url: str) -> dict:
             raise ValueError(f"Missing required field '{field}' in authorization server metadata")
 
     return metadata
+
+
+def discover_oauth_metadata(server_url: str) -> dict:
+    parsed_server = urlparse(server_url)
+    origin = f"{parsed_server.scheme}://{parsed_server.netloc}"
+    path = parsed_server.path.rstrip("/")
+
+    # Step 1: Try RFC 9728 Protected Resource Metadata to find the authorization server
+    resource_url = f"{origin}/.well-known/oauth-protected-resource{path}"
+    resource_resp = requests.get(resource_url, timeout=TIMEOUT)
+    if resource_resp.status_code == 404 and path:
+        resource_resp = requests.get(f"{origin}/.well-known/oauth-protected-resource", timeout=TIMEOUT)
+
+    if resource_resp.ok:
+        resource_data = resource_resp.json()
+        auth_servers = resource_data.get("authorization_servers", [])
+        if auth_servers:
+            return _fetch_auth_server_metadata(auth_servers[0])
+
+    # Step 2: Fall back to fetching authorization server metadata directly from the origin.
+    # Many MCP servers (e.g. Linear) serve /.well-known/oauth-authorization-server
+    # without implementing the protected resource metadata endpoint.
+    return _fetch_auth_server_metadata(origin)
 
 
 def register_dcr_client(metadata: dict, redirect_uri: str) -> str:
