@@ -330,7 +330,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                             <LemonButton
                                                 icon={<IconPlay />}
                                                 size="small"
-                                                type="secondary"
+                                                type="primary"
                                                 loading={testLoading}
                                                 tooltip="Executes a real HTTP request to this step's endpoint and shows the response so you can pick which property to store."
                                                 disabledReason={
