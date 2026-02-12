@@ -32,7 +32,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { groupsModel } from '~/models/groupsModel'
-import { getFilterLabel } from '~/taxonomy/helpers'
 import {
     AnyPropertyFilter,
     FeatureFlagBucketingIdentifier,
@@ -299,12 +298,9 @@ export function FeatureFlagReleaseConditions({
                                     )}
                                     {property?.type !== PropertyFilterType.Cohort &&
                                         property?.type !== PropertyFilterType.Flag &&
-                                        getFilterLabel(
-                                            property.key,
-                                            property.type === PropertyFilterType.Person
-                                                ? TaxonomicFilterGroupType.PersonProperties
-                                                : TaxonomicFilterGroupType.EventProperties
-                                        )}
+                                        (property.type === PropertyFilterType.Person
+                                            ? 'Person property'
+                                            : 'Event property')}
                                     {property.type === PropertyFilterType.Flag &&
                                         (() => {
                                             const flagId = property.key || ''
