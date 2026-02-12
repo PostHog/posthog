@@ -17,6 +17,7 @@ from posthog.temporal.llm_analytics.trace_clustering import (
     generate_cluster_labels_activity,
     perform_clustering_compute_activity,
 )
+from posthog.temporal.llm_analytics.trace_filters import get_team_trace_filters
 from posthog.temporal.llm_analytics.trace_summarization import (
     BatchTraceSummarizationCoordinatorWorkflow,
     BatchTraceSummarizationWorkflow,
@@ -51,6 +52,8 @@ WORKFLOWS = [
 ACTIVITIES = [
     # Team discovery
     get_team_ids_for_llm_analytics,
+    # Trace filters
+    get_team_trace_filters,
     # Summarization activities
     sample_items_in_window_activity,
     fetch_and_format_activity,
