@@ -105,7 +105,7 @@ class TeamExtensionDescriptor:
         if self._model_class is None:
             module = importlib.import_module(self.module_path)
             self._model_class = getattr(module, self.class_name)
-        return self._model_class  # type: ignore[return-value]  # narrowing from type | None
+        return self._model_class
 
     def __get__(self, obj: "Team | None", objtype: type | None = None) -> Any:
         if obj is None:
