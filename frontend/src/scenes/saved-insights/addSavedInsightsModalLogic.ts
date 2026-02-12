@@ -148,10 +148,17 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             (s) => [s.rawModalFilters],
             (rawModalFilters): SavedInsightFilters => cleanFilters(rawModalFilters || {}),
         ],
-        isExperimentEnabled: [
+        hasFilteredUI: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => {
+                const variant = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS]
+                return variant === 'filtered' || variant === 'smart-filtered'
+            },
+        ],
+        hasSmartDefaults: [
             (s) => [s.featureFlags],
             (featureFlags): boolean =>
-                featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS] === 'test',
+                featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS] === 'smart-filtered',
         ],
         insightsPerPage: [() => [], (): number => INSIGHTS_PER_PAGE],
         count: [(s) => [s.insights], (insights) => insights.count],
@@ -187,8 +194,8 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         },
 
         loadUserInsightsSuccess: () => {
-            const { userInsights, user, isExperimentEnabled } = values
-            if (isExperimentEnabled && userInsights.count > 0 && user?.id) {
+            const { userInsights, user, hasSmartDefaults } = values
+            if (hasSmartDefaults && userInsights.count > 0 && user?.id) {
                 actions.setModalFilters({ createdBy: [user.id] })
             } else {
                 actions.loadInsights()
@@ -245,7 +252,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
     })),
     events(({ actions, values }) => ({
         afterMount: () => {
-            if (values.isExperimentEnabled) {
+            if (values.hasSmartDefaults) {
                 actions.loadUserInsights()
             } else {
                 actions.loadInsights()

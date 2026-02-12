@@ -26,7 +26,7 @@ interface SavedInsightsTableProps {
 }
 
 export function SavedInsightsTable({ isSelected, onToggle, isToggling }: SavedInsightsTableProps): JSX.Element {
-    const { modalPage, insights, count, insightsLoading, filters, sorting, insightsPerPage } =
+    const { modalPage, insights, count, insightsLoading, filters, sorting, insightsPerPage, hasFilteredUI } =
         useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
     const summarizeInsight = useSummarizeInsight()
@@ -109,19 +109,19 @@ export function SavedInsightsTable({ isSelected, onToggle, isToggling }: SavedIn
                 <SavedInsightsFilters
                     filters={filters}
                     setFilters={setModalFilters}
-                    quickFilters={['insightType', 'tags', 'createdBy']}
-                    borderless
+                    quickFilters={hasFilteredUI ? ['insightType', 'tags', 'createdBy'] : []}
+                    borderless={hasFilteredUI}
                 />
             </div>
             {!insightsLoading && insights.count < 1 ? (
                 <>
-                    <LemonDivider className="my-0" />
+                    {hasFilteredUI && <LemonDivider className="my-0" />}
                     <SavedInsightsModalEmptyState
                         search={filters.search}
                         hasFilters={
                             (filters.insightType !== undefined && filters.insightType !== 'All types') ||
                             (filters.createdBy !== undefined && filters.createdBy !== 'All users') ||
-                            (filters.tags !== undefined && filters.tags.length > 0)
+                            (filters.tags?.length ?? 0) > 0
                         }
                         onClearFilters={() =>
                             setModalFilters({ insightType: 'All types', createdBy: 'All users', tags: [] })

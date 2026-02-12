@@ -32,21 +32,21 @@ const createInsight = (id: number, name = 'test'): QueryBasedInsightModel =>
         query: {},
     }) as any as QueryBasedInsightModel
 
-function enableExperiment(): void {
+function enableVariant(variant: 'filtered' | 'smart-filtered'): void {
     featureFlagLogic.mount()
     featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS], {
-        [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS]: 'test',
+        [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS]: variant,
     })
 }
 
 /** Mounts the logic, captures API URLs, and waits for the initial load to complete. */
-function useSetupWithUrlCapture(options: { userInsightCount?: number; experiment?: boolean } = {}): {
+function useSetupWithUrlCapture(options: { userInsightCount?: number; variant?: 'filtered' | 'smart-filtered' } = {}): {
     logic: ReturnType<typeof addSavedInsightsModalLogic.build>
     getCapturedUrl: () => URL | null
     getCapturedUrls: () => URL[]
 } {
     const capturedUrls: URL[] = []
-    const { userInsightCount = 0, experiment = false } = options
+    const { userInsightCount = 0, variant } = options
 
     useMocks({
         get: {
@@ -61,8 +61,8 @@ function useSetupWithUrlCapture(options: { userInsightCount?: number; experiment
     })
     initKeaTests()
     window.POSTHOG_APP_CONTEXT!.current_user = MOCK_DEFAULT_USER
-    if (experiment) {
-        enableExperiment()
+    if (variant) {
+        enableVariant(variant)
     }
     const logic = addSavedInsightsModalLogic()
     logic.mount()
@@ -211,8 +211,23 @@ describe('addSavedInsightsModalLogic', () => {
             expect(logic.values.filters.createdBy).toBe('All users')
         })
 
+        it('filtered variant does not probe user insights', async () => {
+            const { logic, getCapturedUrls } = useSetupWithUrlCapture({
+                userInsightCount: 5,
+                variant: 'filtered',
+            })
+
+            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
+
+            const userCalls = getCapturedUrls().filter((u) => u.searchParams.get('user') === 'true')
+            expect(userCalls).toHaveLength(0)
+            expect(logic.values.filters.createdBy).toBe('All users')
+            expect(logic.values.hasFilteredUI).toBe(true)
+            expect(logic.values.hasSmartDefaults).toBe(false)
+        })
+
         it('probes user insight count on mount with experiment flag', async () => {
-            const { logic } = useSetupWithUrlCapture({ experiment: true })
+            const { logic } = useSetupWithUrlCapture({ variant: 'smart-filtered' })
 
             await expectLogic(logic).toDispatchActions([
                 'loadUserInsights',
@@ -223,7 +238,7 @@ describe('addSavedInsightsModalLogic', () => {
         })
 
         it('0 user insights: no createdBy default', async () => {
-            const { logic, getCapturedUrl } = useSetupWithUrlCapture({ userInsightCount: 0, experiment: true })
+            const { logic, getCapturedUrl } = useSetupWithUrlCapture({ userInsightCount: 0, variant: 'smart-filtered' })
 
             await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
 
@@ -232,7 +247,7 @@ describe('addSavedInsightsModalLogic', () => {
         })
 
         it('1+ user insights: defaults createdBy to current user', async () => {
-            const { logic, getCapturedUrl } = useSetupWithUrlCapture({ userInsightCount: 1, experiment: true })
+            const { logic, getCapturedUrl } = useSetupWithUrlCapture({ userInsightCount: 1, variant: 'smart-filtered' })
 
             await expectLogic(logic).toDispatchActions(['loadUserInsightsSuccess', 'loadInsightsSuccess'])
 
@@ -241,7 +256,7 @@ describe('addSavedInsightsModalLogic', () => {
         })
 
         it('user can clear the createdBy default', async () => {
-            const { logic, getCapturedUrl } = useSetupWithUrlCapture({ userInsightCount: 5, experiment: true })
+            const { logic, getCapturedUrl } = useSetupWithUrlCapture({ userInsightCount: 5, variant: 'smart-filtered' })
 
             await expectLogic(logic).toDispatchActions(['loadUserInsightsSuccess', 'loadInsightsSuccess'])
 
