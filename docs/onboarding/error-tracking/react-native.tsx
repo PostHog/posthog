@@ -106,7 +106,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                 <CalloutBox type="caution" title="Duplicate errors with console capture">
                     <Markdown>
                         {dedent`
-                            If you have both \`PostHogErrorBoundary\` and \`console\` capture enabled in your \`errorTracking\` config, render errors will be captured twice. This is because React logs all errors to the console by default. To avoid this, set \`console: []\` in your error tracking autocapture config when using \`PostHogErrorBoundary\`.
+                            If you have both \`PostHogErrorBoundary\` and \`console\` capture enabled in your \`errorTracking\` config, render errors will be captured twice. This is because React logs all errors to the console by default. To avoid this, set \`console: []\` on \`errorTracking.autocapture\` (for example, \`errorTracking: { autocapture: { console: [] } }\`) when using \`PostHogErrorBoundary\`.
                         `}
                     </Markdown>
                 </CalloutBox>
