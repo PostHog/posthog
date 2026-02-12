@@ -144,7 +144,7 @@ impl StoreManager {
         store_config: DeduplicationStoreConfig,
         rebalance_tracker: Arc<RebalanceTracker>,
     ) -> Self {
-        let metrics = MetricsHelper::new().with_label("service", "kafka-deduplicator");
+        let metrics = MetricsHelper::new();
 
         Self {
             stores: DashMap::new(),
