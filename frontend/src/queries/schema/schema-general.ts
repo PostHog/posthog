@@ -2914,6 +2914,7 @@ export type FileSystemIconType =
     | 'toolbar'
     | 'settings'
     | 'health'
+    | 'inbox'
     | 'sdk_doctor'
     | 'pipeline_status'
     | 'llm_evaluations'
