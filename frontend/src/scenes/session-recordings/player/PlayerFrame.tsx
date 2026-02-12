@@ -63,12 +63,11 @@ export const PlayerFrame = (): JSX.Element => {
     // logic instances recreate their replayers during pauseOnPageHidden resume
     useEffect(() => {
         if (player?.replayer?.wrapper && frameRef.current) {
-            const wrappers = frameRef.current.querySelectorAll(':scope > .replayer-wrapper')
-            for (const wrapper of wrappers) {
+            frameRef.current.querySelectorAll(':scope > .replayer-wrapper').forEach((wrapper) => {
                 if (wrapper !== player.replayer.wrapper) {
                     wrapper.remove()
                 }
-            }
+            })
         }
     }, [player])
 
