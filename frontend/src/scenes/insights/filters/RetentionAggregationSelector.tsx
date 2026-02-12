@@ -86,7 +86,7 @@ export function RetentionAggregationSelector(): JSX.Element {
     ]
 
     return (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col items-start gap-2">
             <LemonSelect
                 value={aggregationType === 'count' ? 'count' : propertyMathTypeShown}
                 onChange={(val) => {
