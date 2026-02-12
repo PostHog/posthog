@@ -478,6 +478,14 @@ describe('buildUsageLimitExceededMessage', () => {
         )
     })
 
+    it('should build message for PostHog AI with specific consequence', () => {
+        const result = buildUsageLimitExceededMessage([{ name: 'PostHog AI', subscribed: true }])
+        expect(result.title).toEqual('Usage limit exceeded')
+        expect(result.message).toEqual(
+            'You have exceeded the usage limit for PostHog AI. Please increase your billing limit or PostHog AI will be unavailable.'
+        )
+    })
+
     it('should deduplicate consequences for products with same consequence', () => {
         const result = buildUsageLimitExceededMessage([
             { name: 'Session replay', subscribed: true },
