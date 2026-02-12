@@ -1426,14 +1426,15 @@ def failhard_threadhook_context():
         if hasattr(exc, "code") and exc.code == 60 and "kafka_" in str(exc) and "posthog_test" in str(exc):
             return  # Silently ignore expected Kafka table errors
 
-        thread_exceptions.append(exc)
+            thread_exceptions.append(exc)
 
     old_hook, threading.excepthook = threading.excepthook, collect_hook
     try:
         yield old_hook
     finally:
-        assert threading.excepthook is collect_hook
+        was_ours = threading.excepthook is collect_hook
         threading.excepthook = old_hook
+        assert was_ours, "something else replaced threading.excepthook while we held it"
         if thread_exceptions:
             unique_errors = {f"{type(e).__name__}: {e}" for e in thread_exceptions}
             summary = "; ".join(sorted(unique_errors))
