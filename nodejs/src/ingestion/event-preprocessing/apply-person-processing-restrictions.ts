@@ -5,10 +5,12 @@ import { ProcessingStep } from '../pipelines/steps'
 
 function applyPersonProcessingRestrictions(
     event: PipelineEvent,
+    headers: EventHeaders,
     restrictions: ReadonlySet<RestrictionType>,
     team_person_processing_opt_out: boolean
 ): void {
-    const shouldSkipPerson = restrictions.has(RestrictionType.SKIP_PERSON_PROCESSING) || team_person_processing_opt_out
+    const hasSkipRestriction = restrictions.has(RestrictionType.SKIP_PERSON_PROCESSING)
+    const shouldSkipPerson = hasSkipRestriction || team_person_processing_opt_out
 
     if (shouldSkipPerson) {
         if (event.properties) {
@@ -16,6 +18,10 @@ function applyPersonProcessingRestrictions(
         } else {
             event.properties = { $process_person_profile: false }
         }
+    }
+
+    if (hasSkipRestriction) {
+        headers.force_disable_person_processing = true
     }
 }
 
@@ -26,7 +32,7 @@ export function createApplyPersonProcessingRestrictionsStep<
         const { event, team, headers } = input
 
         const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions(headers.token, headers)
-        applyPersonProcessingRestrictions(event, restrictions, team.person_processing_opt_out ?? false)
+        applyPersonProcessingRestrictions(event, headers, restrictions, team.person_processing_opt_out ?? false)
         return Promise.resolve(ok(input))
     }
 }
