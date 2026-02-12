@@ -27,6 +27,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
 
         expect(result).toEqual(ok(input))
         expect(input.event.properties).toEqual({ defaultProp: 'defaultValue' })
+        expect(input.headers.force_disable_person_processing).toBe(false)
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'valid-token-abc',
             expect.objectContaining({
@@ -35,7 +36,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         )
     })
 
-    it('should set $process_person_profile to false if there is a restriction', async () => {
+    it('should set $process_person_profile to false and force_disable_person_processing to true if there is a restriction', async () => {
         const event = createTestPipelineEvent()
         const team = createTestTeam({ person_processing_opt_out: false })
         const headers = createTestEventHeaders({ token: 'restricted-token-def', distinct_id: 'restricted-user-456' })
@@ -48,6 +49,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
 
         expect(result).toEqual(ok(input))
         expect(input.event.properties?.$process_person_profile).toBe(false)
+        expect(input.headers.force_disable_person_processing).toBe(true)
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'restricted-token-def',
             expect.objectContaining({
@@ -56,7 +58,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         )
     })
 
-    it('should set $process_person_profile to false if team opted out of person processing', async () => {
+    it('should set $process_person_profile to false and force_disable_person_processing to true if team opted out of person processing', async () => {
         const event = createTestPipelineEvent()
         const team = createTestTeam({ person_processing_opt_out: true })
         const headers = createTestEventHeaders({ token: 'opt-out-token-ghi', distinct_id: 'opt-out-user-789' })
@@ -66,6 +68,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
 
         expect(result).toEqual(ok(input))
         expect(input.event.properties?.$process_person_profile).toBe(false)
+        expect(input.headers.force_disable_person_processing).toBe(true)
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'opt-out-token-ghi',
             expect.objectContaining({
@@ -93,6 +96,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
             $set: { a: 1, b: 2 },
             $process_person_profile: false,
         })
+        expect(input.headers.force_disable_person_processing).toBe(true)
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'preserve-token-jkl',
             expect.objectContaining({
@@ -121,7 +125,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         )
     })
 
-    it('should set $process_person_profile to false when token is undefined and restriction is applied', async () => {
+    it('should set $process_person_profile to false and force_disable_person_processing to true when token is undefined and restriction is applied', async () => {
         const event = createTestPipelineEvent({
             properties: { customProp: 'customValue' },
         })
@@ -139,6 +143,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
             customProp: 'customValue',
             $process_person_profile: false,
         })
+        expect(input.headers.force_disable_person_processing).toBe(true)
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             undefined,
             expect.objectContaining({
@@ -230,6 +235,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
 
         expect(result).toEqual(ok(input))
         expect(input.event.properties?.$process_person_profile).toBe(false)
+        expect(input.headers.force_disable_person_processing).toBe(true)
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'valid-token-abc',
             expect.objectContaining({
@@ -256,6 +262,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
 
         expect(result).toEqual(ok(input))
         expect(input.event.properties?.$process_person_profile).toBe(false)
+        expect(input.headers.force_disable_person_processing).toBe(true)
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'valid-token-abc',
             expect.objectContaining({
@@ -282,6 +289,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
 
         expect(result).toEqual(ok(input))
         expect(input.event.properties?.$process_person_profile).toBe(false)
+        expect(input.headers.force_disable_person_processing).toBe(true)
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'valid-token-abc',
             expect.objectContaining({
