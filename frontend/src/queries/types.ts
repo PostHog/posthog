@@ -60,6 +60,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableRowsTransformer?: (rows: DataTableRow[]) => DataTableRow[]
     /** Compare filter for Web Analytics queries */
     compareFilter?: any
+    formatCompareLabel?: (label: string, dateLabel?: string) => string
     /** Base currency for formatting monetary values */
     baseCurrency?: CurrencyCode
 }
