@@ -228,13 +228,7 @@ async def fetch_session_batch_events_activity(
         session_db_data = SessionSummaryDBData(
             session_metadata=session_metadata, session_events_columns=filtered_columns, session_events=filtered_events
         )
-        summary_data = await prepare_data_for_single_session_summary(
-            session_id=session_id,
-            user_id=inputs.user_id,
-            session_db_data=session_db_data,
-            extra_summary_context=inputs.extra_summary_context,
-        )
-        if summary_data.error_msg is not None:
+        if not session_db_data.session_events or not session_db_data.session_events_columns:
             # Sessions with no events after filtering are expected skips, not failures
             temporalio.activity.logger.info(
                 f"Session {session_id} in team {inputs.team_id} has no events after filtering, skipping",
@@ -242,6 +236,12 @@ async def fetch_session_batch_events_activity(
             )
             expected_skip_session_ids.append(session_id)
             continue
+        summary_data = await prepare_data_for_single_session_summary(
+            session_id=session_id,
+            user_id=inputs.user_id,
+            session_db_data=session_db_data,
+            extra_summary_context=inputs.extra_summary_context,
+        )
         input_data = prepare_single_session_summary_input(
             session_id=session_id,
             user_id=inputs.user_id,
@@ -429,7 +429,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                     single_session_input,
                 )
         self._current_status.append(f"Watching sessions ({self._total_sessions}/{self._total_sessions})")
-        session_inputs: list[SingleSessionSummaryInputs] = []
+        successful_sessions: list[SingleSessionSummaryInputs] = []
 
         # Check summary generation results
         for session_id, (task, single_session_input) in tasks.items():
@@ -447,10 +447,10 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 )
             else:
                 # Store only successful generations
-                session_inputs.append(single_session_input)
+                successful_sessions.append(single_session_input)
 
         # Fail the workflow if too many sessions failed to summarize
-        if ceil(len(inputs) * FAILED_SESSION_SUMMARIES_MIN_RATIO) > len(session_inputs):
+        if len(successful_sessions) / len(inputs) < FAILED_SESSION_SUMMARIES_MIN_RATIO:
             session_ids = [s.session_id for s in inputs]
             exception_message = (
                 f"Too many sessions failed to summarize, when summarizing {len(inputs)} sessions "
@@ -462,7 +462,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 extra={"user_id": inputs[0].user_id, "team_id": inputs[0].team_id, "signals_type": "session-summaries"},
             )
             raise ApplicationError(exception_message)
-        return session_inputs
+        return successful_sessions
 
     async def _run_patterns_extraction_chunk(self, inputs: SessionGroupSummaryOfSummariesInputs) -> None | Exception:
         """

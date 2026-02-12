@@ -493,6 +493,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 return rawWebAnalyticsFilters.filter((filter) => {
+                    if (filter.type === PropertyFilterType.Cohort) {
+                        return true
+                    }
+
                     if (hasURLSearchParams(filter)) {
                         return true
                     }
@@ -616,6 +620,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 // Translate exact path filters to cleaned path filters
                 if (isPathCleaningEnabled) {
                     filters = filters.map((filter) => {
+                        if (filter.type === PropertyFilterType.Cohort) {
+                            return filter
+                        }
                         if (filter.operator !== PropertyOperator.Exact) {
                             return filter
                         }
@@ -2274,7 +2281,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
 
             const parsedFilters = filters ? (isWebAnalyticsPropertyFilters(filters) ? filters : []) : undefined
-            if (parsedFilters && !objectsEqual(parsedFilters, values.webAnalyticsFilters)) {
+            if (parsedFilters && !objectsEqual(parsedFilters, values.rawWebAnalyticsFilters)) {
                 actions.setWebAnalyticsFilters(parsedFilters)
             }
             if (

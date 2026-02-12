@@ -169,7 +169,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml up -d --wait
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
@@ -181,7 +181,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -237,9 +237,9 @@ jobs:
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
-            - name: Wait for Clickhouse, Redis, Kafka
+            - name: Wait for Clickhouse, Redis, Kafka, Localstack
               run: |
-                  docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev -d --wait
+                  docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
                   bin/check_kafka_clickhouse_up
 
             - name: Fetch base branch for diff
@@ -304,6 +304,8 @@ jobs:
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
                   LOG_LEVEL: info
+                  # Enable localstack integration tests for DynamoDB/KMS
+                  LOCALSTACK_ENABLED: '1'
               run: bin/turbo run test --filter=@posthog/nodejs
 
             - name: Output logs on failure

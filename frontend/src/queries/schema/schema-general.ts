@@ -13,6 +13,7 @@ import {
     CalendarHeatmapMathType,
     ChartDisplayCategory,
     ChartDisplayType,
+    CohortPropertyFilter,
     CountPerActorMathType,
     DataWarehouseSyncInterval,
     DataWarehouseViewLink,
@@ -1472,6 +1473,8 @@ export type FunnelsFilter = {
     resultCustomizations?: Record<string, ResultCustomizationByValue>
     /** Goal Lines */
     goalLines?: GoalLine[]
+    /** Display linear regression trend lines on the chart (only for historical trends viz) */
+    showTrendLines?: boolean
     /** @default false */
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
@@ -2050,7 +2053,11 @@ export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryRes
     /** Only fetch sessions that started before this timestamp (default: '+5s') */
     before?: string
 }
-export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
+export type WebAnalyticsPropertyFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | SessionPropertyFilter
+    | CohortPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 export type ActionConversionGoal = {
     actionId: integer
@@ -2877,6 +2884,7 @@ export type FileSystemIconType =
     | 'workflows'
     | 'notebook'
     | 'action'
+    | 'activity'
     | 'comment'
     | 'annotation'
     | 'event'
@@ -4722,6 +4730,7 @@ export interface SourceFieldInputConfig {
     label: string
     required: boolean
     placeholder: string
+    caption?: string
 }
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'

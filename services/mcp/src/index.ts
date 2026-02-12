@@ -1,10 +1,14 @@
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
+import { matchAuthServerRedirect } from '@/lib/routing'
 import { hash } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
+import RAW_LANDING_HTML from './static/landing.html'
+
+const PARSED_LANDING_HTML = RAW_LANDING_HTML.replace('{{DOCS_URL}}', MCP_DOCS_URL)
 
 // Helper to get the public-facing URL, respecting reverse proxy headers
 // This is needed for local development with ngrok/cloudflared where request.url
@@ -38,11 +42,26 @@ function getPublicUrl(request: Request): URL {
 // allowing us to redirect to the correct EU OAuth server.
 function getRegionFromHostname(request: Request): CloudRegion | undefined {
     const publicUrl = getPublicUrl(request)
+
     // DNS hostnames are case-insensitive, so normalize to lowercase
     if (publicUrl.hostname.toLowerCase() === 'mcp-eu.posthog.com') {
         return 'eu'
     }
+
     return undefined
+}
+
+// Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
+// Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
+function getRegionFromRequest(request: Request): CloudRegion | null {
+    const hostnameRegion = getRegionFromHostname(request)
+    if (hostnameRegion) {
+        return hostnameRegion
+    }
+
+    const url = new URL(request.url)
+    const queryRegion = url.searchParams.get('region') as CloudRegion | null
+    return queryRegion
 }
 
 // Detect error codes and return appropriate responses
@@ -67,31 +86,29 @@ const handleRequest = async (
     log.extend({ route: url.pathname })
 
     if (url.pathname === '/') {
-        return new Response(
-            `<p>Welcome to the PostHog MCP Server. For setup and usage instructions, see: <a href="${MCP_DOCS_URL}">${MCP_DOCS_URL}</a></p>`,
-            { headers: { 'content-type': 'text/html' } }
-        )
+        return new Response(PARSED_LANDING_HTML, {
+            headers: { 'content-type': 'text/html; charset=utf-8' },
+        })
     }
 
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
     // Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
-    const hostnameRegion = getRegionFromHostname(request)
-    const queryRegion = url.searchParams.get('region')
-    const effectiveRegion = hostnameRegion || queryRegion
+    const effectiveRegion = getRegionFromRequest(request)
     log.extend({ region: effectiveRegion })
 
-    // OAuth Authorization Server Metadata (RFC 8414)
-    // Claude Code fetches this endpoint directly from the MCP server URL instead of
-    // following the authorization_servers from the protected resource metadata.
-    // See: https://github.com/anthropics/claude-code/issues/2267
+    // Authorization server redirects
     //
-    // We redirect to the correct PostHog region's OAuth metadata endpoint.
-    if (url.pathname === '/.well-known/oauth-authorization-server') {
+    // MCP clients sometimes hit OAuth endpoints directly on this server instead of
+    // following URLs from the authorization server metadata. We redirect these to
+    // the correct PostHog authorization server for the user's region.
+    // See: https://github.com/anthropics/claude-code/issues/2267
+    const redirect = matchAuthServerRedirect(url.pathname)
+    if (redirect) {
         const authServer = getAuthorizationServerUrl(effectiveRegion)
-        const redirectTo = `${authServer}/.well-known/oauth-authorization-server`
+        const redirectTo = `${authServer}${url.pathname}${url.search}`
 
         log.extend({ redirectTo })
-        return Response.redirect(redirectTo, 302)
+        return Response.redirect(redirectTo, redirect.status)
     }
 
     // OAuth Protected Resource Metadata (RFC 9728)
@@ -189,8 +206,10 @@ const handleRequest = async (
     // This is set by the wizard based on user's cloud region selection during MCP setup.
     const regionParam = url.searchParams.get('region') || undefined
 
-    Object.assign(ctx.props, { features, region: regionParam })
-    log.extend({ features })
+    const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
+
+    Object.assign(ctx.props, { features, region: regionParam, version })
+    log.extend({ features, version })
 
     if (url.pathname.startsWith('/mcp')) {
         return MCP.serve('/mcp').fetch(request, env, ctx).then(errorHandler)

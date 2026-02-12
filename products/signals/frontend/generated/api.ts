@@ -10,6 +10,17 @@
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type { PaginatedSignalReportListApi, SignalReportsListParams } from './api.schemas'
 
+export const getSignalsEmitCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/signals/emit/`
+}
+
+export const signalsEmitCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSignalsEmitCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 /**
  * API for reading signal reports. Reports are auto-generated from video segment clustering.
  */

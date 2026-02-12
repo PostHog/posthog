@@ -157,6 +157,7 @@ class VercelIntegration:
     @staticmethod
     def _get_resource(resource_id: str) -> Integration:
         try:
+            # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
             return Integration.objects.get(pk=resource_id, kind=Integration.IntegrationKind.VERCEL)
         except Integration.DoesNotExist:
             raise exceptions.NotFound("Resource not found")
@@ -1197,6 +1198,7 @@ class VercelIntegration:
 
     @staticmethod
     def set_active_project(user: User, resource_id: str):
+        # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
         resource = Integration.objects.filter(pk=resource_id, kind=Integration.IntegrationKind.VERCEL).first()
         if not resource:
             raise exceptions.NotFound(f"Vercel resource not found: {resource_id}")

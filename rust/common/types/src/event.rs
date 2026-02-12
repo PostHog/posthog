@@ -299,12 +299,12 @@ pub struct ClickHouseEvent {
     pub properties: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub person_id: Option<String>,
-    // TODO: verify timestamp format
+    // ClickHouse DateTime64(6) format: "2024-01-01 12:00:00.000000"
     pub timestamp: String,
-    // TODO: verify timestamp format
     pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub captured_at: Option<String>,
     pub elements_chain: Option<String>,
-    // TODO: verify timestamp format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub person_created_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -330,6 +330,8 @@ pub struct ClickHouseEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group4_created_at: Option<String>,
     pub person_mode: PersonMode,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub historical_migration: Option<bool>,
 }
 
 impl ClickHouseEvent {

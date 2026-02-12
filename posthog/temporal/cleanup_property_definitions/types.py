@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from posthog.models.property_definition import PropertyDefinition
 
@@ -37,6 +37,7 @@ class CleanupPropertyDefinitionsInput(BaseModel):
     pattern: str
     property_type: PropertyTypeName
     dry_run: bool = False
+    batch_size: int = Field(default=5000, gt=0, le=5000)
 
     @field_validator("pattern")
     @classmethod
@@ -69,6 +70,7 @@ class DeletePostgresPropertyDefinitionsInput:
     team_id: int
     pattern: str
     property_type: int
+    batch_size: int = 5000
 
 
 @dataclass
