@@ -1,11 +1,9 @@
 import logging
 
 from django.db import models
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 
 from posthog.models import Team
-from posthog.models.team.extensions import create_extension_signal_receiver
+from posthog.models.team.extensions import register_team_extension_signal
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 
@@ -31,15 +29,8 @@ class TeamCustomerAnalyticsConfig(models.Model):
         }
 
 
-# Best-effort auto-creation on Team save. The extension is also created lazily
-# via Team.customer_analytics_config if this fails.
-_create_customer_config = create_extension_signal_receiver(
+register_team_extension_signal(
     TeamCustomerAnalyticsConfig,
     defaults={"activity_event": DEFAULT_ACTIVITY_EVENT},
     logger=logger,
 )
-
-
-@receiver(post_save, sender=Team)
-def create_team_customer_analytics_config(sender, instance, created, **kwargs):  # noqa: ARG001
-    _create_customer_config(sender, instance, created, **kwargs)

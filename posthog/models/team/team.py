@@ -46,7 +46,7 @@ from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
-from .extensions import get_or_create_team_extension
+from .extensions import TeamExtensionDescriptor
 from .team_caching import get_team_in_cache, set_team_in_cache
 
 if TYPE_CHECKING:
@@ -406,6 +406,9 @@ class Team(UUIDTClassicModel):
     conversations_enabled = models.BooleanField(null=True, blank=True)
     conversations_settings = models.JSONField(null=True, blank=True)
 
+    # Proactive tasks (#team-signals)
+    proactive_tasks_enabled = models.BooleanField(null=True, blank=True)
+
     # Surveys
     survey_config = field_access_control(models.JSONField(null=True, blank=True), "survey", "editor")
     surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "survey", "editor")
@@ -598,27 +601,17 @@ class Team(UUIDTClassicModel):
     # Before adding new fields here, read posthog/models/team/README.md
     # Domain-specific config should use a Team Extension model instead.
 
-    @cached_property
-    def revenue_analytics_config(self):
-        from .team_revenue_analytics_config import TeamRevenueAnalyticsConfig
-
-        return get_or_create_team_extension(self, TeamRevenueAnalyticsConfig)
-
-    @cached_property
-    def marketing_analytics_config(self):
-        from .team_marketing_analytics_config import TeamMarketingAnalyticsConfig
-
-        return get_or_create_team_extension(self, TeamMarketingAnalyticsConfig)
-
-    @cached_property
-    def customer_analytics_config(self):
-        from products.customer_analytics.backend.models.team_customer_analytics_config import (
-            TeamCustomerAnalyticsConfig,
-        )
-
-        return get_or_create_team_extension(
-            self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
-        )
+    revenue_analytics_config = TeamExtensionDescriptor(
+        "posthog.models.team.team_revenue_analytics_config", "TeamRevenueAnalyticsConfig"
+    )
+    marketing_analytics_config = TeamExtensionDescriptor(
+        "posthog.models.team.team_marketing_analytics_config", "TeamMarketingAnalyticsConfig"
+    )
+    customer_analytics_config = TeamExtensionDescriptor(
+        "products.customer_analytics.backend.models.team_customer_analytics_config",
+        "TeamCustomerAnalyticsConfig",
+        defaults={"activity_event": DEFAULT_ACTIVITY_EVENT},
+    )
 
     @property
     def default_modifiers(self) -> dict:

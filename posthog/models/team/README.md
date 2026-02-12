@@ -25,11 +25,9 @@ Recent additions that should have been extensions include toggles for Experiment
 import logging
 
 from django.db import models
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import create_extension_signal_receiver
+from posthog.models.team.extensions import register_team_extension_signal
 
 logger = logging.getLogger(__name__)
 
@@ -43,36 +41,22 @@ class TeamMyProductConfig(models.Model):
     config_json = models.JSONField(default=dict)
 
 
-# Best-effort auto-creation on Team save
-_create_my_product_config = create_extension_signal_receiver(
+register_team_extension_signal(
     TeamMyProductConfig,
     defaults={"some_setting": True},  # optional
     logger=logger,
 )
-
-
-@receiver(post_save, sender=Team)
-def create_team_my_product_config(sender, instance, created, **kwargs):  # noqa: ARG001
-    _create_my_product_config(sender, instance, created, **kwargs)
 ```
 
 Then run `python manage.py makemigrations`.
 
 ## Usage
 
-Access the extension directly via the helper:
+Access the extension via the helper:
 
 ```python
 from posthog.models.team.extensions import get_or_create_team_extension
 from .team_my_product_config import TeamMyProductConfig
 
 config = get_or_create_team_extension(team, TeamMyProductConfig)
-```
-
-Or use `select_related` in queries to avoid N+1:
-
-```python
-teams = Team.objects.select_related('teammyproductconfig').filter(...)
-for team in teams:
-    config = team.teammyproductconfig  # No extra query
 ```

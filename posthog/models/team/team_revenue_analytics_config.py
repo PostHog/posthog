@@ -2,13 +2,11 @@ import logging
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 
 from posthog.schema import RevenueAnalyticsEventItem, RevenueAnalyticsGoal
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import create_extension_signal_receiver
+from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.rbac.decorators import field_access_control
 
@@ -76,11 +74,4 @@ class TeamRevenueAnalyticsConfig(models.Model):
         }
 
 
-# Best-effort auto-creation on Team save. The extension is also created lazily
-# via Team.revenue_analytics_config if this fails.
-_create_revenue_config = create_extension_signal_receiver(TeamRevenueAnalyticsConfig, logger=logger)
-
-
-@receiver(post_save, sender=Team)
-def create_team_revenue_analytics_config(sender, instance, created, **kwargs):  # noqa: ARG001
-    _create_revenue_config(sender, instance, created, **kwargs)
+register_team_extension_signal(TeamRevenueAnalyticsConfig, logger=logger)

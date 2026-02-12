@@ -2,13 +2,11 @@ import logging
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 
 from posthog.schema import AttributionMode, NodeKind, SourceMap
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import create_extension_signal_receiver
+from posthog.models.team.extensions import register_team_extension_signal
 
 # ruff: noqa: DJ012  # Properties act as field accessors for mangled DB fields, so they need to come before save()
 
@@ -436,11 +434,4 @@ class TeamMarketingAnalyticsConfig(models.Model):
         }
 
 
-# Best-effort auto-creation on Team save. The extension is also created lazily
-# via Team.marketing_analytics_config if this fails.
-_create_marketing_config = create_extension_signal_receiver(TeamMarketingAnalyticsConfig, logger=logger)
-
-
-@receiver(post_save, sender=Team)
-def create_team_marketing_analytics_config(sender, instance, created, **kwargs):  # noqa: ARG001
-    _create_marketing_config(sender, instance, created, **kwargs)
+register_team_extension_signal(TeamMarketingAnalyticsConfig, logger=logger)

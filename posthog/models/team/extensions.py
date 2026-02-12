@@ -8,6 +8,7 @@ See README.md in this directory for full documentation on when and how to use ex
 """
 
 import logging
+import importlib
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from django.db import IntegrityError, models, transaction
@@ -26,14 +27,6 @@ def get_or_create_team_extension(
     """
     Thread-safe get-or-create for team extension models.
 
-    Args:
-        team: The Team instance to get/create the extension for
-        model_class: The extension model class (must have a OneToOneField to Team)
-        defaults: Optional dict of default values for creation
-
-    Returns:
-        The extension model instance
-
     Example:
         config = get_or_create_team_extension(team, TeamRevenueAnalyticsConfig)
     """
@@ -49,39 +42,24 @@ def get_or_create_team_extension(
             return model_class.objects.get(team=team)
 
 
-def create_extension_signal_receiver(
+def register_team_extension_signal(
     model_class: type[T],
     defaults: dict[str, Any] | None = None,
     logger: logging.Logger | None = None,
-):
+) -> None:
     """
-    Factory for post_save signal receivers that auto-create extension models.
+    Register a post_save signal that auto-creates the extension when a Team is created.
 
-    Creates a signal receiver function that creates the extension when a Team is created.
-    This is best-effort - the extension can also be created lazily via the Team accessor.
-
-    Args:
-        model_class: The extension model class
-        defaults: Optional dict of default values for creation
-        logger: Optional logger for warning messages (uses module logger if not provided)
-
-    Returns:
-        A signal receiver function suitable for use with @receiver(post_save, sender=Team)
+    Best-effort: the extension is also created lazily via get_or_create_team_extension
+    if this fails.
 
     Example:
-        from django.db.models.signals import post_save
-        from django.dispatch import receiver
-        from posthog.models.team import Team
-
-        @receiver(post_save, sender=Team)
-        def create_my_config(sender, instance, created, **kwargs):
-            return _create_my_config(sender, instance, created, **kwargs)
-
-        _create_my_config = create_extension_signal_receiver(
-            MyTeamConfig,
-            defaults={"some_field": "default_value"},
-        )
+        register_team_extension_signal(TeamMyProductConfig, logger=logger)
     """
+    from django.db.models.signals import post_save
+
+    from posthog.models.team.team import Team
+
     defaults = defaults or {}
     _logger = logger or logging.getLogger(__name__)
     model_name = model_class.__name__
@@ -94,4 +72,50 @@ def create_extension_signal_receiver(
         except Exception as e:
             _logger.warning(f"Error creating {model_name}: {e}")
 
-    return receiver_func
+    post_save.connect(receiver_func, sender=Team, dispatch_uid=f"create_{model_name.lower()}")
+
+
+class TeamExtensionDescriptor:
+    """
+    Descriptor for lazy-loading Team extension models.
+
+    Handles lazy import (to avoid circular imports), get-or-create, and per-instance
+    caching. Non-data descriptor so the cached value in __dict__ shadows subsequent
+    lookups (same semantics as cached_property).
+
+    Example:
+        class Team(models.Model):
+            revenue_analytics_config = TeamExtensionDescriptor(
+                "posthog.models.team.team_revenue_analytics_config",
+                "TeamRevenueAnalyticsConfig",
+            )
+    """
+
+    def __init__(
+        self,
+        module_path: str,
+        class_name: str,
+        defaults: dict[str, Any] | None = None,
+    ):
+        self.module_path = module_path
+        self.class_name = class_name
+        self.defaults = defaults
+        self._model_class: type | None = None
+        self.attr_name = ""
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self.attr_name = name
+
+    @property
+    def model_class(self) -> type:
+        if self._model_class is None:
+            module = importlib.import_module(self.module_path)
+            self._model_class = getattr(module, self.class_name)
+        return self._model_class
+
+    def __get__(self, obj: "Team | None", objtype: type | None = None):
+        if obj is None:
+            return self
+        value = get_or_create_team_extension(obj, self.model_class, self.defaults)
+        obj.__dict__[self.attr_name] = value
+        return value
