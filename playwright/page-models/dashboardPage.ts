@@ -35,8 +35,9 @@ export class DashboardPage {
 
     async addInsightToNewDashboard(): Promise<void> {
         await this.page.getByRole('button', { name: 'Add insight' }).first().click()
-        await this.page.locator('.LemonModal .LemonTable tbody tr').first().click()
-        await this.page.getByRole('button', { name: 'Close' }).click()
+        await this.page.getByTestId('quick-create-trends').click()
+        // Quick-create navigates to insight page, saving redirects back to dashboard
+        await this.page.getByTestId('insight-save-button').click({ timeout: 30000 })
     }
 
     async addToNewDashboardFromInsightPage(): Promise<void> {
