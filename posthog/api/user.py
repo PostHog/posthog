@@ -814,6 +814,11 @@ class ToolbarOAuthExchangeSerializer(serializers.Serializer):
 @session_auth_required
 @require_http_methods(["POST"])
 def toolbar_oauth_start(request):
+    """
+    Start browser OAuth for toolbar.
+
+    Returns the `/oauth/authorize` URL with PKCE params and signed state.
+    """
     if not settings.TOOLBAR_OAUTH_ENABLED:
         return HttpResponse(status=404)
 
@@ -826,6 +831,8 @@ def toolbar_oauth_start(request):
 
     try:
         app_url = normalize_and_validate_app_url(team, serializer.validated_data["app_url"])
+        # Derive callbacks from the current PostHog origin so OAuth stays
+        # deployment-local (no extra per-tenant redirect config step).
         base_url = request.build_absolute_uri("/").rstrip("/")
 
         oauth_app = get_or_create_toolbar_oauth_application(base_url=base_url, user=request.user)
@@ -859,6 +866,11 @@ def toolbar_oauth_start(request):
 @session_auth_required
 @require_http_methods(["POST"])
 def toolbar_oauth_exchange(request):
+    """
+    Complete toolbar OAuth by exchanging code for tokens server-side.
+
+    State is validated and consumed before exchanging the authorization code.
+    """
     if not settings.TOOLBAR_OAUTH_ENABLED:
         return HttpResponse(status=404)
 
@@ -880,6 +892,7 @@ def toolbar_oauth_exchange(request):
         base_url = request.build_absolute_uri("/").rstrip("/")
         oauth_app = get_or_create_toolbar_oauth_application(base_url=base_url, user=request.user)
 
+        # Keep the code exchange on the backend so the popup never handles tokens.
         token_payload = exchange_code_for_tokens(
             base_url=base_url,
             client_id=oauth_app.client_id,
@@ -903,6 +916,12 @@ def toolbar_oauth_exchange(request):
 
 @session_auth_required
 def toolbar_oauth_callback(request):
+    """
+    OAuth popup bridge endpoint.
+
+    This page only relays `code/state` (or OAuth error) to the opener window
+    via `postMessage`; token exchange stays server-side in toolbar_oauth_exchange.
+    """
     payload = {
         "type": "toolbar_oauth_result",
         "code": request.GET.get("code"),
