@@ -1,4 +1,5 @@
 import re
+import hmac
 import logging
 import functools
 from datetime import timedelta
@@ -6,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 from urllib.parse import parse_qs, urlparse, urlsplit
 
 from django.apps import apps
+from django.conf import settings
 from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
@@ -24,6 +26,7 @@ from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.helpers.two_factor_session import enforce_two_factor
+from posthog.internal_api_auth import InternalAPIUser
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
@@ -608,6 +611,46 @@ class WidgetAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed("Invalid token or conversations not enabled")
 
         return (None, team)
+
+
+class InternalAPIAuthentication(authentication.BaseAuthentication):
+    """DRF authentication backend for internal API calls."""
+
+    keyword = "InternalApiSecret"
+    HEADER_NAME = "X-Internal-Api-Secret"
+
+    def authenticate(self, request: Request) -> tuple[Any, Any]:
+        provided_secret = request.headers.get(self.HEADER_NAME)
+        configured_secret = settings.INTERNAL_API_SECRET
+
+        if not configured_secret:
+            logger.error(
+                "Internal API authentication attempted without configured secret",
+                path=request.path,
+                method=request.method,
+            )
+            raise AuthenticationFailed("Internal API authentication is not configured.")
+
+        if not provided_secret:
+            logger.warning(
+                "Internal API request missing authentication header",
+                path=request.path,
+                method=request.method,
+            )
+            raise AuthenticationFailed("Missing internal API authentication header.")
+
+        if not hmac.compare_digest(configured_secret, provided_secret):
+            logger.warning(
+                "Internal API request with invalid secret",
+                path=request.path,
+                method=request.method,
+            )
+            raise AuthenticationFailed("Invalid internal API authentication.")
+
+        return (InternalAPIUser(), None)
+
+    def authenticate_header(self, request: HttpRequest) -> str:
+        return self.keyword
 
 
 def session_auth_required(endpoint):
