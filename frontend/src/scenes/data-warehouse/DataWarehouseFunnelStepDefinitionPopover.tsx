@@ -2,7 +2,8 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useMemo, useState } from 'react'
 
-import { LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { IconCheckCircle } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
@@ -13,10 +14,13 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
+import { Link } from 'lib/lemon-ui/Link'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { urls } from 'scenes/urls'
 
 import { hogqlQuery } from '~/queries/query'
+import { DataWarehouseNode, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 import { TablePreview } from './TablePreview'
@@ -24,6 +28,8 @@ import { DataWarehouseTableForInsight } from './types'
 
 const TIMESTAMP_FIELD_FALLBACKS = ['created', 'created_at', 'createdAt', 'updated', 'updated_at', 'updatedAt']
 const HOGQL_OPTION = { label: 'SQL Expression', value: '' }
+const AGGREGATION_MATCH_SAMPLE_LIMIT = 10000
+const SIMPLE_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 type FunnelFieldKey = 'distinct_id_field' | 'timestamp_field' | 'id_field'
 type PreviewExpressionColumn = {
@@ -31,6 +37,10 @@ type PreviewExpressionColumn = {
     expression: string
     alias: string
     label: string
+}
+type AdjacentDataWarehouseStep = {
+    direction: 'previous' | 'next'
+    step: DataWarehouseNode
 }
 
 const EDITABLE_FIELD_MAP: Record<
@@ -96,6 +106,24 @@ function isUsingHogQLExpression(fieldValue: string | undefined, table: DataWareh
     return !Object.values(table.fields).some((field) => field.name === fieldValue)
 }
 
+function resolveFieldExpression(fieldValue: string | undefined, tableFieldNames?: Set<string>): string | null {
+    const trimmedValue = fieldValue?.trim()
+    if (!trimmedValue) {
+        return null
+    }
+
+    if ((tableFieldNames && tableFieldNames.has(trimmedValue)) || SIMPLE_IDENTIFIER_REGEX.test(trimmedValue)) {
+        return String(hogql`${hogql.identifier(trimmedValue)}`)
+    }
+
+    return String(hogql`${hogql.raw(trimmedValue)}`)
+}
+
+function parseNumericResult(value: unknown): number {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : 0
+}
+
 export function DataWarehouseFunnelStepDefinitionPopover({
     item,
     group,
@@ -114,10 +142,18 @@ export function DataWarehouseFunnelStepDefinitionPopover({
     const [previewData, setPreviewData] = useState<Record<string, any>[]>([])
     const [previewLoading, setPreviewLoading] = useState(false)
     const [activeFieldKey, setActiveFieldKey] = useState<FunnelFieldKey>('distinct_id_field')
+    const [validationLoading, setValidationLoading] = useState(false)
+    const [validationErrors, setValidationErrors] = useState<string[]>([])
+    const [validationWarnings, setValidationWarnings] = useState<string[]>([])
+    const [validationSucceeded, setValidationSucceeded] = useState(false)
+    const [validationHasRun, setValidationHasRun] = useState(false)
 
     const table = item as DataWarehouseTableForInsight
+    const tableName = table.name
     const dataWarehouseLocalDefinition = localDefinition as Partial<DataWarehouseTableForInsight>
+    const configuredIdField = getConfiguredFieldValue(dataWarehouseLocalDefinition, 'id_field')
     const configuredTimestampField = getConfiguredFieldValue(dataWarehouseLocalDefinition, 'timestamp_field')
+    const configuredAggregationTargetField = getConfiguredFieldValue(dataWarehouseLocalDefinition, 'distinct_id_field')
     const timestampField = useMemo(
         () => resolveTimestampField(table, configuredTimestampField),
         [configuredTimestampField, table]
@@ -206,9 +242,181 @@ export function DataWarehouseFunnelStepDefinitionPopover({
         setLocalDefinition(selectedItemMeta)
     }, [selectedItemMeta, setLocalDefinition, table.name])
 
-    const tableName = table.name
     const dateFrom = insightData?.resolved_date_range?.date_from ?? querySource?.dateRange?.date_from
     const dateTo = insightData?.resolved_date_range?.date_to ?? querySource?.dateRange?.date_to
+    const isGroupAggregationTarget =
+        querySource?.aggregation_group_type_index !== undefined && querySource?.aggregation_group_type_index !== null
+    const isCustomAggregationTarget =
+        Boolean(querySource?.funnelsFilter?.funnelAggregateByHogQL) && !isGroupAggregationTarget
+    const aggregationTargetIdLabel = isGroupAggregationTarget ? 'group ID' : 'person ID'
+    const selectedStepOrder = useMemo(() => {
+        const selectedOrder = (selectedItemMeta as { order?: unknown } | null)?.order
+        if (typeof selectedOrder === 'number') {
+            return selectedOrder
+        }
+        if (!querySource) {
+            return null
+        }
+        const fallbackOrder = querySource.series.findIndex(
+            (seriesItem) => seriesItem.kind === NodeKind.DataWarehouseNode && seriesItem.table_name === tableName
+        )
+        return fallbackOrder >= 0 ? fallbackOrder : null
+    }, [querySource, selectedItemMeta, tableName])
+    const adjacentDataWarehouseSteps = useMemo<AdjacentDataWarehouseStep[]>(() => {
+        if (!querySource || selectedStepOrder === null) {
+            return []
+        }
+
+        const adjacentSteps: AdjacentDataWarehouseStep[] = []
+        const previousStep = querySource.series[selectedStepOrder - 1]
+        if (previousStep?.kind === NodeKind.DataWarehouseNode) {
+            adjacentSteps.push({
+                direction: 'previous',
+                step: previousStep,
+            })
+        }
+
+        const nextStep = querySource.series[selectedStepOrder + 1]
+        if (nextStep?.kind === NodeKind.DataWarehouseNode) {
+            adjacentSteps.push({
+                direction: 'next',
+                step: nextStep,
+            })
+        }
+
+        return adjacentSteps
+    }, [querySource, selectedStepOrder])
+    const requiredMappingsConfigured = dataWarehousePopoverFields.every(
+        ({ key, optional }: DataWarehousePopoverField) =>
+            optional ||
+            (key in dataWarehouseLocalDefinition &&
+                Boolean((dataWarehouseLocalDefinition as Record<string, unknown>)[key]))
+    )
+
+    useEffect(() => {
+        setValidationErrors([])
+        setValidationWarnings([])
+        setValidationSucceeded(false)
+        setValidationHasRun(false)
+    }, [configuredAggregationTargetField, configuredIdField, configuredTimestampField, tableName])
+
+    const validateConfiguredFields = async (): Promise<void> => {
+        setValidationHasRun(true)
+        setValidationLoading(true)
+        setValidationErrors([])
+        setValidationWarnings([])
+        setValidationSucceeded(false)
+
+        const errors: string[] = []
+        const warnings: string[] = []
+
+        const idExpression = resolveFieldExpression(configuredIdField, tableFieldNames)
+        const timestampExpression = resolveFieldExpression(configuredTimestampField, tableFieldNames)
+        const aggregationTargetExpression = resolveFieldExpression(configuredAggregationTargetField, tableFieldNames)
+
+        if (!idExpression) {
+            errors.push('Unique ID is required.')
+        }
+        if (!timestampExpression) {
+            errors.push('Timestamp is required.')
+        }
+        if (!aggregationTargetExpression) {
+            errors.push('Aggregation target is required.')
+        }
+
+        if (errors.length > 0) {
+            setValidationErrors(errors)
+            setValidationLoading(false)
+            return
+        }
+
+        try {
+            const validationResponse = await hogqlQuery(hogql`
+                SELECT
+                    countIf(id_value IS NULL) AS id_null_count,
+                    (countIf(id_value IS NOT NULL) - uniqExactIf(id_value, id_value IS NOT NULL)) AS id_duplicate_count,
+                    countIf(timestamp_value IS NULL) AS timestamp_null_count,
+                    countIf(timestamp_value IS NOT NULL AND parseDateTimeBestEffortOrNull(toString(timestamp_value)) IS NULL) AS timestamp_invalid_count,
+                    countIf(aggregation_target_value IS NULL) AS aggregation_target_null_count
+                FROM (
+                    SELECT
+                        ${hogql.raw(idExpression)} AS id_value,
+                        ${hogql.raw(timestampExpression)} AS timestamp_value,
+                        ${hogql.raw(aggregationTargetExpression)} AS aggregation_target_value
+                    FROM ${hogql.identifier(tableName)}
+                ) AS validation_rows
+            `)
+            const validationRow = validationResponse.results?.[0] ?? []
+            const idNullCount = parseNumericResult(validationRow[0])
+            const idDuplicateCount = parseNumericResult(validationRow[1])
+            const timestampNullCount = parseNumericResult(validationRow[2])
+            const timestampInvalidCount = parseNumericResult(validationRow[3])
+            const aggregationTargetNullCount = parseNumericResult(validationRow[4])
+
+            if (idNullCount > 0) {
+                errors.push(`Unique ID has ${idNullCount.toLocaleString()} null values.`)
+            }
+            if (idDuplicateCount > 0) {
+                errors.push(`Unique ID has ${idDuplicateCount.toLocaleString()} duplicate values.`)
+            }
+            if (timestampNullCount > 0) {
+                errors.push(`Timestamp has ${timestampNullCount.toLocaleString()} null values.`)
+            }
+            if (timestampInvalidCount > 0) {
+                errors.push(
+                    `Timestamp has ${timestampInvalidCount.toLocaleString()} values that are not valid timestamps.`
+                )
+            }
+            if (aggregationTargetNullCount > 0) {
+                errors.push(`Aggregation target has ${aggregationTargetNullCount.toLocaleString()} null values.`)
+            }
+
+            for (const { direction, step } of adjacentDataWarehouseSteps) {
+                const adjacentExpression = resolveFieldExpression(step.distinct_id_field)
+                if (!adjacentExpression) {
+                    continue
+                }
+
+                const overlapResponse = await hogqlQuery(hogql`
+                    SELECT count() AS overlap_count
+                    FROM (
+                        SELECT DISTINCT aggregation_target_value
+                        FROM (
+                            SELECT ${hogql.raw(aggregationTargetExpression)} AS aggregation_target_value
+                            FROM ${hogql.identifier(tableName)}
+                        ) AS current_step
+                        WHERE aggregation_target_value IS NOT NULL
+                        LIMIT ${AGGREGATION_MATCH_SAMPLE_LIMIT}
+                    ) AS current_targets
+                    ANY INNER JOIN (
+                        SELECT DISTINCT adjacent_target_value
+                        FROM (
+                            SELECT ${hogql.raw(adjacentExpression)} AS adjacent_target_value
+                            FROM ${hogql.identifier(step.table_name)}
+                        ) AS adjacent_step
+                        WHERE adjacent_target_value IS NOT NULL
+                        LIMIT ${AGGREGATION_MATCH_SAMPLE_LIMIT}
+                    ) AS adjacent_targets
+                    ON current_targets.aggregation_target_value = adjacent_targets.adjacent_target_value
+                `)
+                const overlapCount = parseNumericResult(overlapResponse.results?.[0]?.[0])
+
+                if (overlapCount === 0) {
+                    warnings.push(
+                        `No aggregation target overlap found with the ${direction} step (${step.table_name}) in a ${AGGREGATION_MATCH_SAMPLE_LIMIT.toLocaleString()}-value sample. There might not be data for this funnel yet.`
+                    )
+                }
+            }
+        } catch (error) {
+            posthog.captureException(error)
+            errors.push('Validation failed. Check your field mappings and SQL expressions, then try again.')
+        } finally {
+            setValidationErrors(errors)
+            setValidationWarnings(warnings)
+            setValidationSucceeded(errors.length === 0)
+            setValidationLoading(false)
+        }
+    }
 
     useEffect(() => {
         let isCanceled = false
@@ -316,20 +524,84 @@ export function DataWarehouseFunnelStepDefinitionPopover({
                                 }
                             />
                         )}
-                        <div className="flex justify-end">
+                        {activeFieldKey === 'distinct_id_field' && (
+                            <div className="text-secondary text-xs">
+                                {isCustomAggregationTarget ? (
+                                    <span>
+                                        Current aggregation target is custom. The selected field needs to match the
+                                        custom aggregation value.
+                                    </span>
+                                ) : (
+                                    <>
+                                        <div>
+                                            Current aggregation target is set to{' '}
+                                            <b>{isGroupAggregationTarget ? 'group' : 'person'}</b>, so the selected
+                                            field needs to match the <b>{aggregationTargetIdLabel}</b>.
+                                        </div>
+                                        <div className="mt-1">
+                                            If this field is not directly available on the table, add it by joining in{' '}
+                                            <Link to={urls.sqlEditor()} target="_blank">
+                                                SQL editor
+                                            </Link>{' '}
+                                            using fields like <code>distinct_id</code> or <code>email</code>.{' '}
+                                            <Link
+                                                to="https://posthog.com/docs/data-warehouse/views#joining-tables"
+                                                target="_blank"
+                                            >
+                                                For more help
+                                            </Link>
+                                            .
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+                        {validationErrors.length > 0 && (
+                            <LemonBanner
+                                type="error"
+                                children={
+                                    <ul className="mb-0 pl-4 list-disc">
+                                        {validationErrors.map((errorMessage) => (
+                                            <li key={errorMessage}>{errorMessage}</li>
+                                        ))}
+                                    </ul>
+                                }
+                            />
+                        )}
+                        {validationWarnings.length > 0 && (
+                            <LemonBanner
+                                type="warning"
+                                children={
+                                    <ul className="mb-0 pl-4 list-disc">
+                                        {validationWarnings.map((warningMessage) => (
+                                            <li key={warningMessage}>{warningMessage}</li>
+                                        ))}
+                                    </ul>
+                                }
+                            />
+                        )}
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                                <LemonButton
+                                    type="secondary"
+                                    loading={validationLoading}
+                                    onClick={validateConfiguredFields}
+                                >
+                                    Validate
+                                </LemonButton>
+                                {validationHasRun && validationSucceeded && !validationLoading && (
+                                    <span className="inline-flex items-center gap-1 text-success text-xs font-medium">
+                                        <IconCheckCircle />
+                                        Validation passed
+                                    </span>
+                                )}
+                            </div>
                             <LemonButton
                                 onClick={() => {
                                     selectItem(group, selectedItemValue, dataWarehouseLocalDefinition, undefined)
                                 }}
                                 disabledReason={
-                                    dataWarehousePopoverFields.every(
-                                        ({ key, optional }: DataWarehousePopoverField) =>
-                                            optional ||
-                                            (key in dataWarehouseLocalDefinition &&
-                                                Boolean((dataWarehouseLocalDefinition as Record<string, unknown>)[key]))
-                                    )
-                                        ? null
-                                        : 'All required field mappings must be specified'
+                                    requiredMappingsConfigured ? null : 'All required field mappings must be specified'
                                 }
                                 type="primary"
                             >
