@@ -26,4 +26,5 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig]):
             iconPath="/static/services/pinterest.com.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
+            featureFlag="pinterest-ads-source",
         )
