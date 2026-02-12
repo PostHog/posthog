@@ -173,26 +173,25 @@ def _reason_from_invalid_grant(request: HttpRequest, error_description: str | No
     if "code verifier" in description or "code_challenge" in description:
         return "invalid_pkce"
 
+    def _has_any_term(terms: list[str]) -> bool:
+        return any(term in description for term in terms)
+
     grant_type = request.POST.get("grant_type")
     if grant_type == "authorization_code":
         code_value = request.POST.get("code")
         if not code_value:
             return "missing_code"
-        grant = OAuthGrant.objects.filter(code=code_value).first()
-        if grant is None:
-            return "replay"
-        if grant.expires and grant.expires < timezone.now():
+        if _has_any_term(["expired", "expires"]):
             return "expired_code"
+        if _has_any_term(["already used", "has been used", "reused", "revoked", "invalidated"]):
+            return "replay"
         return "invalid_grant"
 
     if grant_type == "refresh_token":
         refresh_token_value = request.POST.get("refresh_token")
         if not refresh_token_value:
             return "missing_refresh_token"
-        refresh_token = OAuthRefreshToken.objects.filter(token=refresh_token_value).first()
-        if refresh_token is None:
-            return "invalid_refresh_token"
-        if refresh_token.revoked is not None:
+        if _has_any_term(["already used", "has been used", "reused", "revoked", "invalidated"]):
             return "replay"
         return "invalid_refresh_token"
 
