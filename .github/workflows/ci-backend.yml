@@ -820,10 +820,11 @@ jobs:
 
             - name: Wait for Docker services
               shell: bash
-              # Only wait for core services here. Temporal boots slowly (auto-setup runs
-              # DB migrations) and was already started in background above — it will be
-              # ready by the time temporal tests run.
-              run: docker compose -f docker-compose.dev.yml up -d --wait
+              # Read-only health poll for core services only. Can't use --wait here
+              # because it blocks on ALL project containers including temporal, which
+              # boots slowly (auto-setup runs DB migrations). Temporal was started in
+              # background above and will be ready by the time temporal tests run.
+              run: bin/wait-for-docker
 
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
