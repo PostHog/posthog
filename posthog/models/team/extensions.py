@@ -32,14 +32,14 @@ def get_or_create_team_extension(
     """
     defaults = defaults or {}
     try:
-        return model_class.objects.get(team=team)
-    except model_class.DoesNotExist:
+        return model_class.objects.get(team=team)  # type: ignore[attr-defined]
+    except model_class.DoesNotExist:  # type: ignore[attr-defined]
         try:
             with transaction.atomic():
-                return model_class.objects.create(team=team, **defaults)
+                return model_class.objects.create(team=team, **defaults)  # type: ignore[attr-defined]
         except IntegrityError:
             # Race condition: another thread created it first
-            return model_class.objects.get(team=team)
+            return model_class.objects.get(team=team)  # type: ignore[attr-defined]
 
 
 def register_team_extension_signal(
@@ -68,7 +68,7 @@ def register_team_extension_signal(
         if not created:
             return
         try:
-            model_class.objects.get_or_create(team=instance, defaults=defaults)
+            model_class.objects.get_or_create(team=instance, defaults=defaults)  # type: ignore[attr-defined]
         except Exception as e:
             _logger.warning(f"Error creating {model_name}: {e}")
 
@@ -107,15 +107,15 @@ class TeamExtensionDescriptor:
         self.attr_name = name
 
     @property
-    def model_class(self) -> type:
+    def model_class(self) -> type[models.Model]:
         if self._model_class is None:
             module = importlib.import_module(self.module_path)
             self._model_class = getattr(module, self.class_name)
-        return self._model_class
+        return self._model_class  # type: ignore[return-value]
 
-    def __get__(self, obj: "Team | None", objtype: type | None = None):
+    def __get__(self, obj: "Team | None", objtype: type | None = None) -> "TeamExtensionDescriptor | models.Model":
         if obj is None:
             return self
-        value = get_or_create_team_extension(obj, self.model_class, self.defaults)
+        value: models.Model = get_or_create_team_extension(obj, self.model_class, self.defaults)
         obj.__dict__[self.attr_name] = value
         return value
