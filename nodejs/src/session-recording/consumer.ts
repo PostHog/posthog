@@ -297,7 +297,7 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
-        // Apply event procssessing pipeline steps first
+        // Apply event processing pipeline steps first
         const messagesToProcess = await instrumentFn(
             `recordingingesterv2.handleEachBatch.runPipeline`,
             async () => await runSessionReplayPipeline(this.sessionReplayPipeline, messages)
