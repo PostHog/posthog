@@ -303,22 +303,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         ).update(is_calculating=False)
 
         if updated_count > 0:
-            logger.info(
-                "cohort_calculation_state_reset",
-                cohort_id=self.pk,
-                completed_version=completed_version,
-                was_calculating=True,
-            )
-        else:
             # Check current state for logging
             self.refresh_from_db()
-            logger.info(
-                "cohort_calculation_state_not_reset",
-                cohort_id=self.pk,
-                completed_version=completed_version,
-                current_pending_version=self.pending_version,
-                current_is_calculating=self.is_calculating,
-            )
 
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople

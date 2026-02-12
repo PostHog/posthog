@@ -287,13 +287,6 @@ def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
     cohort.save(update_fields=update_fields)
     cohort.refresh_from_db()
 
-    logger.info(
-        "cohort_calculation_prepared",
-        cohort_id=cohort.pk,
-        new_pending_version=cohort.pending_version,
-        was_calculating=cohort.is_calculating,
-    )
-
 
 def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional[User]) -> None:
     """Helper function to enqueue a single cohort for calculation"""
