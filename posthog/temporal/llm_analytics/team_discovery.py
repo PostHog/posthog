@@ -136,7 +136,7 @@ async def get_team_ids_for_llm_analytics(inputs: TeamDiscoveryInput) -> list[int
     On failure, falls back to guaranteed teams only.
     """
     async with Heartbeater():
-        config = _get_llma_workflow_config()
+        config = await asyncio.to_thread(_get_llma_workflow_config)
         guaranteed = set(config.guaranteed_team_ids)
 
         # FF payload is the source of truth, intentionally overriding
