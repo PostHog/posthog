@@ -111,11 +111,11 @@ class TeamExtensionDescriptor:
         if self._model_class is None:
             module = importlib.import_module(self.module_path)
             self._model_class = getattr(module, self.class_name)
-        return self._model_class  # type: ignore[return-value]
+        return self._model_class  # type: ignore[return-value]  # narrowing from type | None
 
-    def __get__(self, obj: "Team | None", objtype: type | None = None) -> "TeamExtensionDescriptor | models.Model":
+    def __get__(self, obj: "Team | None", objtype: type | None = None) -> Any:
         if obj is None:
             return self
-        value: models.Model = get_or_create_team_extension(obj, self.model_class, self.defaults)
+        value = get_or_create_team_extension(obj, self.model_class, self.defaults)
         obj.__dict__[self.attr_name] = value
         return value
