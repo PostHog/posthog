@@ -928,43 +928,46 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert response.json()["status"] == DEFAULT_STATE
 
     def test_patches_status_on_enabled_update(self, *args):
+        internal_api_secret = "test-internal-secret"
+        internal_api_headers = {"x-internal-api-secret": internal_api_secret}
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
             with patch("posthog.plugins.plugin_server_api.requests.patch") as mock_patch:
-                mock_get.return_value.status_code = status.HTTP_200_OK
-                mock_get.return_value.json.return_value = {
-                    "state": HogFunctionState.DISABLED.value,
-                    "tokens": 0,
-                }
+                with patch("posthog.plugins.plugin_server_api.INTERNAL_API_SECRET", internal_api_secret):
+                    mock_get.return_value.status_code = status.HTTP_200_OK
+                    mock_get.return_value.json.return_value = {
+                        "state": HogFunctionState.DISABLED.value,
+                        "tokens": 0,
+                    }
 
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/hog_functions/",
-                    data={
-                        **EXAMPLE_FULL,
-                        "name": "Fetch URL",
-                    },
-                )
-                id = response.json()["id"]
+                    response = self.client.post(
+                        f"/api/projects/{self.team.id}/hog_functions/",
+                        data={
+                            **EXAMPLE_FULL,
+                            "name": "Fetch URL",
+                        },
+                    )
+                    id = response.json()["id"]
 
-                assert response.json()["status"]["state"] == HogFunctionState.DISABLED.value
+                    assert response.json()["status"]["state"] == HogFunctionState.DISABLED.value
 
-                self.client.patch(
-                    f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
-                    data={"enabled": False},
-                )
+                    self.client.patch(
+                        f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+                        data={"enabled": False},
+                    )
 
-                assert mock_patch.call_count == 0
+                    assert mock_patch.call_count == 0
 
-                self.client.patch(
-                    f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
-                    data={"enabled": True},
-                )
+                    self.client.patch(
+                        f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+                        data={"enabled": True},
+                    )
 
-                assert mock_patch.call_count == 1
-                mock_patch.assert_called_once_with(
-                    f"http://localhost:6738/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/status",
-                    headers={},
-                    json={"state": 2},
-                )
+                    assert mock_patch.call_count == 1
+                    mock_patch.assert_called_once_with(
+                        f"http://localhost:6738/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/status",
+                        headers=internal_api_headers,
+                        json={"state": 2},
+                    )
 
         expected_activities = [
             {
