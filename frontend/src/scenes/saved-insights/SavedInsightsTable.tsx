@@ -10,7 +10,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { SavedInsightsModalEmptyState } from 'scenes/insights/EmptyStates'
+import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 
@@ -112,6 +112,12 @@ export function SavedInsightsTable({ isSelected, onToggle, isToggling }: SavedIn
             : []),
     ]
 
+    const hasNonSearchFilters =
+        (filters.insightType !== undefined && filters.insightType !== 'All types') ||
+        (filters.createdBy !== undefined && filters.createdBy !== 'All users') ||
+        (filters.tags?.length ?? 0) > 0
+    const hasFilters = !!filters.search || hasNonSearchFilters
+
     return (
         <div className="saved-insights">
             <div className="mb-3">
@@ -125,17 +131,15 @@ export function SavedInsightsTable({ isSelected, onToggle, isToggling }: SavedIn
             {hasLoadedInsights && !insightsLoading && insights.count < 1 ? (
                 <>
                     {hasFilteredUI && <LemonDivider className="my-0" />}
-                    <SavedInsightsModalEmptyState
-                        search={filters.search}
-                        hasFilters={
-                            (filters.insightType !== undefined && filters.insightType !== 'All types') ||
-                            (filters.createdBy !== undefined && filters.createdBy !== 'All users') ||
-                            (filters.tags?.length ?? 0) > 0
+                    <SavedInsightsEmptyState
+                        filters={filters}
+                        usingFilters={hasFilters}
+                        onClearFilters={
+                            hasFilteredUI && hasNonSearchFilters
+                                ? () => setModalFilters({ insightType: 'All types', createdBy: 'All users', tags: [] })
+                                : undefined
                         }
-                        onClearFilters={() =>
-                            setModalFilters({ insightType: 'All types', createdBy: 'All users', tags: [] })
-                        }
-                        onClearSearch={() => setModalFilters({ search: '' })}
+                        onClearSearch={hasFilteredUI ? () => setModalFilters({ search: '' }) : undefined}
                     />
                 </>
             ) : (

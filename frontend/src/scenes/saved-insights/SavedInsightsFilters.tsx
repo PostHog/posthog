@@ -10,8 +10,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { cn } from 'lib/utils/css-classes'
 import { fullName } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
@@ -108,7 +108,10 @@ export function SavedInsightsFilters({
                             placement="bottom-end"
                             actionable
                             overlay={
-                                <div className="max-w-100 deprecated-space-y-2" onClick={() => ensureAllMembersLoaded()}>
+                                <div
+                                    className="max-w-100 deprecated-space-y-2"
+                                    onClick={() => ensureAllMembersLoaded()}
+                                >
                                     <LemonInput
                                         type="search"
                                         placeholder="Search"

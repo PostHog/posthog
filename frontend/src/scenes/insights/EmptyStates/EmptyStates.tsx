@@ -643,11 +643,14 @@ const SAVED_INSIGHTS_COPY = {
 export function SavedInsightsEmptyState({
     filters,
     usingFilters,
+    onClearFilters,
+    onClearSearch,
 }: {
     filters: SavedInsightFilters
     usingFilters?: boolean
+    onClearFilters?: () => void
+    onClearSearch?: () => void
 }): JSX.Element {
-    // show the search string that was used to make the results, not what it currently is
     const searchString = filters?.search || null
     const { title, description } = SAVED_INSIGHTS_COPY[filters.tab as keyof typeof SAVED_INSIGHTS_COPY] ?? {}
 
@@ -673,59 +676,33 @@ export function SavedInsightsEmptyState({
             ) : (
                 <p className="empty-state__description">{description}</p>
             )}
-            <div className="flex justify-center">
-                <Link to={urls.insightNew()}>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Insight}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            type="primary"
-                            data-attr="add-insight-button-empty-state"
-                            icon={<IconPlusSmall />}
-                            className="add-insight-button"
-                        >
-                            New insight
-                        </LemonButton>
-                    </AccessControlAction>
-                </Link>
-            </div>
-        </div>
-    )
-}
-
-export function SavedInsightsModalEmptyState({
-    search,
-    hasFilters,
-    onClearFilters,
-    onClearSearch,
-}: {
-    search?: string
-    hasFilters: boolean
-    onClearFilters: () => void
-    onClearSearch: () => void
-}): JSX.Element {
-    return (
-        <div className="flex flex-col items-center justify-center py-8 px-4">
-            <div className="w-40 mb-4">
-                <BuilderHog3 className="w-full h-full" />
-            </div>
-            <h3 className="text-center mb-1">{search ? `No insights found for "${search}"` : 'No insights found'}</h3>
-            {(search || hasFilters) && (
-                <p className="text-secondary text-center text-sm mb-3">
-                    {hasFilters ? 'Try clearing your filters or search' : 'Try a different search term'}
-                </p>
-            )}
-            <div className="flex gap-2">
-                {search && (
+            <div className="flex justify-center gap-2">
+                {onClearSearch && searchString && (
                     <LemonButton type="secondary" size="small" onClick={onClearSearch}>
                         Clear search
                     </LemonButton>
                 )}
-                {hasFilters && (
+                {onClearFilters && (
                     <LemonButton type="secondary" size="small" onClick={onClearFilters}>
                         Clear filters
                     </LemonButton>
+                )}
+                {!usingFilters && (
+                    <Link to={urls.insightNew()}>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Insight}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="primary"
+                                data-attr="add-insight-button-empty-state"
+                                icon={<IconPlusSmall />}
+                                className="add-insight-button"
+                            >
+                                New insight
+                            </LemonButton>
+                        </AccessControlAction>
+                    </Link>
                 )}
             </div>
         </div>

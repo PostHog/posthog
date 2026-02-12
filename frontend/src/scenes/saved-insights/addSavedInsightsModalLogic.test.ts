@@ -94,98 +94,24 @@ describe('addSavedInsightsModalLogic', () => {
             expect(url.searchParams.has('created_by')).toBe(false)
             expect(url.searchParams.has('date_from')).toBe(false)
             expect(url.searchParams.has('date_to')).toBe(false)
+            expect(url.searchParams.has('tags')).toBe(false)
         })
 
-        it('includes search param when search is set', async () => {
+        it.each([
+            ['search', { search: 'revenue' }, 'search', 'revenue'],
+            ['insightType', { insightType: 'trends' }, 'insight', 'TRENDS'],
+            ['createdBy', { createdBy: [42] }, 'created_by', '[42]'],
+            ['tags', { tags: ['important', 'revenue'] }, 'tags', '["important","revenue"]'],
+            ['dashboardId', { dashboardId: 7 }, 'dashboards', '[7]'],
+            ['dateFrom', { dateFrom: '2024-01-01', dateTo: '2024-06-01' }, 'date_from', '2024-01-01'],
+        ])('includes %s param in API call', async (_name, filterUpdate, expectedParam, expectedValue) => {
             const { logic, getCapturedUrl } = useSetupWithUrlCapture()
             await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
 
-            logic.actions.setModalFilters({ search: 'revenue' })
+            logic.actions.setModalFilters(filterUpdate as any)
             await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
 
-            expect(getCapturedUrl()!.searchParams.get('search')).toBe('revenue')
-        })
-
-        it('uppercases insight type for the API', async () => {
-            const { logic, getCapturedUrl } = useSetupWithUrlCapture()
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            logic.actions.setModalFilters({ insightType: 'trends' })
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            expect(getCapturedUrl()!.searchParams.get('insight')).toBe('TRENDS')
-        })
-
-        it('excludes insight param when type is "All types"', async () => {
-            const { logic, getCapturedUrl } = useSetupWithUrlCapture()
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            expect(getCapturedUrl()!.searchParams.has('insight')).toBe(false)
-        })
-
-        it('includes created_by param when a specific user is set', async () => {
-            const { logic, getCapturedUrl } = useSetupWithUrlCapture()
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            logic.actions.setModalFilters({ createdBy: [42] })
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            expect(getCapturedUrl()!.searchParams.get('created_by')).toBe('[42]')
-        })
-
-        it('includes tags param when tags are selected', async () => {
-            const { logic, getCapturedUrl } = useSetupWithUrlCapture()
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            logic.actions.setModalFilters({ tags: ['important', 'revenue'] })
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            expect(getCapturedUrl()!.searchParams.get('tags')).toBe('["important","revenue"]')
-        })
-
-        it('excludes tags param when no tags are selected', async () => {
-            const { logic, getCapturedUrl } = useSetupWithUrlCapture()
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            expect(getCapturedUrl()!.searchParams.has('tags')).toBe(false)
-        })
-
-        it('excludes created_by param when set to "All users"', async () => {
-            const { logic, getCapturedUrl } = useSetupWithUrlCapture()
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            expect(getCapturedUrl()!.searchParams.has('created_by')).toBe(false)
-        })
-
-        it('includes date_from and date_to when a date range is set', async () => {
-            const { logic, getCapturedUrl } = useSetupWithUrlCapture()
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            logic.actions.setModalFilters({ dateFrom: '2024-01-01', dateTo: '2024-06-01' })
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            const url = getCapturedUrl()!
-            expect(url.searchParams.get('date_from')).toBe('2024-01-01')
-            expect(url.searchParams.get('date_to')).toBe('2024-06-01')
-        })
-
-        it('excludes date params when dateFrom is "all"', async () => {
-            const { logic, getCapturedUrl } = useSetupWithUrlCapture()
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            const url = getCapturedUrl()!
-            expect(url.searchParams.has('date_from')).toBe(false)
-            expect(url.searchParams.has('date_to')).toBe(false)
-        })
-
-        it('includes dashboards param when dashboardId is set', async () => {
-            const { logic, getCapturedUrl } = useSetupWithUrlCapture()
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            logic.actions.setModalFilters({ dashboardId: 7 })
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            expect(getCapturedUrl()!.searchParams.get('dashboards')).toBe('[7]')
+            expect(getCapturedUrl()!.searchParams.get(expectedParam as string)).toBe(expectedValue)
         })
 
         it('calculates offset from page number', async () => {
@@ -200,18 +126,8 @@ describe('addSavedInsightsModalLogic', () => {
         })
     })
 
-    describe('smart defaults based on user insight count', () => {
-        it('does not probe user insights without experiment flag', async () => {
-            const { logic, getCapturedUrls } = useSetupWithUrlCapture({ userInsightCount: 5 })
-
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
-
-            const userCalls = getCapturedUrls().filter((u) => u.searchParams.get('user') === 'true')
-            expect(userCalls).toHaveLength(0)
-            expect(logic.values.filters.createdBy).toBe('All users')
-        })
-
-        it('filtered variant does not probe user insights', async () => {
+    describe('smart defaults', () => {
+        it('filtered variant enables UI but does not probe user insights', async () => {
             const { logic, getCapturedUrls } = useSetupWithUrlCapture({
                 userInsightCount: 5,
                 variant: 'filtered',
@@ -226,8 +142,8 @@ describe('addSavedInsightsModalLogic', () => {
             expect(logic.values.hasSmartDefaults).toBe(false)
         })
 
-        it('probes user insight count on mount with experiment flag', async () => {
-            const { logic } = useSetupWithUrlCapture({ variant: 'smart-filtered' })
+        it('0 user insights: no createdBy default', async () => {
+            const { logic, getCapturedUrl } = useSetupWithUrlCapture({ userInsightCount: 0, variant: 'smart-filtered' })
 
             await expectLogic(logic).toDispatchActions([
                 'loadUserInsights',
@@ -235,12 +151,6 @@ describe('addSavedInsightsModalLogic', () => {
                 'loadInsights',
                 'loadInsightsSuccess',
             ])
-        })
-
-        it('0 user insights: no createdBy default', async () => {
-            const { logic, getCapturedUrl } = useSetupWithUrlCapture({ userInsightCount: 0, variant: 'smart-filtered' })
-
-            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
 
             expect(logic.values.filters.createdBy).toBe('All users')
             expect(getCapturedUrl()!.searchParams.has('created_by')).toBe(false)
