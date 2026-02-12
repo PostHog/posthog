@@ -21,13 +21,13 @@ function ValuePreview({ value }: { value: unknown }): JSX.Element {
         return <span className="text-muted">undefined</span>
     }
     if (typeof value === 'string') {
-        return <span className="text-[#ce9178]">"{value.length > 80 ? value.slice(0, 80) + '…' : value}"</span>
+        return <span className="text-warning">"{value.length > 80 ? value.slice(0, 80) + '…' : value}"</span>
     }
     if (typeof value === 'number') {
-        return <span className="text-[#b5cea8]">{value}</span>
+        return <span className="text-success">{value}</span>
     }
     if (typeof value === 'boolean') {
-        return <span className="text-[#569cd6]">{String(value)}</span>
+        return <span className="text-link">{String(value)}</span>
     }
     if (Array.isArray(value)) {
         return <span className="text-muted">[{value.length} items]</span>
