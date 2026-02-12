@@ -506,7 +506,7 @@ class PreaggregationExecutor:
         query_hash = compute_query_hash(query_info)
 
         errors: list[str] = []
-        attempts = 0
+        failures = 0
         start_time = time.monotonic()
         interval = self.poll_interval_seconds
         subscribed_ids: set[uuid.UUID] = set()
@@ -527,7 +527,7 @@ class PreaggregationExecutor:
 
                 # Step 3: Insert missing ranges
                 did_work = False
-                if missing_ranges and attempts <= self.max_retries:
+                if missing_ranges and failures <= self.max_retries:
                     for range_start, range_end in missing_ranges:
                         try:
                             with transaction.atomic():
@@ -553,13 +553,13 @@ class PreaggregationExecutor:
                             if is_non_retryable_error(e):
                                 errors.append(str(e))
                                 return PreaggregationResult(ready=False, job_ids=[], errors=errors)
-                            attempts += 1
-                            if attempts > self.max_retries:
+                            failures += 1
+                            if failures > self.max_retries:
                                 errors.append(f"Max retries ({self.max_retries}) exceeded: {e}")
                                 return PreaggregationResult(ready=False, job_ids=[], errors=errors)
                         did_work = True
 
-                if missing_ranges and attempts > self.max_retries:
+                if missing_ranges and failures > self.max_retries:
                     errors.append("Max retries exceeded for preaggregation")
                     return PreaggregationResult(ready=False, job_ids=[], errors=errors)
 
