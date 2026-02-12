@@ -105,7 +105,7 @@ export function getDefaultTourStepButtons(stepIndex: number, totalSteps: number)
     return {
         primary: {
             text: isLastStep ? 'Done' : 'Next',
-            action: isLastStep ? 'dismiss' : 'next_step',
+            action: 'next_step',
         },
         ...(isFirstStep
             ? {}
