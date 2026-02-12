@@ -7,7 +7,7 @@
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
-        "posthog-js": "1.345.5"
+        "posthog-js": "1.346.0"
     },
     "peerDependencies": {
         "@dnd-kit/core": "*",
