@@ -113,6 +113,8 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                         type: optional ? 'optional' : 'mandatory',
                         data: { step, stepIndex: index, isOptional: optional },
                         position: { x: 0, y: 0 },
+                        width: NODE_WIDTH,
+                        height: NODE_HEIGHT,
                         draggable: false,
                         connectable: false,
                     }
