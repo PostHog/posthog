@@ -392,7 +392,7 @@ def build_preaggregation_insert_sql(
         query.where = date_range_filter
 
     # Print the SELECT query to ClickHouse SQL
-    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True)
+    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True, limit_top_select=False)
     select_sql, _ = prepare_and_print_ast(
         query,
         context=context,
@@ -907,7 +907,7 @@ def _build_manual_insert_sql(
     query.select.insert(1, job_id_expr)
 
     # Print to SQL
-    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True)
+    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True, limit_top_select=False)
     select_sql, _ = prepare_and_print_ast(
         query,
         context=context,
