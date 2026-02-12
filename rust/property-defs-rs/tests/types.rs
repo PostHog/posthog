@@ -364,3 +364,56 @@ fn test_property_timestamp_rejections() {
         Some(PropertyValueType::Numeric)
     );
 }
+
+#[test]
+fn test_initial_utm_properties_always_string() {
+    // $initial_utm_* properties are the SDK's "initial" variants of utm_*
+    // and must always be classified as String, regardless of value.
+    // See https://github.com/PostHog/posthog/issues/12529
+    let cases: Vec<(&str, Value)> = vec![
+        // datetime-looking values that would otherwise be classified as DateTime
+        ("$initial_utm_campaign", Value::from("2025-03-11T09:48:12.863948+00:00")),
+        ("$initial_utm_source", Value::from("2023-12-13")),
+        ("$initial_utm_medium", Value::from("2023-12-13T15:45:30Z")),
+        // numeric values
+        ("$initial_utm_content", Value::Number(Number::from(12345))),
+        ("$initial_utm_term", Value::Number(Number::from(42))),
+        // boolean-like string values
+        ("$initial_utm_campaign", Value::from("true")),
+        // actual boolean values
+        ("$initial_utm_source", Value::Bool(true)),
+        // normal string values
+        ("$initial_utm_campaign", Value::from("summer_sale")),
+        ("$initial_utm_source", Value::from("google")),
+        ("$initial_utm_medium", Value::from("cpc")),
+        ("$initial_utm_content", Value::from("banner_ad")),
+        ("$initial_utm_term", Value::from("running+shoes")),
+    ];
+
+    for (key, value) in cases {
+        assert_eq!(
+            detect_property_type(key, &value),
+            Some(PropertyValueType::String),
+            "expected String for key={key}, value={value}"
+        );
+    }
+}
+
+#[test]
+fn test_bare_utm_properties_still_string() {
+    // bare utm_* properties must still be classified as String
+    let cases: Vec<(&str, Value)> = vec![
+        ("utm_source", Value::from("2025-03-11T09:48:12.863948+00:00")),
+        ("utm_campaign", Value::Number(Number::from(12345))),
+        ("utm_medium", Value::from("true")),
+        ("utm_content", Value::from("google")),
+    ];
+
+    for (key, value) in cases {
+        assert_eq!(
+            detect_property_type(key, &value),
+            Some(PropertyValueType::String),
+            "expected String for key={key}, value={value}"
+        );
+    }
+}
