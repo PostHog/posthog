@@ -177,7 +177,7 @@ class ChatAgentRunner(BaseAgentRunner):
             {
                 "prompts": self._latest_message.content if self._latest_message else None,
                 "outputs": output,
-                "is_new_conversation": self._is_new_conversation,
+                "is_new_conversations": self._is_new_conversation,
                 "slack_workspace_domain": self._conversation.slack_workspace_domain,
                 "$session_id": self._session_id,
                 "agent_mode": self._selected_agent_mode,
