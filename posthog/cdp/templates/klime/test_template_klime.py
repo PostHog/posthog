@@ -115,6 +115,12 @@ class TestTemplateKlime(BaseHogFunctionTemplateTest):
         self.run_function(
             inputs=create_inputs(action="identify", include_all_properties=True),
             globals={
+                "event": {
+                    "uuid": "uuid-1",
+                    "event": "$identify",
+                    "properties": {},
+                    "timestamp": "2024-01-01T00:00:00Z",
+                },
                 "person": {
                     "id": "person-uuid",
                     "properties": {"email": "test@klime.com", "$creator_event_uuid": "x"},
