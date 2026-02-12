@@ -67,9 +67,10 @@ class ClickHousePrinter(HogQLPrinter):
         if len(self.stack) == 0 and self.settings:
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
-            settings = self._print_settings(self.settings)
-            if settings is not None:
-                response += " " + settings
+            merged = self._merge_table_top_level_settings(self.settings)
+            printed = self._print_settings(merged)
+            if printed is not None:
+                response += " " + printed
 
         return response
 
@@ -953,10 +954,16 @@ class ClickHousePrinter(HogQLPrinter):
         if self.context.output_format and is_top_level_query and (not part_of_select_union or is_last_query_in_union):
             clauses.append(f"FORMAT{space}{self.context.output_format}")
 
-        if node.settings is not None:
-            settings = self._print_settings(node.settings)
-            if settings is not None:
-                clauses.append(settings)
+        # When self.settings exists, table-level settings are merged in visit() instead
+        merged = (
+            self._merge_table_top_level_settings(node.settings)
+            if is_top_level_query and not self.settings
+            else node.settings
+        )
+        if merged is not None:
+            printed = self._print_settings(merged)
+            if printed is not None:
+                clauses.append(printed)
 
         return clauses
 

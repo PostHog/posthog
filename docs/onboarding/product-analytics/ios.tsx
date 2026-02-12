@@ -1,7 +1,6 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
-import { PersonProfiles } from './_snippets/person-profiles'
 
 export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
@@ -95,7 +94,6 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                             },
                         ]}
                     />
-                    <PersonProfiles language="swift" />
                 </>
             ),
         },

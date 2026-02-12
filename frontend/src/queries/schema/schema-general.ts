@@ -1472,6 +1472,8 @@ export type FunnelsFilter = {
     resultCustomizations?: Record<string, ResultCustomizationByValue>
     /** Goal Lines */
     goalLines?: GoalLine[]
+    /** Display linear regression trend lines on the chart (only for historical trends viz) */
+    showTrendLines?: boolean
     /** @default false */
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
@@ -2877,6 +2879,7 @@ export type FileSystemIconType =
     | 'workflows'
     | 'notebook'
     | 'action'
+    | 'activity'
     | 'comment'
     | 'annotation'
     | 'event'
