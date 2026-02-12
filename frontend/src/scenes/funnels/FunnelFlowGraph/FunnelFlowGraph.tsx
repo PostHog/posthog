@@ -5,6 +5,7 @@ import {
     BackgroundVariant,
     Controls,
     EdgeTypes,
+    MiniMap,
     NodeTypes,
     ReactFlow,
     ReactFlowProvider,
@@ -64,6 +65,15 @@ function FunnelFlowGraphContent(): JSX.Element {
             >
                 <Background gap={36} variant={BackgroundVariant.Dots} />
                 <Controls showInteractive={false} fitViewOptions={FIT_VIEW_OPTIONS} />
+                {laidOutNodes.length > 4 && (
+                    <MiniMap
+                        zoomable
+                        pannable
+                        nodeStrokeWidth={3}
+                        nodeColor="var(--border)"
+                        nodeStrokeColor="var(--border)"
+                    />
+                )}
             </ReactFlow>
         </div>
     )
