@@ -367,18 +367,21 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
 }
 
 export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
+    const sharedLogic = llmAnalyticsSharedLogic({ tabId })
     const dataCollectionLogic = dataNodeCollectionLogic({ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID })
-    useAttachedLogic(dataCollectionLogic, llmAnalyticsSharedLogic)
+    useAttachedLogic(dataCollectionLogic, sharedLogic)
 
     return (
-        <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <BindLogic logic={llmAnalyticsDashboardLogic} props={{ tabId }}>
-                <BindLogic logic={llmAnalyticsGenerationsLogic} props={{ tabId }}>
-                    <BindLogic logic={llmAnalyticsTracesTabLogic} props={{ tabId }}>
-                        <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
-                            <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
-                                <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
-                                    <LLMAnalyticsSceneContent />
+        <BindLogic logic={llmAnalyticsSharedLogic} props={{ tabId }}>
+            <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+                <BindLogic logic={llmAnalyticsDashboardLogic} props={{ tabId }}>
+                    <BindLogic logic={llmAnalyticsGenerationsLogic} props={{ tabId }}>
+                        <BindLogic logic={llmAnalyticsTracesTabLogic} props={{ tabId }}>
+                            <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
+                                <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
+                                    <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
+                                        <LLMAnalyticsSceneContent />
+                                    </BindLogic>
                                 </BindLogic>
                             </BindLogic>
                         </BindLogic>
