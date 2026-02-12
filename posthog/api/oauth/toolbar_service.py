@@ -1,3 +1,13 @@
+"""
+Toolbar OAuth backend primitives.
+
+Non-obvious behavior documented here:
+- We keep one OAuth app per organization (not global, not per team).
+- We allow multiple callback redirect URIs on that app so one org can launch
+  toolbar auth from multiple PostHog deployments/environments.
+- OAuth state is both signed and one-time-use (cache-backed) to prevent replay.
+"""
+
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -46,6 +56,7 @@ def _cache_key(prefix: str, nonce: str) -> str:
 
 
 def _split_redirect_uris(redirect_uris: str) -> list[str]:
+    """Split space-delimited redirect URIs, dropping empty entries."""
     return [uri for uri in redirect_uris.split(" ") if uri]
 
 
@@ -79,6 +90,13 @@ def normalize_and_validate_app_url(team: Team, app_url: str) -> str:
 
 
 def get_or_create_toolbar_oauth_application(base_url: str, user: User) -> OAuthApplication:
+    """
+    Return the toolbar OAuth app for the user's organization.
+
+    The app is org-scoped so organizations do not share client IDs.
+    Redirect URIs are appended (not replaced) so an org can authorize toolbar
+    from multiple hosts.
+    """
     base_url = normalize_base_url_for_oauth(base_url)
     redirect_uri = f"{base_url.rstrip('/')}{CALLBACK_PATH}"
     app_name = settings.TOOLBAR_OAUTH_APPLICATION_NAME
@@ -94,6 +112,9 @@ def get_or_create_toolbar_oauth_application(base_url: str, user: User) -> OAuthA
         # Keep redirect URIs in sync for this organization deployment URLs.
         existing_redirect_uris = _split_redirect_uris(existing.redirect_uris)
         if redirect_uri not in existing_redirect_uris:
+            # DOT stores redirect URIs as a single space-delimited string.
+            # We append instead of replacing so one org can authorize toolbar
+            # from multiple PostHog hosts (e.g. US/EU or prod/staging).
             existing.redirect_uris = " ".join([*existing_redirect_uris, redirect_uri])
             existing.save(update_fields=["redirect_uris"])
         return existing
@@ -113,6 +134,12 @@ def get_or_create_toolbar_oauth_application(base_url: str, user: User) -> OAuthA
 
 
 def build_toolbar_oauth_state(state: ToolbarOAuthState) -> tuple[str, datetime]:
+    """
+    Build a signed state envelope and mark its nonce as pending in cache.
+
+    Signature protects integrity of the embedded context. The cache marker lets
+    us enforce one-time-use later during exchange.
+    """
     nonce = state.nonce
     now = datetime.now(UTC)
     expires_at = now.timestamp() + settings.TOOLBAR_OAUTH_STATE_TTL_SECONDS
@@ -143,6 +170,14 @@ def validate_and_consume_toolbar_oauth_state(
     request_user: User,
     request_team: Team,
 ) -> dict[str, Any]:
+    """
+    Verify state integrity and consume nonce to prevent replay.
+
+    This enforces:
+    - signature/expiry checks
+    - nonce existence and one-time use
+    - state binding to current user/team/app_url
+    """
     try:
         payload = signing.loads(signed_state, salt=STATE_SIGNER_SALT, max_age=settings.TOOLBAR_OAUTH_STATE_TTL_SECONDS)
     except signing.SignatureExpired as exc:
@@ -169,6 +204,8 @@ def validate_and_consume_toolbar_oauth_state(
         raise ToolbarOAuthError("state_not_found", "OAuth state was not found or expired", 400)
 
     # best-effort one-time use marker
+    # `cache.add` is atomic: only one concurrent request can claim a nonce.
+    # This closes the race where two exchanges arrive before `pending_key` is deleted.
     added = cache.add(used_key, True, timeout=settings.TOOLBAR_OAUTH_STATE_TTL_SECONDS)
     if not added:
         raise ToolbarOAuthError("state_replay", "OAuth state has already been used", 400)
