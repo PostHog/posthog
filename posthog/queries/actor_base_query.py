@@ -41,7 +41,7 @@ class CommonActor(TypedDict):
 
 class SerializedPerson(CommonActor):
     type: Literal["person"]
-    last_seen_at: Optional[str]
+    last_seen_at: Optional[datetime]
     uuid: Union[uuid.UUID, str]
     is_identified: Optional[bool]
     name: str
