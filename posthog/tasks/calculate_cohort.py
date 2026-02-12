@@ -241,20 +241,22 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
             _enqueue_single_cohort_calculation(cohort, initiating_user)
             return
 
-        # Create a chain of tasks to ensure sequential execution
+        # Create a chain of tasks to ensure sequential execution.
+        # Non-first tasks get a 2s countdown to mitigate ClickHouse replica lag:
+        # the preceding cohort's new rows may not have replicated yet. See #47618.
         task_chain: list = []
         for cohort_id in sorted_cohort_ids:
             current_cohort = seen_cohorts_cache.get(cohort_id)
             if current_cohort and not current_cohort.is_static:
                 _prepare_cohort_for_calculation(current_cohort)
-                task_chain.append(
-                    calculate_cohort_ch.si(
-                        current_cohort.id,
-                        current_cohort.pending_version,
-                        initiating_user.id if initiating_user else None,
-                        len(task_chain) > 0,
-                    )
+                task = calculate_cohort_ch.si(
+                    current_cohort.id,
+                    current_cohort.pending_version,
+                    initiating_user.id if initiating_user else None,
                 )
+                if len(task_chain) > 0:
+                    task = task.set(countdown=2)
+                task_chain.append(task)
 
         if task_chain:
             chain(*task_chain).apply_async()
@@ -284,15 +286,7 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
 
 
 @shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)
-def calculate_cohort_ch(
-    cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None, is_chained: bool = False
-) -> None:
-    # Temporary mitigation for ClickHouse replica lag when calculating chained cohorts.
-    # When cohort A depends on cohort B and both are in a Celery chain, B's new rows may
-    # not have replicated to the CH replica by the time A starts. See #47618.
-    if is_chained:
-        time.sleep(2)
-
+def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("feature", Feature.COHORT.value)
         posthoganalytics.tag("cohort_id", cohort_id)
