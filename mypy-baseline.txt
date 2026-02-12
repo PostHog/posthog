@@ -1,5 +1,3 @@
-check_migration.py:0: error: "ClickhouseCluster" has no attribute "_ClickhouseCluster__extra_hosts"  [attr-defined]
-check_migration.py:0: error: "ClickhouseCluster" has no attribute "_ClickhouseCluster__shards"  [attr-defined]
 common/hogvm/python/test/test_execute.py:0: error: List item 2 has incompatible type "int"; expected "str"  [list-item]
 common/hogvm/python/test/test_execute.py:0: error: List item 2 has incompatible type "int"; expected "str"  [list-item]
 common/hogvm/python/test/test_execute.py:0: error: Value of type "Collection[str]" is not indexable  [index]
