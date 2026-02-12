@@ -26,6 +26,12 @@ const TIMESTAMP_FIELD_FALLBACKS = ['created', 'created_at', 'createdAt', 'update
 const HOGQL_OPTION = { label: 'SQL Expression', value: '' }
 
 type FunnelFieldKey = 'distinct_id_field' | 'timestamp_field' | 'id_field'
+type PreviewExpressionColumn = {
+    fieldKey: FunnelFieldKey
+    expression: string
+    alias: string
+    label: string
+}
 
 const EDITABLE_FIELD_MAP: Record<
     FunnelFieldKey,
@@ -52,8 +58,8 @@ const EDITABLE_FIELD_ORDER: FunnelFieldKey[] = ['distinct_id_field', 'timestamp_
 function resolveTimestampField(table: DataWarehouseTableForInsight, configuredTimestampField?: string): string | null {
     const tableFieldNames = new Set(Object.values(table.fields).map((field) => field.name))
 
-    if (configuredTimestampField) {
-        return tableFieldNames.has(configuredTimestampField) ? configuredTimestampField : null
+    if (configuredTimestampField && tableFieldNames.has(configuredTimestampField)) {
+        return configuredTimestampField
     }
 
     const fallbackFieldFromName = Object.values(table.fields).find((field) =>
@@ -136,6 +142,42 @@ export function DataWarehouseFunnelStepDefinitionPopover({
     const activeFieldIsHogQL = isUsingHogQLExpression(activeFieldValue, table)
     const activeFieldSelectValue = activeFieldIsHogQL ? '' : activeFieldValue
     const selectedItemValue = group.getValue?.(dataWarehouseLocalDefinition) ?? null
+    const tableFieldNames = useMemo(
+        () => new Set(Object.values(table.fields).map((field) => field.name)),
+        [table.fields]
+    )
+    const previewExpressionColumns = useMemo<PreviewExpressionColumn[]>(() => {
+        const expressionColumns: PreviewExpressionColumn[] = []
+        const usedAliases = new Set(tableFieldNames)
+
+        for (const fieldKey of EDITABLE_FIELD_ORDER) {
+            const configuredValue = getConfiguredFieldValue(dataWarehouseLocalDefinition, fieldKey)?.trim()
+            if (!configuredValue || tableFieldNames.has(configuredValue)) {
+                continue
+            }
+
+            const label = editableFieldsByKey.get(fieldKey)?.label ?? EDITABLE_FIELD_MAP[fieldKey].fallbackLabel
+            const aliasBase = `__${fieldKey}_sql_expression`
+            let alias = aliasBase
+            let suffix = 2
+            while (usedAliases.has(alias)) {
+                alias = `${aliasBase}_${suffix}`
+                suffix += 1
+            }
+            usedAliases.add(alias)
+
+            expressionColumns.push({
+                fieldKey,
+                expression: configuredValue,
+                alias,
+                label: `${label} (SQL expression)`,
+            })
+        }
+
+        return expressionColumns
+    }, [dataWarehouseLocalDefinition, editableFieldsByKey, tableFieldNames])
+    const activeExpressionColumn = previewExpressionColumns.find((column) => column.fieldKey === activeFieldKey)
+    const selectedPreviewKey = activeExpressionColumn?.alias ?? activeFieldValue ?? timestampField
 
     const columnOptions = useMemo(
         () =>
@@ -158,10 +200,11 @@ export function DataWarehouseFunnelStepDefinitionPopover({
 
     // Keep the selected funnel mappings when opening the popover for an already configured table.
     useEffect(() => {
-        if (selectedItemMeta && table.name === selectedItemMeta.id) {
-            setLocalDefinition(selectedItemMeta)
+        if (!selectedItemMeta || table.name !== selectedItemMeta.id) {
+            return
         }
-    }, [table.name]) // eslint-disable-line react-hooks/exhaustive-deps
+        setLocalDefinition(selectedItemMeta)
+    }, [selectedItemMeta, setLocalDefinition, table.name])
 
     const tableName = table.name
     const dateFrom = insightData?.resolved_date_range?.date_from ?? querySource?.dateRange?.date_from
@@ -184,9 +227,17 @@ export function DataWarehouseFunnelStepDefinitionPopover({
                 }
 
                 const whereClause = filters.length > 0 ? ` WHERE ${filters.join(' AND ')}` : ''
-                const previewQuery = hogql`SELECT * FROM ${hogql.identifier(tableName)}${hogql.raw(
-                    whereClause
-                )} LIMIT 10`
+                const previewExpressionSelectClause =
+                    previewExpressionColumns.length > 0
+                        ? `, ${previewExpressionColumns
+                              .map(({ expression, alias }) =>
+                                  String(hogql`${hogql.raw(expression)} AS ${hogql.identifier(alias)}`)
+                              )
+                              .join(', ')}`
+                        : ''
+                const previewQuery = hogql`SELECT *${hogql.raw(previewExpressionSelectClause)} FROM ${hogql.identifier(
+                    tableName
+                )}${hogql.raw(whereClause)} LIMIT 10`
                 const response = await hogqlQuery(previewQuery)
 
                 if (!isCanceled) {
@@ -209,7 +260,7 @@ export function DataWarehouseFunnelStepDefinitionPopover({
         return () => {
             isCanceled = true
         }
-    }, [dateFrom, dateTo, tableName, timestampField])
+    }, [dateFrom, dateTo, previewExpressionColumns, tableName, timestampField])
 
     return (
         <div className="space-y-3 w-100">
@@ -218,7 +269,12 @@ export function DataWarehouseFunnelStepDefinitionPopover({
                 emptyMessage="Select a data warehouse table to view preview"
                 previewData={previewData}
                 loading={previewLoading}
-                selectedKey={activeFieldValue ?? timestampField}
+                selectedKey={selectedPreviewKey}
+                extraColumns={previewExpressionColumns.map(({ alias, label }) => ({
+                    key: alias,
+                    label,
+                    type: 'SQL expression',
+                }))}
                 heightClassName="h-48"
             />
             {activeField && (

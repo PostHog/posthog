@@ -8,6 +8,7 @@ export interface TablePreviewProps {
     previewData?: Record<string, any>[]
     loading?: boolean
     selectedKey?: string | null
+    extraColumns?: { key: string; label: string; type?: string }[]
     heightClassName?: string
 }
 
@@ -17,9 +18,10 @@ export function TablePreview({
     previewData = [],
     loading = false,
     selectedKey = null,
+    extraColumns = [],
     heightClassName = 'h-64',
 }: TablePreviewProps): JSX.Element {
-    const columns: LemonTableColumns<Record<string, any>> = table
+    const tableColumns: LemonTableColumns<Record<string, any>> = table
         ? Object.values(table.fields)
               .filter((column) => column.type !== 'view')
               .map((column) => {
@@ -47,6 +49,32 @@ export function TablePreview({
                   }
               })
         : []
+    const tableColumnKeys = new Set(tableColumns.map((column) => String(column.key)))
+    const expressionColumns: LemonTableColumns<Record<string, any>> = extraColumns
+        .filter((column) => !tableColumnKeys.has(column.key))
+        .map((column) => {
+            const isSelectedKey = selectedKey === column.key
+            return {
+                key: column.key,
+                className: isSelectedKey ? 'bg-warning-highlight border-l-2 border-r-2 border-warning' : undefined,
+                title: (
+                    <div className="min-w-0 max-w-32">
+                        <div className="font-medium text-xs truncate" title={column.label}>
+                            {column.label}
+                        </div>
+                        <div className="text-muted text-xxs">{column.type ?? 'unknown'}</div>
+                    </div>
+                ),
+                dataIndex: column.key,
+                width: 120,
+                render: (value) => (
+                    <div className="text-xs truncate max-w-32" title={String(value || '')}>
+                        {value !== null && value !== undefined ? String(value) : '-'}
+                    </div>
+                ),
+            }
+        })
+    const columns = [...tableColumns, ...expressionColumns]
 
     return (
         <div className="flex-1 min-w-0">
