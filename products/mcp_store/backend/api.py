@@ -78,6 +78,7 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 class MCPServerInstallationSerializer(serializers.ModelSerializer):
     server = MCPServerSerializer(read_only=True)
     server_id = serializers.UUIDField(write_only=True)
+    needs_reauth = serializers.SerializerMethodField()
 
     class Meta:
         model = MCPServerInstallation
@@ -86,10 +87,17 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "server",
             "server_id",
             "configuration",
+            "needs_reauth",
             "created_at",
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_needs_reauth(self, obj: MCPServerInstallation) -> bool:
+        if obj.server.auth_type != "oauth":
+            return False
+        sensitive = obj.sensitive_configuration or {}
+        return bool(sensitive.get("needs_reauth"))
 
     def validate_server_id(self, value: str) -> str:
         if not MCPServer.objects.filter(id=value).exists():

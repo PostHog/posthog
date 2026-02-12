@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
+import { IconPlus, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -89,27 +89,45 @@ export function McpStoreScene(): JSX.Element {
                     },
                     {
                         title: 'Auth',
-                        render: (_: any, installation: MCPServerInstallation) => (
-                            <LemonTag>{installation.server.auth_type}</LemonTag>
-                        ),
+                        render: (_: any, installation: MCPServerInstallation) =>
+                            installation.needs_reauth ? (
+                                <LemonTag type="warning" icon={<IconWarning />}>
+                                    Needs reconnection
+                                </LemonTag>
+                            ) : (
+                                <LemonTag>{installation.server.auth_type}</LemonTag>
+                            ),
                     },
                     {
                         width: 0,
                         render: (_: any, installation: MCPServerInstallation) => (
-                            <More
-                                overlay={
-                                    <LemonMenuOverlay
-                                        items={[
-                                            {
-                                                label: 'Uninstall',
-                                                status: 'danger' as const,
-                                                icon: <IconTrash />,
-                                                onClick: () => uninstallServer(installation.id),
-                                            },
-                                        ]}
-                                    />
-                                }
-                            />
+                            <div className="flex items-center gap-1">
+                                {installation.needs_reauth && (
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={() => {
+                                            window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${installation.server.id}`
+                                        }}
+                                    >
+                                        Reconnect
+                                    </LemonButton>
+                                )}
+                                <More
+                                    overlay={
+                                        <LemonMenuOverlay
+                                            items={[
+                                                {
+                                                    label: 'Uninstall',
+                                                    status: 'danger' as const,
+                                                    icon: <IconTrash />,
+                                                    onClick: () => uninstallServer(installation.id),
+                                                },
+                                            ]}
+                                        />
+                                    }
+                                />
+                            </div>
                         ),
                     },
                 ]}

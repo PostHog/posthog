@@ -121,6 +121,12 @@ class CallMCPServerTool(MaxTool):
         self._installations_by_url[server_url] = inst
         self._server_headers[server_url] = {"Authorization": f"Bearer {updated['access_token']}"}
 
+    async def _mark_needs_reauth(self, server_url: str) -> None:
+        inst = self._installations_by_url.get(server_url)
+        if not inst:
+            return
+        await database_sync_to_async(_mark_needs_reauth_sync)(inst["id"])
+
     async def _arun_impl(self, server_url: str, tool_name: str, arguments: dict | None = None) -> tuple[str, None]:
         if server_url not in self._allowed_server_urls:
             raise MaxToolRetryableError(
@@ -186,9 +192,10 @@ class CallMCPServerTool(MaxTool):
         try:
             await self._refresh_token_for_server(server_url)
         except (TokenRefreshError, MaxToolFatalError) as e:
+            await self._mark_needs_reauth(server_url)
             raise MaxToolFatalError(
                 f"Authentication failed for {server_url} and token refresh failed: {e}. "
-                "Ask the user to re-authenticate with this MCP server."
+                "Ask the user to re-authenticate with this MCP server in the MCP store settings page."
             )
 
         self._clear_cached_session(server_url)
@@ -280,6 +287,19 @@ def _get_installations(team: Team, user: User) -> list[dict]:
             "sensitive_configuration",
         )
     )
+
+
+def _mark_needs_reauth_sync(installation_id: str) -> None:
+    from products.mcp_store.backend.models import MCPServerInstallation
+
+    try:
+        inst = MCPServerInstallation.objects.get(id=installation_id)
+    except MCPServerInstallation.DoesNotExist:
+        return
+    sensitive = inst.sensitive_configuration or {}
+    sensitive["needs_reauth"] = True
+    inst.sensitive_configuration = sensitive
+    inst.save(update_fields=["sensitive_configuration", "updated_at"])
 
 
 def _refresh_token_sync(installation: dict) -> dict:

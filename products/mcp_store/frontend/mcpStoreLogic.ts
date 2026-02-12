@@ -26,6 +26,7 @@ export interface MCPServerInstallation {
     id: string
     server: MCPServer
     configuration: Record<string, any>
+    needs_reauth: boolean
     created_at: string
     updated_at: string
 }
