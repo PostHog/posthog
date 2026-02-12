@@ -78,9 +78,7 @@ impl Emitter for KafkaEmitter {
 #[async_trait]
 impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
-        let iter = data
-            .iter()
-            .map(|e| (e, self.disable_person_processing(e)));
+        let iter = data.iter().map(|e| (e, self.disable_person_processing(e)));
 
         for (idx, result) in self
             .inner
