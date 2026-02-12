@@ -175,8 +175,8 @@ class ChatAgentRunner(BaseAgentRunner):
         await self._report_conversation_state(
             "chat with ai",
             {
-                "prompt": self._latest_message.content if self._latest_message else None,
-                "output": output,
+                "prompts": self._latest_message.content if self._latest_message else None,
+                "outputs": output,
                 "is_new_conversation": self._is_new_conversation,
                 "slack_workspace_domain": self._conversation.slack_workspace_domain,
                 "$session_id": self._session_id,
