@@ -15416,7 +15416,8 @@
                 "BingAds",
                 "Shopify",
                 "Attio",
-                "SnapchatAds"
+                "SnapchatAds",
+                "PinterestAds"
             ],
             "type": "string"
         },

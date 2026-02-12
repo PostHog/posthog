@@ -1629,6 +1629,7 @@ class ExternalDataSourceType(StrEnum):
     SHOPIFY = "Shopify"
     ATTIO = "Attio"
     SNAPCHAT_ADS = "SnapchatAds"
+    PINTEREST_ADS = "PinterestAds"
 
 
 class ExternalQueryErrorCode(StrEnum):

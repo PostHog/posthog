@@ -190,6 +190,12 @@ class MySQLSourceConfig(config.Config):
 
 
 @config.config
+class PinterestAdsSourceConfig(config.Config):
+    ad_account_id: str
+    pinterest_ads_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
 class PolarSourceConfig(config.Config):
     pass
 
@@ -328,6 +334,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.METAADS: MetaAdsSourceConfig,
         ExternalDataSourceType.MONGODB: MongoDBSourceConfig,
         ExternalDataSourceType.MYSQL: MySQLSourceConfig,
+        ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
         ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,

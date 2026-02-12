@@ -70,6 +70,7 @@ class ExternalDataSourceType(models.TextChoices):
     SHOPIFY = "Shopify", "Shopify"
     ATTIO = "Attio", "Attio"
     SNAPCHATADS = "SnapchatAds", "SnapchatAds"
+    PINTERESTADS = "PinterestAds", "PinterestAds"
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):

@@ -20,6 +20,7 @@ from .meta_ads.source import MetaAdsSource
 from .mongodb.source import MongoDBSource
 from .mssql.source import MSSQLSource
 from .mysql.source import MySQLSource
+from .pinterest_ads.source import PinterestAdsSource
 from .polar.source import PolarSource
 from .postgres.source import PostgresSource
 from .reddit_ads.source import RedditAdsSource
@@ -61,6 +62,7 @@ __all__ = [
     "RedditAdsSource",
     "MSSQLSource",
     "MySQLSource",
+    "PinterestAdsSource",
     "PolarSource",
     "PostgresSource",
     "RedshiftSource",
