@@ -43,11 +43,6 @@ class MCPServerSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "is_default", "created_at", "updated_at"]
 
-    def validate_url(self, value: str) -> str:
-        if MCPServer.objects.filter(url=value).exists():
-            raise serializers.ValidationError("A server with this URL already exists.")
-        return value
-
     def create(self, validated_data: dict[str, Any]) -> MCPServer:
         request = self.context["request"]
         return MCPServer.objects.create(
@@ -69,6 +64,14 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.order_by("-created_at")
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        url = request.data.get("url", "")
+        existing = MCPServer.objects.filter(url=url).first()
+        if existing:
+            serializer = self.get_serializer(existing)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return super().create(request, *args, **kwargs)
 
 
 class MCPServerInstallationSerializer(serializers.ModelSerializer):
