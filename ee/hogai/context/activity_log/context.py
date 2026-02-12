@@ -1,12 +1,18 @@
+import re
 import json
-from typing import Any
+from typing import Any, cast
 
 from django.db.models import QuerySet
 
 from posthog.api.advanced_activity_logs.utils import get_activity_log_lookback_restriction
 from posthog.api.advanced_activity_logs.viewset import apply_organization_scoped_filter
 from posthog.models import Team, User
-from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    ActivityScope,
+    apply_activity_visibility_restrictions,
+    field_name_overrides,
+)
 from posthog.sync import database_sync_to_async
 
 from .prompts import (
@@ -18,6 +24,23 @@ from .prompts import (
 )
 
 MAX_VALUE_LENGTH = 200
+
+# Keep in sync with SCOPE_DISPLAY_NAMES in frontend/src/lib/components/ActivityLog/humanizeActivity.tsx
+SCOPE_DISPLAY_NAMES: dict[str, str] = {
+    "AlertConfiguration": "Alert",
+    "BatchExport": "Destination",
+    "ExternalDataSource": "Source",
+    "HogFunction": "Data pipeline",
+    "PersonalAPIKey": "Personal API key",
+    "LLMTrace": "LLM trace",
+}
+
+
+def humanize_scope(scope: str) -> str:
+    display = SCOPE_DISPLAY_NAMES.get(scope)
+    if display:
+        return display
+    return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", scope)
 
 
 class ActivityLogContext:
@@ -143,7 +166,7 @@ class ActivityLogContext:
 
         return ACTIVITY_LOG_ENTRY_TEMPLATE.format(
             timestamp=timestamp,
-            scope=entry.scope,
+            scope=humanize_scope(entry.scope),
             activity=entry.activity,
             item_name=item_name,
             user_attribution=user_attribution,
@@ -183,12 +206,16 @@ class ActivityLogContext:
         if not changes_data or not isinstance(changes_data, list):
             return ""
 
+        scope = cast(ActivityScope, entry.scope)
+        overrides = field_name_overrides.get(scope, {})
+
         change_lines: list[str] = []
         for change in changes_data:
             if not isinstance(change, dict):
                 continue
 
-            field = change.get("field", "unknown")
+            raw_field = change.get("field", "unknown")
+            field = overrides.get(raw_field, raw_field)
             action = change.get("action", "changed")
             before = self._truncate_value(change.get("before"))
             after = self._truncate_value(change.get("after"))

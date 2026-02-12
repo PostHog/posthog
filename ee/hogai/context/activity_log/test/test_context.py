@@ -12,7 +12,7 @@ from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog, activity_log_created
 
-from ee.hogai.context.activity_log.context import MAX_VALUE_LENGTH, ActivityLogContext
+from ee.hogai.context.activity_log.context import MAX_VALUE_LENGTH, ActivityLogContext, humanize_scope
 from ee.hogai.context.activity_log.prompts import ACTIVITY_LOG_NO_RESULTS
 
 
@@ -72,7 +72,7 @@ class TestActivityLogContext(ActivityLogTestBase):
 
         assert "Activity log" in result
         assert "1-1 of 1" in result
-        assert "FeatureFlag" in result
+        assert "Feature Flag" in result
         assert "created" in result
         assert "my-flag" in result
 
@@ -83,7 +83,7 @@ class TestActivityLogContext(ActivityLogTestBase):
         context = self._create_context()
         result = await context.fetch_and_format(scope="FeatureFlag")
 
-        assert "FeatureFlag" in result
+        assert "Feature Flag" in result
         assert "Insight" not in result
         assert "for scope=FeatureFlag" in result
 
@@ -632,6 +632,75 @@ class TestActivityLogContextVisibility(ActivityLogTestBase):
         result = await context.fetch_and_format()
 
         assert result == ACTIVITY_LOG_NO_RESULTS
+
+
+@freeze_time("2025-06-15T12:00:00Z")
+class TestActivityLogContextHumanization(ActivityLogTestBase):
+    def _create_context(self) -> ActivityLogContext:
+        return ActivityLogContext(team=self.team, user=self.user)
+
+    @parameterized.expand(
+        [
+            ("camel_case_split", "FeatureFlag", "Feature Flag"),
+            ("single_word", "Insight", "Insight"),
+            ("override_hog_function", "HogFunction", "Data pipeline"),
+            ("override_batch_export", "BatchExport", "Destination"),
+            ("override_external_data_source", "ExternalDataSource", "Source"),
+            ("override_alert_configuration", "AlertConfiguration", "Alert"),
+            ("override_personal_api_key", "PersonalAPIKey", "Personal API key"),
+            ("override_llm_trace", "LLMTrace", "LLM trace"),
+            ("multi_word_camel", "EarlyAccessFeature", "Early Access Feature"),
+        ]
+    )
+    def test_humanize_scope(self, _name: str, scope: str, expected: str):
+        assert humanize_scope(scope) == expected
+
+    async def test_scope_displayed_with_override(self):
+        await self._create_log(
+            scope="HogFunction",
+            activity="updated",
+            item_id="1",
+            detail={"name": "My Pipeline"},
+        )
+
+        context = self._create_context()
+        result = await context.fetch_and_format()
+
+        assert "Data pipeline" in result
+        assert "HogFunction" not in result
+
+    async def test_field_name_override_applied_in_changes(self):
+        await self._create_log(
+            scope="HogFunction",
+            activity="updated",
+            item_id="1",
+            detail={
+                "name": "My Pipeline",
+                "changes": [{"field": "execution_order", "action": "changed", "before": 1, "after": 2}],
+            },
+        )
+
+        context = self._create_context()
+        result = await context.fetch_and_format()
+
+        assert "priority: 1 -> 2" in result
+        assert "execution_order" not in result
+
+    async def test_field_name_without_override_unchanged(self):
+        await self._create_log(
+            scope="FeatureFlag",
+            activity="updated",
+            item_id="1",
+            detail={
+                "name": "test",
+                "changes": [{"field": "active", "action": "changed", "before": True, "after": False}],
+            },
+        )
+
+        context = self._create_context()
+        result = await context.fetch_and_format()
+
+        assert "active: True -> False" in result
 
 
 @freeze_time("2025-06-15T12:00:00Z")

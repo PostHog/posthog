@@ -132,7 +132,7 @@ class ReadActivityLog(BaseModel):
     kind: Literal["activity_log"] = "activity_log"
     scope: str | None = Field(
         default=None,
-        description="Filter by scope (e.g. 'FeatureFlag', 'Insight', 'Experiment', 'Dashboard').",
+        description="Filter by scope (e.g. 'FeatureFlag', 'Insight', 'Experiment', 'Dashboard', 'HogFunction', 'BatchExport', 'Survey').",
     )
     activity: str | None = Field(
         default=None,
