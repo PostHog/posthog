@@ -30,17 +30,17 @@ import type { HogFlowAction } from '../types'
 import { OutputTestResultTree } from './OutputTestResultTree'
 import { createExampleEvent, hogFlowEditorTestLogic } from './testing/hogFlowEditorTestLogic'
 
-type OutputMapping = { key: string; result_path: string }
+type OutputMapping = { key: string; result_path: string; spread?: boolean | null }
 
 function normalizeOutputVariable(raw: HogFlowAction['output_variable']): OutputMapping[] {
     if (!raw) {
         return []
     }
     if (Array.isArray(raw)) {
-        return raw.map((v) => ({ key: v.key, result_path: v.result_path || '' }))
+        return raw.map((v) => ({ key: v.key, result_path: v.result_path || '', spread: v.spread }))
     }
     if (raw.key) {
-        return [{ key: raw.key, result_path: raw.result_path || '' }]
+        return [{ key: raw.key, result_path: raw.result_path || '', spread: raw.spread }]
     }
     return []
 }
@@ -55,7 +55,6 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     )
     // Path clicked in the response tree that's waiting for the user to pick a target variable
     const [pendingPath, setPendingPath] = useState<string | null>(null)
-    const assignToRef = useRef<HTMLDivElement>(null)
 
     // Track which node we're currently editing to reset state on node switch
     const currentNodeId = useRef(selectedNode?.data.id)
@@ -76,12 +75,13 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 return
             }
             const filtered = newMappings.filter((m) => m.key)
+            const toOutput = (m: OutputMapping): Record<string, unknown> => ({
+                key: m.key,
+                result_path: m.result_path || null,
+                ...(m.spread ? { spread: true } : {}),
+            })
             const outputVariable =
-                filtered.length === 0
-                    ? null
-                    : filtered.length === 1
-                      ? { ...filtered[0], result_path: filtered[0].result_path || null }
-                      : filtered.map((m) => ({ ...m, result_path: m.result_path || null }))
+                filtered.length === 0 ? null : filtered.length === 1 ? toOutput(filtered[0]) : filtered.map(toOutput)
             setWorkflowAction(selectedNode.data.id, {
                 ...selectedNode.data,
                 output_variable: outputVariable,
@@ -100,6 +100,13 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
 
     const [shakePickButton, setShakePickButton] = useState(false)
     const shakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    useEffect(() => {
+        return () => {
+            if (shakeTimerRef.current) {
+                clearTimeout(shakeTimerRef.current)
+            }
+        }
+    }, [])
 
     const [testLoading, setTestLoading] = useState(false)
     const [testError, setTestError] = useState<string | null>(null)
@@ -392,15 +399,12 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     </div>
                                                     {pendingPath && mappings.length >= 2 && (
                                                         <div
-                                                            ref={(el) => {
-                                                                ;(
-                                                                    assignToRef as React.MutableRefObject<HTMLDivElement | null>
-                                                                ).current = el
+                                                            ref={(el) =>
                                                                 el?.scrollIntoView({
                                                                     behavior: 'smooth',
                                                                     block: 'nearest',
                                                                 })
-                                                            }}
+                                                            }
                                                             className="mt-2 p-2 rounded border border-primary bg-primary-highlight"
                                                         >
                                                             <p className="text-xs font-semibold mb-1">
