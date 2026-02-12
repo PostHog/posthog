@@ -851,19 +851,19 @@ async def update_batch_export_backfill_activity(inputs: UpdateBatchExportBackfil
     total_records_count = inputs.total_records_count
 
     if inputs.finished:
-        # Calculate actual total from completed runs when finishing successfully
-        # Only update if we have a non-zero count (otherwise preserve the estimate,
-        # since some destinations like NoOp don't populate records_completed)
-        if inputs.status == BatchExportBackfill.Status.COMPLETED:
+        # Calculate actual total from completed runs when finished successfully or not
+        if inputs.status in (
+            BatchExportBackfill.Status.COMPLETED,
+            BatchExportBackfill.Status.FAILED,
+            BatchExportBackfill.Status.CANCELLED,
+        ):
             result = await database_sync_to_async(
                 lambda: BatchExportRun.objects.filter(
                     backfill_id=inputs.id,
                     status=BatchExportRun.Status.COMPLETED,
                 ).aggregate(total=Sum("records_completed"))
             )()
-            actual_count = result["total"]
-            if actual_count:
-                total_records_count = actual_count
+            total_records_count = result["total"]
 
         finished_at = dt.datetime.now(dt.UTC)
 
