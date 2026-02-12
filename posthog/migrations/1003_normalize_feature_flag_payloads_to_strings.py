@@ -40,8 +40,6 @@ def normalize_payloads_to_strings(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
         ("posthog", "1002_experiment_exposure_preaggregation_enabled"),
     ]
