@@ -234,7 +234,6 @@ class ExperimentAdmin(admin.ModelAdmin):
     def migrate_experiment(self, request, object_id):
         try:
             with transaction.atomic():
-                # nosemgrep: idor-lookup-without-team (Django admin, staff-only)
                 original = Experiment.objects.select_for_update().get(pk=object_id)
 
                 if original.stats_config and original.stats_config.get("migrated_to"):
@@ -285,7 +284,6 @@ class ExperimentAdmin(admin.ModelAdmin):
                     # if is legacy, get the migrated metric, otherwise, keep the id from the original experiment
                     metric_id = metric.metadata["migrated_to"] if is_legacy else metric.id
 
-                    # nosemgrep: idor-lookup-without-team (admin-only, staff access required)
                     saved_metric = ExperimentSavedMetric.objects.get(id=metric_id)
 
                     # Create the new through object with the same metadata
