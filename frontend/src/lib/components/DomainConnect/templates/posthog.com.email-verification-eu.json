@@ -4,6 +4,7 @@
     "serviceId": "email-verification-eu",
     "serviceName": "PostHog Email Sending (EU)",
     "version": 1,
+    "syncBlock": false,
     "logoUrl": "https://posthog.com/brand/posthog-logo.svg",
     "description": "Configures DNS records for PostHog email sending (domain verification, DKIM, SPF, MAIL FROM)",
     "variableDescription": "verifyToken: SES domain verification token. dkim1/dkim2/dkim3: DKIM selector tokens. mailFromSub: MAIL FROM subdomain. sesRegion: AWS SES region.",
