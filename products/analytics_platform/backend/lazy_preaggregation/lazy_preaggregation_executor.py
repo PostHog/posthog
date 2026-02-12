@@ -543,7 +543,7 @@ class PreaggregationExecutor:
                             new_job.status = PreaggregationJob.Status.FAILED
                             new_job.error = str(e)
                             new_job.save()
-                            publish_job_completion(new_job.id, "failed", error=str(e))
+                            publish_job_completion(new_job.id, "failed")
                             if is_non_retryable_error(e):
                                 errors.append(str(e))
                                 return PreaggregationResult(ready=False, job_ids=[], errors=errors)
@@ -610,7 +610,7 @@ class PreaggregationExecutor:
             error="Job was stale (executor may have crashed)",
         )
         if updated > 0:
-            publish_job_completion(job.id, "failed", error="Job was stale (executor may have crashed)")
+            publish_job_completion(job.id, "failed")
         return updated > 0
 
     def _is_job_stale(self, job: PreaggregationJob) -> bool:

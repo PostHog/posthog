@@ -14,7 +14,7 @@ def job_channel(job_id: uuid.UUID) -> str:
     return f"{PREAGG_JOB_CHANNEL_PREFIX}{job_id}"
 
 
-def publish_job_completion(job_id: uuid.UUID, status: str, error: str | None = None) -> None:
+def publish_job_completion(job_id: uuid.UUID, status: str) -> None:
     """Publish completion notification. Called after job.save() sets terminal status."""
     client = redis.get_client()
     client.publish(job_channel(job_id), status)
