@@ -2,9 +2,9 @@
 
 import hashlib
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 from uuid import UUID
 
+import requests
 import structlog
 from celery import shared_task
 
@@ -12,14 +12,17 @@ from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.storage import object_storage
 
+from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
+
 logger = structlog.get_logger(__name__)
-MAX_SLACK_UPLOAD_IMAGE_BYTES = 4 * 1024 * 1024
 
 
 def get_gravatar_url(email: str | None) -> str | None:
     """Generate Gravatar URL from email."""
     if not email:
         return None
+    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
+    # Gravatar API contract specifically requires MD5(email); not used as a cryptographic primitive.
     email_hash = hashlib.md5(email.strip().lower().encode()).hexdigest()
     return f"https://www.gravatar.com/avatar/{email_hash}?s=96&d=identicon"
 
@@ -210,15 +213,16 @@ def _upload_image_to_slack_thread(
     file_id = get_upload_url.get("file_id")
     if not upload_url or not file_id:
         raise ValueError("files.getUploadURLExternal missing upload_url/file_id")
+    if not _is_allowed_slack_upload_url(upload_url):
+        raise ValueError("files.getUploadURLExternal returned disallowed upload URL")
 
-    upload_request = Request(
+    upload_response = requests.post(
         upload_url,
         data=image_bytes,
-        method="POST",
         headers={"Content-Type": "application/octet-stream"},
+        timeout=10,
     )
-    with urlopen(upload_request, timeout=10):
-        pass
+    upload_response.raise_for_status()
 
     complete_upload = client.api_call(
         api_method="files.completeUploadExternal",
@@ -230,6 +234,14 @@ def _upload_image_to_slack_thread(
     )
     if not complete_upload.get("ok"):
         raise ValueError(f"files.completeUploadExternal failed: {complete_upload.get('error')}")
+
+
+def _is_allowed_slack_upload_url(url: str) -> bool:
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+    if parsed.scheme != "https" or parsed.username or parsed.password:
+        return False
+    return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES)
 
 
 def _read_image_bytes_for_slack_upload(team_id: int, image_url: str) -> bytes | None:
@@ -272,7 +284,7 @@ def _read_image_bytes_for_slack_upload(team_id: int, image_url: str) -> bytes | 
         )
         return None
 
-    if len(payload) > MAX_SLACK_UPLOAD_IMAGE_BYTES:
+    if len(payload) > SUPPORT_SLACK_MAX_IMAGE_BYTES:
         logger.warning(
             "🖼️ slack_reply_image_too_large",
             team_id=team_id,

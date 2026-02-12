@@ -27,12 +27,14 @@ from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_
 from .formatting import slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, Status
-from .support_slack import get_support_slack_bot_token
+from .support_slack import (
+    SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
+    SUPPORT_SLACK_MAX_IMAGE_BYTES,
+    get_support_slack_bot_token,
+)
 
 logger = structlog.get_logger(__name__)
-MAX_IMAGE_BYTES = 4 * 1024 * 1024
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
-ALLOWED_SLACK_FILE_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
 MAX_REDIRECTS = 5
 
 
@@ -57,7 +59,10 @@ def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
     """Resolve a Slack user ID to name, email, and avatar."""
     try:
         user_info = client.users_info(user=slack_user_id)
-        profile = user_info.get("user", {}).get("profile", {})
+        user_data = user_info.get("user") if isinstance(user_info, dict) else None
+        profile = user_data.get("profile") if isinstance(user_data, dict) else None
+        if not isinstance(profile, dict):
+            profile = {}
         return {
             "name": profile.get("display_name") or profile.get("real_name") or "Unknown",
             "email": profile.get("email"),
@@ -82,7 +87,7 @@ def _is_allowed_slack_file_url(url: str) -> bool:
     hostname = parsed.hostname or ""
     if parsed.scheme != "https":
         return False
-    return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in ALLOWED_SLACK_FILE_HOST_SUFFIXES)
+    return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES)
 
 
 def _is_valid_image_bytes(content: bytes) -> bool:
@@ -127,12 +132,12 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
             content_length_header = response.headers.get("Content-Length")
             if content_length_header:
                 try:
-                    if int(content_length_header) > MAX_IMAGE_BYTES:
+                    if int(content_length_header) > SUPPORT_SLACK_MAX_IMAGE_BYTES:
                         logger.warning(
                             "🖼️ slack_file_download_too_large_from_header",
                             url=next_url,
                             content_length=int(content_length_header),
-                            max_allowed=MAX_IMAGE_BYTES,
+                            max_allowed=SUPPORT_SLACK_MAX_IMAGE_BYTES,
                         )
                         return None
                 except ValueError:
@@ -140,13 +145,13 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
                         "🖼️ slack_file_download_invalid_content_length", url=next_url, value=content_length_header
                     )
                     return None
-            payload = response.read(MAX_IMAGE_BYTES + 1)
-            if len(payload) > MAX_IMAGE_BYTES:
+            payload = response.read(SUPPORT_SLACK_MAX_IMAGE_BYTES + 1)
+            if len(payload) > SUPPORT_SLACK_MAX_IMAGE_BYTES:
                 logger.warning(
                     "🖼️ slack_file_download_too_large_from_body",
                     url=next_url,
                     bytes_read=len(payload),
-                    max_allowed=MAX_IMAGE_BYTES,
+                    max_allowed=SUPPORT_SLACK_MAX_IMAGE_BYTES,
                 )
                 return None
             logger.debug("🖼️ slack_file_download_succeeded", url=next_url, bytes_read=len(payload))

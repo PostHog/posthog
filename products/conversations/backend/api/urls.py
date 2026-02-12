@@ -2,10 +2,10 @@
 
 from django.urls import path, re_path
 
+from .external import ExternalTicketView
 from .slack_channels import SlackChannelsView
 from .slack_events import supporthog_event_handler
 from .slack_oauth import SupportSlackAuthorizeView, support_slack_oauth_callback
-from .external import ExternalTicketView
 from .widget import WidgetMarkReadView, WidgetMessagesView, WidgetMessageView, WidgetTicketsView
 
 urlpatterns = [
