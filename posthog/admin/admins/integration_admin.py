@@ -32,10 +32,9 @@ class IntegrationAdmin(admin.ModelAdmin):
         ),
     ]
 
+    @admin.display(description="Team")
     def team_link(self, obj: Integration) -> str:
         return format_html("{} ({})", obj.team.name, obj.team_id)
-
-    team_link.short_description = "Team"  # type: ignore
 
 
 class OrganizationIntegrationAdmin(admin.ModelAdmin):
