@@ -348,6 +348,12 @@ services:
             args:
                 BIN: feature-flags
         restart: on-failure
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:3001/_readiness']
+            interval: 5s
+            timeout: 5s
+            retries: 12
+            start_period: 10s
         volumes:
             - ./share:/share
         environment:
