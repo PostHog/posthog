@@ -55,19 +55,20 @@ def build_access_control_guard(
     if not resource:
         return None
 
+    pk = table.primary_key
+    if pk is None:
+        return None
+
     blocked_ids = get_blocked_resource_ids(resource, context)
 
     if not blocked_ids:
         return None
 
-    # Example: `toString(id) NOT IN (id_1, id_2, ...)`
     return ast.CompareOperation(
         op=ast.CompareOperationOp.NotIn,
         left=ast.Call(
             name="toString",
-            args=[
-                ast.Field(chain=[table.primary_key], type=ast.FieldType(name=table.primary_key, table_type=table_type))
-            ],
+            args=[ast.Field(chain=[pk], type=ast.FieldType(name=pk, table_type=table_type))],
         ),
         right=ast.Tuple(exprs=[ast.Constant(value=bid) for bid in blocked_ids]),
         type=ast.BooleanType(),

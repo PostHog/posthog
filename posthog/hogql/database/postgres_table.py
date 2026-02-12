@@ -12,13 +12,13 @@ from posthog.scopes import APIScopeObject
 
 
 @cache
-def _pk_column_for_pg_table(postgres_table_name: str) -> str:
-    from django.apps import apps
+def _pk_column_for_pg_table(postgres_table_name: str) -> Optional[str]:
+    """Look up the primary key column from the actual DB schema. Cached per process.
+    Returns None for tables with composite primary key."""
+    from django.db import connection
 
-    for model in apps.get_models():
-        if model._meta.db_table == postgres_table_name:
-            return model._meta.pk.column
-    return "id"
+    with connection.cursor() as cursor:
+        return connection.introspection.get_primary_key_column(cursor, postgres_table_name)
 
 
 def build_function_call(postgres_table_name: str, context: Optional[HogQLContext] = None):
@@ -72,7 +72,7 @@ class PostgresTable(FunctionCallTable):
     access_scope: Optional[APIScopeObject] = None
 
     @property
-    def primary_key(self) -> str:
+    def primary_key(self) -> Optional[str]:
         return _pk_column_for_pg_table(self.postgres_table_name)
 
     def to_printed_hogql(self):
