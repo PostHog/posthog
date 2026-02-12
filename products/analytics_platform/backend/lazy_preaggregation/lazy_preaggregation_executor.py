@@ -23,7 +23,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
-from posthog.clickhouse.query_tagging import tag_queries, tags_context
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.team import Team
 
 from products.analytics_platform.backend.lazy_preaggregation.preaggregation_notifications import (
@@ -727,10 +727,10 @@ def ensure_preaggregated(
             base_placeholders=base_placeholders,
         )
         set_ch_query_started(job.id)
-        tag_queries(client_query_id=str(job.id), team_id=t.id)
-        sync_execute(
-            insert_sql, values, settings=HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True)
-        )
+        with tags_context(client_query_id=str(job.id), team_id=t.id):
+            sync_execute(
+                insert_sql, values, settings=HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True)
+            )
 
     executor = PreaggregationExecutor(ttl_seconds=ttl_seconds)
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
