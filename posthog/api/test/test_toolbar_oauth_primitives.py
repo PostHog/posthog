@@ -8,6 +8,9 @@ from django.test import override_settings
 
 from rest_framework import status
 
+from posthog.api.oauth.toolbar_service import CALLBACK_PATH, get_or_create_toolbar_oauth_application
+from posthog.models import Organization, User
+
 
 @override_settings(TOOLBAR_OAUTH_ENABLED=True)
 class TestToolbarOAuthPrimitives(APIBaseTest):
@@ -63,6 +66,43 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_oauth_application_is_scoped_per_organization(self):
+        base_url = "https://us.posthog.example"
+
+        first_app = get_or_create_toolbar_oauth_application(base_url=base_url, user=self.user)
+
+        other_org = Organization.objects.create(name="Another org")
+        other_user = User.objects.create_user(
+            email="toolbar-oauth-another-org@example.com",
+            first_name="Other",
+            password="password",
+        )
+        other_org.members.add(other_user)
+        second_app = get_or_create_toolbar_oauth_application(base_url=base_url, user=other_user)
+
+        self.assertNotEqual(first_app.id, second_app.id)
+        self.assertEqual(first_app.organization, self.organization)
+        self.assertEqual(second_app.organization, other_org)
+
+    def test_oauth_application_supports_multiple_redirect_uris_within_org(self):
+        first_base_url = "https://us.posthog.example"
+        second_base_url = "https://eu.posthog.example"
+
+        first_app = get_or_create_toolbar_oauth_application(base_url=first_base_url, user=self.user)
+        second_app = get_or_create_toolbar_oauth_application(base_url=second_base_url, user=self.user)
+
+        self.assertEqual(first_app.id, second_app.id)
+        second_app.refresh_from_db()
+
+        redirect_uris = {uri for uri in second_app.redirect_uris.split(" ") if uri}
+        self.assertSetEqual(
+            redirect_uris,
+            {
+                f"{first_base_url}{CALLBACK_PATH}",
+                f"{second_base_url}{CALLBACK_PATH}",
+            },
+        )
 
     @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_exchange_success(self, mock_post):
