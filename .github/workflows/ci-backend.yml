@@ -256,7 +256,18 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
 
             - name: Wait for Docker services
-              run: bin/wait-for-docker
+              run: |
+                  # Can't use bin/wait-for-docker here — working tree is on master
+                  # which doesn't have the script yet.
+                  for svc in db redis7 kafka clickhouse; do
+                    while true; do
+                      cid=$(docker compose -f docker-compose.dev.yml ps -q "$svc" 2>/dev/null || true)
+                      [ -n "$cid" ] && status=$(docker inspect --format='{{.State.Health.Status}}' "$cid" 2>/dev/null || echo starting) && [ "$status" = "healthy" ] && break
+                      echo "Waiting for $svc..."
+                      sleep 1
+                    done
+                  done
+                  echo "All services healthy."
 
             - name: Run migrations up to master
               run: |
