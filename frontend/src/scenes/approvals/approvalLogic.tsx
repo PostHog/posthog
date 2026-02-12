@@ -90,10 +90,16 @@ export const approvalLogic = kea<approvalLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => {
-        const navigateAfterAction = (): void => {
+        const navigateAfterAction = (fullReload: boolean = false): void => {
             const cr = values.changeRequest
             const resourceUrl = cr ? getApprovalResourceUrl(cr.action_key, cr.resource_id) : null
-            router.actions.push(resourceUrl || urls.approvals())
+            const targetUrl = resourceUrl || urls.approvals()
+
+            if (fullReload) {
+                window.location.href = targetUrl
+            } else {
+                router.actions.push(targetUrl)
+            }
         }
 
         return {
@@ -106,7 +112,7 @@ export const approvalLogic = kea<approvalLogicType>([
 
                     if (response.status === ChangeRequestState.Applied) {
                         lemonToast.success('Change request approved and applied successfully')
-                        setTimeout(navigateAfterAction, 2000)
+                        setTimeout(() => navigateAfterAction(true), 2000)
                     } else if (response.status === ChangeRequestState.Failed) {
                         lemonToast.error(`Approval succeeded but application failed: ${response.message}`)
                         actions.loadChangeRequest()
