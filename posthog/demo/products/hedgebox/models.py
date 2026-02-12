@@ -728,7 +728,11 @@ class HedgeboxPerson(SimPerson):
         )
         self.active_client.capture(EVENT_SIGNED_UP, {"from_invite": False})
         self.advance_timer(self.cluster.random.uniform(0.1, 0.2))
-        self.active_client.identify(self.in_product_id, {"email": self.email, "name": self.name})
+        identify_properties: dict[str, str | bool] = {"email": self.email, "name": self.name}
+        # First cluster users are marked as internal/test users for filtering demo
+        if self.cluster.index == 0:
+            identify_properties["$internal_or_test_user"] = True
+        self.active_client.identify(self.in_product_id, identify_properties)
         self.active_client.group(
             GROUP_TYPE_ACCOUNT,
             self.account.id,

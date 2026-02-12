@@ -4267,6 +4267,15 @@
             "label": "Insert ID",
             "system": true
         },
+        "$internal_or_test_user": {
+            "description": "Whether this user is an internal team member or test user. Used to filter out internal users from analytics. Learn more in [our documentation](https://posthog.com/tutorials/filter-internal-users).",
+            "examples": [
+                true,
+                false
+            ],
+            "label": "Internal/test user",
+            "type": "Boolean"
+        },
         "$ip": {
             "description": "IP address for this user when the event was sent.",
             "examples": [

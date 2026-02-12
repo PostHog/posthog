@@ -40,6 +40,8 @@ export function loadPostHogJS(): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
+            internal_or_test_user_hostname: /^(localhost|127\.0\.0\.1)$/,
+
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true

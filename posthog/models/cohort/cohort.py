@@ -859,6 +859,45 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     __repr__ = sane_repr("id", "name", "last_calculation")
 
 
+TEST_USERS_COHORT_NAME = "Internal / Test users"
+
+
+def get_or_create_internal_test_users_cohort(team: "Team") -> "Cohort":
+    """
+    Get or create a 'Internal / Test users' cohort for the team.
+
+    This cohort contains users with the $internal_or_test_user person property set to true.
+    Used for filtering out test/internal users from analytics.
+    """
+    test_users_cohort, _ = Cohort.objects.get_or_create(
+        team=team,
+        name=TEST_USERS_COHORT_NAME,
+        defaults={
+            "description": "Cohort containing users with $internal_or_test_user property set to true. See https://posthog.com/tutorials/filter-internal-users",
+            "is_static": False,
+            "filters": {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$internal_or_test_user",
+                                    "type": "person",
+                                    "value": [True],
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        },
+    )
+    return test_users_cohort
+
+
 class CohortPeople(models.Model):
     id = models.BigAutoField(primary_key=True)
     cohort = models.ForeignKey("Cohort", on_delete=models.DO_NOTHING, db_constraint=False)

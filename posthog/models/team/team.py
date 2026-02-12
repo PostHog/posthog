@@ -45,7 +45,14 @@ from posthog.utils import GenericEmails
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 
 from ...hogql.modifiers import set_default_modifier_values
-from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
+from ...schema import (
+    CohortPropertyFilter,
+    CurrencyCode,
+    HogQLQueryModifiers,
+    PathCleaningFilter,
+    PersonsOnEventsMode,
+    PropertyOperator,
+)
 from .team_caching import get_team_in_cache, set_team_in_cache
 
 if TYPE_CHECKING:
@@ -115,21 +122,37 @@ class TeamManager(models.Manager):
                     ]
         return filters
 
-    def create_with_data(self, *, initiating_user: Optional["User"], **kwargs) -> "Team":
+    def create_with_data(
+        self, *, initiating_user: Optional["User"], skip_demo_data_generation: bool = False, **kwargs
+    ) -> "Team":
         team = cast("Team", self.create(**kwargs))
 
-        if kwargs.get("is_demo"):
+        # Create test users cohort and set test account filters to exclude it
+        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
+
+        test_users_cohort = get_or_create_internal_test_users_cohort(team)
+        cohort_filter = CohortPropertyFilter(
+            cohort_name=test_users_cohort.name, value=test_users_cohort.id, operator=PropertyOperator.NOT_IN
+        )
+        team.test_account_filters = [cohort_filter.model_dump()]
+
+        if kwargs.get("is_demo") and not skip_demo_data_generation:
             if initiating_user is None:
                 raise ValueError("initiating_user must be provided when creating a demo team")
-            team.kick_off_demo_data_generation(initiating_user)
+            team.save()
+            # Defer Celery task if we're inside an atomic block (e.g., ensure_account_and_save)
+            # to avoid sending task before transaction commits. In tests, Celery tasks run
+            # synchronously so we can call directly (and on_commit doesn't run in TestCase).
+            if connection.in_atomic_block and not settings.TEST:
+                transaction.on_commit(lambda: team.kick_off_demo_data_generation(initiating_user))
+            else:
+                team.kick_off_demo_data_generation(initiating_user)
             return team  # Return quickly, as the demo data and setup will be created asynchronously
 
         # Get organization to apply defaults
         organization = kwargs.get("organization") or Organization.objects.get(id=kwargs.get("organization_id"))
 
         team.anonymize_ips = kwargs.get("anonymize_ips", organization.default_anonymize_ips)
-
-        team.test_account_filters = self.set_test_account_filters(organization.id)
 
         # Self-hosted deployments get 5-year session recording retention by default
         if not is_cloud():
