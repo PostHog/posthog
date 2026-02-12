@@ -264,7 +264,7 @@ class QueryContext:
     def with_excluded_properties(self, excluded_properties: Optional[str]) -> Self:
         excluded_list = []
         if excluded_properties:
-            excluded_list = list(set(json.loads(excluded_properties)))
+            excluded_list = sorted(set(json.loads(excluded_properties)))
 
         return dataclasses.replace(
             self,
@@ -288,7 +288,7 @@ class QueryContext:
                     self.excluded_properties_filter
                     + f"AND NOT {self.property_definition_table}.name = ANY(%(excluded_core_properties)s)"
                 ),
-                params={**self.params, "excluded_core_properties": list(ALWAYS_EXCLUDED_EVENT_PROPERTIES)},
+                params={**self.params, "excluded_core_properties": sorted(ALWAYS_EXCLUDED_EVENT_PROPERTIES)},
             )
         elif type == "event" and exclude_core_properties:
             # exclude all properties starting with $ and other event properties defined in the taxonomy
