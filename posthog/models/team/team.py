@@ -601,6 +601,9 @@ class Team(UUIDTClassicModel):
     # Before adding new fields here, read posthog/models/team/README.md
     # Domain-specific config should use a Team Extension model instead.
 
+    # TRANSITIONAL: These descriptors exist for backward compat with existing
+    # `team.<product>_config` call sites. New products should NOT add descriptors
+    # here — use get_or_create_team_extension() at call sites instead.
     revenue_analytics_config = TeamExtensionDescriptor(
         "posthog.models.team.team_revenue_analytics_config", "TeamRevenueAnalyticsConfig"
     )

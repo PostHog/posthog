@@ -21,7 +21,7 @@ Recent additions that should have been extensions include toggles for Experiment
 ## Creating a new Team extension
 
 ```python
-# posthog/models/team/team_my_product_config.py (or products/my_product/backend/models/)
+# products/my_product/backend/models/team_my_product_config.py
 import logging
 
 from django.db import models
@@ -52,11 +52,14 @@ Then run `python manage.py makemigrations`.
 
 ## Usage
 
-Access the extension via the helper:
+Access the extension via the helper — do not add accessors to the Team model:
 
 ```python
 from posthog.models.team.extensions import get_or_create_team_extension
-from .team_my_product_config import TeamMyProductConfig
+from .models.team_my_product_config import TeamMyProductConfig
 
 config = get_or_create_team_extension(team, TeamMyProductConfig)
 ```
+
+Some older extensions still have `team.<product>_config` descriptors on the Team model.
+These are transitional and should not be used as a pattern for new extensions.

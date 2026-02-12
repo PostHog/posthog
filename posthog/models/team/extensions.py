@@ -77,18 +77,12 @@ def register_team_extension_signal(
 
 class TeamExtensionDescriptor:
     """
-    Descriptor for lazy-loading Team extension models.
+    TRANSITIONAL: Descriptor for lazy-loading Team extension models.
 
-    Handles lazy import (to avoid circular imports), get-or-create, and per-instance
-    caching. Non-data descriptor so the cached value in __dict__ shadows subsequent
-    lookups (same semantics as cached_property).
-
-    Example:
-        class Team(models.Model):
-            revenue_analytics_config = TeamExtensionDescriptor(
-                "posthog.models.team.team_revenue_analytics_config",
-                "TeamRevenueAnalyticsConfig",
-            )
+    Exists for backward compatibility with existing `team.<product>_config` accessors.
+    Do NOT add new descriptors to Team — products should access their config via
+    `get_or_create_team_extension()` directly. This avoids coupling the core Team model
+    to product internals (see products/architecture.md for the target architecture).
     """
 
     def __init__(
