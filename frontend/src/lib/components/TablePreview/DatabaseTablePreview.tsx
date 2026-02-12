@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { useRef } from 'react'
 
 import { TablePreview, TablePreviewProps } from './TablePreview'
 import { databaseTablePreviewLogic } from './databaseTablePreviewLogic'
@@ -19,7 +19,7 @@ export function DatabaseTablePreview({
     whereClause,
     ...rest
 }: DatabaseTablePreviewProps): JSX.Element {
-const instanceLogicKey = useRef(logicKey || `database-table-preview-${uniqueMemoizedIndex++}`).current
+    const instanceLogicKey = useRef(logicKey || `database-table-preview-${uniqueMemoizedIndex++}`).current
 
     const logic = databaseTablePreviewLogic({
         logicKey: instanceLogicKey,
