@@ -1061,8 +1061,14 @@ mod thread_counts_tests {
     fn test_both_pools_always_have_at_least_one_thread() {
         for cores in 1..=128 {
             let counts = ThreadCounts::from_cores(cores);
-            assert!(counts.tokio_workers >= 1, "tokio must have >= 1 thread for {cores} cores");
-            assert!(counts.rayon_threads >= 1, "rayon must have >= 1 thread for {cores} cores");
+            assert!(
+                counts.tokio_workers >= 1,
+                "tokio must have >= 1 thread for {cores} cores"
+            );
+            assert!(
+                counts.rayon_threads >= 1,
+                "rayon must have >= 1 thread for {cores} cores"
+            );
         }
     }
 
