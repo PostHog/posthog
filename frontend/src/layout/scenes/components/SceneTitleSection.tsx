@@ -60,7 +60,7 @@ export function SceneTitlePanelButton({
         return (
             <>
                 <ButtonPrimitive
-                    className={cn(buttonClassName, 'group')}
+                    className={buttonClassName}
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
@@ -89,7 +89,7 @@ export function SceneTitlePanelButton({
                     iconOnly
                 >
                     <div className="relative">
-                        <IconSparkles className="text-ai group-hover:animate-hue-rotate" />
+                        <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
                         {maxToolProps && (
                             <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
                         )}

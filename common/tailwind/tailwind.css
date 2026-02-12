@@ -17,3 +17,7 @@
         }
     }
 }
+
+@utility animate-hue-rotate {
+    animation: var(--animate-hue-rotate);
+}
