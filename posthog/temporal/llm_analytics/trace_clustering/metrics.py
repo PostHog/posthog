@@ -21,6 +21,28 @@ from temporalio.worker import (
 from posthog.temporal.llm_analytics.metrics import ExecutionTimeRecorder, get_metric_meter
 
 # ---------------------------------------------------------------------------
+# Histogram bucket config (imported by common/worker.py for PrometheusConfig)
+# ---------------------------------------------------------------------------
+
+CLUSTERING_LATENCY_HISTOGRAM_METRICS = (
+    "llma_clustering_activity_execution_latency",
+    "llma_clustering_activity_schedule_to_start_latency",
+    "llma_clustering_workflow_execution_latency",
+)
+CLUSTERING_LATENCY_HISTOGRAM_BUCKETS = [
+    1_000.0,  # 1 second
+    5_000.0,  # 5 seconds
+    10_000.0,  # 10 seconds
+    30_000.0,  # 30 seconds
+    60_000.0,  # 1 minute
+    120_000.0,  # 2 minutes
+    300_000.0,  # 5 minutes
+    600_000.0,  # 10 minutes
+    900_000.0,  # 15 minutes
+    1_800_000.0,  # 30 minutes
+]
+
+# ---------------------------------------------------------------------------
 # Activity / workflow type sets for the interceptor
 # ---------------------------------------------------------------------------
 
@@ -141,8 +163,25 @@ class _ClusteringWorkflowInterceptor(WorkflowInboundInterceptor):
         if workflow_info.workflow_type not in CLUSTERING_WORKFLOW_TYPES:
             return await super().execute_workflow(input)
 
+        # Parse analysis_level from workflow args for metric labels
+        analysis_level = "trace"
+        if input.args:
+            try:
+                analysis_level = input.args[0].analysis_level
+            except (IndexError, AttributeError):
+                pass
+
+        increment_workflow_started(analysis_level)
+
         with ExecutionTimeRecorder(
             "llma_clustering_workflow_execution_latency",
             description="End-to-end workflow execution latency",
         ):
-            return await super().execute_workflow(input)
+            try:
+                result = await super().execute_workflow(input)
+                increment_workflow_finished("completed", analysis_level)
+                return result
+            except Exception as e:
+                increment_errors(type(e).__name__)
+                increment_workflow_finished("failed", analysis_level)
+                raise
