@@ -19,8 +19,6 @@ import {
 import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
-import { FORM_MODES, experimentLogic } from '../experimentLogic'
-import { experimentSceneLogic } from '../experimentSceneLogic'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 import { validateExperimentSubmission } from './experimentSubmissionValidation'
 import { variantsPanelLogic } from './variantsPanelLogic'
@@ -464,24 +462,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     actions.saveExperimentSuccess()
                     clearDraftStorage(props.tabId)
 
-                    if (props.tabId) {
-                        const sceneLogicInstance = experimentSceneLogic({ tabId: props.tabId })
-                        sceneLogicInstance.actions.setSceneState(response.id, FORM_MODES.update)
-                        const logicRef = sceneLogicInstance.values.experimentLogicRef
-
-                        if (logicRef) {
-                            logicRef.logic.actions.loadExperimentSuccess(response)
-                        } else {
-                            experimentLogic({
-                                experimentId: response.id,
-                                tabId: props.tabId,
-                            }).actions.loadExperimentSuccess(response)
-                        }
-                    } else {
-                        const viewLogic = experimentLogic({ experimentId: response.id })
-                        viewLogic.actions.loadExperimentSuccess(response)
-                        router.actions.push(urls.experiment(response.id))
-                    }
+                    // Navigate to the saved experiment view
+                    // This triggers URL routing which will properly mount/update the scene logic
+                    router.actions.push(urls.experiment(response.id))
                 }
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to save experiment')

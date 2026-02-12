@@ -178,6 +178,11 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             ) {
                 const oldRef = values.experimentLogicRef
 
+                // Unmount old logic first to prevent race conditions and duplicate instances
+                if (oldRef) {
+                    oldRef.unmount()
+                }
+
                 const logicProps: ExperimentLogicProps = {
                     experimentId: desiredExperimentId,
                     formMode: desiredFormMode,
@@ -187,14 +192,20 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 const logic = experimentLogic.build(logicProps)
                 const unmount = logic.mount()
                 actions.setExperimentLogicRef(logic, unmount, logicProps)
-
-                if (oldRef) {
-                    oldRef.unmount()
-                }
             }
         },
     })),
     listeners(({ sharedListeners, values }) => ({
+        afterMount: () => {
+            // Ensure experimentLogic is mounted when scene mounts with initial props
+            sharedListeners.ensureExperimentLogicMounted()
+        },
+        beforeUnmount: () => {
+            // Clean up manually mounted experimentLogic to prevent memory leaks
+            if (values.experimentLogicRef) {
+                values.experimentLogicRef.unmount()
+            }
+        },
         setSceneState: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
             values.experimentLogicRef?.logic.actions.loadExperiment()
