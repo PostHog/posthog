@@ -142,16 +142,17 @@ export const productToursDestroy = async (projectId: string, id: string, options
 /**
  * Generate tour step content using AI.
  */
-export const getProductToursGenerateCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/product_tours/generate/`
+export const getProductToursGenerateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/product_tours/${id}/generate/`
 }
 
 export const productToursGenerateCreate = async (
     projectId: string,
+    id: string,
     productTourSerializerCreateUpdateOnlyApi: NonReadonly<ProductTourSerializerCreateUpdateOnlyApi>,
     options?: RequestInit
 ): Promise<ProductTourSerializerCreateUpdateOnlyApi> => {
-    return apiMutator<ProductTourSerializerCreateUpdateOnlyApi>(getProductToursGenerateCreateUrl(projectId), {
+    return apiMutator<ProductTourSerializerCreateUpdateOnlyApi>(getProductToursGenerateCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
