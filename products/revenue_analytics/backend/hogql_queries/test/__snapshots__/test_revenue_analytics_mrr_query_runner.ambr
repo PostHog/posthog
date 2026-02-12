@@ -175,7 +175,7 @@
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
               GROUP BY breakdown_by,
                        customer_id,
@@ -337,7 +337,7 @@
                               toDateTime64('1970-01-01 00:00:00.000000', 6, 'UTC') AS ended_at,
                               '' AS metadata
                        WHERE 0) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
               GROUP BY breakdown_by,
                        customer_id,
@@ -545,7 +545,7 @@
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0), ifNull(equals(revenue_analytics_revenue_item.source_label, 'non-existent-source'), 0))) AS subquery
               GROUP BY breakdown_by,
                        customer_id,
@@ -756,7 +756,7 @@
                               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                               posthog_test_stripe_subscription.metadata AS metadata
                        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0), ifNull(equals(revenue_analytics_revenue_item.source_label, 'non-existent-source'), 0))) AS subquery
               GROUP BY breakdown_by,
                        customer_id,
@@ -964,7 +964,7 @@
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  LEFT JOIN
                    (SELECT toString(persons.id) AS id,
                            'revenue_analytics.events.purchase' AS source_label,
@@ -1223,7 +1223,7 @@
                               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                               posthog_test_stripe_subscription.metadata AS metadata
                        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  LEFT JOIN
                    (SELECT outer.id AS id,
                            'stripe.posthog_test' AS source_label,
@@ -1454,7 +1454,7 @@
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
               GROUP BY breakdown_by,
                        customer_id,
@@ -1665,7 +1665,7 @@
                               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                               posthog_test_stripe_subscription.metadata AS metadata
                        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
               GROUP BY breakdown_by,
                        customer_id,
@@ -1873,7 +1873,7 @@
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2025-02-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-01 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2025-02-01 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-01 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2025-02-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-01 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
               GROUP BY breakdown_by,
                        customer_id,
@@ -2082,7 +2082,7 @@
                               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                               posthog_test_stripe_subscription.metadata AS metadata
                        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2025-02-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-01 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2025-02-01 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-01 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2025-02-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-01 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
               GROUP BY breakdown_by,
                        customer_id,
@@ -2288,7 +2288,7 @@
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  LEFT JOIN
                    (SELECT toString(persons.id) AS id,
                            'revenue_analytics.events.purchase' AS source_label,
@@ -2556,7 +2556,7 @@
                               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                               posthog_test_stripe_subscription.metadata AS metadata
                        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  LEFT JOIN
                    (SELECT outer.id AS id,
                            'stripe.posthog_test' AS source_label,
@@ -2792,7 +2792,7 @@
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  LEFT JOIN
                    (SELECT product_id AS id,
                            'revenue_analytics.events.purchase' AS source_label,
@@ -3012,7 +3012,7 @@
                               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                               posthog_test_stripe_subscription.metadata AS metadata
                        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  LEFT JOIN
                    (SELECT posthog_test_stripe_product.id AS id,
                            'stripe.posthog_test' AS source_label,
@@ -3225,7 +3225,7 @@
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
               GROUP BY breakdown_by,
                        customer_id,
@@ -3436,7 +3436,7 @@
                               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                               posthog_test_stripe_subscription.metadata AS metadata
                        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
               GROUP BY breakdown_by,
                        customer_id,
@@ -3644,7 +3644,7 @@
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
               GROUP BY breakdown_by,
                        customer_id,
@@ -3855,7 +3855,7 @@
                               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                               posthog_test_stripe_subscription.metadata AS metadata
                        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, addDays(assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.is_recurring, 1), 0))) AS subquery
               GROUP BY breakdown_by,
                        customer_id,
@@ -5754,7 +5754,7 @@
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  LEFT JOIN
                    (SELECT product_id AS id,
                            'revenue_analytics.events.purchase' AS source_label,
@@ -5974,7 +5974,7 @@
                               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                               posthog_test_stripe_subscription.metadata AS metadata
                        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  LEFT JOIN
                    (SELECT posthog_test_stripe_product.id AS id,
                            'stripe.posthog_test' AS source_label,
@@ -6187,7 +6187,7 @@
                           GROUP BY subscription_id,
                                    person_id)
                        ORDER BY started_at DESC) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  LEFT JOIN
                    (SELECT product_id AS id,
                            'revenue_analytics.events.purchase' AS source_label,
@@ -6407,7 +6407,7 @@
                               parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_subscription.ended_at), 6, 'UTC') AS ended_at,
                               posthog_test_stripe_subscription.metadata AS metadata
                        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String') AS posthog_test_stripe_subscription) AS subscription
-                    WHERE and(ifNull(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), 0), ifNull(lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))) AS revenue_analytics_revenue_item
+                    WHERE and(greaterOrEquals(toTimeZone(subscription.ended_at, 'UTC'), addDays(assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC')), -60)), lessOrEquals(toTimeZone(subscription.ended_at, 'UTC'), assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))))) AS revenue_analytics_revenue_item
                  LEFT JOIN
                    (SELECT posthog_test_stripe_product.id AS id,
                            'stripe.posthog_test' AS source_label,
