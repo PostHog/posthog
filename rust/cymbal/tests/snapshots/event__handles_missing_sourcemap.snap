@@ -1,6 +1,6 @@
 ---
-source: cymbal/tests/exception_list.rs
-expression: body.0
+source: cymbal/tests/event.rs
+expression: exception_list.0
 ---
 [
   {

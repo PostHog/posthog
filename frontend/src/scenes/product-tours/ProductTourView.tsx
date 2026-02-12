@@ -299,15 +299,10 @@ function StepsFunnel({ tour, dateRange }: { tour: ProductTour; dateRange: DateRa
         value: tour.id,
     }
 
-    // Build funnel: tour shown → step 1 shown → step 2 shown → ... → tour completed
+    // Build funnel: step 1 shown → step 2 shown → ... → tour completed
     // Filter by step ID (stable across reorders) rather than step order (positional)
+    // "product tour shown" === "step 1 shown", so we do not include it here
     const series = [
-        {
-            kind: NodeKind.EventsNode,
-            event: 'product tour shown',
-            custom_name: 'Tour started',
-            properties: [tourIdFilter],
-        },
         ...steps.map((step, index) => ({
             kind: NodeKind.EventsNode,
             event: 'product tour step shown',

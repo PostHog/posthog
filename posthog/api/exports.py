@@ -251,6 +251,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         dashboard_id = instance.dashboard_id
         if insight_id and not dashboard_id:  # we don't log dashboard activity ¯\_(ツ)_/¯
             try:
+                # nosemgrep: idor-lookup-without-team (insight_id validated as team-owned in validate())
                 insight: Insight = Insight.objects.select_related("team__organization").get(id=insight_id)
                 log_activity(
                     organization_id=insight.team.organization.id,

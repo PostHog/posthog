@@ -79,7 +79,7 @@ class TestPrinter(BaseTest):
         context: Optional[HogQLContext] = None,
         dialect: HogQLDialect = "clickhouse",
         settings: Optional[HogQLQuerySettings] = None,
-        backend: HogQLParserBackend = "cpp",
+        backend: HogQLParserBackend = "cpp-json",
     ) -> str:
         node = parse_expr(query, backend=backend)
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -4060,7 +4060,7 @@ class TestPostgresPrinter(BaseTest):
         query: ast.Expr | str,
         context: Optional[HogQLContext] = None,
         settings: Optional[HogQLQuerySettings] = None,
-        backend: HogQLParserBackend = "cpp",
+        backend: HogQLParserBackend = "cpp-json",
     ) -> str:
         node = parse_expr(query, backend=backend) if isinstance(query, str) else query
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
