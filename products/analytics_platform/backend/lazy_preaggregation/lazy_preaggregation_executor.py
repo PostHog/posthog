@@ -593,8 +593,11 @@ class PreaggregationExecutor:
                 break
         finally:
             if pubsub:
-                pubsub.unsubscribe()
-                pubsub.close()
+                try:
+                    pubsub.unsubscribe()
+                    pubsub.close()
+                except Exception:
+                    pass
 
         # All ranges covered — collect READY job IDs
         final_jobs = find_existing_jobs(team, query_hash, start, end)
@@ -639,7 +642,7 @@ class PreaggregationExecutor:
 
     def _wait_for_notification(self, pubsub: redis_lib.client.PubSub, timeout: float) -> dict | None:
         """Block until a pubsub message arrives or timeout. Extracted for testability."""
-        return pubsub.get_message(ignore_subscribe_messages=True, timeout=timeout)
+        return pubsub.get_message(timeout=timeout)
 
 
 def ensure_preaggregated(
