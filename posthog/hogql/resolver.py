@@ -605,7 +605,7 @@ class Resolver(CloningVisitor):
         if func_meta := HOGQL_CLICKHOUSE_FUNCTIONS.get(node.name, None):
             if signatures := func_meta.signatures:
                 for sig_arg_types, sig_return_type in signatures:
-                    if sig_arg_types is None or compare_types(arg_types, sig_arg_types):
+                    if sig_arg_types is None or compare_types(arg_types, sig_arg_types, args=node.args):
                         return_type = dataclasses.replace(sig_return_type)
                         break
 

@@ -5,7 +5,8 @@ import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
-from posthog.hogql.ast import DateType, FloatType, IntegerType
+from posthog.hogql import ast
+from posthog.hogql.ast import DateType, FloatType, IntegerType, StringLiteralType, StringType
 from posthog.hogql.base import UnknownType
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.functions.aggregations import generate_combinator_suffix_combinations
@@ -74,6 +75,35 @@ class TestMappings(ClickhouseTestMixin, BaseTest):
     def test_compare_types_mismatch_differing_order(self):
         res = compare_types([IntegerType(), FloatType()], (FloatType(), IntegerType()))
         assert res is False
+
+    def test_compare_types_string_literal_matching_value(self):
+        sig = (StringLiteralType(values=frozenset({"month", "year"})),)
+        args = [ast.Constant(value="month")]
+        res = compare_types([StringType()], sig, args=args)
+        assert res is True
+
+    def test_compare_types_string_literal_non_matching_value(self):
+        sig = (StringLiteralType(values=frozenset({"month", "year"})),)
+        args = [ast.Constant(value="day")]
+        res = compare_types([StringType()], sig, args=args)
+        assert res is False
+
+    def test_compare_types_string_literal_non_constant_arg(self):
+        sig = (StringLiteralType(values=frozenset({"month"})),)
+        args = [ast.Field(chain=["unit"])]
+        res = compare_types([StringType()], sig, args=args)
+        assert res is False
+
+    def test_compare_types_string_literal_no_args_provided(self):
+        sig = (StringLiteralType(values=frozenset({"month"})),)
+        res = compare_types([StringType()], sig)
+        assert res is False
+
+    def test_compare_types_string_literal_case_insensitive(self):
+        sig = (StringLiteralType(values=frozenset({"month"})),)
+        args = [ast.Constant(value="MONTH")]
+        res = compare_types([StringType()], sig, args=args)
+        assert res is True
 
     def test_unknown_type_mapping(self):
         HOGQL_CLICKHOUSE_FUNCTIONS["overloadedFunction"] = HogQLFunctionMeta(

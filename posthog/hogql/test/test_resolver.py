@@ -8,6 +8,8 @@ from posthog.test.base import BaseTest
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
@@ -813,6 +815,23 @@ class TestResolver(BaseTest):
         node = self._select("select plus(1, 2) from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+    @parameterized.expand(
+        [
+            ("year", ast.DateType),
+            ("quarter", ast.DateType),
+            ("month", ast.DateType),
+            ("week", ast.DateType),
+            ("day", ast.DateTimeType),
+            ("hour", ast.DateTimeType),
+            ("minute", ast.DateTimeType),
+            ("second", ast.DateTimeType),
+        ]
+    )
+    def test_date_trunc_return_type(self, unit, expected_type):
+        node = self._select(f"select dateTrunc('{unit}', timestamp) from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, expected_type(nullable=False))
 
     def test_assume_not_null_type(self):
         node = self._select(f"SELECT assumeNotNull(toDateTime('2020-01-01 00:00:00'))")

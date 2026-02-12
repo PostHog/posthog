@@ -1,7 +1,17 @@
-from posthog.hogql.ast import DateTimeType, DateType, FloatType, IntegerType, IntervalType, StringType
+from posthog.hogql.ast import (
+    DateTimeType,
+    DateType,
+    FloatType,
+    IntegerType,
+    IntervalType,
+    StringLiteralType,
+    StringType,
+)
 from posthog.hogql.base import UnknownType
 
 from ..core import HogQLFunctionMeta
+
+DATE_TRUNCATION_UNITS = frozenset({"year", "quarter", "month", "week"})
 
 # dates and times
 # Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
@@ -335,6 +345,18 @@ POSTGRESQL_DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             "dateTrunc",
             2,
             3,  # Allow optional timezone parameter
+            signatures=[
+                # Units that return Date (year/quarter/month/week)
+                ((StringLiteralType(values=DATE_TRUNCATION_UNITS), DateTimeType()), DateType()),
+                ((StringLiteralType(values=DATE_TRUNCATION_UNITS), DateTimeType(), StringType()), DateType()),
+                ((StringLiteralType(values=DATE_TRUNCATION_UNITS), DateType()), DateType()),
+                ((StringLiteralType(values=DATE_TRUNCATION_UNITS), DateType(), StringType()), DateType()),
+                # All other units (day/hour/minute/second) return DateTime
+                ((StringType(), DateTimeType()), DateTimeType()),
+                ((StringType(), DateTimeType(), StringType()), DateTimeType()),
+                ((StringType(), DateType()), DateType()),
+                ((StringType(), DateType(), StringType()), DateType()),
+            ],
         )
         for name in ["date_trunc", "dateTrunc"]
     },

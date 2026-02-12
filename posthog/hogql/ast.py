@@ -429,6 +429,13 @@ class StringArrayType(StringType):
 
 
 @dataclass(kw_only=True)
+class StringLiteralType(StringType):
+    """Matches only specific constant string values"""
+
+    values: frozenset[str] = field(default_factory=frozenset)
+
+
+@dataclass(kw_only=True)
 class BooleanType(ConstantType):
     data_type: ConstantDataType = field(default="bool", init=False)
 
