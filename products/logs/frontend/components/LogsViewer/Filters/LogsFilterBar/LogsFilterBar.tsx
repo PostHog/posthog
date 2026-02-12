@@ -30,8 +30,8 @@ import {
 } from '~/types'
 
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 
-import { logsSceneLogic } from '../../../../logsSceneLogic'
 import { DateRangeFilter } from '../DateRangeFilter'
 import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
 import { LogsDateRangePicker } from '../LogsDateRangePicker/LogsDateRangePicker'
@@ -47,8 +47,9 @@ const taxonomicGroupTypes = [
 
 export const LogsFilterBar = (): JSX.Element => {
     const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
-    const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsSceneLogic)
-    const { runQuery, zoomDateRange, setLiveTailRunning } = useActions(logsSceneLogic)
+    const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
+    const { runQuery, setLiveTailRunning } = useActions(logsViewerDataLogic)
+    const { zoomDateRange } = useActions(logsViewerFiltersLogic)
     const { filters } = useValues(logsViewerFiltersLogic)
     const { setDateRange } = useActions(logsViewerFiltersLogic)
     const { dateRange } = filters
