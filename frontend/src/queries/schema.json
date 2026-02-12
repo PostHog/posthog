@@ -28326,7 +28326,7 @@
             "additionalProperties": false,
             "properties": {
                 "count": {
-                    "$ref": "#/definitions/integer"
+                    "type": "number"
                 },
                 "label": {
                     "type": "string"

@@ -3284,6 +3284,14 @@ class RetentionType(StrEnum):
     RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
 
 
+class RetentionValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+    label: str | None = None
+
+
 class RevenueAnalyticsBreakdown(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5734,12 +5742,16 @@ class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload]):
     root: ApprovalResumePayload | FormResumePayload
 
 
-class RetentionValue(BaseModel):
+class RetentionResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count: int
-    label: str | None = None
+    breakdown_value: str | float | None = Field(
+        default=None, description="Optional breakdown value for retention cohorts"
+    )
+    date: AwareDatetime
+    label: str
+    values: list[RetentionValue]
 
 
 class RevenueAnalyticsAssistantFilters(BaseModel):
@@ -8337,6 +8349,43 @@ class CachedPathsQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[PathsLink]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
+class CachedRetentionQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[RetentionResult]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -13251,6 +13300,32 @@ class QueryResponseAlternative66(BaseModel):
     )
 
 
+class QueryResponseAlternative67(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[RetentionResult]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
 class QueryResponseAlternative68(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13768,16 +13843,30 @@ class RetentionFilterLegacy(BaseModel):
     total_intervals: int | None = None
 
 
-class RetentionResult(BaseModel):
+class RetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdown_value: str | float | None = Field(
-        default=None, description="Optional breakdown value for retention cohorts"
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
     )
-    date: AwareDatetime
-    label: str
-    values: list[RetentionValue]
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[RetentionResult]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
 
 
 class RevenueAnalyticsBaseQueryRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
@@ -14837,43 +14926,6 @@ class CachedNewExperimentQueryResponse(BaseModel):
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian]
 
 
-class CachedRetentionQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: AwareDatetime
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: AwareDatetime
-    query_metadata: dict[str, Any] | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[RetentionResult]
-    timezone: str
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-
-
 class CachedWebTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15790,32 +15842,6 @@ class QueryResponseAlternative17(BaseModel):
     )
 
 
-class QueryResponseAlternative67(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[RetentionResult]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-
-
 class RecordingsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15913,30 +15939,49 @@ class RecordingsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class RetentionQueryResponse(BaseModel):
+class RetentionQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
+    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
+    dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
+    dateRange: DateRange | None = Field(default=None, description="Date range for the query")
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
     )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    kind: Literal["RetentionQuery"] = "RetentionQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[RetentionResult]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | PropertyGroupFilter
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    response: RetentionQueryResponse | None = None
+    retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class StickinessQuery(BaseModel):
@@ -17108,51 +17153,6 @@ class QueryResponseAlternative62(BaseModel):
     significant: bool
     stats_version: int | None = None
     variants: list[ExperimentVariantTrendsBaseStats]
-
-
-class RetentionQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
-    breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
-    dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
-    dateRange: DateRange | None = Field(default=None, description="Date range for the query")
-    filterTestAccounts: bool | None = Field(
-        default=False,
-        description=("Exclude internal and test users by applying the respective filters"),
-    )
-    kind: Literal["RetentionQuery"] = "RetentionQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: (
-        list[
-            EventPropertyFilter
-            | PersonPropertyFilter
-            | ElementPropertyFilter
-            | EventMetadataPropertyFilter
-            | SessionPropertyFilter
-            | CohortPropertyFilter
-            | RecordingPropertyFilter
-            | LogEntryPropertyFilter
-            | GroupPropertyFilter
-            | FeaturePropertyFilter
-            | FlagPropertyFilter
-            | HogQLPropertyFilter
-            | EmptyPropertyFilter
-            | DataWarehousePropertyFilter
-            | DataWarehousePersonPropertyFilter
-            | ErrorTrackingIssueFilter
-            | LogPropertyFilter
-            | RevenueAnalyticsPropertyFilter
-        ]
-        | PropertyGroupFilter
-        | None
-    ) = Field(default=[], description="Property filters for all series")
-    response: RetentionQueryResponse | None = None
-    retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class SessionsQuery(BaseModel):
