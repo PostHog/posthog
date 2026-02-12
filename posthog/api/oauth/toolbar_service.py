@@ -17,12 +17,14 @@ from urllib.parse import urlencode, urlparse, urlunparse
 from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
+from django.db import transaction
 
 import requests
 
 from posthog.api.utils import unparsed_hostname_in_allowed_url_list
 from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, is_loopback_host
+from posthog.models.organization import Organization
 
 STATE_SIGNER_SALT = "toolbar-oauth-state-v1"
 STATE_VERSION = 1
@@ -101,36 +103,44 @@ def get_or_create_toolbar_oauth_application(base_url: str, user: User) -> OAuthA
     redirect_uri = f"{base_url.rstrip('/')}{CALLBACK_PATH}"
     app_name = settings.TOOLBAR_OAUTH_APPLICATION_NAME
 
-    existing = OAuthApplication.objects.filter(
-        organization=user.organization,
-        name=app_name,
-        client_type=OAuthApplication.CLIENT_PUBLIC,
-        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-    ).first()
+    if user.organization is None:
+        raise ToolbarOAuthError("no_organization", "User has no organization", 400)
 
-    if existing:
-        # Keep redirect URIs in sync for this organization deployment URLs.
-        existing_redirect_uris = _split_redirect_uris(existing.redirect_uris)
-        if redirect_uri not in existing_redirect_uris:
-            # DOT stores redirect URIs as a single space-delimited string.
-            # We append instead of replacing so one org can authorize toolbar
-            # from multiple PostHog hosts (e.g. US/EU or prod/staging).
-            existing.redirect_uris = " ".join([*existing_redirect_uris, redirect_uri])
-            existing.save(update_fields=["redirect_uris"])
-        return existing
+    # Serialize first-time app creation per org to avoid duplicate rows under
+    # concurrent requests (no unique DB constraint exists for this shape).
+    with transaction.atomic():
+        Organization.objects.select_for_update().get(pk=user.organization.pk)
 
-    # NOTE: Keep as non-first-party for now to avoid potential security issues.
-    return OAuthApplication.objects.create(
-        name=app_name,
-        user=user,
-        organization=user.organization,
-        client_type=OAuthApplication.CLIENT_PUBLIC,
-        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-        redirect_uris=redirect_uri,
-        algorithm="RS256",
-        skip_authorization=False,
-        is_first_party=False,
-    )
+        existing = OAuthApplication.objects.filter(
+            organization=user.organization,
+            name=app_name,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        ).first()
+
+        if existing:
+            # Keep redirect URIs in sync for this organization deployment URLs.
+            existing_redirect_uris = _split_redirect_uris(existing.redirect_uris)
+            if redirect_uri not in existing_redirect_uris:
+                # DOT stores redirect URIs as a single space-delimited string.
+                # We append instead of replacing so one org can authorize toolbar
+                # from multiple PostHog hosts (e.g. US/EU or prod/staging).
+                existing.redirect_uris = " ".join([*existing_redirect_uris, redirect_uri])
+                existing.save(update_fields=["redirect_uris"])
+            return existing
+
+        # NOTE: Keep as non-first-party for now to avoid potential security issues.
+        return OAuthApplication.objects.create(
+            name=app_name,
+            user=user,
+            organization=user.organization,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris=redirect_uri,
+            algorithm="RS256",
+            skip_authorization=False,
+            is_first_party=False,
+        )
 
 
 def build_toolbar_oauth_state(state: ToolbarOAuthState) -> tuple[str, datetime]:
@@ -211,9 +221,8 @@ def validate_and_consume_toolbar_oauth_state(
         raise ToolbarOAuthError("state_replay", "OAuth state has already been used", 400)
     cache.delete(pending_key)
 
-    # TODO: Is pk valid in this context?
     if payload.get("user_id") != request_user.pk:
-        raise ToolbarOAuthError("state_user_mismatch", "OAuth state project mismatch", 400)
+        raise ToolbarOAuthError("state_user_mismatch", "OAuth state user mismatch", 400)
 
     if payload.get("team_id") != request_team.pk:
         raise ToolbarOAuthError("state_team_mismatch", "OAuth state team mismatch", 400)
@@ -272,7 +281,15 @@ def exchange_code_for_tokens(
     except requests.RequestException as exc:
         raise ToolbarOAuthError("token_exchange_unavailable", "Failed to exchange code for tokens", 500) from exc
 
-    payload = response.json() if response.content else {}
+    if response.content:
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ToolbarOAuthError(
+                "token_exchange_invalid_response", "OAuth token exchange returned invalid JSON", 502
+            ) from exc
+    else:
+        payload = {}
 
     if response.status_code >= 400:
         error = payload.get("error", "token_exchange_failed")
