@@ -216,7 +216,7 @@ export const manifest: ProductManifest = {
                 ProductKey.LLM_PROMPTS,
                 ProductKey.LLM_CLUSTERS,
             ],
-            category: 'AI Analytics',
+            category: 'AI engineering',
             visualOrder: 1,
             type: 'llm_analytics',
             iconType: 'llm_analytics' as FileSystemIconType,
@@ -227,7 +227,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Clusters',
             intents: [ProductKey.LLM_CLUSTERS],
-            category: 'AI Analytics',
+            category: 'AI engineering',
             type: 'llm_clusters',
             iconType: 'llm_clusters' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-clusters-light)'] as FileSystemIconColor,
@@ -239,7 +239,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Datasets',
             intents: [ProductKey.LLM_DATASETS],
-            category: 'AI Analytics',
+            category: 'AI engineering',
             type: 'llm_datasets',
             iconType: 'llm_datasets' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-datasets-light)'] as FileSystemIconColor,
@@ -251,7 +251,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Evaluations',
             intents: [ProductKey.LLM_EVALUATIONS],
-            category: 'AI Analytics',
+            category: 'AI engineering',
             type: 'llm_evaluations',
             iconType: 'llm_evaluations' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-evaluations-light)'] as FileSystemIconColor,
@@ -263,7 +263,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Prompts',
             intents: [ProductKey.LLM_PROMPTS],
-            category: 'AI Analytics',
+            category: 'AI engineering',
             type: 'llm_prompts',
             iconType: 'llm_prompts' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
