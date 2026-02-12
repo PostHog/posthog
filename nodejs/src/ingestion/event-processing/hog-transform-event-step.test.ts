@@ -49,12 +49,7 @@ describe('createHogTransformEventStep', () => {
         const result = await hogTransformEventStep(input)
 
         expect(result.type).toBe(PipelineResultType.OK)
-        expect(mockTransformer.transformEventAndProduceMessages).toHaveBeenCalledWith(
-            expect.objectContaining({
-                uuid: input.event.uuid,
-                team_id: input.team.id,
-            })
-        )
+        expect(mockTransformer.transformEventAndProduceMessages).toHaveBeenCalledWith(input.event)
     })
 
     it('drops event when transformation returns null', async () => {
