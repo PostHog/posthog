@@ -215,6 +215,7 @@ export class IngestionConsumer {
             hogTransformer: this.hogTransformer,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             eventSchemaEnforcementManager: this.eventSchemaEnforcementManager,
+            eventSchemaEnforcementEnabled: this.hub.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             overflowEnabled: this.overflowEnabled(),
             overflowTopic: this.overflowTopic || '',
             dlqTopic: this.dlqTopic,

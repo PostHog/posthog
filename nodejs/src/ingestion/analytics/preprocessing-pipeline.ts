@@ -38,6 +38,7 @@ export interface PreprocessingPipelineConfig {
     hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
+    eventSchemaEnforcementEnabled: boolean
     overflowEnabled: boolean
     overflowTopic: string
     dlqTopic: string
@@ -66,6 +67,7 @@ export function createPreprocessingPipeline<
         hogTransformer,
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
+        eventSchemaEnforcementEnabled,
         overflowEnabled,
         overflowTopic,
         dlqTopic,
@@ -122,6 +124,7 @@ export function createPreprocessingPipeline<
                                 createPostTeamPreprocessingSubpipeline(b, {
                                     eventIngestionRestrictionManager,
                                     eventSchemaEnforcementManager,
+                                    eventSchemaEnforcementEnabled,
                                 })
                             )
                             // We want to call cookieless with the whole batch at once.

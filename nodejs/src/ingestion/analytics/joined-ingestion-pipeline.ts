@@ -29,6 +29,7 @@ export interface JoinedIngestionPipelineConfig {
     hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
+    eventSchemaEnforcementEnabled: boolean
     overflowEnabled: boolean
     overflowTopic: string
     dlqTopic: string
@@ -92,6 +93,7 @@ export function createJoinedIngestionPipeline<
         hogTransformer,
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
+        eventSchemaEnforcementEnabled,
         overflowEnabled,
         overflowTopic,
         dlqTopic,
@@ -111,6 +113,7 @@ export function createJoinedIngestionPipeline<
         hogTransformer,
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
+        eventSchemaEnforcementEnabled,
         overflowEnabled,
         overflowTopic,
         dlqTopic,

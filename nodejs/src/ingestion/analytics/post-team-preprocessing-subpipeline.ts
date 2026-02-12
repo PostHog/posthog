@@ -20,18 +20,22 @@ export interface PostTeamPreprocessingSubpipelineInput {
 export interface PostTeamPreprocessingSubpipelineConfig {
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
+    eventSchemaEnforcementEnabled: boolean
 }
 
 export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPreprocessingSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PostTeamPreprocessingSubpipelineConfig
 ): PipelineBuilder<TInput, TInput, TContext> {
-    const { eventIngestionRestrictionManager, eventSchemaEnforcementManager } = config
+    const { eventIngestionRestrictionManager, eventSchemaEnforcementManager, eventSchemaEnforcementEnabled } = config
 
-    return builder
-        .pipe(createValidateEventMetadataStep())
-        .pipe(createValidateEventPropertiesStep())
-        .pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager))
+    let pipeline = builder.pipe(createValidateEventMetadataStep()).pipe(createValidateEventPropertiesStep())
+
+    if (eventSchemaEnforcementEnabled) {
+        pipeline = pipeline.pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager))
+    }
+
+    return pipeline
         .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
         .pipe(createValidateEventUuidStep())
         .pipe(createDropOldEventsStep())
