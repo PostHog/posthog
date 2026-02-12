@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentMetric
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
@@ -46,6 +46,8 @@ from products.product_tours.backend.models import ProductTour
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+
+DEFAULT_ROLLOUT_PERCENTAGE = 100
 
 
 class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -232,6 +234,29 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         return exposure_criteria
 
+    def _validate_metrics_list(self, metrics: list | None) -> list | None:
+        if metrics is None:
+            return metrics
+
+        if not isinstance(metrics, list):
+            raise ValidationError("Metrics must be a list")
+
+        for i, metric in enumerate(metrics):
+            if not isinstance(metric, dict) or metric.get("kind") != "ExperimentMetric":
+                continue
+            try:
+                ExperimentMetric.model_validate(metric)
+            except Exception:
+                raise ValidationError(f"Invalid metric at index {i}")
+
+        return metrics
+
+    def validate_metrics(self, value):
+        return self._validate_metrics_list(value)
+
+    def validate_metrics_secondary(self, value):
+        return self._validate_metrics_list(value)
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
 
@@ -268,8 +293,12 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
             ]
 
+            # Pass experiment parameters to the feature flag
+            parameters = validated_data.get("parameters") or {}
+            experiment_rollout_percentage = parameters.get("rollout_percentage", DEFAULT_ROLLOUT_PERCENTAGE)
+
             feature_flag_filters = {
-                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
                 "multivariate": {"variants": variants or default_variants},
                 "aggregation_group_type_index": aggregation_group_type_index,
                 "holdout_groups": holdout_groups,
@@ -282,9 +311,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 "active": not is_draft,
                 "creation_context": "experiments",
             }
-
-            # Pass ensure_experience_continuity from experiment parameters
-            parameters = validated_data.get("parameters") or {}
             if parameters.get("ensure_experience_continuity") is not None:
                 feature_flag_data["ensure_experience_continuity"] = parameters["ensure_experience_continuity"]
             if validated_data.get("_create_in_folder") is not None:
@@ -384,7 +410,10 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             ordering_changed = False
 
             saved_metric_ids = [sm["id"] for sm in saved_metrics_data]
-            saved_metrics_map = {sm.id: sm for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids)}
+            saved_metrics_map = {
+                sm.id: sm
+                for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids, team_id=self.context["team_id"])
+            }
 
             for sm_data in saved_metrics_data:
                 saved_metric = saved_metrics_map.get(sm_data["id"])
@@ -525,7 +554,19 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 ]
 
                 feature_flag_filters = feature_flag.filters
-                feature_flag_filters["groups"] = feature_flag.filters.get("groups", [])
+
+                # When experiments are edited, they have already a linked feature flag. That feature flag can me modified to have
+                # complex release conditions across multiple groups. An initial backend implementation rejected updates with the
+                # rollout_percentage, as the the frontend shows such linked feature flag as display (not a form). That way the backend
+                # would have notified about a change of implementation. However, the frontend still carries the param in the state.
+                # To be consistent with the current frontend/backend interaction, we allow receiving rollout_percentage and default
+                # to the first group of release conditions.
+                existing_groups = feature_flag.filters.get("groups", [])
+                experiment_rollout_percentage = validated_data["parameters"].get("rollout_percentage")
+                if experiment_rollout_percentage is not None and existing_groups:
+                    existing_groups[0]["rollout_percentage"] = experiment_rollout_percentage
+
+                feature_flag_filters["groups"] = existing_groups
                 feature_flag_filters["multivariate"] = {"variants": variants or default_variants}
                 feature_flag_filters["aggregation_group_type_index"] = aggregation_group_type_index
                 feature_flag_filters["holdout_groups"] = holdout_groups
@@ -669,7 +710,12 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         saved_metric_ids_list = [sm["id"] for sm in saved_metrics_data]
         if saved_metric_ids_list:
-            saved_metrics = {sm.id: sm for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids_list)}
+            saved_metrics = {
+                sm.id: sm
+                for sm in ExperimentSavedMetric.objects.filter(
+                    id__in=saved_metric_ids_list, team_id=self.context["team_id"]
+                )
+            }
 
             for sm_data in saved_metrics_data:
                 saved_metric = saved_metrics.get(sm_data["id"])

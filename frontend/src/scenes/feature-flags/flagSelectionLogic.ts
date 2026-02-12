@@ -133,9 +133,11 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
     })),
 
     selectors({
+        // The actual paginated flags on the current page (from API response)
+        currentPageFlags: [(s) => [s.featureFlags], (featureFlags): FeatureFlagType[] => featureFlags?.results || []],
         selectedCount: [(s) => [s.selectedFlagIds], (ids: number[]) => ids.length],
         isAllSelected: [
-            (s) => [s.selectedFlagIds, s.displayedFlags],
+            (s) => [s.selectedFlagIds, s.currentPageFlags],
             (selectedIds: number[], flags: FeatureFlagType[]) => {
                 const editableIds = flags
                     .filter((f) => f.can_edit)
@@ -148,7 +150,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             },
         ],
         isSomeSelected: [
-            (s) => [s.selectedFlagIds, s.displayedFlags],
+            (s) => [s.selectedFlagIds, s.currentPageFlags],
             (selectedIds: number[], flags: FeatureFlagType[]) => {
                 const editableIds = flags
                     .filter((f) => f.can_edit)

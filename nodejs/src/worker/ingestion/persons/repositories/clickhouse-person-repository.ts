@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { Properties } from '@posthog/plugin-scaffold'
 
 import { ClickHouseRouter } from '~/utils/db/clickhouse'
+import { logger } from '~/utils/logger'
 
 import { TopicMessage } from '../../../../kafka/producer'
 import {
@@ -137,6 +138,11 @@ export class ClickHousePersonRepository implements PersonRepository {
             ) pd ON p.team_id = pd.team_id AND p.id = pd.person_id
             SETTINGS optimize_aggregation_in_order = 1
         `
+
+        logger.debug('ClickHousePersonRepository.fetchPersonsByProperties', {
+            properties,
+            query,
+        })
 
         const results = await this.query<ClickHousePersonWithDistinctId>(query)
         return results.map((row) => ({
