@@ -142,7 +142,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     }
                 }
 
-                // Keyed by the original alert ID to match the instance where notifications were queued during editing
+                // Keyed by the original alert ID to match the instance where notifications were queued for new alerts
                 const notifLogic = alertNotificationLogic({ alertId: props.alert?.id })
 
                 const flushPendingNotifications = async (savedAlertId: string): Promise<void> => {
