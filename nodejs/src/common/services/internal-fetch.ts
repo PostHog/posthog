@@ -22,7 +22,7 @@ export class InternalFetchService {
                 headers: {
                     ...fetchParams.headers,
                     ...(this.config.INTERNAL_API_SECRET
-                        ? { [INTERNAL_SERVICE_CALL_HEADER_NAME]: this.config.INTERNAL_API_SECRET }
+                        ? { [INTERNAL_SERVICE_CALL_HEADER_NAME.toLowerCase()]: this.config.INTERNAL_API_SECRET }
                         : {}),
                 },
             },

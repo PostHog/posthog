@@ -31,7 +31,7 @@ describe('InternalFetchService', () => {
                 method: 'POST',
                 headers: {
                     'X-Test': 'abc',
-                    [INTERNAL_SERVICE_CALL_HEADER_NAME]: 'secret-123',
+                    [INTERNAL_SERVICE_CALL_HEADER_NAME.toLowerCase()]: 'secret-123',
                 },
             },
         })
