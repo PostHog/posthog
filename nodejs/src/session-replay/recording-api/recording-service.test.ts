@@ -274,6 +274,27 @@ describe('RecordingService', () => {
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalled()
         })
 
+        it('still runs cascade delete when a preceding query fails', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({ deleted: true })
+            const queryResult = { rows: [], command: '', rowCount: 0, oid: 0, fields: [] }
+            mockPostgres.query
+                .mockRejectedValueOnce(new Error('ee_single_session_summary delete failed'))
+                .mockResolvedValueOnce(queryResult as any) // posthog_exportedrecording
+                .mockResolvedValueOnce(queryResult as any) // posthog_comment
+                .mockResolvedValueOnce(queryResult as any) // posthog_sessionrecording (cascade)
+
+            const result = await service.deleteRecording('session-123', 1)
+
+            expect(result).toEqual({ ok: true })
+            expect(mockPostgres.query).toHaveBeenCalledTimes(4)
+            expect(mockPostgres.query).toHaveBeenLastCalledWith(
+                expect.anything(),
+                expect.stringContaining('posthog_sessionrecording'),
+                [1, 'session-123'],
+                'deleteSessionRecording'
+            )
+        })
+
         it('propagates unexpected errors', async () => {
             mockKeyStore.deleteKey.mockRejectedValue(new Error('Database error'))
 

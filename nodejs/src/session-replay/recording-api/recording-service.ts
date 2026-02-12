@@ -168,7 +168,8 @@ export class RecordingService {
             return
         }
 
-        await Promise.all([
+        const tables = ['ee_single_session_summary', 'posthog_exportedrecording', 'posthog_comment'] as const
+        const results = await Promise.allSettled([
             this.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `DELETE FROM ee_single_session_summary WHERE team_id = $1 AND session_id = $2`,
@@ -188,6 +189,17 @@ export class RecordingService {
                 'deleteRecordingComments'
             ),
         ])
+
+        for (const [i, result] of results.entries()) {
+            if (result.status === 'rejected') {
+                logger.error('[RecordingService] Postgres deletion failed', {
+                    sessionId,
+                    teamId,
+                    table: tables[i],
+                    error: result.reason,
+                })
+            }
+        }
 
         // Must run after the above: CASCADE deletes SessionRecordingViewed,
         // SessionRecordingExternalReference, SessionRecordingPlaylistItem
