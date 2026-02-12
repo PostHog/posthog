@@ -1528,6 +1528,18 @@ export interface BatchExportBackfillApi {
     finished_at?: string | null
     /** The timestamp at which this BatchExportBackfill was last updated. */
     readonly last_updated_at: string
+    /**
+     * The total number of records to export. Initially estimated, updated with actual count after completion.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    total_records_count?: number | null
+    /**
+     * The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.
+     * @nullable
+     */
+    adjusted_start_at?: string | null
     /** The team this belongs to. */
     team: number
     /** The BatchExport this backfill belongs to. */
