@@ -22,14 +22,14 @@
          ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, %(hogql_val_5)s)), toDateTime64('today', 6, 'UTC')), 0) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff(%(hogql_val_6)s, start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), toDateTime64('today', 6, 'UTC')), 0), globalIn(s.session_id,
-                                                                                                                                                                                                                                                                                                     (SELECT events.`$session_id` AS session_id
-                                                                                                                                                                                                                                                                                                      FROM events
-                                                                                                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)), equals(events.mat_pp_rgInternal, %(hogql_val_11)s), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_12)s), toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                                                                                                      GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                      HAVING 1
-                                                                                                                                                                                                                                                                                                      ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_13)s)) DESC
-                                                                                                                                                                                                                                                                                                      LIMIT 1000000)))
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                                               (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                FROM events
+                                                                                                                                                                                                                                                                                WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)), equals(events.mat_pp_rgInternal, %(hogql_val_11)s), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_12)s), toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                HAVING 1
+                                                                                                                                                                                                                                                                                ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_13)s)) DESC
+                                                                                                                                                                                                                                                                                LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
@@ -60,26 +60,26 @@
          ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, %(hogql_val_5)s)), toDateTime64('today', 6, 'UTC')), 0) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff(%(hogql_val_6)s, start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), toDateTime64('today', 6, 'UTC')), 0), globalIn(s.session_id,
-                                                                                                                                                                                                                                                                                                      (SELECT events.`$session_id` AS session_id
-                                                                                                                                                                                                                                                                                                       FROM events
-                                                                                                                                                                                                                                                                                                       LEFT OUTER JOIN
-                                                                                                                                                                                                                                                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
-                                                                                                                                                                                                                                                                                                          FROM person_distinct_id_overrides
-                                                                                                                                                                                                                                                                                                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                                                                                                                                                                                                                                                                                                          GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                                                                                                                                                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                                                                                                                                                                                                                                                                                                       LEFT JOIN
-                                                                                                                                                                                                                                                                                                         (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_9)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___rgInternal, person.id AS id
-                                                                                                                                                                                                                                                                                                          FROM person
-                                                                                                                                                                                                                                                                                                          WHERE equals(person.team_id, 99999)
-                                                                                                                                                                                                                                                                                                          GROUP BY person.id
-                                                                                                                                                                                                                                                                                                          HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_10)s)), person.version), 1), plus(now64(6, %(hogql_val_11)s), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                                                                                                                                                                                                                       WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_12)s), now64(6, %(hogql_val_13)s)), ifNull(equals(events__person.properties___rgInternal, %(hogql_val_14)s), 0), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_15)s), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
-                                                                                                                                                                                                                                                                                                       GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                       HAVING 1
-                                                                                                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_16)s)) DESC
-                                                                                                                                                                                                                                                                                                       LIMIT 1000000)))
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                                                (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                 FROM events
+                                                                                                                                                                                                                                                                                 LEFT OUTER JOIN
+                                                                                                                                                                                                                                                                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                    FROM person_distinct_id_overrides
+                                                                                                                                                                                                                                                                                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                                                                                                                                                                                                                                                                                    GROUP BY person_distinct_id_overrides.distinct_id
+                                                                                                                                                                                                                                                                                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                                                                                                                                 LEFT JOIN
+                                                                                                                                                                                                                                                                                   (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_9)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___rgInternal, person.id AS id
+                                                                                                                                                                                                                                                                                    FROM person
+                                                                                                                                                                                                                                                                                    WHERE equals(person.team_id, 99999)
+                                                                                                                                                                                                                                                                                    GROUP BY person.id
+                                                                                                                                                                                                                                                                                    HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_10)s)), person.version), 1), plus(now64(6, %(hogql_val_11)s), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                                                                                                                                                                                                                                                 WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_12)s), now64(6, %(hogql_val_13)s)), ifNull(equals(events__person.properties___rgInternal, %(hogql_val_14)s), 0), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_15)s), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                 HAVING 1
+                                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_16)s)) DESC
+                                                                                                                                                                                                                                                                                 LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
@@ -110,26 +110,26 @@
          ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, %(hogql_val_5)s)), toDateTime64('today', 6, 'UTC')), 0) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff(%(hogql_val_6)s, start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), toDateTime64('today', 6, 'UTC')), 0), globalIn(s.session_id,
-                                                                                                                                                                                                                                                                                                      (SELECT events.`$session_id` AS session_id
-                                                                                                                                                                                                                                                                                                       FROM events
-                                                                                                                                                                                                                                                                                                       LEFT OUTER JOIN
-                                                                                                                                                                                                                                                                                                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
-                                                                                                                                                                                                                                                                                                          FROM person_distinct_id_overrides
-                                                                                                                                                                                                                                                                                                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                                                                                                                                                                                                                                                                                                          GROUP BY person_distinct_id_overrides.distinct_id
-                                                                                                                                                                                                                                                                                                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-                                                                                                                                                                                                                                                                                                       LEFT JOIN
-                                                                                                                                                                                                                                                                                                         (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_9)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___rgInternal, person.id AS id
-                                                                                                                                                                                                                                                                                                          FROM person
-                                                                                                                                                                                                                                                                                                          WHERE equals(person.team_id, 99999)
-                                                                                                                                                                                                                                                                                                          GROUP BY person.id
-                                                                                                                                                                                                                                                                                                          HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_10)s)), person.version), 1), plus(now64(6, %(hogql_val_11)s), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                                                                                                                                                                                                                       WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_12)s), now64(6, %(hogql_val_13)s)), ifNull(equals(events__person.properties___rgInternal, %(hogql_val_14)s), 0), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_15)s), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
-                                                                                                                                                                                                                                                                                                       GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                       HAVING 1
-                                                                                                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_16)s)) DESC
-                                                                                                                                                                                                                                                                                                       LIMIT 1000000)))
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                                                (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                 FROM events
+                                                                                                                                                                                                                                                                                 LEFT OUTER JOIN
+                                                                                                                                                                                                                                                                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                    FROM person_distinct_id_overrides
+                                                                                                                                                                                                                                                                                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                                                                                                                                                                                                                                                                                    GROUP BY person_distinct_id_overrides.distinct_id
+                                                                                                                                                                                                                                                                                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                                                                                                                                 LEFT JOIN
+                                                                                                                                                                                                                                                                                   (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_9)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___rgInternal, person.id AS id
+                                                                                                                                                                                                                                                                                    FROM person
+                                                                                                                                                                                                                                                                                    WHERE equals(person.team_id, 99999)
+                                                                                                                                                                                                                                                                                    GROUP BY person.id
+                                                                                                                                                                                                                                                                                    HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_10)s)), person.version), 1), plus(now64(6, %(hogql_val_11)s), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                                                                                                                                                                                                                                                 WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_12)s), now64(6, %(hogql_val_13)s)), ifNull(equals(events__person.properties___rgInternal, %(hogql_val_14)s), 0), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_15)s), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                 HAVING 1
+                                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_16)s)) DESC
+                                                                                                                                                                                                                                                                                 LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
@@ -160,14 +160,14 @@
          ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, %(hogql_val_5)s)), toDateTime64('today', 6, 'UTC')), 0) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff(%(hogql_val_6)s, start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), toDateTime64('today', 6, 'UTC')), 0), globalIn(s.session_id,
-                                                                                                                                                                                                                                                                                                     (SELECT events.`$session_id` AS session_id
-                                                                                                                                                                                                                                                                                                      FROM events
-                                                                                                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)), equals(events.mat_pp_rgInternal, %(hogql_val_11)s), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_12)s), toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                                                                                                      GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                      HAVING 1
-                                                                                                                                                                                                                                                                                                      ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_13)s)) DESC
-                                                                                                                                                                                                                                                                                                      LIMIT 1000000)))
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                                               (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                FROM events
+                                                                                                                                                                                                                                                                                WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)), equals(events.mat_pp_rgInternal, %(hogql_val_11)s), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_12)s), toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                HAVING 1
+                                                                                                                                                                                                                                                                                ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_13)s)) DESC
+                                                                                                                                                                                                                                                                                LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
@@ -198,14 +198,14 @@
          ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, %(hogql_val_5)s)), toDateTime64('today', 6, 'UTC')), 0) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff(%(hogql_val_6)s, start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), toDateTime64('today', 6, 'UTC')), 0), globalIn(s.session_id,
-                                                                                                                                                                                                                                                                                                     (SELECT events.`$session_id` AS session_id
-                                                                                                                                                                                                                                                                                                      FROM events
-                                                                                                                                                                                                                                                                                                      WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)), equals(events.mat_pp_rgInternal, %(hogql_val_11)s), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_12)s), toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')))
-                                                                                                                                                                                                                                                                                                      GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                                      HAVING 1
-                                                                                                                                                                                                                                                                                                      ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_13)s)) DESC
-                                                                                                                                                                                                                                                                                                      LIMIT 1000000)))
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
+                                                                                                                                                                                                                                                                               (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                FROM events
+                                                                                                                                                                                                                                                                                WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)), equals(events.mat_pp_rgInternal, %(hogql_val_11)s), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_12)s), toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                HAVING 1
+                                                                                                                                                                                                                                                                                ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_13)s)) DESC
+                                                                                                                                                                                                                                                                                LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
@@ -6253,7 +6253,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort
   '''
-  
+
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -6263,7 +6263,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort.1
   '''
-  
+
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -6403,7 +6403,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized
   '''
-  
+
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -6413,7 +6413,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized.1
   '''
-  
+
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -6553,7 +6553,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events
   '''
-  
+
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -6563,7 +6563,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events.1
   '''
-  
+
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -6703,7 +6703,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized
   '''
-  
+
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -6713,7 +6713,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized.1
   '''
-  
+
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -13808,7 +13808,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort
   '''
-  
+
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -13818,7 +13818,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort.1
   '''
-  
+
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -13958,7 +13958,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized
   '''
-  
+
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -13968,7 +13968,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized.1
   '''
-  
+
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -14108,7 +14108,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events
   '''
-  
+
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -14118,7 +14118,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events.1
   '''
-  
+
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -14258,7 +14258,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized
   '''
-  
+
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -14268,7 +14268,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized.1
   '''
-  
+
   SELECT DISTINCT p.id
   FROM
     (SELECT *
