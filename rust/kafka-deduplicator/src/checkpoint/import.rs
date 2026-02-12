@@ -56,7 +56,7 @@ impl Drop for ImportCleanupGuard {
                         topic = %self.topic,
                         partition = self.partition,
                         path = %self.path.display(),
-                        error = %e,
+                        error = ?e,
                         "Import cleanup guard: failed to remove directory, orphan cleaner will handle it"
                     );
                 }
@@ -287,7 +287,7 @@ impl CheckpointImporter {
                         checkpoint = attempt_tag,
                         local_attempt_path = local_path_tag,
                         attempt_duration_secs = attempt_duration,
-                        error = e.to_string(),
+                        error = ?e,
                         "Failed to import checkpoint files"
                     );
                     continue;
@@ -323,11 +323,11 @@ impl CheckpointImporter {
                         fetched_metadata_files.push(metadata);
                     }
                     Err(e) => {
-                        error!("Failed to parse metadata from file bytes: {remote_key}: {e}");
+                        error!("Failed to parse metadata from file bytes: {remote_key}: {e:#}");
                     }
                 },
                 Err(e) => {
-                    error!("Failed to download metadata file: {remote_key}: {e}");
+                    error!("Failed to download metadata file: {remote_key}: {e:#}");
                 }
             }
         }
@@ -379,7 +379,7 @@ impl CheckpointImporter {
                 Ok(())
             }
             Err(e) => {
-                error!("Failed to download checkpoint files to: {local_attempt_path:?}: {e}");
+                error!("Failed to download checkpoint files to: {local_attempt_path:?}: {e:#}");
                 Err(e)
             }
         }
