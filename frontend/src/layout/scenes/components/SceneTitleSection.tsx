@@ -379,6 +379,20 @@ function SceneName({
         }
     }, renameDebounceMs)
 
+    const handleBlur = (e: React.FocusEvent): void => {
+        // Check if focus is moving to an element within our container (like the generate button)
+        const relatedTarget = e.relatedTarget as HTMLElement | null
+        if (relatedTarget && containerRef.current && containerRef.current.contains(relatedTarget)) {
+            return
+        }
+        if (saveOnBlur && name !== initialName) {
+            debouncedOnBlurSave(name || '')
+        }
+        if (!forceEdit) {
+            setIsEditing(false)
+        }
+    }
+
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
     const Element =
@@ -407,26 +421,7 @@ function SceneName({
                             )}
                             wrapperClassName="flex-1 min-w-0"
                             placeholder="Enter name"
-                            onBlur={(e) => {
-                                // Check if focus is moving to an element within our container (like the generate button)
-                                const relatedTarget = e.relatedTarget as HTMLElement | null
-                                if (
-                                    relatedTarget &&
-                                    containerRef.current &&
-                                    containerRef.current.contains(relatedTarget)
-                                ) {
-                                    // Focus is staying within the container, don't exit edit mode
-                                    return
-                                }
-                                // Save changes when leaving the field (only if saveOnBlur is true)
-                                if (saveOnBlur && name !== initialName) {
-                                    debouncedOnBlurSave(name || '')
-                                }
-                                // Exit edit mode if not forced
-                                if (!forceEdit) {
-                                    setIsEditing(false)
-                                }
-                            }}
+                            onBlur={handleBlur}
                             autoFocus={!forceEdit}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
@@ -546,6 +541,15 @@ function SceneDescription({
         }
     }, renameDebounceMs)
 
+    const handleBlur = (): void => {
+        if (saveOnBlur && description !== initialDescription) {
+            debouncedOnBlurSaveDescription(description || '')
+        }
+        if (!forceEdit) {
+            setIsEditing(false)
+        }
+    }
+
     const Element =
         onChange && canEdit ? (
             <>
@@ -572,16 +576,7 @@ function SceneDescription({
                         wrapperClassName="w-full"
                         markdown={markdown}
                         placeholder={emptyText}
-                        onBlur={() => {
-                            // Save changes when leaving the field (only if saveOnBlur is true)
-                            if (saveOnBlur && description !== initialDescription) {
-                                debouncedOnBlurSaveDescription(description || '')
-                            }
-                            // Exit edit mode if not forced
-                            if (!forceEdit) {
-                                setIsEditing(false)
-                            }
-                        }}
+                        onBlur={handleBlur}
                         autoFocus={!forceEdit}
                     />
                 ) : (
