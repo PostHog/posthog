@@ -420,7 +420,7 @@
         }
     },
     "query-generate-hogql-from-question": {
-        "description": "This is a slow tool, and you should only use it once you have tried to create a query using the 'query-run' tool, or the query is too complicated to create a trend / funnel. Queries project's PostHog data based on a provided natural language question - don't provide SQL query as input but describe the output you want. When giving the results back to the user, first show the SQL query that was used, then provide results in reasily readable format. You should also offer to save the query as an insight if the user wants to.",
+        "description": "This is a slow tool, and you should only use it once you have tried to create a query using the 'query-run' tool, or the query is too complicated to create a trend / funnel. Queries project's PostHog data based on a provided natural language question - don't provide SQL query as input but describe the output you want. When giving the results back to the user, first show the SQL query that was used, then provide results in easily readable format. You should also offer to save the query as an insight if the user wants to.",
         "category": "Insights & analytics",
         "summary": "Queries project's PostHog data based on a provided natural language question.",
         "feature": "insights",
