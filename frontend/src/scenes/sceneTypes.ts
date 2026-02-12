@@ -53,6 +53,7 @@ export enum Scene {
     EventDefinitions = 'EventDefinitions',
     EventDefinitionEdit = 'EventDefinitionEdit',
     Experiment = 'Experiment',
+    ExperimentWizard = 'ExperimentWizard',
     Experiments = 'Experiments',
     Exports = 'Exports',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',

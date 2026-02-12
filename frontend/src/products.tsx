@@ -573,6 +573,7 @@ export const productUrls = {
         const baseUrl = formMode ? `/experiments/${id}/${formMode}` : `/experiments/${id}`
         return `${baseUrl}${options ? `?${toParams(options)}` : ''}`
     },
+    experimentWizard: (id: string = 'new'): string => `/experiments/guided/${id}`,
     experiments: (): string => '/experiments',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
     experimentsSharedMetric: (id: string | number, action?: string): string =>

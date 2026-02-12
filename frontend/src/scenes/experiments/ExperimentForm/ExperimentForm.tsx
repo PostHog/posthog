@@ -1,7 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { IconMagicWand } from '@posthog/icons'
+
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
@@ -167,6 +170,23 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
     return (
         <div>
             <SceneContent>
+                {!isEditMode && (
+                    <LemonBanner
+                        type="info"
+                        className="mb-4"
+                        action={{
+                            children: (
+                                <>
+                                    <IconMagicWand className="text-sm" />
+                                    Use the guided wizard
+                                </>
+                            ),
+                            to: urls.experimentWizard(),
+                        }}
+                    >
+                        Need more guidance to create your experiment?
+                    </LemonBanner>
+                )}
                 {renderFormHeader()}
                 <VariantsPanel experiment={experiment} updateFeatureFlag={setFeatureFlagConfig} disabled={isEditMode} />
                 <ExposureCriteriaPanel experiment={experiment} onChange={setExposureCriteria} />

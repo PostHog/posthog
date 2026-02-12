@@ -201,6 +201,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.EXPERIMENT,
         iconType: 'experiment',
     },
+    [Scene.ExperimentWizard]: {
+        projectBased: true,
+        name: 'New experiment',
+        defaultDocsPath: '/docs/experiments/creating-an-experiment',
+        iconType: 'experiment',
+    },
     [Scene.ExperimentsSharedMetric]: {
         projectBased: true,
         name: 'Shared metric',
@@ -826,6 +832,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
     [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
+    [urls.experimentWizard(':id')]: [Scene.ExperimentWizard, 'experimentWizard'],
     [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
     [urls.experiment(':id', ':formMode')]: [Scene.Experiment, 'experiment'],
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
