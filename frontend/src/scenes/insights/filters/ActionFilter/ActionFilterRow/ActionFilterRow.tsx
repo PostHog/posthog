@@ -585,6 +585,7 @@ export function ActionFilterRow({
                                                             ? [
                                                                   TaxonomicFilterGroupType.DataWarehouseProperties,
                                                                   TaxonomicFilterGroupType.EventProperties,
+                                                                  TaxonomicFilterGroupType.NumericalEventProperties,
                                                                   TaxonomicFilterGroupType.SessionProperties,
                                                                   TaxonomicFilterGroupType.PersonProperties,
                                                                   TaxonomicFilterGroupType.DataWarehousePersonProperties,
