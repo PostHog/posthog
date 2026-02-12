@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, urlparse, urlsplit
 from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.backends import BaseBackend
-from django.contrib.auth.models import AnonymousUser
+from django.contrib.auth.models import AnonymousUser, InternalAPIUser
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -26,7 +26,6 @@ from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.helpers.two_factor_session import enforce_two_factor
-from posthog.internal_api_auth import InternalAPIUser
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
