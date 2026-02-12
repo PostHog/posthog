@@ -1,4 +1,5 @@
 import re
+import uuid
 import builtins
 import dataclasses
 from datetime import timedelta
@@ -61,6 +62,7 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
+from posthog.models.insight_variable import InsightVariable
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
 
@@ -70,6 +72,7 @@ from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_to_sync_frequency_interval,
 )
 from products.endpoints.backend.materialization import (
+    VariablePlaceholderFinder,
     analyze_variables_for_materialization,
     convert_insight_query_to_hogql,
     transform_query_for_materialization,
@@ -313,15 +316,77 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     }
                 )
 
-    def _validate_hogql_query(self, query_string: str) -> None:
-        """Validate that a HogQL query string is syntactically valid."""
+    def _validate_hogql_query(self, query: HogQLQuery) -> None:
+        """Validate that a HogQL query can be parsed and the variables are valid."""
         try:
-            parse_select(query_string)
+            ast_node = parse_select(query.query)
         except ExposedHogQLError as e:
             raise ValidationError({"query": f"Invalid HogQL query: {e}"}) from e
         except ResolutionError as e:
             capture_exception(e)
             raise ValidationError({"query": "Invalid HogQL query: unable to resolve table or field references."})
+        except Exception as e:
+            capture_exception(e)
+            raise ValidationError({"query": "Unknown error occurred parsing the query."})
+
+        self._validate_variable_placeholders(ast_node, query.variables or {})
+
+    def _validate_variable_placeholders(self, node: ast.AST, variables: Optional[dict[str, HogQLVariable]]) -> None:
+        """Validate that every {variables.X} placeholder in the query has a matching variable definition."""
+        finder = VariablePlaceholderFinder()
+        finder.visit(node)
+
+        if not finder.variable_placeholders:
+            return
+
+        placeholder_names = {str(p.chain[1]) for p in finder.variable_placeholders if p.chain and len(p.chain) > 1}
+
+        defined_code_names: set[str] = set()
+        if variables:
+            defined_code_names = {v.code_name for v in variables.values() if v.code_name}
+            variable_ids = set(variables.keys())
+
+        undefined: list[str] = sorted(placeholder_names - defined_code_names)
+        if undefined:
+            raise ValidationError(
+                {
+                    "query": f"Query references undefined variable(s): {', '.join(undefined)}. "
+                    "See https://posthog.com/docs/endpoints/variables for detail."
+                }
+            )
+
+        if variable_ids:
+            valid_uuids: set[str] = set()
+            invalid_uuids: set[str] = set()
+            invalid_ids: set[str] = set()
+            for vid in variable_ids:
+                try:
+                    uuid.UUID(vid)
+                    valid_uuids.add(vid)
+                except ValueError:
+                    invalid_uuids.add(vid)
+
+            if invalid_uuids:
+                raise ValidationError(
+                    {"query": f"Variable ID(s) not valid UUIDs: {', '.join(sorted(invalid_uuids))}. "}
+                )
+
+            if valid_uuids:
+                existing_ids = {
+                    str(id)
+                    for id in InsightVariable.objects.filter(team=self.team, id__in=valid_uuids).values_list(
+                        "id", flat=True
+                    )
+                }
+                invalid_ids = valid_uuids - existing_ids
+
+            if invalid_ids:
+                raise ValidationError(
+                    {
+                        "query": f"Variable ID(s) not found: {', '.join(sorted(invalid_ids))}. "
+                        "Make sure the variables exist in https://app.posthog.com/data-management/variables."
+                    }
+                )
 
     def validate_request(self, data: EndpointRequest, strict: bool = True) -> None:
         query = data.query
@@ -340,7 +405,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
 
         if query and isinstance(query, HogQLQuery) and query.query:
-            self._validate_hogql_query(query.query)
+            self._validate_hogql_query(query)
 
         self._validate_cache_age_seconds(data.cache_age_seconds)
 
@@ -450,7 +515,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             raise ValidationError({"sync_frequency": "Cannot set sync_frequency when disabling materialization."})
 
         if data.query and isinstance(data.query, HogQLQuery) and data.query.query:
-            self._validate_hogql_query(data.query.query)
+            self._validate_hogql_query(data.query)
 
     @extend_schema(
         request=EndpointRequest,
