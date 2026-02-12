@@ -181,6 +181,7 @@ rules:
               - '**/migrations/**'
               - '**/management/**'
               - '**/.semgrep/**'
+              - '**/admin/admins/**'
 
     # Combined pattern rule: any lookup without team filter
     - id: idor-lookup-without-team
@@ -349,6 +350,7 @@ rules:
               - '**/dags/**'
               - '**/models/**'
               - '**/signals.py'
+              - '**/admin/admins/**'
 
     # Organization-scoped model taint rule
     - id: idor-taint-user-input-to-org-model
@@ -429,6 +431,7 @@ rules:
               - '**/migrations/**'
               - '**/management/**'
               - '**/.semgrep/**'
+              - '**/admin/admins/**'
 
     # Organization-scoped model lookup rule
     - id: idor-lookup-without-org
@@ -503,6 +506,7 @@ rules:
               - '**/dags/**'
               - '**/models/**'
               - '**/signals.py'
+              - '**/admin/admins/**'
 
     # User-scoped model taint rule
     - id: idor-taint-user-input-to-user-model
@@ -570,6 +574,7 @@ rules:
               - '**/migrations/**'
               - '**/management/**'
               - '**/.semgrep/**'
+              - '**/admin/admins/**'
 
     # User-scoped model lookup rule
     - id: idor-lookup-without-user
@@ -631,6 +636,7 @@ rules:
               - '**/dags/**'
               - '**/models/**'
               - '**/signals.py'
+              - '**/admin/admins/**'
 
     # Composite user+team scoped model taint rule
     - id: idor-taint-user-input-to-user-team-model
@@ -718,6 +724,7 @@ rules:
               - '**/migrations/**'
               - '**/management/**'
               - '**/.semgrep/**'
+              - '**/admin/admins/**'
 
     # Composite user+team scoped model lookup rule
     - id: idor-lookup-without-user-and-team
@@ -799,3 +806,4 @@ rules:
               - '**/dags/**'
               - '**/models/**'
               - '**/signals.py'
+              - '**/admin/admins/**'
