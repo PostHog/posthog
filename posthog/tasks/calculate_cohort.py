@@ -263,17 +263,27 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
 
 
 def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
+    """
+    Prepare cohort for calculation by incrementing version and setting calculating state.
+    When a new calculation is requested, we increment the pending_version which effectively
+    supersedes any older calculations - they will complete but won't update the final version.
+    """
     cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
     update_fields = ["pending_version"]
 
     if not cohort.is_static:
-        # avoid starting another cohort calculation if one is already expected to be in progress
-        # XXX: it is possible for a job to fail without resetting this field and need to be manually recovered
         cohort.is_calculating = True
         update_fields.append("is_calculating")
 
     cohort.save(update_fields=update_fields)
     cohort.refresh_from_db()
+
+    logger.info(
+        "cohort_calculation_prepared",
+        cohort_id=cohort.pk,
+        new_pending_version=cohort.pending_version,
+        was_calculating=cohort.is_calculating,
+    )
 
 
 def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional[User]) -> None:
@@ -289,6 +299,16 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
         posthoganalytics.tag("cohort_id", cohort_id)
 
         cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+
+        # Skip calculation if this version is now obsolete (superseded by newer save)
+        if cohort.pending_version and pending_version < cohort.pending_version:
+            logger.info(
+                "cohort_calculation_skipped_obsolete",
+                cohort_id=cohort_id,
+                task_version=pending_version,
+                current_pending_version=cohort.pending_version,
+            )
+            return
 
         posthoganalytics.tag("team_id", cohort.team.id)
 

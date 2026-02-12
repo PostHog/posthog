@@ -288,6 +288,38 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "deleted": self.deleted,
         }
 
+    def _safe_reset_calculating_state(self, completed_version: int) -> None:
+        """
+        Safely reset is_calculating flag only when it's appropriate.
+        This prevents the flag from being reset while higher-version calculations are still running.
+
+        Args:
+            completed_version: The version that just completed calculating
+        """
+        # Use atomic update to safely check and reset is_calculating flag
+        # Only reset if the completed version is >= the current pending_version
+        updated_count = Cohort.objects.filter(
+            pk=self.pk, pending_version__lte=completed_version, is_calculating=True
+        ).update(is_calculating=False)
+
+        if updated_count > 0:
+            logger.info(
+                "cohort_calculation_state_reset",
+                cohort_id=self.pk,
+                completed_version=completed_version,
+                was_calculating=True,
+            )
+        else:
+            # Check current state for logging
+            self.refresh_from_db()
+            logger.info(
+                "cohort_calculation_state_not_reset",
+                cohort_id=self.pk,
+                completed_version=completed_version,
+                current_pending_version=self.pending_version,
+                current_is_calculating=self.is_calculating,
+            )
+
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
 
@@ -326,8 +358,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             raise
         finally:
-            self.is_calculating = False
-            self.save()
+            # Only set is_calculating = False if this is the highest pending version
+            # This prevents the flag from being reset while other higher-version calculations are still running
+            self._safe_reset_calculating_state(completed_version=pending_version)
 
         # Update filter to match pending version if still valid
         update_fields = {"version": pending_version, "count": count}
