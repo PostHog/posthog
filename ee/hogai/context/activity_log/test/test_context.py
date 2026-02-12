@@ -413,6 +413,83 @@ class TestActivityLogContextPagination(ActivityLogTestBase):
 
 
 @freeze_time("2025-06-15T12:00:00Z")
+class TestActivityLogContextDatetimeFilter(ActivityLogTestBase):
+    def _create_context(self) -> ActivityLogContext:
+        return ActivityLogContext(team=self.team, user=self.user)
+
+    async def test_after_filter_excludes_older_entries(self):
+        await self._create_log(
+            item_id="old",
+            detail={"name": "old-entry"},
+            created_at=timezone.now() - timedelta(days=10),
+        )
+        await self._create_log(
+            item_id="new",
+            detail={"name": "new-entry"},
+            created_at=timezone.now() - timedelta(days=1),
+        )
+
+        context = self._create_context()
+        result = await context.fetch_and_format(after="2025-06-10T00:00:00Z")
+
+        assert "new-entry" in result
+        assert "old-entry" not in result
+
+    async def test_before_filter_excludes_newer_entries(self):
+        await self._create_log(
+            item_id="old",
+            detail={"name": "old-entry"},
+            created_at=timezone.now() - timedelta(days=10),
+        )
+        await self._create_log(
+            item_id="new",
+            detail={"name": "new-entry"},
+            created_at=timezone.now() - timedelta(days=1),
+        )
+
+        context = self._create_context()
+        result = await context.fetch_and_format(before="2025-06-10T00:00:00Z")
+
+        assert "old-entry" in result
+        assert "new-entry" not in result
+
+    async def test_after_and_before_combined_filters_to_range(self):
+        await self._create_log(
+            item_id="too-old",
+            detail={"name": "too-old"},
+            created_at=timezone.now() - timedelta(days=10),
+        )
+        await self._create_log(
+            item_id="in-range",
+            detail={"name": "in-range"},
+            created_at=timezone.now() - timedelta(days=3),
+        )
+        await self._create_log(
+            item_id="too-new",
+            detail={"name": "too-new"},
+            created_at=timezone.now(),
+        )
+
+        context = self._create_context()
+        result = await context.fetch_and_format(
+            after="2025-06-08T00:00:00Z",
+            before="2025-06-14T00:00:00Z",
+        )
+
+        assert "in-range" in result
+        assert "too-old" not in result
+        assert "too-new" not in result
+
+    async def test_invalid_datetime_string_is_ignored(self):
+        await self._create_log(item_id="1", detail={"name": "entry"})
+
+        context = self._create_context()
+        result = await context.fetch_and_format(after="not-a-date", before="also-invalid")
+
+        assert "entry" in result
+
+
+@freeze_time("2025-06-15T12:00:00Z")
 class TestActivityLogContextTruncation(ActivityLogTestBase):
     def _create_context(self) -> ActivityLogContext:
         return ActivityLogContext(team=self.team, user=self.user)

@@ -140,6 +140,12 @@ class ReadActivityLog(BaseModel):
     )
     item_id: str | None = Field(default=None, description="Filter by item ID.")
     user_email: str | None = Field(default=None, description="Filter by user email.")
+    after: str | None = Field(
+        default=None, description="Only entries created after this ISO 8601 datetime (e.g. '2025-01-15T00:00:00Z')."
+    )
+    before: str | None = Field(
+        default=None, description="Only entries created before this ISO 8601 datetime (e.g. '2025-02-01T00:00:00Z')."
+    )
     limit: int = Field(default=20, ge=1, le=50, description="Number of entries to return.")
     offset: int = Field(default=0, ge=0, description="Number of entries to skip for pagination.")
 
@@ -278,7 +284,14 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 if not self._context_manager.check_has_audit_logs_access():
                     raise MaxToolFatalError(ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT)
                 return await self._read_activity_log(
-                    schema.scope, schema.activity, schema.item_id, schema.user_email, schema.limit, schema.offset
+                    schema.scope,
+                    schema.activity,
+                    schema.item_id,
+                    schema.user_email,
+                    schema.after,
+                    schema.before,
+                    schema.limit,
+                    schema.offset,
                 ), None
 
     async def _read_insight(
@@ -560,6 +573,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         activity: str | None,
         item_id: str | None,
         user_email: str | None,
+        after: str | None,
+        before: str | None,
         limit: int,
         offset: int,
     ) -> str:
@@ -569,6 +584,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             activity=activity,
             item_id=item_id,
             user_email=user_email,
+            after=after,
+            before=before,
             limit=limit,
             offset=offset,
         )

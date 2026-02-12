@@ -1120,7 +1120,7 @@ class TestReadDataTool(BaseTest):
 
             MockActivityLogContext.assert_called_once_with(team=self.team, user=self.user)
             mock_instance.fetch_and_format.assert_called_once_with(
-                scope=None, activity=None, item_id=None, user_email=None, limit=20, offset=0
+                scope=None, activity=None, item_id=None, user_email=None, after=None, before=None, limit=20, offset=0
             )
             assert "Activity log" in result
             assert artifact is None
@@ -1152,7 +1152,14 @@ class TestReadDataTool(BaseTest):
             )
 
             mock_instance.fetch_and_format.assert_called_once_with(
-                scope="FeatureFlag", activity="updated", item_id="42", user_email="test@example.com", limit=10, offset=0
+                scope="FeatureFlag",
+                activity="updated",
+                item_id="42",
+                user_email="test@example.com",
+                after=None,
+                before=None,
+                limit=10,
+                offset=0,
             )
 
     async def test_read_activity_log_passes_offset(self):
@@ -1180,7 +1187,14 @@ class TestReadDataTool(BaseTest):
             )
 
             mock_instance.fetch_and_format.assert_called_once_with(
-                scope="FeatureFlag", activity=None, item_id=None, user_email=None, limit=10, offset=20
+                scope="FeatureFlag",
+                activity=None,
+                item_id=None,
+                user_email=None,
+                after=None,
+                before=None,
+                limit=10,
+                offset=20,
             )
 
     async def test_create_tool_class_includes_activity_log_when_feature_available(self):

@@ -1,5 +1,6 @@
 import re
 import json
+from datetime import datetime
 from typing import Any, cast
 
 from django.db.models import QuerySet
@@ -59,6 +60,8 @@ class ActivityLogContext:
         activity: str | None = None,
         item_id: str | None = None,
         user_email: str | None = None,
+        after: str | None = None,
+        before: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> str:
@@ -67,6 +70,8 @@ class ActivityLogContext:
             activity=activity,
             item_id=item_id,
             user_email=user_email,
+            after=after,
+            before=before,
             limit=limit,
             offset=offset,
         )
@@ -79,6 +84,13 @@ class ActivityLogContext:
             limit=limit,
         )
 
+    @staticmethod
+    def _parse_datetime(value: str) -> datetime | None:
+        try:
+            return datetime.fromisoformat(value)
+        except (ValueError, TypeError):
+            return None
+
     @database_sync_to_async
     def _fetch_entries(
         self,
@@ -87,6 +99,8 @@ class ActivityLogContext:
         activity: str | None = None,
         item_id: str | None = None,
         user_email: str | None = None,
+        after: str | None = None,
+        before: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[list[ActivityLog], int]:
@@ -113,6 +127,14 @@ class ActivityLogContext:
             queryset = queryset.filter(item_id=item_id)
         if user_email:
             queryset = queryset.filter(user__email=user_email)
+        if after:
+            parsed = self._parse_datetime(after)
+            if parsed:
+                queryset = queryset.filter(created_at__gte=parsed)
+        if before:
+            parsed = self._parse_datetime(before)
+            if parsed:
+                queryset = queryset.filter(created_at__lte=parsed)
 
         limit = min(max(limit, 1), 50)
         total_count = queryset.count()
