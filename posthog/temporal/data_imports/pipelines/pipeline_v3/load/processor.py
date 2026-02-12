@@ -1,6 +1,7 @@
 from typing import Any, Literal
 
 import structlog
+from asgiref.sync import async_to_sync
 
 from posthog.temporal.data_imports.pipelines.common.load import run_post_load_operations, supports_partial_data_loading
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
@@ -144,7 +145,9 @@ async def _handle_partial_data_loading(
 
 def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> None:
     """Run post-load operations for a final batch whose data was already written to Delta Lake."""
-    job = ExternalDataJob.objects.prefetch_related("schema", "schema__source").get(id=export_signal.job_id)
+    job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
+        id=export_signal.job_id
+    )
     schema = job.schema
     assert schema is not None
 
@@ -154,16 +157,19 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         logger=logger,
     )
 
-    delta_table = delta_table_helper.get_delta_table()
+    delta_table = async_to_sync(delta_table_helper.get_delta_table)()
     if delta_table is None:
         logger.warning("no_delta_table_for_post_load", job_id=export_signal.job_id)
         return
 
     pa_table = read_parquet(export_signal.s3_path)
+
+    pa_table = _apply_partitioning(export_signal, pa_table, delta_table, schema)
+
     internal_schema = HogQLSchema()
     internal_schema.add_pyarrow_table(pa_table)
 
-    run_post_load_operations(
+    async_to_sync(run_post_load_operations)(
         job=job,
         schema=schema,
         source=schema.source,
@@ -218,7 +224,9 @@ def process_message(message: Any) -> None:
         sync_type=export_signal.sync_type,
     )
 
-    job = ExternalDataJob.objects.prefetch_related("schema", "schema__source").get(id=export_signal.job_id)
+    job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
+        id=export_signal.job_id
+    )
     schema = job.schema
     assert schema is not None
 
@@ -238,7 +246,7 @@ def process_message(message: Any) -> None:
         column_names=pa_table.column_names,
     )
 
-    existing_delta_table = delta_table_helper.get_delta_table()
+    existing_delta_table = async_to_sync(delta_table_helper.get_delta_table)()
 
     pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
 
@@ -259,7 +267,7 @@ def process_message(message: Any) -> None:
         batch_index=export_signal.batch_index,
     )
 
-    delta_table = delta_table_helper.write_to_deltalake(
+    delta_table = async_to_sync(delta_table_helper.write_to_deltalake)(
         data=pa_table,
         write_type=write_type,
         should_overwrite_table=should_overwrite_table,
@@ -276,7 +284,7 @@ def process_message(message: Any) -> None:
     )
 
     # Handle partial data loading for first-ever sync
-    _handle_partial_data_loading(
+    async_to_sync(_handle_partial_data_loading)(
         export_signal=export_signal,
         job=job,
         schema=schema,
@@ -292,7 +300,7 @@ def process_message(message: Any) -> None:
             total_rows=export_signal.total_rows,
         )
 
-        run_post_load_operations(
+        async_to_sync(run_post_load_operations)(
             job=job,
             schema=schema,
             source=schema.source,

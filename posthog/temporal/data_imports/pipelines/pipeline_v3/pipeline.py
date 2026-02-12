@@ -1,4 +1,5 @@
 import time
+import asyncio
 from typing import Any, Generic
 
 import pyarrow as pa
@@ -23,6 +24,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
+from posthog.temporal.data_imports.pipelines.pipeline.pipeline import async_iterate
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PipelineResult, ResumableData, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
@@ -175,7 +177,7 @@ class PipelineV3(Generic[ResumableData]):
                 self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
             )
 
-            for item in self._resource.items():
+            async for item in async_iterate(self._resource.items()):
                 py_table = None
 
                 self._batcher.batch(item)
@@ -213,7 +215,7 @@ class PipelineV3(Generic[ResumableData]):
 
             await self._finalize(row_count=row_count)
 
-            return {"should_trigger_cdp_producer": self._cdp_producer.should_produce_table}
+            return {"should_trigger_cdp_producer": await self._cdp_producer.should_produce_table()}
         finally:
             self._logger.debug("V3 Pipeline: Cleaning up resources")
             del self._resource
@@ -236,12 +238,10 @@ class PipelineV3(Generic[ResumableData]):
                     null_column = pa.array([None] * pa_table.num_rows, type=field.type)
                     pa_table = pa_table.append_column(field, null_column)
 
-        batch_result = await self._s3_batch_writer.write_batch(pa_table, batch_index)
+        batch_result = await asyncio.to_thread(self._s3_batch_writer.write_batch, pa_table, batch_index)
         self._batch_results.append(batch_result)
 
-        await self._kafka_producer.send_batch_notification(
-            batch_result, is_final_batch=False, cumulative_row_count=row_count
-        )
+        self._kafka_producer.send_batch_notification(batch_result, is_final_batch=False, cumulative_row_count=row_count)
 
         self._internal_schema.add_pyarrow_table(pa_table)
 
@@ -285,10 +285,10 @@ class PipelineV3(Generic[ResumableData]):
             total_rows=row_count,
         )
 
-        schema_path = await self._s3_batch_writer.write_schema()
+        schema_path = await asyncio.to_thread(self._s3_batch_writer.write_schema)
 
         final_batch = self._batch_results[-1]
-        await self._kafka_producer.send_batch_notification(
+        self._kafka_producer.send_batch_notification(
             final_batch,
             is_final_batch=True,
             total_batches=total_batches,
@@ -298,7 +298,7 @@ class PipelineV3(Generic[ResumableData]):
             cumulative_row_count=row_count,
         )
 
-        await self._kafka_producer.flush()
+        self._kafka_producer.flush()
 
         await finalize_desc_sort_incremental_value(
             self._resource, self._schema, self._last_incremental_field_value, self._logger, log_prefix="V3 Pipeline: "

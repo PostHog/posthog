@@ -134,24 +134,28 @@ async def run_post_load_operations(
         validate_schema_and_update_table,
     )
 
-    if delta_table_helper is None or delta_table_helper.get_delta_table() is None:
+    if delta_table_helper is None or await delta_table_helper.get_delta_table() is None:
         logger.debug("No deltalake table, not continuing with post-run ops")
         return
 
     logger.debug("Triggering compaction and vacuuming on delta table")
     try:
-        delta_table_helper.compact_table()
+        await delta_table_helper.compact_table()
     except Exception as e:
         capture_exception(e)
         logger.exception(f"Compaction failed: {e}", exc_info=e)
 
+    existing_queryable_folder = await database_sync_to_async_pool(
+        lambda: schema.table.queryable_folder if schema.table else None
+    )()
+
     logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
-    queryable_folder = prepare_s3_files_for_querying(
-        job.folder_path(),
+    queryable_folder = await prepare_s3_files_for_querying(
+        await database_sync_to_async_pool(job.folder_path)(),
         resource_name,
         file_uris,
         delete_existing=True,
-        existing_queryable_folder=schema.table.queryable_folder if schema.table else None,
+        existing_queryable_folder=existing_queryable_folder,
         logger=logger,
     )
 
