@@ -56,6 +56,10 @@ jobs:
         name: Hog tests
         runs-on: ubuntu-24.04
         if: needs.changes.outputs.hog == 'true'
+        outputs:
+            committed-version: ${{ steps.check-package-version.outputs.committed-version }}
+            published-version: ${{ steps.check-package-version.outputs.published-version }}
+            is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
 
         steps:
             - uses: actions/checkout@v6
@@ -145,18 +149,6 @@ jobs:
               env:
                   TEST: 1
 
-    check-package-version:
-        name: Check HogVM TypeScript package version and detect an update
-        needs: hog-tests
-        if: needs.hog-tests.result == 'success' && needs.changes.outputs.hog == 'true'
-        runs-on: ubuntu-24.04
-        outputs:
-            committed-version: ${{ steps.check-package-version.outputs.committed-version }}
-            published-version: ${{ steps.check-package-version.outputs.published-version }}
-            is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
-        steps:
-            - name: Checkout the repository
-              uses: actions/checkout@v6
             - name: Check package version and detect an update
               id: check-package-version
               uses: PostHog/check-package-version@138438a8fed9213fa112f841b1c89f9bd68f5cca # v2.1.0
@@ -166,14 +158,14 @@ jobs:
     release-hogvm:
         name: Release new HogVM TypeScript version
         runs-on: ubuntu-24.04
-        needs: check-package-version
-        if: needs.changes.outputs.hog == 'true' && needs.check-package-version.outputs.is-new-version == 'true'
+        needs: hog-tests
+        if: needs.hog-tests.outputs.is-new-version == 'true'
         permissions:
             contents: read
             id-token: write
         env:
-            COMMITTED_VERSION: ${{ needs.check-package-version.outputs.committed-version }}
-            PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
+            COMMITTED_VERSION: ${{ needs.hog-tests.outputs.committed-version }}
+            PUBLISHED_VERSION: ${{ needs.hog-tests.outputs.published-version }}
         steps:
             - name: Checkout the repository
               uses: actions/checkout@v6

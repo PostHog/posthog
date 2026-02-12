@@ -23,36 +23,6 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v6
 
-            - name: Trigger Vercel build
-              id: trigger-build
-              env:
-                  BRANCH_NAME: ${{ github.event.pull_request.head.ref || github.ref_name }}
-                  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-                  VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
-                  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-              run: .github/scripts/trigger-vercel-preview.sh "$BRANCH_NAME"
-
-            - name: Comment on PR
-              if: github.event_name == 'pull_request'
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-              with:
-                  script: |
-                      const commentFn = require('./.github/scripts/comment-pr-preview.js');
-                      await commentFn({
-                        github,
-                        context,
-                        prNumber: ${{ github.event.pull_request.number }},
-                        triggerStatus: "${{ steps.trigger-build.outputs.trigger_status }}",
-                        deploymentUrl: "${{ steps.trigger-build.outputs.deployment_url }}",
-                        deploymentId: "${{ steps.trigger-build.outputs.deployment_id }}"
-                      });
-
-    validate-docs:
-        name: Validate docs structure
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v6
-
             - name: Check frontmatter in published docs
               run: |
                   echo "Checking for required frontmatter in published docs..."
@@ -98,3 +68,27 @@ jobs:
                   else
                     echo "✅ Links appear to be within /published/ directory"
                   fi
+
+            - name: Trigger Vercel build
+              id: trigger-build
+              env:
+                  BRANCH_NAME: ${{ github.event.pull_request.head.ref || github.ref_name }}
+                  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+                  VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+                  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+              run: .github/scripts/trigger-vercel-preview.sh "$BRANCH_NAME"
+
+            - name: Comment on PR
+              if: github.event_name == 'pull_request'
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  script: |
+                      const commentFn = require('./.github/scripts/comment-pr-preview.js');
+                      await commentFn({
+                        github,
+                        context,
+                        prNumber: ${{ github.event.pull_request.number }},
+                        triggerStatus: "${{ steps.trigger-build.outputs.trigger_status }}",
+                        deploymentUrl: "${{ steps.trigger-build.outputs.deployment_url }}",
+                        deploymentId: "${{ steps.trigger-build.outputs.deployment_id }}"
+                      });

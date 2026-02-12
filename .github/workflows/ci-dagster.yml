@@ -41,6 +41,7 @@ jobs:
         # Set job outputs to values from filter step
         outputs:
             dagster: ${{ steps.filter.outputs.dagster || 'true' }}
+            oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -70,18 +71,6 @@ jobs:
                         # These scripts are used in the CI
                         - bin/check_kafka_clickhouse_up
 
-    get_clickhouse_versions:
-        name: Get ClickHouse versions
-        needs: [changes]
-        if: needs.changes.outputs.dagster == 'true'
-        runs-on: ubuntu-latest
-        outputs:
-            oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
-        steps:
-            - uses: actions/checkout@v6
-              with:
-                  sparse-checkout: .github/clickhouse-versions.json
-                  sparse-checkout-cone-mode: false
             - name: Read ClickHouse versions from JSON
               id: read-versions
               run: |
@@ -94,11 +83,11 @@ jobs:
 
     dagster:
         name: Dagster tests
-        needs: [changes, get_clickhouse_versions]
+        needs: [changes]
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
+                clickhouse-server-image: ${{ fromJson(needs.changes.outputs.oldest_supported) }}
         if: needs.changes.outputs.dagster == 'true'
         runs-on: depot-ubuntu-latest
         steps:

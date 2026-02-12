@@ -57,9 +57,6 @@ jobs:
             contents: read # allow reading the repo contents
             packages: write # allow push to ghcr.io
 
-        outputs:
-            digest: ${{ steps.build.outputs.digest }}
-
         steps:
             - name: Check out
               uses: actions/checkout@v6
@@ -147,18 +144,8 @@ jobs:
                   event: 'node-image-build'
                   properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
 
-    deploy:
-        name: Deploy node services
-        runs-on: ubuntu-24.04
-        needs: build
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        permissions:
-            contents: read
-        steps:
-            - name: Check out
-              uses: actions/checkout@v6
-
             - name: Get deployer token
+              if: github.ref == 'refs/heads/master' && github.event_name == 'push'
               id: deployer
               uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
               with:
@@ -166,12 +153,14 @@ jobs:
                   private_key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
 
             - name: Get PR labels
+              if: github.ref == 'refs/heads/master' && github.event_name == 'push'
               id: labels
               uses: ./.github/actions/get-pr-labels
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Trigger node deployment
+              if: github.ref == 'refs/heads/master' && github.event_name == 'push'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -181,7 +170,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ needs.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "node",
