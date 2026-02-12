@@ -125,7 +125,7 @@ When creating a replacement for a failed job, we use the exact same time range a
 
 ### Attempt tracking
 
-Each waiter tracks their own attempt count locally. After a configurable number of failures (default 2), the waiter stops retrying and reports the job as permanently failed. This means new queries get fresh attempt budgets, so newer queries may succeed where older ones gave up.
+Each waiter tracks their own failure count locally. After a configurable number of retries (default 1, meaning 2 total attempts), the waiter stops retrying and reports the job as permanently failed. This means new queries get fresh attempt budgets, so newer queries may succeed where older ones gave up.
 
 ### Stale pending jobs
 
@@ -133,7 +133,7 @@ If an executor crashes while a job is PENDING, other waiters detect this via Red
 
 1. **CH INSERT not started**: Each executor sets a Redis key (`preagg:ch_started:{job_id}`) before running the INSERT. If this key doesn't exist and the job is older than the grace period (default 60s), it's considered stale — the executor likely crashed before reaching the INSERT.
 
-2. **CH INSERT started but heartbeat expired**: `poll_query_performance` sets a heartbeat key with a 10s TTL for every active ClickHouse query. If the CH start marker exists but the heartbeat key has expired and the job is older than the stale threshold (default 60s), the query is no longer running and the job is stale.
+2. **CH INSERT started but heartbeat expired**: `poll_query_performance` sets a heartbeat key with a 60s TTL for every active ClickHouse query. If the CH start marker exists but the heartbeat key has expired and the job is older than the stale threshold (default 60s), the query is no longer running and the job is stale.
 
 Stale jobs are marked FAILED and the normal replacement flow kicks in. This means we can recover from crashes of the process we were waiting for.
 

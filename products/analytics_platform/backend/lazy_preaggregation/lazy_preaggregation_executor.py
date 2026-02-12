@@ -742,8 +742,8 @@ def ensure_preaggregated(
                 insert_sql,
                 values,
                 settings={
-                    **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
                     "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
+                    **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
                 },
             )
 
