@@ -139,7 +139,7 @@ def record_and_persist_video_activity(build: dict[str, Any]) -> None:
             valid_period_count = sum(
                 1 for i, period in enumerate(inactivity_periods) if _validate_period(period, i, len(inactivity_periods))
             )
-            if valid_period_count == 0:
+            if valid_period_count == 0 and build.get("use_puppeteer", False):
                 raise ValueError("No valid inactivity periods detected in the recording")
             asset.save(update_fields=["export_context"])
         # Check file size first to prevent OOM
