@@ -305,12 +305,10 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                                                             </label>
                                                             <LemonSegmentedButton
                                                                 size="small"
-                                                                value={
-                                                                    selectedStep.useManualSelector ? 'manual' : 'auto'
-                                                                }
+                                                                value={selectedStep.elementTargeting ?? 'auto'}
                                                                 onChange={(value) =>
                                                                     updateStep(selectedStepIndex, {
-                                                                        useManualSelector: value === 'manual',
+                                                                        elementTargeting: value,
                                                                     })
                                                                 }
                                                                 options={[
@@ -341,7 +339,7 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                                                         </div>
                                                     </div>
 
-                                                    {selectedStep.useManualSelector && (
+                                                    {selectedStep.elementTargeting === 'manual' && (
                                                         <LemonInput
                                                             value={selectedStep.selector || ''}
                                                             onChange={(value) =>
@@ -357,7 +355,7 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                                                 </div>
 
                                                 {/* Element preview (auto mode only) */}
-                                                {!selectedStep.useManualSelector && (
+                                                {selectedStep.elementTargeting === 'auto' && (
                                                     <div className="flex items-center gap-3 ml-auto">
                                                         {selectedStep.screenshotMediaId &&
                                                             selectedStep.inferenceData && (
@@ -401,6 +399,7 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                                                         inferenceData: undefined,
                                                         screenshotMediaId: undefined,
                                                         useManualSelector: undefined,
+                                                        elementTargeting: undefined,
                                                     })
                                                 }
                                             >

@@ -84,8 +84,7 @@ impl DuplicateEventProducerWrapper {
             )
             .await;
 
-        let metrics = MetricsHelper::with_partition(&partition_topic, partition_number)
-            .with_label("service", "kafka-deduplicator");
+        let metrics = MetricsHelper::with_partition(&partition_topic, partition_number);
 
         match delivery_result {
             Ok(_) => {
@@ -290,8 +289,7 @@ impl IngestionEventsBatchProcessor {
 
         // Create metrics helper for similarity metrics
         let metrics =
-            MetricsHelper::with_partition(partition.topic(), partition.partition_number())
-                .with_label("service", "kafka-deduplicator");
+            MetricsHelper::with_partition(partition.topic(), partition.partition_number());
 
         // Process results: emit metrics and collect publish futures
         // We batch all Kafka sends and execute them concurrently for better throughput

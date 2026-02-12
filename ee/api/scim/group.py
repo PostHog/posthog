@@ -132,6 +132,7 @@ class PostHogSCIMGroup(SCIMGroup):
                 ).first()
 
                 if org_membership:
+                    # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, org gated by middleware)
                     RoleMembership.objects.get_or_create(
                         role=role, user=user, defaults={"organization_member": org_membership}
                     )
@@ -225,6 +226,7 @@ class PostHogSCIMGroup(SCIMGroup):
                             defaults={"level": OrganizationMembership.Level.MEMBER},
                         )
 
+                        # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, org gated by middleware)
                         RoleMembership.objects.get_or_create(
                             role=self.obj, user=user, defaults={"organization_member": org_membership}
                         )

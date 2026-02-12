@@ -93,6 +93,11 @@ export interface RecordingViewedSummaryAnalytics {
     rrweb_warning_count: number
     error_count_during_recording_playback: number
     engagement_score: number
+    // frame rate stats measured during playback via requestAnimationFrame
+    avg_fps?: number
+    dropped_frames?: number
+    max_frame_time_ms?: number
+    total_frames?: number
 }
 
 export interface Player {
@@ -1426,10 +1431,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
 
-            // If replayer isn't initialized, it will be initialized with the already loaded snapshots
+            // If replayer isn't initialized, it will be initialized with the already loaded snapshots.
+            // Add events in batches, yielding between batches to keep the UI responsive
+            // during large snapshot loads.
             if (values.player?.replayer) {
-                for (const event of eventsToAdd) {
-                    values.player?.replayer?.addEvent(event)
+                const YIELD_AFTER_MS = 50
+                let lastYield = performance.now()
+                for (let i = 0; i < eventsToAdd.length; i++) {
+                    values.player?.replayer?.addEvent(eventsToAdd[i])
+                    if (performance.now() - lastYield > YIELD_AFTER_MS) {
+                        await new Promise<void>((r) => setTimeout(r, 0))
+                        lastYield = performance.now()
+                    }
                 }
             }
 
@@ -1688,6 +1701,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         updateAnimation: () => {
+            // Track frame timing for playback performance monitoring
+            const frameNow = performance.now()
+            if (cache.lastFrameTime !== undefined) {
+                const delta = frameNow - cache.lastFrameTime
+                cache.frameCount = (cache.frameCount || 0) + 1
+                if (delta > 50) {
+                    cache.droppedFrames = (cache.droppedFrames || 0) + 1
+                }
+                if (delta > (cache.maxFrameTime || 0)) {
+                    cache.maxFrameTime = delta
+                }
+            }
+            cache.lastFrameTime = frameNow
+
             // The main loop of the player. Called on each frame
             const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
             let newTimestamp = values.fromRRWebPlayerTime(rrwebPlayerTime)
@@ -1760,6 +1787,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         stopAnimation: () => {
             cache.disposables.dispose('animationTimer')
+            cache.lastFrameTime = undefined
         },
         pauseIframePlayback: () => {
             const iframe = values.rootFrame?.querySelector('iframe')
@@ -2079,6 +2107,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             rrweb_warning_count: values.warningCount,
             error_count_during_recording_playback: values.errorCount,
             engagement_score: values.clickCount,
+            avg_fps:
+                cache.frameCount && playTimeMs > 0
+                    ? Math.round((cache.frameCount / (playTimeMs / 1000)) * 10) / 10
+                    : undefined,
+            dropped_frames: cache.droppedFrames || undefined,
+            max_frame_time_ms: cache.maxFrameTime ? Math.round(cache.maxFrameTime) : undefined,
+            total_frames: cache.frameCount || undefined,
         }
 
         posthog.capture(
