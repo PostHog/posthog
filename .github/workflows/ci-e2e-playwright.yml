@@ -309,8 +309,11 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
+            - name: Start Docker services
+              run: docker compose -f docker-compose.dev.yml up -d
+
             - name: Wait for Docker services
-              run: docker compose -f docker-compose.dev.yml up -d --wait
+              run: bin/wait-for-docker
 
             - name: Build frontend
               run: |

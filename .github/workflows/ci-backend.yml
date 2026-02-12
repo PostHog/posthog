@@ -256,7 +256,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
 
             - name: Wait for Docker services
-              run: docker compose -f docker-compose.dev.yml up -d --wait
+              run: bin/wait-for-docker
 
             - name: Run migrations up to master
               run: |
@@ -1286,7 +1286,7 @@ jobs:
 
             - name: Wait for Docker services
               shell: bash
-              run: docker compose -f docker-compose.dev.yml up -d --wait
+              run: bin/wait-for-docker
 
             - name: Run async migrations tests
               run: |

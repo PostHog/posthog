@@ -256,9 +256,13 @@ jobs:
               run: |
                   cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
+            - name: Start Docker services
+              shell: bash
+              run: docker compose -f docker-compose.dev.yml up -d
+
             - name: Wait for Docker services
               shell: bash
-              run: docker compose -f docker-compose.dev.yml up -d --wait
+              run: bin/wait-for-docker
 
             - name: Run migrations
               run: |

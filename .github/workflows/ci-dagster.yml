@@ -115,7 +115,10 @@ jobs:
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image }}
                   docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d --wait
+                  docker compose -f docker-compose.dev.yml up -d
+
+            - name: Wait for Docker services
+              run: bin/wait-for-docker
 
             - name: Set up Python
               uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
