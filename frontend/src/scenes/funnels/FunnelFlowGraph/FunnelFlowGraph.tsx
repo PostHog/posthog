@@ -37,7 +37,7 @@ const FIT_VIEW_OPTIONS = {
 function FunnelFlowGraphContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const { insightProps } = useValues(insightLogic)
-    const { layoutedNodes, edges } = useValues(funnelFlowGraphLogic(insightProps))
+    const { laidOutNodes, edges } = useValues(funnelFlowGraphLogic(insightProps))
 
     const closeOpenPopovers = useCallback(() => {
         document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
@@ -46,7 +46,7 @@ function FunnelFlowGraphContent(): JSX.Element {
     return (
         <div className="relative w-full" style={{ height: 'var(--insight-viz-min-height)' }}>
             <ReactFlow
-                nodes={layoutedNodes}
+                nodes={laidOutNodes}
                 edges={edges}
                 nodeTypes={NODE_TYPES}
                 edgeTypes={EDGE_TYPES}

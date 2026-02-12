@@ -90,14 +90,14 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
     })),
 
     actions({
-        setLayoutedNodes: (layoutedNodes: Node<FunnelFlowNodeData>[]) => ({ layoutedNodes }),
+        setLaidOutNodes: (laidOutNodes: Node<FunnelFlowNodeData>[]) => ({ laidOutNodes }),
     }),
 
     reducers({
-        layoutedNodes: [
+        laidOutNodes: [
             [] as Node<FunnelFlowNodeData>[],
             {
-                setLayoutedNodes: (_, { layoutedNodes }) => layoutedNodes,
+                setLaidOutNodes: (_, { laidOutNodes }) => laidOutNodes,
             },
         ],
     }),
@@ -146,7 +146,7 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
     subscriptions(({ actions, values }) => ({
         nodes: async () => {
             const positioned = await layoutNodes(values.nodes, values.edges)
-            actions.setLayoutedNodes(positioned)
+            actions.setLaidOutNodes(positioned)
         },
     })),
 ])
