@@ -60,8 +60,7 @@ export function TableView(): JSX.Element {
     }
     return (
         <LemonTable
-            className="max-h-[calc(100vh-17rem)] overflow-y-auto"
-            stickyHeader={true}
+            className="h-[calc(100vh-17rem)] overflow-y-auto"
             dataSource={visibleNodes}
             loading={nodesLoading}
             columns={[
@@ -166,7 +165,7 @@ export function TableView(): JSX.Element {
                     title: 'Tag',
                     key: 'tag',
                     render: (_, node: DataModelingNode) => {
-                        return <span className="font-semibold italic">#{node.user_tag}</span>
+                        return node.user_tag ? <span className="font-semibold italic">#{node.user_tag}</span> : '-'
                     },
                 },
             ]}

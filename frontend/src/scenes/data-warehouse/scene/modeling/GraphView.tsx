@@ -11,7 +11,7 @@ import {
     useReactFlow,
 } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconArrowRight, IconCollapse, IconDatabase, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
@@ -82,9 +82,9 @@ function NodeTypeButton({
 }
 
 export function NodeTypePanel(): JSX.Element {
-    const { highlightedNodeType, layoutDirection } = useValues(dataModelingLogic)
-    const { setHighlightedNodeType, setLayoutDirection, setSearchTerm } = useActions(dataModelingLogic)
-    const [collapsed, setCollapsed] = useState(false)
+    const { highlightedNodeType, layoutDirection, nodeTypePanelCollapsed } = useValues(dataModelingLogic)
+    const { setHighlightedNodeType, setLayoutDirection, setSearchTerm, setNodeTypePanelCollapsed } =
+        useActions(dataModelingLogic)
 
     const handleNodeTypeClick = (type: DataModelingNodeType): void => {
         if (highlightedNodeType === type) {
@@ -95,7 +95,7 @@ export function NodeTypePanel(): JSX.Element {
         }
     }
 
-    if (collapsed) {
+    if (nodeTypePanelCollapsed) {
         return (
             <div className="absolute right-1.5 bottom-1.5 z-10 bg-transparent p-2">
                 <LemonButton
@@ -103,7 +103,7 @@ export function NodeTypePanel(): JSX.Element {
                     icon={<IconExpand />}
                     type="secondary"
                     size="small"
-                    onClick={() => setCollapsed(false)}
+                    onClick={() => setNodeTypePanelCollapsed(false)}
                     tooltip="Expand panel"
                 />
             </div>
@@ -146,7 +146,7 @@ export function NodeTypePanel(): JSX.Element {
                     icon={<IconCollapse />}
                     type="secondary"
                     size="small"
-                    onClick={() => setCollapsed(true)}
+                    onClick={() => setNodeTypePanelCollapsed(true)}
                     tooltip="Collapse panel"
                 />
             </div>
@@ -195,10 +195,7 @@ function GraphViewContent(): JSX.Element {
     }, [debouncedSearchTerm, enrichedNodes, reactFlowInstance, highlightedNodeIds])
 
     return (
-        <div
-            ref={reactFlowWrapper}
-            className="relative w-full border rounded-lg overflow-hidden h-[calc(100vh-17rem)] min-h-[400px]"
-        >
+        <div ref={reactFlowWrapper} className="relative w-full border rounded-lg overflow-hidden h-[calc(100vh-17rem)]">
             <ReactFlow<Node, Edge>
                 fitView={!savedViewport}
                 defaultViewport={savedViewport ?? undefined}
