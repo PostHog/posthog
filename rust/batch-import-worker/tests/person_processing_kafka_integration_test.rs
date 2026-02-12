@@ -214,9 +214,10 @@ async fn test_person_processing_filter_with_kafka() -> Result<()> {
             parsed.is_object(),
             "Message {i} payload should be a JSON object, got: {payload}"
         );
-        let deserialized: InternallyCapturedEvent = serde_json::from_str(payload).unwrap_or_else(
-            |e| panic!("Message {i} payload should deserialize as InternallyCapturedEvent: {e}"),
-        );
+        let deserialized: InternallyCapturedEvent =
+            serde_json::from_str(payload).unwrap_or_else(|e| {
+                panic!("Message {i} payload should deserialize as InternallyCapturedEvent: {e}")
+            });
         assert_eq!(deserialized.inner.token, events[i].inner.token);
         assert_eq!(deserialized.inner.distinct_id, events[i].inner.distinct_id);
     }
