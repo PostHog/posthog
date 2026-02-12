@@ -12,7 +12,7 @@ import { logger } from '~/utils/logger'
  * endpoints. This middleware adds an additional layer of verification using a shared secret.
  */
 
-const HEADER_NAME = 'X-Internal-Api-Secret'
+export const INTERNAL_SERVICE_CALL_HEADER_NAME = 'X-Internal-Api-Secret'
 
 // Paths that don't require authentication (public endpoints and health checks)
 const PUBLIC_PATH_PREFIXES = ['/public/', '/_health', '/_ready', '/_metrics', '/metrics']
@@ -39,7 +39,7 @@ export function createInternalApiAuthMiddleware(options: InternalApiAuthOptions)
             return
         }
 
-        const providedSecret = req.headers[HEADER_NAME.toLowerCase()]
+        const providedSecret = req.headers[INTERNAL_SERVICE_CALL_HEADER_NAME.toLowerCase()]
 
         if (!providedSecret || typeof providedSecret !== 'string') {
             logger.warn('Internal API request missing authentication header', {
