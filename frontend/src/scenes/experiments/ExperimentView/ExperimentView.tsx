@@ -6,6 +6,8 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { ExperimentForm } from '~/scenes/experiments/ExperimentForm'
 import { LegacyExperimentInfo } from '~/scenes/experiments/legacy/LegacyExperimentInfo'
@@ -97,17 +99,33 @@ const MetricsTab = (): JSX.Element => {
     return (
         <>
             {usesNewQueryRunner && (
-                <div className="mt-1 mb-4 flex justify-start gap-2">
-                    <SummarizeExperimentButton
-                        disabledReason={
-                            !hasMinimumExposureForResults
-                                ? 'Experiment needs at least 50 exposures to summarize results.'
-                                : undefined
-                        }
-                    />
-                    <SummarizeSessionReplaysButton experiment={experiment} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <SceneSection
+                        title="Summarize experiment"
+                        description="Use AI to summarize the experiment results."
+                    >
+                        <div className="inline-block">
+                            <SummarizeExperimentButton
+                                disabledReason={
+                                    !hasMinimumExposureForResults
+                                        ? 'Experiment needs at least 50 exposures to summarize results.'
+                                        : undefined
+                                }
+                            />
+                        </div>
+                    </SceneSection>
+                    <SceneSection
+                        title="Summarize session replays"
+                        description="Use AI to summarize session replays for this experiment. This will help you understand how users are interacting with your experiment."
+                    >
+                        <div className="inline-block">
+                            <SummarizeSessionReplaysButton experiment={experiment} />
+                        </div>
+                    </SceneSection>
                 </div>
             )}
+
+            <SceneDivider className="mb-4" />
             {usesNewQueryRunner && (
                 <div className="w-full mb-4">
                     <Exposures />
