@@ -18,6 +18,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { payGateMiniLogic } from 'lib/components/PayGateMini/payGateMiniLogic'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -246,7 +247,7 @@ function CloudflareOptInBanner({
 
 const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
     return (
-        <div className="pb-4 pr-4">
+        <div className="pb-4 pr-4 space-y-2">
             <LemonTabs
                 size="small"
                 activeKey="cname"
@@ -262,6 +263,14 @@ const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
                     },
                 ]}
             />
+            {record.status === 'waiting' && (
+                <DomainConnectBanner
+                    logicKey={`proxy-${record.id}`}
+                    domain={record.domain}
+                    context="proxy"
+                    proxyRecordId={record.id}
+                />
+            )}
         </div>
     )
 }
@@ -318,6 +327,14 @@ function CreateRecordForm(): JSX.Element {
                             <CodeSnippet key={r.id} language={Language.HTTP}>
                                 {r.target_cname}
                             </CodeSnippet>
+
+                            <DomainConnectBanner
+                                logicKey={`proxy-${r.id}`}
+                                domain={r.domain}
+                                context="proxy"
+                                proxyRecordId={r.id}
+                                className="mt-2"
+                            />
                         </div>
                     ))}
                     <div className="flex justify-end">
