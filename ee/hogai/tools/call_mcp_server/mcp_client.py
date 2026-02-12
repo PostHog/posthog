@@ -10,7 +10,7 @@ class MCPClientError(Exception):
 class MCPClient:
     """Minimal MCP client using JSON-RPC 2.0 over HTTP with Streamable HTTP transport."""
 
-    def __init__(self, server_url: str, headers: dict[str, str] | None = None):
+    def __init__(self, server_url: str, headers: dict[str, str] | None = None, session_id: str | None = None):
         self._server_url = server_url
         self._base_headers = {
             "Content-Type": "application/json",
@@ -18,8 +18,12 @@ class MCPClient:
             **(headers or {}),
         }
         self._request_id = 0
-        self._session_id: str | None = None
+        self._session_id: str | None = session_id
         self._client = httpx.AsyncClient(timeout=30.0)
+
+    @property
+    def session_id(self) -> str | None:
+        return self._session_id
 
     async def close(self):
         await self._client.aclose()

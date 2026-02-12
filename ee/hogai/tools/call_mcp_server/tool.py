@@ -1,5 +1,7 @@
 from typing import Literal, Self
 
+from django.core.cache import caches
+
 import httpx
 import structlog
 from pydantic import BaseModel, Field
@@ -17,6 +19,12 @@ from ee.hogai.utils.types.base import AssistantState, NodePath
 from .mcp_client import MCPClient, MCPClientError
 
 logger = structlog.get_logger(__name__)
+
+SESSION_CACHE_TTL = 3600  # 1 hour
+
+
+def _session_cache_key(conversation_id: str, server_url: str) -> str:
+    return f"mcp_session:{conversation_id}:{server_url}"
 
 
 class CallMCPServerToolArgs(BaseModel):
@@ -76,6 +84,7 @@ class CallMCPServerTool(MaxTool):
         instance._allowed_server_urls = allowed_urls
         instance._installations = installations
         instance._server_headers = server_headers
+        instance._session_cache: dict[str, str] = {}
         return instance
 
     async def _arun_impl(self, server_url: str, tool_name: str, arguments: dict | None = None) -> tuple[str, None]:
@@ -86,39 +95,26 @@ class CallMCPServerTool(MaxTool):
             )
 
         headers = self._server_headers.get(server_url)
-        client = MCPClient(server_url, headers=headers)
+        session_id = self._get_cached_session(server_url)
+        client = MCPClient(server_url, headers=headers, session_id=session_id)
 
         try:
-            await client.initialize()
-
-            if tool_name == "__list_tools__":
-                tools = await client.list_tools()
-                if not tools:
-                    return "This MCP server has no tools available.", None
-
-                lines = []
-                for tool in tools:
-                    name = tool.get("name", "unknown")
-                    desc = tool.get("description", "No description")
-                    schema = tool.get("inputSchema", {})
-                    props = schema.get("properties", {})
-                    required = schema.get("required", [])
-
-                    param_parts = []
-                    for param_name, param_info in props.items():
-                        param_type = param_info.get("type", "any")
-                        param_desc = param_info.get("description", "")
-                        req = " (required)" if param_name in required else ""
-                        param_parts.append(f"    - {param_name}: {param_type}{req} — {param_desc}")
-
-                    params_str = "\n".join(param_parts) if param_parts else "    (no parameters)"
-                    lines.append(f"- **{name}**: {desc}\n  Parameters:\n{params_str}")
-
-                return f"Tools available on {server_url}:\n\n" + "\n\n".join(lines), None
-
-            result = await client.call_tool(tool_name, arguments or {})
-            return result, None
-
+            try:
+                if not session_id:
+                    await client.initialize()
+                result = await self._execute_mcp_call(client, server_url, tool_name, arguments)
+                self._cache_session(server_url, client.session_id)
+                return result, None
+            except (MCPClientError, httpx.HTTPStatusError):
+                if session_id:
+                    self._clear_cached_session(server_url)
+                    await client.close()
+                    client = MCPClient(server_url, headers=headers)
+                    await client.initialize()
+                    result = await self._execute_mcp_call(client, server_url, tool_name, arguments)
+                    self._cache_session(server_url, client.session_id)
+                    return result, None
+                raise
         except MCPClientError as e:
             raise MaxToolRetryableError(f"MCP server error: {e}")
         except httpx.HTTPStatusError as e:
@@ -129,6 +125,66 @@ class CallMCPServerTool(MaxTool):
             raise MaxToolRetryableError(f"Could not connect to MCP server at {server_url}. The server may be down.")
         finally:
             await client.close()
+
+    async def _execute_mcp_call(
+        self, client: MCPClient, server_url: str, tool_name: str, arguments: dict | None
+    ) -> str:
+        if tool_name == "__list_tools__":
+            tools = await client.list_tools()
+            if not tools:
+                return "This MCP server has no tools available."
+
+            lines = []
+            for tool in tools:
+                name = tool.get("name", "unknown")
+                desc = tool.get("description", "No description")
+                schema = tool.get("inputSchema", {})
+                props = schema.get("properties", {})
+                required = schema.get("required", [])
+
+                param_parts = []
+                for param_name, param_info in props.items():
+                    param_type = param_info.get("type", "any")
+                    param_desc = param_info.get("description", "")
+                    req = " (required)" if param_name in required else ""
+                    param_parts.append(f"    - {param_name}: {param_type}{req} — {param_desc}")
+
+                params_str = "\n".join(param_parts) if param_parts else "    (no parameters)"
+                lines.append(f"- **{name}**: {desc}\n  Parameters:\n{params_str}")
+
+            return f"Tools available on {server_url}:\n\n" + "\n\n".join(lines)
+
+        return await client.call_tool(tool_name, arguments or {})
+
+    def _get_cached_session(self, server_url: str) -> str | None:
+        if sid := self._session_cache.get(server_url):
+            return sid
+        conversation_id = self._get_conversation_id()
+        if not conversation_id:
+            return None
+        key = _session_cache_key(conversation_id, server_url)
+        sid = caches["default"].get(key)
+        if sid:
+            self._session_cache[server_url] = sid
+        return sid
+
+    def _cache_session(self, server_url: str, session_id: str | None) -> None:
+        if not session_id:
+            return
+        self._session_cache[server_url] = session_id
+        conversation_id = self._get_conversation_id()
+        if not conversation_id:
+            return
+        key = _session_cache_key(conversation_id, server_url)
+        caches["default"].set(key, session_id, timeout=SESSION_CACHE_TTL)
+
+    def _clear_cached_session(self, server_url: str) -> None:
+        self._session_cache.pop(server_url, None)
+        conversation_id = self._get_conversation_id()
+        if not conversation_id:
+            return
+        key = _session_cache_key(conversation_id, server_url)
+        caches["default"].delete(key)
 
 
 def _get_installations(team: Team, user: User) -> list[dict]:
