@@ -624,9 +624,6 @@ export function getUsageLimitConsequence(productName: string): string {
     if (productName === 'Feature flags & Experiments') {
         return 'feature flags will not evaluate'
     }
-    if (productName === 'PostHog AI') {
-        return 'to continue using PostHog AI'
-    }
     return 'data loss may occur'
 }
 

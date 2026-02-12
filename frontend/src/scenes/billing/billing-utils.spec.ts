@@ -438,14 +438,11 @@ describe('getUsageLimitConsequence', () => {
         expect(getUsageLimitConsequence('Feature flags & Experiments')).toEqual('feature flags will not evaluate')
     })
 
-    it('should return specific message for PostHog AI', () => {
-        expect(getUsageLimitConsequence('PostHog AI')).toEqual('to continue using PostHog AI')
-    })
-
     it('should return generic message for other products', () => {
         expect(getUsageLimitConsequence('Session replay')).toEqual('data loss may occur')
         expect(getUsageLimitConsequence('Product analytics')).toEqual('data loss may occur')
         expect(getUsageLimitConsequence('Surveys')).toEqual('data loss may occur')
+        expect(getUsageLimitConsequence('PostHog AI')).toEqual('data loss may occur')
     })
 })
 
