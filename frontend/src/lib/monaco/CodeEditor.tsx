@@ -23,6 +23,8 @@ import { inStorybookTestRunner } from 'lib/utils'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
 
+import { setupVimClipboardSync } from './vimClipboardSync'
+
 if (loader) {
     loader.config({ monaco: monacoModule })
 }
@@ -247,14 +249,18 @@ export function CodeEditor({
             return
         }
 
+        let cleanupClipboard: (() => void) | undefined
+
         if (enableVimMode && vimStatusBarRef.current) {
             vimModeRef.current = initVimMode(editor, vimStatusBarRef.current)
+            cleanupClipboard = setupVimClipboardSync(vimModeRef.current)
         } else if (vimModeRef.current) {
             vimModeRef.current.dispose()
             vimModeRef.current = null
         }
 
         return () => {
+            cleanupClipboard?.()
             if (vimModeRef.current) {
                 vimModeRef.current.dispose()
                 vimModeRef.current = null
