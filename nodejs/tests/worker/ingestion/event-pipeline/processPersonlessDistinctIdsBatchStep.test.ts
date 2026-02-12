@@ -1,9 +1,10 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { PipelineResultType } from '~/ingestion/pipelines/results'
-import { Team } from '~/types'
+import { EventHeaders, Team } from '~/types'
 
 import { PersonsStore } from '../../../../src/worker/ingestion/persons/persons-store'
+import { createTestEventHeaders } from '../../../helpers/event-headers'
 import { createTestPluginEvent } from '../../../helpers/plugin-event'
 import { createTestTeam } from '../../../helpers/team'
 
@@ -30,8 +31,9 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
 
     const createInput = (
         distinctId: string,
-        processPerson: boolean | undefined = undefined
-    ): { event: PluginEvent; team: Team } => ({
+        processPerson: boolean | undefined = undefined,
+        forceDisablePersonProcessing: boolean = false
+    ): { event: PluginEvent; team: Team; headers: EventHeaders } => ({
         event: createTestPluginEvent({
             distinct_id: distinctId,
             team_id: team.id,
@@ -39,6 +41,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
             uuid: `uuid-${distinctId}`,
         }),
         team,
+        headers: createTestEventHeaders({ force_disable_person_processing: forceDisablePersonProcessing }),
     })
 
     describe('when enabled', () => {
@@ -104,6 +107,47 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
             expect(results).toHaveLength(2)
             expect(results.every((r) => r.type === PipelineResultType.OK)).toBe(true)
             expect(mockPersonsStore.processPersonlessDistinctIdsBatch).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('force_disable_person_processing header', () => {
+        it('should skip personless processing when force_disable_person_processing is true', async () => {
+            const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
+            const events = [
+                createInput('user-1', false, true), // force_disable_person_processing: true
+                createInput('user-2', false, false), // force_disable_person_processing: false
+            ]
+
+            const results = await step(events)
+
+            expect(results).toHaveLength(2)
+            // Only user-2 should be processed (user-1 is skipped due to header)
+            expect(mockPersonsStore.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
+                { teamId: team.id, distinctId: 'user-2' },
+            ])
+        })
+
+        it('should not process any events when all have force_disable_person_processing', async () => {
+            const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
+            const events = [createInput('user-1', false, true), createInput('user-2', false, true)]
+
+            const results = await step(events)
+
+            expect(results).toHaveLength(2)
+            expect(mockPersonsStore.processPersonlessDistinctIdsBatch).not.toHaveBeenCalled()
+        })
+
+        it('should process normally when force_disable_person_processing is false', async () => {
+            const step = processPersonlessDistinctIdsBatchStep(mockPersonsStore, true)
+            const events = [createInput('user-1', false, false), createInput('user-2', false, false)]
+
+            const results = await step(events)
+
+            expect(results).toHaveLength(2)
+            expect(mockPersonsStore.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
+                { teamId: team.id, distinctId: 'user-1' },
+                { teamId: team.id, distinctId: 'user-2' },
+            ])
         })
     })
 

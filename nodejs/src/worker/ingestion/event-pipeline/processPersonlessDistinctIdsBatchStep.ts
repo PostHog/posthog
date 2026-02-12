@@ -2,12 +2,12 @@ import { LRUCache } from 'lru-cache'
 import { Counter } from 'prom-client'
 
 import { PipelineResult, ok } from '~/ingestion/pipelines/results'
-import { PipelineEvent, Team } from '~/types'
+import { EventHeaders, PipelineEvent, Team } from '~/types'
 
 import { ONE_HOUR } from '../../../config/constants'
 import { PersonsStore } from '../persons/persons-store'
 
-type ProcessPersonlessDistinctIdsBatchStepInput = { event: PipelineEvent; team: Team }
+type ProcessPersonlessDistinctIdsBatchStepInput = { event: PipelineEvent; team: Team; headers: EventHeaders }
 
 export const personlessDistinctIdCacheOperationsCounter = new Counter({
     name: 'personless_distinct_id_cache_operations_total',
@@ -43,6 +43,10 @@ export function processPersonlessDistinctIdsBatchStep<T extends ProcessPersonles
             const personlessEntries: { teamId: number; distinctId: string }[] = []
 
             for (const e of events) {
+                // Skip if person processing is disabled via header
+                if (e.headers.force_disable_person_processing) {
+                    continue
+                }
                 if (e.event.properties?.$process_person_profile !== false) {
                     continue
                 }
