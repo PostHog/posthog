@@ -42,6 +42,8 @@ use std::sync::Arc;
 use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
+const DEFAULT_PARALLEL_EVAL_THRESHOLD: usize = 100;
+
 /// Parameters for feature flag evaluation with various override options
 #[derive(Debug, Default)]
 pub struct FlagEvaluationOverrides {
@@ -221,7 +223,26 @@ pub struct FeatureFlagMatcher {
     parallel_eval_threshold: usize,
 }
 
-const DEFAULT_PARALLEL_EVAL_THRESHOLD: usize = 100;
+/// Lightweight snapshot of a flag's identity fields, saved before moving
+/// flags into the Rayon pool. Used to reconstruct per-flag error results
+/// if the rayon task panics.
+struct FlagSnapshot {
+    key: String,
+    id: FeatureFlagId,
+    active: bool,
+    version: Option<i32>,
+}
+
+impl FlagSnapshot {
+    pub fn from_flag(flag: &FeatureFlag) -> Self {
+        FlagSnapshot {
+            key: flag.key.clone(),
+            id: flag.id,
+            active: flag.active,
+            version: flag.version,
+        }
+    }
+}
 
 impl FeatureFlagMatcher {
     #[allow(clippy::too_many_arguments)]
@@ -957,9 +978,10 @@ impl FeatureFlagMatcher {
         // Save lightweight snapshots before moving flags into rayon.
         // If the rayon task panics, we use these to construct per-flag error results
         // instead of silently dropping flags from the response.
+        let team_id = self.team_id;
         let flag_snapshots: Vec<_> = flags_to_evaluate
             .iter()
-            .map(|f| (f.key.clone(), f.id, f.active, f.version))
+            .map(FlagSnapshot::from_flag)
             .collect();
 
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -989,25 +1011,26 @@ impl FeatureFlagMatcher {
 
         rx.await.unwrap_or_else(|_| {
             error!("Rayon parallel evaluation task was dropped (likely panicked)");
-            Self::build_panic_fallback(flag_snapshots)
+            Self::build_panic_fallback(flag_snapshots, team_id)
         })
     }
 
     /// Constructs per-flag error results from lightweight snapshots when the
     /// rayon task panics and drops the oneshot sender.
     fn build_panic_fallback(
-        snapshots: Vec<(String, FeatureFlagId, bool, Option<i32>)>,
+        snapshots: Vec<FlagSnapshot>,
+        team_id: TeamId,
     ) -> Vec<(FeatureFlag, Result<FeatureFlagMatch, FlagError>)> {
         snapshots
             .into_iter()
-            .map(|(key, id, active, version)| {
+            .map(|snapshot| {
                 let stub = FeatureFlag {
-                    id,
-                    key,
-                    active,
-                    version,
+                    id: snapshot.id,
+                    key: snapshot.key,
+                    active: snapshot.active,
+                    version: snapshot.version,
                     filters: FlagFilters::default(),
-                    team_id: 0,
+                    team_id,
                     name: None,
                     deleted: false,
                     ensure_experience_continuity: None,
@@ -1972,13 +1995,29 @@ mod tests {
 
     #[test]
     fn test_panic_fallback_preserves_flag_identity() {
+        let team_id = 42;
         let snapshots = vec![
-            ("flag_a".to_string(), 10, true, Some(3)),
-            ("flag_b".to_string(), 20, false, None),
-            ("flag_c".to_string(), 30, true, Some(1)),
+            FlagSnapshot {
+                key: "flag_a".to_string(),
+                id: 10,
+                active: true,
+                version: Some(3),
+            },
+            FlagSnapshot {
+                key: "flag_b".to_string(),
+                id: 20,
+                active: false,
+                version: None,
+            },
+            FlagSnapshot {
+                key: "flag_c".to_string(),
+                id: 30,
+                active: true,
+                version: Some(1),
+            },
         ];
 
-        let results = FeatureFlagMatcher::build_panic_fallback(snapshots);
+        let results = FeatureFlagMatcher::build_panic_fallback(snapshots, team_id);
 
         assert_eq!(results.len(), 3);
 
@@ -2003,9 +2042,8 @@ mod tests {
         assert_eq!(stub_c.version, Some(1));
         assert!(matches!(err_c, Err(FlagError::BatchEvaluationPanicked)));
 
-        // Verify non-essential fields are defaulted
         for (stub, _) in &results {
-            assert_eq!(stub.team_id, 0);
+            assert_eq!(stub.team_id, team_id);
             assert_eq!(stub.name, None);
             assert!(!stub.deleted);
             assert!(stub.filters.groups.is_empty());
