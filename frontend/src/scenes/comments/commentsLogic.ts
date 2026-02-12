@@ -7,7 +7,6 @@ import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { isEmptyObject } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { membersLogic } from 'scenes/organization/membersLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -49,8 +48,6 @@ export const commentsLogic = kea<commentsLogicType>([
             ['activeTab'],
             membersLogic,
             ['meFirstMembers'],
-            organizationLogic,
-            ['isAdminOrOwner'],
         ],
     })),
 
@@ -354,14 +351,14 @@ export const commentsLogic = kea<commentsLogicType>([
         ],
 
         disabledReasonFor: [
-            (s) => [s.user, s.isAdminOrOwner],
-            (user, isAdminOrOwner) => {
+            (s) => [s.user],
+            (user) => {
                 return (comment: CommentType): string | null => {
                     const isOwner = comment.created_by?.uuid === user?.uuid
-                    if (isOwner || isAdminOrOwner) {
+                    if (isOwner) {
                         return null
                     }
-                    return "Only admins can delete other people's comments"
+                    return "You can only delete your own comments"
                 }
             },
         ],
