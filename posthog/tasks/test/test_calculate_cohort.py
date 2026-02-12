@@ -581,8 +581,37 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             self.assertLess(b_index, c_index, "Cohort B must be processed before C (dependency)")
             self.assertLess(c_index, d_index, "Cohort C must be processed before D (dependency)")
 
-            mock_chain.assert_called_once_with(mock_task, mock_task, mock_task, mock_task)
+            # Verify countdown: first task has no countdown, all subsequent have countdown=2
+            # mock_calculate_cohort_ch_si returns mock_task, and .set() is called on it for non-first tasks
+            set_calls = mock_task.set.call_args_list
+            self.assertEqual(len(set_calls), 3, "3 of 4 tasks should have .set(countdown=2) called")
+            for call in set_calls:
+                self.assertEqual(call, ((), {"countdown": 2}))
+
+            mock_chain.assert_called_once()
             mock_chain_instance.apply_async.assert_called_once()
+
+        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+        def test_increment_version_and_enqueue_single_cohort_has_no_countdown(
+            self, mock_calculate_cohort_ch_delay: MagicMock
+        ) -> None:
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="Standalone Cohort",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"key": "$some_prop", "value": "something", "type": "person"}],
+                    }
+                },
+                is_static=False,
+            )
+
+            increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
+
+            mock_calculate_cohort_ch_delay.assert_called_once()
+            call_args = mock_calculate_cohort_ch_delay.call_args[0]
+            self.assertEqual(len(call_args), 3, "Single cohort path should use .delay() with no countdown")
 
         @patch("posthog.tasks.calculate_cohort.chain")
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
