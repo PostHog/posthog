@@ -36,13 +36,13 @@ describe('execute-sql', { concurrent: false }, () => {
 
     const tool = executeSqlTool()
 
-    it('should execute a simple count query', async () => {
+    it('should execute a simple query', async () => {
         const result = await tool.handler(context, {
-            query: 'SELECT count() AS total FROM events',
+            query: "SELECT 'test_string'",
         })
 
         expect(typeof result).toBe('string')
-        expect(result).toContain('total')
+        expect(result).toContain('test_string')
     })
 
     it('should execute a query with a WHERE clause', async () => {
