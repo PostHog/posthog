@@ -438,11 +438,14 @@ describe('getUsageLimitConsequence', () => {
         expect(getUsageLimitConsequence('Feature flags & Experiments')).toEqual('feature flags will not evaluate')
     })
 
+    it('should return specific message for PostHog AI', () => {
+        expect(getUsageLimitConsequence('PostHog AI')).toEqual('PostHog AI will be unavailable')
+    })
+
     it('should return generic message for other products', () => {
         expect(getUsageLimitConsequence('Session replay')).toEqual('data loss may occur')
         expect(getUsageLimitConsequence('Product analytics')).toEqual('data loss may occur')
         expect(getUsageLimitConsequence('Surveys')).toEqual('data loss may occur')
-        expect(getUsageLimitConsequence('PostHog AI')).toEqual('data loss may occur')
     })
 })
 
@@ -480,6 +483,17 @@ describe('buildUsageLimitExceededMessage', () => {
         expect(result.title).toEqual('Usage limit exceeded')
         expect(result.message).toEqual(
             'You have exceeded the usage limit for PostHog AI. Please increase your billing to continue using PostHog AI.'
+        )
+    })
+
+    it('should build message for PostHog AI with other products', () => {
+        const result = buildUsageLimitExceededMessage([
+            { name: 'PostHog AI', subscribed: true },
+            { name: 'Session replay', subscribed: true },
+        ])
+        expect(result.title).toEqual('Usage limits exceeded')
+        expect(result.message).toEqual(
+            'You have exceeded the usage limit for PostHog AI and Session replay. Please increase your billing limit or PostHog AI will be unavailable and data loss may occur.'
         )
     })
 
