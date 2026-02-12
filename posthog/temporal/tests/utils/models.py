@@ -18,6 +18,7 @@ def create_batch_export(
     timezone: str | None = None,
     offset_day: int | None = None,
     offset_hour: int | None = None,
+    model: str = "events",
 ) -> BatchExport:
     """Create a BatchExport and its underlying Schedule."""
 
@@ -48,6 +49,7 @@ def create_batch_export(
         paused=paused,
         timezone=timezone,
         interval_offset=interval_offset,
+        model=model,
     )
 
     sync_batch_export(batch_export, created=True)
@@ -67,10 +69,11 @@ async def acreate_batch_export(
     timezone: str | None = None,
     offset_day: int | None = None,
     offset_hour: int | None = None,
+    model: str = "events",
 ) -> BatchExport:
     """Async create a BatchExport and its underlying Schedule."""
     return await sync_to_async(create_batch_export)(
-        team_id, interval, name, destination_data, paused, timezone, offset_day, offset_hour
+        team_id, interval, name, destination_data, paused, timezone, offset_day, offset_hour, model
     )
 
 

@@ -40,7 +40,6 @@ from posthog.batch_exports.service import (
     backfill_export,
     cancel_running_batch_export_run,
     delete_batch_export,
-    fetch_earliest_backfill_start_at,
     pause_batch_export,
     sync_batch_export,
     sync_cancel_running_batch_export_backfill,
@@ -1101,7 +1100,7 @@ class BatchExportBackfillSerializer(serializers.ModelSerializer):
         if not total_runs:
             return None
 
-        if obj.start_at is None:
+        if obj.start_at is None and obj.adjusted_start_at is None:
             # if it's just a single run, backfilling from the beginning of time, we can't calculate progress based on
             # the number of completed runs so better to return None
             return None
@@ -1164,36 +1163,9 @@ def create_backfill(
     else:
         end_at = None
 
-    if (start_at is not None or end_at is not None) and batch_export.model is not None:
-        try:
-            earliest_backfill_start_at = fetch_earliest_backfill_start_at(
-                team_id=team.pk,
-                model=batch_export.model,
-                interval_time_delta=batch_export.interval_time_delta,
-                exclude_events=batch_export.destination.config.get("exclude_events", []),
-                include_events=batch_export.destination.config.get("include_events", []),
-            )
-            if earliest_backfill_start_at is None:
-                raise ValidationError("There is no data to backfill for this model.")
-
-            earliest_backfill_start_at = earliest_backfill_start_at.astimezone(team.timezone_info)
-
-            if end_at is not None and end_at < earliest_backfill_start_at:
-                raise ValidationError(
-                    "The provided backfill date range contains no data. The earliest possible backfill start date is "
-                    f"{earliest_backfill_start_at.strftime('%Y-%m-%d %H:%M:%S')}",
-                )
-
-            if start_at is not None and start_at < earliest_backfill_start_at:
-                logger.info(
-                    "Backfill start_at '%s' is before the earliest possible backfill start_at '%s', setting start_at "
-                    "to earliest_backfill_start_at",
-                    start_at,
-                    earliest_backfill_start_at,
-                )
-                start_at = earliest_backfill_start_at
-        except NotImplementedError:
-            logger.warning("No backfill check implemented for model: '%s'; skipping", batch_export.model)
+    # Note: earliest backfill date validation and adjustment is now done in the Temporal workflow
+    # via the get_backfill_info activity. This allows the potentially slow ClickHouse query to run
+    # asynchronously rather than blocking the HTTP request.
 
     if start_at is None or end_at is None:
         return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)
