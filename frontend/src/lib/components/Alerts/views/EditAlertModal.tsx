@@ -407,7 +407,10 @@ export function EditAlertModal({
                                 <div className="mt-2">
                                     {alertId ? (
                                         <div className="flex flex-col">
-                                            <AlertDestinationSelector alertId={alertId} />
+                                            <AlertDestinationSelector
+                                                alertId={alertId}
+                                                insightShortId={insightShortId}
+                                            />
                                         </div>
                                     ) : (
                                         <div className="text-muted-alt">
