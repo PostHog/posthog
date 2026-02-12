@@ -77,14 +77,25 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     offset: Math.max(0, (page - 1) * perPage),
                     saved: true,
                     basic: true,
-                    ...(search ? { search } : {}),
-                    ...(insightType && insightType.toLowerCase() !== 'all types'
-                        ? { insight: insightType.toUpperCase() }
-                        : {}),
-                    ...(dateFrom && dateFrom !== 'all' ? { date_from: dateFrom, date_to: dateTo || undefined } : {}),
-                    ...(dashboardId ? { dashboards: [dashboardId] } : {}),
-                    ...(createdBy !== 'All users' ? { created_by: createdBy } : {}),
-                    ...(tags && tags.length > 0 ? { tags: JSON.stringify(tags) } : {}),
+                }
+                if (search) {
+                    params.search = search
+                }
+                if (insightType && insightType.toLowerCase() !== 'all types') {
+                    params.insight = insightType.toUpperCase()
+                }
+                if (dateFrom && dateFrom !== 'all') {
+                    params.date_from = dateFrom
+                    params.date_to = dateTo || undefined
+                }
+                if (dashboardId) {
+                    params.dashboards = [dashboardId]
+                }
+                if (createdBy !== 'All users') {
+                    params.created_by = createdBy as number[]
+                }
+                if (tags && tags.length > 0) {
+                    params.tags = JSON.stringify(tags)
                 }
 
                 const response = await api.get(
