@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, urlparse, urlsplit
 from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.backends import BaseBackend
-from django.contrib.auth.models import AnonymousUser, InternalAPIUser
+from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -646,7 +646,7 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
             )
             raise AuthenticationFailed("Invalid internal API authentication.")
 
-        return (InternalAPIUser(), None)
+        return (AnonymousUser(), None)
 
     def authenticate_header(self, request: HttpRequest) -> str:
         return self.keyword
