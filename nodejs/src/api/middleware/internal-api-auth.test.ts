@@ -62,17 +62,20 @@ describe('createInternalApiAuthMiddleware', () => {
             expect(res.json).toHaveBeenCalledWith({ error: 'Unauthorized: Invalid authentication' })
         })
 
-        it('should allow request when secret matches', () => {
-            const middleware = createInternalApiAuthMiddleware({ secret: 'correct-secret' })
-            const req = mockRequest('/api/test', { 'x-internal-api-secret': 'correct-secret' })
-            const res = mockResponse()
-            const next = jest.fn()
+        it.each([['x-internal-api-secret'], ['X-Internal-Api-Secret'], ['X-INTERNAL-API-SECRET']])(
+            'should allow request when secret matches with %s header',
+            (headerName) => {
+                const middleware = createInternalApiAuthMiddleware({ secret: 'correct-secret' })
+                const req = mockRequest('/api/test', { [headerName]: 'correct-secret' })
+                const res = mockResponse()
+                const next = jest.fn()
 
-            middleware(req, res, next)
+                middleware(req, res, next)
 
-            expect(next).toHaveBeenCalled()
-            expect(res.status).not.toHaveBeenCalled()
-        })
+                expect(next).toHaveBeenCalled()
+                expect(res.status).not.toHaveBeenCalled()
+            }
+        )
 
         it('should reject when secrets have different lengths', () => {
             const middleware = createInternalApiAuthMiddleware({ secret: 'short' })

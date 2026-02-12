@@ -12,7 +12,9 @@ logger = structlog.get_logger(__name__)
 
 # NOTE: Any message publishing to the workers should be done here so that it is easy to find and update if needed
 
-INTERNAL_API_HEADERS = {"X-Internal-Api-Secret": INTERNAL_API_SECRET} if INTERNAL_API_SECRET else {}
+
+def get_internal_api_headers() -> dict[str, str]:
+    return {"x-internal-api-secret": INTERNAL_API_SECRET} if INTERNAL_API_SECRET else {}
 
 
 def publish_message(channel: str, payload: Union[dict, str]):
@@ -70,7 +72,7 @@ def create_hog_invocation_test(team_id: int, hog_function_id: str, payload: dict
     return requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/invocations",
         json=payload,
-        headers=INTERNAL_API_HEADERS,
+        headers=get_internal_api_headers(),
     )
 
 
@@ -79,14 +81,14 @@ def create_hog_flow_invocation_test(team_id: int, hog_flow_id: str, payload: dic
     return requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/invocations",
         json=payload,
-        headers=INTERNAL_API_HEADERS,
+        headers=get_internal_api_headers(),
     )
 
 
 def get_hog_function_status(team_id: int, hog_function_id: UUIDT) -> requests.Response:
     return requests.get(
         CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",
-        headers=INTERNAL_API_HEADERS,
+        headers=get_internal_api_headers(),
     )
 
 
@@ -94,7 +96,7 @@ def patch_hog_function_status(team_id: int, hog_function_id: UUIDT, state: int) 
     return requests.patch(
         CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",
         json={"state": state},
-        headers=INTERNAL_API_HEADERS,
+        headers=get_internal_api_headers(),
     )
 
 
@@ -103,7 +105,7 @@ def generate_messaging_preferences_token(team_id: int, identifier: str) -> str:
     response = requests.post(
         CDP_API_URL + "/api/messaging/generate_preferences_token",
         json=payload,
-        headers=INTERNAL_API_HEADERS,
+        headers=get_internal_api_headers(),
     )
     if response.status_code == 200:
         return response.json().get("token")
@@ -113,21 +115,21 @@ def generate_messaging_preferences_token(team_id: int, identifier: str) -> str:
 def validate_messaging_preferences_token(token: str) -> requests.Response:
     return requests.get(
         CDP_API_URL + f"/api/messaging/validate_preferences_token/{token}",
-        headers=INTERNAL_API_HEADERS,
+        headers=get_internal_api_headers(),
     )
 
 
 def get_hog_function_templates() -> requests.Response:
     return requests.get(
         CDP_API_URL + "/api/hog_function_templates",
-        headers=INTERNAL_API_HEADERS,
+        headers=get_internal_api_headers(),
     )
 
 
 def create_batch_hog_flow_job_invocation(team_id: int, hog_flow_id: UUIDT, batch_job_id: UUIDT) -> requests.Response:
     return requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
-        headers=INTERNAL_API_HEADERS,
+        headers=get_internal_api_headers(),
     )
 
 
