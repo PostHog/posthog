@@ -87,11 +87,7 @@ export function TablePreview({
                         dataSource={previewData}
                         rowKey={(_, index) => index}
                         emptyState={
-                            loading ? null : (
-                                <div className="text-muted text-sm text-center p-4">
-                                    {previewData.length === 0 ? 'No data available' : 'Loading...'}
-                                </div>
-                            )
+                            loading ? null : <div className="text-muted text-sm text-center p-4">No data available</div>
                         }
                     />
                 ) : (
