@@ -9,7 +9,8 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Prefetch, Q, QuerySet, deletion
+from django.db.models import Count, Func, IntegerField, Prefetch, Q, QuerySet, Sum, TextField, deletion
+from django.db.models.functions import Cast
 
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -84,6 +85,14 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
 
 from products.product_tours.backend.models import ProductTour
+
+
+class OctetLength(Func):
+    """Returns the byte length of a text field using PostgreSQL's OCTET_LENGTH."""
+
+    function = "OCTET_LENGTH"
+    output_field = IntegerField()
+
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
@@ -203,6 +212,92 @@ def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker)
         return {"rollout_state": "not_rolled_out", "active_variant": None}
 
     return {"rollout_state": "partial", "active_variant": None}
+
+
+def format_bytes(size_bytes: int) -> str:
+    """Format bytes as a human-readable string (bytes, KB, or MB)."""
+    if size_bytes < 1024:
+        return f"{size_bytes} bytes"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    else:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+
+def is_internal_targeting_flag_key(key: str) -> bool:
+    """Check if a flag key belongs to an internally-managed targeting flag.
+
+    Internal targeting flags are auto-generated for surveys and product tours.
+    They should be excluded from user-facing limits and analytics tracking.
+    """
+    return key.startswith(SURVEY_TARGETING_FLAG_PREFIX) or key.startswith(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+
+
+def calculate_filter_size_bytes(filters: dict | None) -> int:
+    """Calculate the byte size of filters using canonical JSON serialization.
+
+    Uses sorted keys and minimal separators to ensure consistent size calculation
+    regardless of dict ordering, matching PostgreSQL's JSONB-to-text casting behavior.
+    """
+    if not filters:
+        return 0
+    filter_json = json.dumps(filters, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
+    return len(filter_json.encode("utf-8"))
+
+
+def check_flag_limits_for_team(
+    team_id: int,
+    new_flag_filter_size: int = 0,
+    is_create: bool = True,
+    exclude_flag_id: int | None = None,
+) -> None:
+    """
+    Check if creating/updating a flag would exceed team limits.
+
+    All flags count toward limits uniformly, matching how the
+    posthog_feature_flag_team_flag_count metric already works.
+
+    Args:
+        team_id: The team ID to check limits for
+        new_flag_filter_size: Size of the new flag's filters in bytes
+        is_create: True if creating a new flag, False if updating existing
+        exclude_flag_id: Flag ID to exclude from calculations (for updates)
+
+    Raises:
+        serializers.ValidationError if limits would be exceeded
+    """
+    queryset = FeatureFlag.objects.filter(team_id=team_id, deleted=False)
+    if exclude_flag_id is not None:
+        queryset = queryset.exclude(id=exclude_flag_id)
+
+    # Get both count and total filter size in a single query.
+    # We cast JSONB to text first since OctetLength doesn't work directly on JSONB.
+    result = queryset.annotate(filter_size=OctetLength(Cast("filters", TextField()))).aggregate(
+        flag_count=Count("id"),
+        total_filter_size=Sum("filter_size"),
+    )
+
+    flag_count = result["flag_count"] or 0
+    current_total = result["total_filter_size"] or 0
+
+    # Check flag count limit (only on create)
+    if is_create:
+        count_limit = settings.MAX_FEATURE_FLAGS_PER_TEAM
+        if flag_count >= count_limit:
+            raise serializers.ValidationError(
+                f"Maximum of {count_limit:,} feature flags allowed per team. "
+                f"Please delete unused flags or contact support to increase this limit."
+            )
+
+    # Check total filter size limit
+    size_limit = settings.MAX_FEATURE_FLAG_TOTAL_FILTERS_BYTES
+    new_total = current_total + new_flag_filter_size
+    if new_total > size_limit:
+        raise serializers.ValidationError(
+            f"Total feature flag filters for this team would exceed {format_bytes(size_limit)} limit. "
+            f"Current: {format_bytes(current_total)}, this flag: {format_bytes(new_flag_filter_size)}. "
+            f"Please simplify existing flags or contact support."
+        )
 
 
 def extract_etag_from_header(header_value: str | None) -> str | None:
@@ -650,6 +745,21 @@ class FeatureFlagSerializer(
 
         return value
 
+    def _validate_flag_limits(self, new_filter_size: int) -> None:
+        """
+        Validate flag count and total filter size limits.
+
+        Delegates to the shared `check_flag_limits_for_team` function which handles
+        all the limit checking logic. Internal targeting flags (for surveys and product
+        tours) are excluded from limits since they are auto-generated.
+        """
+        check_flag_limits_for_team(
+            team_id=self.context["team_id"],
+            new_flag_filter_size=new_filter_size,
+            is_create=self.instance is None,
+            exclude_flag_id=self.instance.id if self.instance else None,
+        )
+
     def validate_filters(self, filters):
         # For some weird internal REST framework reason this field gets validated on a partial PATCH call, even if filters isn't being updatd
         # If we see this, just return the current filters
@@ -800,6 +910,20 @@ class FeatureFlagSerializer(
         else:
             if len(payloads) > 1 or any(key != "true" for key in payloads):  # only expect one key
                 raise serializers.ValidationError("Payload keys must be 'true' for boolean flags")
+
+        # Validate per-flag filter size
+        filter_size = calculate_filter_size_bytes(filters)
+        per_flag_limit = settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES
+
+        if filter_size > per_flag_limit:
+            raise serializers.ValidationError(
+                f"Feature flag filters exceed maximum size of {format_bytes(per_flag_limit)}. "
+                f"Current size: {format_bytes(filter_size)}. "
+                f"Please simplify conditions or reduce payload sizes."
+            )
+
+        # Validate team-wide limits for all flags uniformly
+        self._validate_flag_limits(filter_size)
 
         return filters
 
@@ -1508,6 +1632,7 @@ class FeatureFlagViewSet(
                 )
             )
 
+            # Exclude internal targeting flags (surveys and product tours) from the list
             survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
             product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
                 team__project_id=self.project_id, internal_targeting_flag__isnull=False
@@ -2271,12 +2396,8 @@ class FeatureFlagViewSet(
 
             flag_keys = [flag["key"] for flag in response_data["flags"]]
 
-            # Add request for analytics
-            if len(flag_keys) > 0 and not all(
-                flag_key.startswith(SURVEY_TARGETING_FLAG_PREFIX)
-                or flag_key.startswith(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
-                for flag_key in flag_keys
-            ):
+            # Add request for analytics (exclude internal targeting flags)
+            if len(flag_keys) > 0 and not all(is_internal_targeting_flag_key(flag_key) for flag_key in flag_keys):
                 increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
             response = Response(response_data)
@@ -2307,11 +2428,9 @@ class FeatureFlagViewSet(
         if cached_response is None:
             return None
 
-        # Increment request count for analytics (exclude survey and product tour targeting flags)
+        # Increment request count for analytics (exclude internal targeting flags)
         if cached_response.get("flags") and not all(
-            flag.get("key", "").startswith(SURVEY_TARGETING_FLAG_PREFIX)
-            or flag.get("key", "").startswith(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
-            for flag in cached_response["flags"]
+            is_internal_targeting_flag_key(flag.get("key", "")) for flag in cached_response["flags"]
         ):
             increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 

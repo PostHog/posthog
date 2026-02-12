@@ -1968,8 +1968,8 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        # +1 query for survey internal flag IDs lookup
-        with self.assertNumQueries(24):
+        # +2 queries for internal flag IDs lookup (survey + product tour)
+        with self.assertNumQueries(25):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()

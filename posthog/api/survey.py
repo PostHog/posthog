@@ -888,6 +888,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 return existing_flag_serializer.save()
             else:
                 self.context["request"].method = "POST"
+
                 random_id = generate("1234567890abcdef", 10)
                 feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{random_id}{flag_name_suffix or ''}")
                 feature_flag_serializer = FeatureFlagSerializer(

@@ -69,3 +69,28 @@ TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE: int = get_from_env(
 TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
     "TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES", 5, type_cast=int
 )
+
+# Feature flag limits to prevent memory issues during flag evaluation/caching.
+# These limits are configurable via environment variables and can be overridden
+# in Helm charts per environment.
+#
+# Defaults are set well above observed production maximums to avoid impacting
+# normal usage while protecting against extreme outliers.
+
+# Maximum number of feature flags allowed per team
+MAX_FEATURE_FLAGS_PER_TEAM: int = get_from_env("MAX_FEATURE_FLAGS_PER_TEAM", 2000, type_cast=int)
+
+# Maximum size in bytes for a single flag's filters JSON
+MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
+    "MAX_FEATURE_FLAG_FILTER_SIZE_BYTES",
+    512 * 1024,
+    type_cast=int,  # 512KB
+)
+
+# Maximum total size in bytes for all flag filters combined per team.
+# This caps the cache entry size for team flags.
+MAX_FEATURE_FLAG_TOTAL_FILTERS_BYTES: int = get_from_env(
+    "MAX_FEATURE_FLAG_TOTAL_FILTERS_BYTES",
+    int(1.5 * 1024 * 1024),
+    type_cast=int,  # 1.5MB
+)

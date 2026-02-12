@@ -622,8 +622,7 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.14
   '''
-  SELECT "posthog_survey"."targeting_flag_id",
-         "posthog_survey"."internal_targeting_flag_id",
+  SELECT "posthog_survey"."internal_targeting_flag_id",
          "posthog_survey"."internal_response_sampling_flag_id"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
@@ -1173,8 +1172,7 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.7
   '''
-  SELECT "posthog_survey"."targeting_flag_id",
-         "posthog_survey"."internal_targeting_flag_id",
+  SELECT "posthog_survey"."internal_targeting_flag_id",
          "posthog_survey"."internal_response_sampling_flag_id"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
@@ -1923,8 +1921,7 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.8
   '''
-  SELECT "posthog_survey"."targeting_flag_id",
-         "posthog_survey"."internal_targeting_flag_id",
+  SELECT "posthog_survey"."internal_targeting_flag_id",
          "posthog_survey"."internal_response_sampling_flag_id"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
@@ -2402,8 +2399,7 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.20
   '''
-  SELECT "posthog_survey"."targeting_flag_id",
-         "posthog_survey"."internal_targeting_flag_id",
+  SELECT "posthog_survey"."internal_targeting_flag_id",
          "posthog_survey"."internal_response_sampling_flag_id"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
@@ -2938,8 +2934,7 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.7
   '''
-  SELECT "posthog_survey"."targeting_flag_id",
-         "posthog_survey"."internal_targeting_flag_id",
+  SELECT "posthog_survey"."internal_targeting_flag_id",
          "posthog_survey"."internal_response_sampling_flag_id"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
@@ -3432,8 +3427,7 @@
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.7
   '''
-  SELECT "posthog_survey"."targeting_flag_id",
-         "posthog_survey"."internal_targeting_flag_id",
+  SELECT "posthog_survey"."internal_targeting_flag_id",
          "posthog_survey"."internal_response_sampling_flag_id"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
