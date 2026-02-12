@@ -7,7 +7,17 @@ import { BuiltLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useState } from 'react'
 
-import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconStack, IconTrash, IconWarning } from '@posthog/icons'
+import {
+    IconCopy,
+    IconEllipsis,
+    IconFilter,
+    IconGear,
+    IconInfo,
+    IconPencil,
+    IconStack,
+    IconTrash,
+    IconWarning,
+} from '@posthog/icons'
 import {
     LemonBadge,
     LemonCheckbox,
@@ -20,6 +30,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -245,10 +256,22 @@ export function ActionFilterRow({
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
     const [isMenuVisible, setIsMenuVisible] = useState(false)
+    const [isDataWarehouseConfigVisible, setIsDataWarehouseConfigVisible] = useState(false)
 
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
+    const showDataWarehouseConfiguration =
+        filter.type === TaxonomicFilterGroupType.DataWarehouse && dataWarehousePopoverFields.length > 0
+    const dataWarehouseSchemaColumns =
+        filter.type === TaxonomicFilterGroupType.DataWarehouse && filter.name
+            ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
+            : []
+    const dataWarehouseColumnOptions = dataWarehouseSchemaColumns.map((column) => ({
+        label: `${column.name} (${column.type})`,
+        value: column.name,
+        type: column.type,
+    }))
 
     let name: string | null | undefined, value: PropertyFilterValue
     const {
@@ -417,6 +440,17 @@ export function ActionFilterRow({
         </IconWithCount>
     )
 
+    const dataWarehouseConfigurationButton = showDataWarehouseConfiguration ? (
+        <LemonButton
+            icon={<IconGear />}
+            title="Show data warehouse configuration"
+            data-attr={`show-data-warehouse-config-${index}`}
+            noPadding
+            onClick={() => setIsDataWarehouseConfigVisible(!isDataWarehouseConfigVisible)}
+            tooltip="Show data warehouse configuration"
+        />
+    ) : null
+
     // Enable popup menu for funnels and trends contexts where we want to show rename/duplicate/delete/etc in a menu
     const enablePopup = mathAvailability === MathAvailability.FunnelsOnly || isTrendsContext
 
@@ -516,6 +550,7 @@ export function ActionFilterRow({
         !readOnly && !showPopupMenu
             ? [
                   !hideFilter && propertyFiltersButton,
+                  dataWarehouseConfigurationButton,
                   showCombine && combineInlineButton,
                   !hideRename && renameRowButton,
                   !hideDuplicate && !singleFilter && duplicateRowButton,
@@ -588,9 +623,7 @@ export function ActionFilterRow({
                                                     schemaColumns={
                                                         filter.type == TaxonomicFilterGroupType.DataWarehouse &&
                                                         filter.name
-                                                            ? Object.values(
-                                                                  dataWarehouseTablesMap[filter.name]?.fields ?? []
-                                                              )
+                                                            ? dataWarehouseSchemaColumns
                                                             : []
                                                     }
                                                     value={mathProperty}
@@ -678,6 +711,7 @@ export function ActionFilterRow({
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
+                                        {dataWarehouseConfigurationButton}
                                         {showCombine && combineInlineButton}
                                         <div className="relative">
                                             <LemonMenu
@@ -790,50 +824,124 @@ export function ActionFilterRow({
                 )}
             </div>
 
-            {propertyFiltersVisible && (
+            {(propertyFiltersVisible || (showDataWarehouseConfiguration && isDataWarehouseConfigVisible)) && (
                 <div className={`ActionFilterRow-filters${filtersLeftPadding ? ' pl-7' : ''}`}>
-                    <PropertyFilters
-                        pageKey={`${index}-${value}-${typeKey}-filter`}
-                        propertyFilters={filter.properties}
-                        onChange={onPropertyChange}
-                        showNestedArrow={showNestedArrow}
-                        disablePopover={!propertyFiltersPopover}
-                        metadataSource={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
-                                ? {
-                                      kind: NodeKind.HogQLQuery,
-                                      query: `select ${filter.distinct_id_field} from ${filter.table_name}`,
-                                  }
-                                : undefined
-                        }
-                        taxonomicGroupTypes={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
-                                ? [
-                                      TaxonomicFilterGroupType.DataWarehouseProperties,
-                                      TaxonomicFilterGroupType.HogQLExpression,
-                                  ]
-                                : propertiesTaxonomicGroupTypes
-                        }
-                        eventNames={
-                            filter.type === TaxonomicFilterGroupType.Events && filter.id
-                                ? [String(filter.id)]
-                                : filter.type === TaxonomicFilterGroupType.Actions && filter.id
-                                  ? getEventNamesForAction(parseInt(String(filter.id)), actions)
-                                  : []
-                        }
-                        schemaColumns={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
-                                ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
-                                : []
-                        }
-                        dataWarehouseTableName={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
-                                ? (filter.name ?? undefined)
-                                : undefined
-                        }
-                        addFilterDocLink={addFilterDocLink}
-                        excludedProperties={excludedProperties}
-                    />
+                    {showDataWarehouseConfiguration && isDataWarehouseConfigVisible && (
+                        <div className="mb-2 p-2">
+                            <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                                Data warehouse configuration
+                            </div>
+                            <div className="grid gap-2">
+                                {dataWarehousePopoverFields.map(
+                                    ({ key, label, description, allowHogQL, hogQLOnly, tableName, optional, type }) => {
+                                        const fieldValue =
+                                            typeof filter[key as keyof ActionFilterType] === 'string'
+                                                ? (filter[key as keyof ActionFilterType] as string)
+                                                : undefined
+                                        const isHogQL =
+                                            fieldValue !== undefined &&
+                                            !dataWarehouseSchemaColumns.find((column) => column.name === fieldValue)
+                                        const fieldOptions = dataWarehouseColumnOptions.filter(
+                                            (option) => !type || option.type === type
+                                        )
+
+                                        return (
+                                            <div key={key} className="flex flex-col gap-1">
+                                                <div className="flex items-center gap-1 text-xs font-medium">
+                                                    <span>{label}</span>
+                                                    {!optional && <span className="text-muted">*</span>}
+                                                    {description && (
+                                                        <Tooltip title={description}>
+                                                            <IconInfo className="text-muted" />
+                                                        </Tooltip>
+                                                    )}
+                                                </div>
+                                                {!hogQLOnly && (
+                                                    <LemonSelect
+                                                        fullWidth
+                                                        allowClear={!!optional}
+                                                        value={isHogQL ? '' : fieldValue}
+                                                        options={[
+                                                            ...fieldOptions,
+                                                            ...(allowHogQL
+                                                                ? [{ label: 'SQL Expression', value: '' }]
+                                                                : []),
+                                                        ]}
+                                                        onChange={(value: string | null) =>
+                                                            updateFilter({
+                                                                type: filter.type,
+                                                                index,
+                                                                [key]: value,
+                                                            })
+                                                        }
+                                                    />
+                                                )}
+                                                {((allowHogQL && isHogQL) || hogQLOnly) && (
+                                                    <HogQLDropdown
+                                                        hogQLValue={fieldValue || ''}
+                                                        tableName={
+                                                            tableName || filter.table_name || filter.name || 'events'
+                                                        }
+                                                        onHogQLValueChange={(value) =>
+                                                            updateFilter({
+                                                                type: filter.type,
+                                                                index,
+                                                                [key]: value,
+                                                            })
+                                                        }
+                                                    />
+                                                )}
+                                            </div>
+                                        )
+                                    }
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    {propertyFiltersVisible && (
+                        <PropertyFilters
+                            pageKey={`${index}-${value}-${typeKey}-filter`}
+                            propertyFilters={filter.properties}
+                            onChange={onPropertyChange}
+                            showNestedArrow={showNestedArrow}
+                            disablePopover={!propertyFiltersPopover}
+                            metadataSource={
+                                filter.type == TaxonomicFilterGroupType.DataWarehouse
+                                    ? {
+                                          kind: NodeKind.HogQLQuery,
+                                          query: `select ${filter.distinct_id_field} from ${filter.table_name}`,
+                                      }
+                                    : undefined
+                            }
+                            taxonomicGroupTypes={
+                                filter.type == TaxonomicFilterGroupType.DataWarehouse
+                                    ? [
+                                          TaxonomicFilterGroupType.DataWarehouseProperties,
+                                          TaxonomicFilterGroupType.HogQLExpression,
+                                      ]
+                                    : propertiesTaxonomicGroupTypes
+                            }
+                            eventNames={
+                                filter.type === TaxonomicFilterGroupType.Events && filter.id
+                                    ? [String(filter.id)]
+                                    : filter.type === TaxonomicFilterGroupType.Actions && filter.id
+                                      ? getEventNamesForAction(parseInt(String(filter.id)), actions)
+                                      : []
+                            }
+                            schemaColumns={
+                                filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
+                                    ? dataWarehouseSchemaColumns
+                                    : []
+                            }
+                            dataWarehouseTableName={
+                                filter.type == TaxonomicFilterGroupType.DataWarehouse
+                                    ? (filter.name ?? undefined)
+                                    : undefined
+                            }
+                            addFilterDocLink={addFilterDocLink}
+                            excludedProperties={excludedProperties}
+                        />
+                    )}
                 </div>
             )}
         </li>
