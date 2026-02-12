@@ -64,7 +64,6 @@ class OrganizationIntegrationAdmin(admin.ModelAdmin):
         ),
     ]
 
+    @admin.display(description="Organization")
     def organization_link(self, obj: OrganizationIntegration) -> str:
         return format_html("{} ({})", obj.organization.name, obj.organization_id)
-
-    organization_link.short_description = "Organization"  # type: ignore
