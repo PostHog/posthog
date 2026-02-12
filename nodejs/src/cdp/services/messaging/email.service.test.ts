@@ -263,8 +263,7 @@ describe('EmailService', () => {
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1, email: 'test@posthog-test.com' },
             })
-            sendEmailSpy = jest.spyOn(service.sesV2Client, 'send') as any
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            sendEmailSpy = jest.spyOn(service.sesV2Client, 'send')
         })
 
         it('should error if not verified', async () => {
@@ -273,133 +272,6 @@ describe('EmailService', () => {
             expect(result.error).toEqual(
                 'Failed to send email via SES: Email address not verified "Test User" <test@posthog-test.com>'
             )
-        })
-
-        it('should send an email if verified', async () => {
-            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
-            const result = await service.executeSendEmail(invocation)
-            expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input).toMatchObject({
-                ConfigurationSetName: 'posthog-messaging',
-                FromEmailAddress: '"Test User" <test@posthog-test.com>',
-                FeedbackForwardingEmailAddress: 'test@posthog-test.com',
-                Destination: {
-                    ToAddresses: ['"Test User" <test@example.com>'],
-                },
-                Content: {
-                    Simple: {
-                        Subject: {
-                            Data: 'Test Subject',
-                            Charset: 'UTF-8',
-                        },
-                        Body: {
-                            Html: {
-                                Data: 'Test HTML',
-                                Charset: 'UTF-8',
-                            },
-                            Text: {
-                                Data: 'Test Text',
-                                Charset: 'UTF-8',
-                            },
-                        },
-                    },
-                },
-                EmailTags: [{ Name: 'ph_id', Value: 'ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE' }],
-            })
-        })
-
-        it('should not include replyTo if not in params', async () => {
-            invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
-            })
-            const result = await service.executeSendEmail(invocation)
-            expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.ReplyToAddresses).toBeUndefined()
-        })
-
-        it('should include single replyTo address if in params', async () => {
-            invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
-                replyTo: 'Customer Service <reply@example.com>',
-            })
-            const result = await service.executeSendEmail(invocation)
-            expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.ReplyToAddresses).toEqual(['Customer Service <reply@example.com>'])
-        })
-
-        it('should split multiple comma-separated replyTo addresses', async () => {
-            invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
-                replyTo: 'reply1@example.com, reply2@example.com, Customer Service <reply3@example.com>',
-            })
-            const result = await service.executeSendEmail(invocation)
-            expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.ReplyToAddresses).toEqual([
-                'reply1@example.com',
-                'reply2@example.com',
-                'Customer Service <reply3@example.com>',
-            ])
-        })
-
-        it('should not include preheader span if not in params', async () => {
-            invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
-                html: '<tbody>Test email content</tbody>',
-            })
-            const result = await service.executeSendEmail(invocation)
-            expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            const htmlData = sentCommand.input.Content.Simple.Body.Html.Data
-            expect(htmlData).not.toContain('<tbody><span')
-        })
-
-        it('should include preheader at top of HTML if in params', async () => {
-            invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
-                html: '<tbody>Test email content</tbody>',
-                preheader: 'This is a preview text',
-            })
-            const result = await service.executeSendEmail(invocation)
-            expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            const htmlData = sentCommand.input.Content.Simple.Body.Html.Data
-            expect(htmlData).toMatch(/<tbody><span style=".*">This is a preview text<\/span>/)
-        })
-    })
-
-    describe('native email sending with ses v2', () => {
-        let invocation: CyclotronJobInvocationHogFunction
-        let sendEmailSpy: jest.SpyInstance
-        beforeEach(async () => {
-            mockIsFeatureFlagEnabled.mockResolvedValue(true)
-            const actualFetch = jest.requireActual('~/utils/request').fetch as jest.Mock
-            mockFetch.mockImplementation((...args: any[]): Promise<any> => {
-                return actualFetch(...args) as any
-            })
-            await insertIntegration(hub.postgres, team.id, {
-                id: 1,
-                kind: 'email',
-                config: {
-                    email: 'test@posthog-test.com',
-                    name: 'Test User',
-                    domain: 'posthog-test.com',
-                    verified: true,
-                    provider: 'ses',
-                },
-            })
-            invocation = createExampleInvocation({ team_id: team.id, id: 'function-1' })
-            invocation.id = 'invocation-1'
-            invocation.state.vmState = {
-                stack: [],
-            } as any
-            invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
-            })
-            sendEmailSpy = jest.spyOn(service.sesV2Client, 'send')
         })
 
         it('should send an email if verified', async () => {
