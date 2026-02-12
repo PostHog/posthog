@@ -907,9 +907,11 @@ class ClickHousePrinter(HogQLPrinter):
             return None
         if not isinstance(table_type.table, PostgresTable):
             return None
+        if not self.context.database or not self.context.database.user_access_control:
+            return None
 
         # Only apply access control to tables registered under the system namespace
-        system_node = self.context.database.tables.children.get("system")  # type: ignore[union-attr]
+        system_node = self.context.database.tables.children.get("system")
         if not system_node or table_type.table.name not in system_node.children:
             return None
 
