@@ -95,7 +95,8 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             renderComponent(defaultExperiment)
 
             const splitLabels = screen.getAllByText('50%')
-            expect(splitLabels).toHaveLength(2)
+            // 2 from the variants table + 2 from the distribution bar preview
+            expect(splitLabels).toHaveLength(4)
         })
 
         it('renders add variant button', () => {
@@ -326,7 +327,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('renders rollout percentage section with default value of 100', () => {
             renderComponent(defaultExperiment)
 
-            expect(screen.getByText('Rollout percentage')).toBeInTheDocument()
+            expect(screen.getByText('Rollout')).toBeInTheDocument()
             const slider = screen.getByRole('slider')
             expect(slider).toHaveAttribute('aria-valuenow', '100')
         })

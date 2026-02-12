@@ -406,6 +406,7 @@ describe('PostgresPersonRepository', () => {
                 is_identified: Number(person.is_identified),
                 is_deleted: 1,
                 version: person.version + 100, // version is incremented by 100 for deletions
+                last_seen_at: person.last_seen_at?.toFormat('yyyy-MM-dd HH:mm:ss') ?? null,
             })
         })
 

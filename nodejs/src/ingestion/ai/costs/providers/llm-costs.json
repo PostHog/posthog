@@ -742,10 +742,6 @@
             "clarifai-bf16": {
                 "prompt_token": 4.5e-8,
                 "completion_token": 1.5e-7
-            },
-            "together-bf16": {
-                "prompt_token": 4.5e-8,
-                "completion_token": 1.5e-7
             }
         }
     },
@@ -1035,8 +1031,7 @@
             },
             "nebius-fast": {
                 "prompt_token": 7.5e-7,
-                "completion_token": 0.00000225,
-                "cache_read_token": 7.5e-7
+                "completion_token": 0.00000225
             },
             "nebius-fp8": {
                 "prompt_token": 5e-7,
@@ -1057,8 +1052,7 @@
             },
             "wandb-fp8": {
                 "prompt_token": 0.00000114,
-                "completion_token": 0.00000275,
-                "cache_read_token": 0.00000114
+                "completion_token": 0.00000275
             }
         }
     },
@@ -1091,8 +1085,7 @@
             },
             "google-vertex": {
                 "prompt_token": 6e-7,
-                "completion_token": 0.0000017,
-                "cache_read_token": 3e-7
+                "completion_token": 0.0000017
             },
             "novita-fp8": {
                 "prompt_token": 2.7e-7,
@@ -1113,8 +1106,7 @@
             },
             "wandb-fp8": {
                 "prompt_token": 5.5e-7,
-                "completion_token": 0.00000165,
-                "cache_read_token": 5.5e-7
+                "completion_token": 0.00000165
             }
         }
     },
@@ -1169,8 +1161,7 @@
             },
             "nebius-fast": {
                 "prompt_token": 0.000002,
-                "completion_token": 0.000006,
-                "cache_read_token": 0.000002
+                "completion_token": 0.000006
             },
             "nebius-fp8": {
                 "prompt_token": 8e-7,
@@ -2583,8 +2574,7 @@
             },
             "wandb-fp16": {
                 "prompt_token": 7.1e-7,
-                "completion_token": 7.1e-7,
-                "cache_read_token": 7.1e-7
+                "completion_token": 7.1e-7
             }
         }
     },
@@ -2743,12 +2733,8 @@
         "model": "microsoft/wizardlm-2-8x22b",
         "cost": {
             "default": {
-                "prompt_token": 4.8e-7,
-                "completion_token": 4.8e-7
-            },
-            "deepinfra-bf16": {
-                "prompt_token": 4.8e-7,
-                "completion_token": 4.8e-7
+                "prompt_token": 6.2e-7,
+                "completion_token": 6.2e-7
             },
             "novita-bf16": {
                 "prompt_token": 6.2e-7,
@@ -2801,8 +2787,7 @@
             },
             "google-vertex": {
                 "prompt_token": 3e-7,
-                "completion_token": 0.0000012,
-                "cache_read_token": 3e-7
+                "completion_token": 0.0000012
             },
             "minimax-fp8": {
                 "prompt_token": 2.55e-7,
@@ -3475,8 +3460,7 @@
             },
             "google-vertex": {
                 "prompt_token": 6e-7,
-                "completion_token": 0.0000025,
-                "cache_read_token": 6e-7
+                "completion_token": 0.0000025
             },
             "moonshotai-int4": {
                 "prompt_token": 6e-7,
@@ -4658,8 +4642,7 @@
             },
             "google-vertex": {
                 "prompt_token": 9e-8,
-                "completion_token": 3.6e-7,
-                "cache_read_token": 9e-8
+                "completion_token": 3.6e-7
             },
             "groq": {
                 "prompt_token": 1.5e-7,
@@ -4696,8 +4679,7 @@
             },
             "wandb-fp4": {
                 "prompt_token": 1.5e-7,
-                "completion_token": 6e-7,
-                "cache_read_token": 1.5e-7
+                "completion_token": 6e-7
             }
         }
     },
@@ -4768,8 +4750,7 @@
             },
             "google-vertex": {
                 "prompt_token": 7e-8,
-                "completion_token": 2.5e-7,
-                "cache_read_token": 7e-8
+                "completion_token": 2.5e-7
             },
             "groq": {
                 "prompt_token": 7.5e-8,
@@ -4798,8 +4779,7 @@
             },
             "wandb-fp4": {
                 "prompt_token": 5e-8,
-                "completion_token": 2e-7,
-                "cache_read_token": 5e-8
+                "completion_token": 2e-7
             }
         }
     },
@@ -5500,8 +5480,7 @@
             },
             "wandb-bf16": {
                 "prompt_token": 1e-7,
-                "completion_token": 1e-7,
-                "cache_read_token": 1e-7
+                "completion_token": 1e-7
             }
         }
     },
@@ -5754,8 +5733,7 @@
             },
             "google-vertex": {
                 "prompt_token": 2.2e-7,
-                "completion_token": 0.0000018,
-                "cache_read_token": 2.2e-8
+                "completion_token": 0.0000018
             },
             "hyperbolic-fp8": {
                 "prompt_token": 0.000002,
@@ -5779,8 +5757,7 @@
             },
             "wandb-bf16": {
                 "prompt_token": 0.000001,
-                "completion_token": 0.0000015,
-                "cache_read_token": 0.000001
+                "completion_token": 0.0000015
             }
         }
     },
@@ -6792,8 +6769,7 @@
             },
             "wandb-bf16": {
                 "prompt_token": 5.5e-7,
-                "completion_token": 0.000002,
-                "cache_read_token": 5.5e-7
+                "completion_token": 0.000002
             },
             "z-ai-fp8": {
                 "prompt_token": 6e-7,
@@ -7099,17 +7075,33 @@
         "cost": {
             "default": {
                 "prompt_token": 0.000001,
-                "completion_token": 0.0000032,
-                "cache_read_token": 2e-7
+                "completion_token": 0.0000032
+            },
+            "friendli": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.0000032
+            },
+            "gmicloud-fp8": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.0000032
             },
             "novita-fp8": {
                 "prompt_token": 0.000001,
                 "completion_token": 0.0000032,
                 "cache_read_token": 2e-7
             },
+            "parasail-fp8": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.0000032
+            },
             "phala": {
                 "prompt_token": 0.0000012,
                 "completion_token": 0.0000035
+            },
+            "venice-fp8": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.0000032,
+                "cache_read_token": 2e-7
             },
             "z-ai": {
                 "prompt_token": 0.000001,
