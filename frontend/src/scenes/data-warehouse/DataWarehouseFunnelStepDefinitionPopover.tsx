@@ -64,6 +64,11 @@ const EDITABLE_FIELD_MAP: Record<
 }
 
 const EDITABLE_FIELD_ORDER: FunnelFieldKey[] = ['distinct_id_field', 'timestamp_field', 'id_field']
+const EDITABLE_FIELD_EXPLANATION: Record<FunnelFieldKey, string> = {
+    distinct_id_field: 'Used to match people or groups across funnel steps.',
+    timestamp_field: 'Used to order step timing and apply the funnel date range.',
+    id_field: 'Used as the unique row ID to detect missing or duplicate records.',
+}
 
 function resolveTimestampField(table: DataWarehouseTableForInsight, configuredTimestampField?: string): string | null {
     const tableFieldNames = new Set(Object.values(table.fields).map((field) => field.name))
@@ -149,6 +154,29 @@ export function DataWarehouseFunnelStepDefinitionPopover({
     const [validationHasRun, setValidationHasRun] = useState(false)
 
     const table = item as DataWarehouseTableForInsight
+    const previewTable = useMemo(() => {
+        const nonLazyFields = Object.values(table.fields).filter((field) => field.type !== 'lazy_table')
+        const hasLazyTableFields = nonLazyFields.length !== Object.values(table.fields).length
+        if (!hasLazyTableFields) {
+            return table
+        }
+
+        return {
+            ...table,
+            fields: Object.fromEntries(nonLazyFields.map((field) => [field.name, field])),
+        }
+    }, [table])
+    const previewLazyColumns = useMemo(
+        () =>
+            Object.values(table.fields)
+                .filter((field) => field.type === 'lazy_table')
+                .map((field) => ({
+                    key: field.name,
+                    label: field.name,
+                    type: field.type,
+                })),
+        [table.fields]
+    )
     const tableName = table.name
     const dataWarehouseLocalDefinition = localDefinition as Partial<DataWarehouseTableForInsight>
     const configuredIdField = getConfiguredFieldValue(dataWarehouseLocalDefinition, 'id_field')
@@ -473,16 +501,19 @@ export function DataWarehouseFunnelStepDefinitionPopover({
     return (
         <div className="space-y-3 w-100">
             <TablePreview
-                table={table}
+                table={previewTable}
                 emptyMessage="Select a data warehouse table to view preview"
                 previewData={previewData}
                 loading={previewLoading}
                 selectedKey={selectedPreviewKey}
-                extraColumns={previewExpressionColumns.map(({ alias, label }) => ({
-                    key: alias,
-                    label,
-                    type: 'SQL expression',
-                }))}
+                extraColumns={[
+                    ...previewExpressionColumns.map(({ alias, label }) => ({
+                        key: alias,
+                        label,
+                        type: 'SQL expression',
+                    })),
+                    ...previewLazyColumns,
+                ]}
                 heightClassName="h-48"
             />
             {activeField && (
@@ -500,6 +531,7 @@ export function DataWarehouseFunnelStepDefinitionPopover({
                         <label className="definition-popover-edit-form-label" htmlFor={activeField.key}>
                             <span className="label-text font-semibold">{activeField.label}</span>
                         </label>
+                        <div className="text-secondary text-xs">{EDITABLE_FIELD_EXPLANATION[activeFieldKey]}</div>
                         {!activeField.hogQLOnly && (
                             <LemonSelect
                                 fullWidth
