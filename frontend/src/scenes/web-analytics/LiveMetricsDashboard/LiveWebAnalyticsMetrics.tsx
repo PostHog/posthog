@@ -55,7 +55,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                 <LiveStatCard label="Pageviews" value={totalPageviews} isLoading={isLoading} />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 <LiveChartCard
                     title="Active users per minute"
                     subtitle={timezone}
@@ -69,7 +69,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                 <LiveTopPathsTable paths={topPaths} isLoading={isLoading} totalPageviews={totalPageviews} />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 <BreakdownLiveCard<DeviceBreakdownItem>
                     title="Devices"
                     data={deviceBreakdown}

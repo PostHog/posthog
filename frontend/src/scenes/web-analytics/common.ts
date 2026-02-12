@@ -18,9 +18,9 @@ import { InsightLogicProps, PropertyFilterType, PropertyMathType } from '~/types
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    colSpanClassName?: `md:col-span-${number}` | 'md:col-span-full'
+    colSpanClassName?: `lg:col-span-${number}` | 'lg:col-span-full'
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    rowSpanClassName?: `md:row-span-${number}`
+    rowSpanClassName?: `lg:row-span-${number}`
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
     orderWhenLargeClassName?: `xxl:order-${number}`
     className?: string

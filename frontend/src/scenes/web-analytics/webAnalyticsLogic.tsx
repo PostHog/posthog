@@ -1093,7 +1093,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             kind: 'query',
                             tileId: TileId.WEB_VITALS,
                             layout: {
-                                colSpanClassName: 'md:col-span-full',
+                                colSpanClassName: 'lg:col-span-full',
                                 orderWhenLargeClassName: 'xxl:order-0',
                             },
                             query: {
@@ -1123,7 +1123,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             kind: 'query',
                             tileId: TileId.WEB_VITALS_PATH_BREAKDOWN,
                             layout: {
-                                colSpanClassName: 'md:col-span-full',
+                                colSpanClassName: 'lg:col-span-full',
                                 orderWhenLargeClassName: 'xxl:order-0',
                             },
                             query: {
@@ -1157,7 +1157,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'query',
                         tileId: TileId.OVERVIEW,
                         layout: {
-                            colSpanClassName: 'md:col-span-full',
+                            colSpanClassName: 'lg:col-span-full',
                             orderWhenLargeClassName: 'xxl:order-0',
                             className: '-mt-2',
                         },
@@ -1179,7 +1179,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.GRAPHS,
                         layout: {
-                            colSpanClassName: `md:col-span-2`,
+                            colSpanClassName: `lg:col-span-2`,
                             orderWhenLargeClassName: 'xxl:order-1',
                         },
                         activeTabId: graphsTab,
@@ -1253,7 +1253,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.PATHS,
                         layout: {
-                            colSpanClassName: `md:col-span-2`,
+                            colSpanClassName: `lg:col-span-2`,
                             orderWhenLargeClassName: 'xxl:order-4',
                         },
                         activeTabId: pathTab,
@@ -1419,7 +1419,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.SOURCES,
                         layout: {
-                            colSpanClassName: `md:col-span-1`,
+                            colSpanClassName: `lg:col-span-1`,
                             orderWhenLargeClassName: 'xxl:order-2',
                         },
                         activeTabId: sourceTab,
@@ -1618,7 +1618,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.DEVICES,
                         layout: {
-                            colSpanClassName: `md:col-span-1`,
+                            colSpanClassName: `lg:col-span-1`,
                             orderWhenLargeClassName: 'xxl:order-3',
                         },
                         activeTabId: deviceTab,
@@ -1653,7 +1653,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.GEOGRAPHY,
                         layout: {
-                            colSpanClassName: 'md:col-span-full',
+                            colSpanClassName: 'lg:col-span-full',
                         },
                         activeTabId:
                             geographyTab || (shouldShowGeoIPQueries ? GeographyTab.MAP : GeographyTab.LANGUAGES),
@@ -1748,7 +1748,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               tileId: TileId.RETENTION,
                               title: 'Retention',
                               layout: {
-                                  colSpanClassName: 'md:col-span-2',
+                                  colSpanClassName: 'lg:col-span-2',
                               },
                               query: {
                                   kind: NodeKind.InsightVizNode,
@@ -1805,7 +1805,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.ACTIVE_HOURS,
                         layout: {
-                            colSpanClassName: 'md:col-span-full',
+                            colSpanClassName: 'lg:col-span-full',
                         },
                         activeTabId: activeHoursTab,
                         setTabId: actions.setActiveHoursTab,
@@ -1942,7 +1942,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               tileId: TileId.GOALS,
                               title: 'Goals',
                               layout: {
-                                  colSpanClassName: 'md:col-span-2',
+                                  colSpanClassName: 'lg:col-span-2',
                               },
                               query: {
                                   full: true,
@@ -1990,7 +1990,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               kind: 'replay',
                               tileId: TileId.REPLAY,
                               layout: {
-                                  colSpanClassName: conversionGoal ? 'md:col-span-full' : 'md:col-span-1',
+                                  colSpanClassName: conversionGoal ? 'lg:col-span-full' : 'lg:col-span-1',
                               },
                               docs: {
                                   url: 'https://posthog.com/docs/session-replay',
@@ -2005,7 +2005,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               kind: 'error_tracking',
                               tileId: TileId.ERROR_TRACKING,
                               layout: {
-                                  colSpanClassName: 'md:col-span-1',
+                                  colSpanClassName: 'lg:col-span-1',
                               },
                               query: errorTrackingQ,
                               docs: {
@@ -2035,7 +2035,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               title: 'Frustrating Pages',
                               tileId: TileId.FRUSTRATING_PAGES,
                               layout: {
-                                  colSpanClassName: 'md:col-span-2',
+                                  colSpanClassName: 'lg:col-span-2',
                               },
                               query: {
                                   full: true,

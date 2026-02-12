@@ -95,7 +95,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         kind: 'query',
                         tileId: TileId.MARKETING_OVERVIEW,
                         layout: {
-                            colSpanClassName: 'md:col-span-2 xxl:col-span-3' as `md:col-span-${number}`,
+                            colSpanClassName: 'lg:col-span-2 xxl:col-span-3' as `lg:col-span-${number}`,
                             orderWhenLargeClassName: 'xxl:order-0',
                         },
                         query: {
@@ -116,7 +116,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         kind: 'query',
                         tileId: TileId.MARKETING,
                         layout: {
-                            colSpanClassName: 'md:col-span-2',
+                            colSpanClassName: 'lg:col-span-2',
                             orderWhenLargeClassName: 'xxl:order-1',
                         },
                         title: `Marketing ${tileColumnSelectionName}`,
@@ -172,7 +172,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                               kind: 'query',
                               tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
                               layout: {
-                                  colSpanClassName: 'md:col-span-2',
+                                  colSpanClassName: 'lg:col-span-2',
                                   orderWhenLargeClassName: 'xxl:order-2',
                               },
                               title: 'Campaign costs breakdown',

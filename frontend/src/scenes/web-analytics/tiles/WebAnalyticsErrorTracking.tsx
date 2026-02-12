@@ -77,8 +77,8 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
         <div
             className={clsx(
                 'col-span-1 row-span-1 flex flex-col',
-                layout.colSpanClassName ?? 'md:col-span-6',
-                layout.rowSpanClassName ?? 'md:row-span-1',
+                layout.colSpanClassName ?? 'lg:col-span-6',
+                layout.rowSpanClassName ?? 'lg:row-span-1',
                 layout.orderWhenLargeClassName ?? 'xxl:order-12',
                 layout.className
             )}
