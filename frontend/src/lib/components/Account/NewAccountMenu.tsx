@@ -197,21 +197,24 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     }
                                 />
 
-                                <Menu.Item
-                                    render={
-                                        <Link
-                                            buttonProps={{
-                                                menuItem: true,
-                                            }}
-                                            tooltip="Invite members"
-                                            tooltipPlacement="right"
-                                            data-attr="top-menu-invite-team-members"
-                                        >
-                                            <IconGear />
-                                            Project settings
-                                        </Link>
-                                    }
-                                />
+                                {currentTeam && (
+                                    <Menu.Item
+                                        render={
+                                            <Link
+                                                buttonProps={{
+                                                    menuItem: true,
+                                                }}
+                                                tooltip="Invite members"
+                                                tooltipPlacement="right"
+                                                data-attr="top-menu-invite-team-members"
+                                                to={urls.project(currentTeam?.id, urls.settings('project'))}
+                                            >
+                                                <IconGear />
+                                                Project settings
+                                            </Link>
+                                        }
+                                    />
+                                )}
 
                                 <Label intent="menu" className="px-2 mt-2 relative">
                                     Organization
