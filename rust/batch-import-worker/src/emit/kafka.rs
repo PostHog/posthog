@@ -78,33 +78,17 @@ impl Emitter for KafkaEmitter {
 #[async_trait]
 impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
+        let iter = data
+            .iter()
+            .map(|e| (e, self.disable_person_processing(e)));
+
         for (idx, result) in self
             .inner
             .send_keyed_iter_to_kafka_with_headers(
                 self.topic,
-                |e| {
-                    // If person processing should be disabled, send without a key
-                    if self
-                        .person_processing_filter
-                        .should_disable_person_processing(&e.inner.token, &e.inner.distinct_id)
-                    {
-                        None
-                    } else {
-                        Some(e.inner.key())
-                    }
-                },
-                |e| {
-                    let mut headers = e.inner.to_headers();
-                    // Set force_disable_person_processing header if needed
-                    if self
-                        .person_processing_filter
-                        .should_disable_person_processing(&e.inner.token, &e.inner.distinct_id)
-                    {
-                        headers.set_force_disable_person_processing(true);
-                    }
-                    Some(headers.into())
-                },
-                data.iter(),
+                |(e, disable_person_processing)| self.kafka_key(e, *disable_person_processing),
+                |(e, disable_person_processing)| self.kafka_headers(e, *disable_person_processing),
+                iter,
             )
             .await
             .into_iter()
@@ -147,6 +131,34 @@ impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
 }
 
 impl<'a> KafkaEmitterTransaction<'a> {
+    #[inline]
+    fn disable_person_processing(&self, e: &InternallyCapturedEvent) -> bool {
+        self.person_processing_filter
+            .should_disable_person_processing(&e.inner.token, &e.inner.distinct_id)
+    }
+
+    #[inline]
+    fn kafka_key(
+        &self,
+        e: &InternallyCapturedEvent,
+        disable_person_processing: bool,
+    ) -> Option<String> {
+        (!disable_person_processing).then(|| e.inner.key())
+    }
+
+    #[inline]
+    fn kafka_headers(
+        &self,
+        e: &InternallyCapturedEvent,
+        disable_person_processing: bool,
+    ) -> Option<rdkafka::message::OwnedHeaders> {
+        let mut headers = e.inner.to_headers();
+        if disable_person_processing {
+            headers.set_force_disable_person_processing(true);
+        }
+        Some(headers.into())
+    }
+
     fn get_min_txn_duration(&self, txn_count: usize) -> Duration {
         // Get how long the send must take if this is the first send
         let max_send_rate = self.send_rate as f64;
