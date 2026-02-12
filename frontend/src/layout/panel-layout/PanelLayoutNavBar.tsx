@@ -144,7 +144,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (itemIdentifier === 'Settings' && currentPath.startsWith('/settings/')) {
             return true
         }
-        if (itemIdentifier === 'Inbox' && currentPath.startsWith('/inbox/')) {
+        if (itemIdentifier === 'Inbox' && currentPath.startsWith('/inbox')) {
             return true
         }
         if (itemIdentifier === 'Toolbar' && currentPath === '/toolbar') {
