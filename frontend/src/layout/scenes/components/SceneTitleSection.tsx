@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconEllipsis, IconPencil, IconSidePanel, IconSparkles, IconX } from '@posthog/icons'
+import { IconEllipsis, IconPencil, IconSidePanel, IconSparkles, IconWrench, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
@@ -15,6 +15,7 @@ import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
+import { UseMaxToolOptions, useMaxTool } from 'scenes/max/useMaxTool'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -28,12 +29,23 @@ import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDivider } from './SceneDivider'
 
-export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }): JSX.Element | null {
+export function SceneTitlePanelButton({
+    inPanel = false,
+    maxToolProps,
+}: {
+    inPanel?: boolean
+    maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+}): JSX.Element | null {
     const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
+
+    const inactiveMaxToolProps: UseMaxToolOptions = { identifier: 'read_data', active: false }
+    const { openMax, definition, isMaxOpen } = useMaxTool(
+        maxToolProps && isRemovingSidePanelFlag ? { ...maxToolProps, active: true } : inactiveMaxToolProps
+    )
 
     if (isRemovingSidePanelFlag) {
         // Open Info tab if scene has panel content, otherwise default to PostHog AI
@@ -50,9 +62,33 @@ export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
-                        openSidePanel(SidePanelTab.Max)
+                        if (openMax) {
+                            openMax()
+                        } else {
+                            openSidePanel(SidePanelTab.Max)
+                        }
                     }}
-                    tooltip="Open PostHog AI"
+                    tooltip={
+                        definition ? (
+                            !isMaxOpen ? (
+                                <>
+                                    <IconSparkles className="mr-1.5" />
+                                    {definition.name} with PostHog AI
+                                </>
+                            ) : (
+                                <>
+                                    PostHog AI can use this tool
+                                    <br />
+                                    <div className="flex items-center">
+                                        {definition.icon || <IconWrench />}
+                                        <i className="ml-1.5">{definition.name}</i>
+                                    </div>
+                                </>
+                            )
+                        ) : (
+                            'Open PostHog AI'
+                        )
+                    }
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
                     iconOnly
@@ -180,6 +216,11 @@ type SceneMainTitleProps = {
      * Whether name generation is currently in progress
      */
     isGeneratingName?: boolean
+    /**
+     * Props for MaxTool registration - when provided behind UX_REMOVE_SIDEPANEL flag,
+     * the AI button in the title section registers the tool with Max
+     */
+    maxToolProps?: Omit<UseMaxToolOptions, 'active'>
 }
 
 export function SceneTitleSection({
@@ -200,6 +241,7 @@ export function SceneTitleSection({
     className,
     onGenerateName,
     isGeneratingName,
+    maxToolProps,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { zenMode } = useValues(navigation3000Logic)
@@ -309,7 +351,7 @@ export function SceneTitleSection({
                             )}
                         >
                             {effectiveActions}
-                            <SceneTitlePanelButton />
+                            <SceneTitlePanelButton maxToolProps={maxToolProps} />
                         </div>
                     )}
                 </div>
