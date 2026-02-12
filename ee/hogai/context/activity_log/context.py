@@ -9,7 +9,13 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
 from posthog.sync import database_sync_to_async
 
-from .prompts import ACTIVITY_LOG_CONTEXT_TEMPLATE, ACTIVITY_LOG_ENTRY_TEMPLATE, ACTIVITY_LOG_NO_RESULTS
+from .prompts import (
+    ACTIVITY_LOG_CONTEXT_TEMPLATE,
+    ACTIVITY_LOG_ENTRY_TEMPLATE,
+    ACTIVITY_LOG_NO_RESULTS,
+    ACTIVITY_LOG_PAGINATION_END,
+    ACTIVITY_LOG_PAGINATION_MORE,
+)
 
 MAX_VALUE_LENGTH = 200
 
@@ -31,18 +37,23 @@ class ActivityLogContext:
         item_id: str | None = None,
         user_email: str | None = None,
         limit: int = 20,
+        offset: int = 0,
     ) -> str:
-        entries = await self._fetch_entries(
+        entries, total_count = await self._fetch_entries(
             scope=scope,
             activity=activity,
             item_id=item_id,
             user_email=user_email,
             limit=limit,
+            offset=offset,
         )
         return self._format_entries(
             entries,
             scope=scope,
             user_email=user_email,
+            total_count=total_count,
+            offset=offset,
+            limit=limit,
         )
 
     @database_sync_to_async
@@ -54,7 +65,8 @@ class ActivityLogContext:
         item_id: str | None = None,
         user_email: str | None = None,
         limit: int = 20,
-    ) -> list[ActivityLog]:
+        offset: int = 0,
+    ) -> tuple[list[ActivityLog], int]:
         queryset: QuerySet[ActivityLog] = ActivityLog.objects.select_related("user").order_by("-created_at")
 
         queryset = apply_organization_scoped_filter(
@@ -80,7 +92,9 @@ class ActivityLogContext:
             queryset = queryset.filter(user__email=user_email)
 
         limit = min(max(limit, 1), 50)
-        return list(queryset[:limit])
+        total_count = queryset.count()
+        entries = list(queryset[offset : offset + limit])
+        return entries, total_count
 
     def _format_entries(
         self,
@@ -88,6 +102,9 @@ class ActivityLogContext:
         *,
         scope: str | None = None,
         user_email: str | None = None,
+        total_count: int = 0,
+        offset: int = 0,
+        limit: int = 20,
     ) -> str:
         if not entries:
             return ACTIVITY_LOG_NO_RESULTS
@@ -99,11 +116,22 @@ class ActivityLogContext:
         scope_filter = f" for scope={scope}" if scope else ""
         user_filter = f" by {user_email}" if user_email else ""
 
+        has_more = total_count > offset + limit
+
+        if has_more:
+            pagination_hint = ACTIVITY_LOG_PAGINATION_MORE.format(next_offset=offset + limit)
+        else:
+            pagination_hint = ACTIVITY_LOG_PAGINATION_END
+
         return ACTIVITY_LOG_CONTEXT_TEMPLATE.format(
             count=len(formatted_entries),
+            total_count=total_count,
+            offset_start=offset + 1,
+            offset_end=offset + len(formatted_entries),
             scope_filter=scope_filter,
             user_filter=user_filter,
             entries="\n".join(formatted_entries),
+            pagination_hint=pagination_hint,
         )
 
     def _format_single_entry(self, entry: ActivityLog) -> str:

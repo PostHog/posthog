@@ -71,7 +71,7 @@ class TestActivityLogContext(ActivityLogTestBase):
         result = await context.fetch_and_format()
 
         assert "Activity log" in result
-        assert "1 entries" in result
+        assert "1-1 of 1" in result
         assert "FeatureFlag" in result
         assert "created" in result
         assert "my-flag" in result
@@ -94,7 +94,7 @@ class TestActivityLogContext(ActivityLogTestBase):
         context = self._create_context()
         result = await context.fetch_and_format(activity="created")
 
-        assert "1 entries" in result
+        assert "1-1 of 1" in result
         assert "created" in result
 
     async def test_fetch_and_format_filters_by_item_id(self):
@@ -104,7 +104,7 @@ class TestActivityLogContext(ActivityLogTestBase):
         context = self._create_context()
         result = await context.fetch_and_format(item_id="10")
 
-        assert "1 entries" in result
+        assert "1-1 of 1" in result
 
     async def test_fetch_and_format_filters_by_user_email(self):
         await self._create_log(scope="Insight", activity="created", item_id="1")
@@ -112,7 +112,7 @@ class TestActivityLogContext(ActivityLogTestBase):
         context = self._create_context()
         result = await context.fetch_and_format(user_email=self.user.email)
 
-        assert "1 entries" in result
+        assert "1-1 of 1" in result
         assert f"by {self.user.email}" in result
 
     async def test_fetch_and_format_filters_by_user_email_no_match(self):
@@ -130,7 +130,7 @@ class TestActivityLogContext(ActivityLogTestBase):
         context = self._create_context()
         result = await context.fetch_and_format(limit=2)
 
-        assert "2 entries" in result
+        assert "1-2 of 5" in result
 
     async def test_fetch_and_format_clamps_limit_to_valid_range(self):
         for i in range(3):
@@ -139,10 +139,10 @@ class TestActivityLogContext(ActivityLogTestBase):
         context = self._create_context()
 
         result_low = await context.fetch_and_format(limit=0)
-        assert "1 entries" in result_low
+        assert "1-1 of 3" in result_low
 
         result_high = await context.fetch_and_format(limit=100)
-        assert "3 entries" in result_high
+        assert "1-3 of 3" in result_high
 
     async def test_fetch_and_format_orders_by_created_at_desc(self):
         await self._create_log(
@@ -353,6 +353,63 @@ class TestActivityLogContext(ActivityLogTestBase):
         result = await context.fetch_and_format()
 
         assert "name: a -> b" in result
+
+
+@freeze_time("2025-06-15T12:00:00Z")
+class TestActivityLogContextPagination(ActivityLogTestBase):
+    def _create_context(self) -> ActivityLogContext:
+        return ActivityLogContext(team=self.team, user=self.user)
+
+    async def test_offset_skips_entries(self):
+        for i in range(5):
+            await self._create_log(
+                item_id=str(i),
+                detail={"name": f"flag-{i}"},
+                created_at=timezone.now() - timedelta(minutes=i),
+            )
+
+        context = self._create_context()
+        result = await context.fetch_and_format(limit=2, offset=2)
+
+        assert "3-4 of 5" in result
+        assert "flag-0" not in result
+        assert "flag-1" not in result
+
+    async def test_pagination_hint_shows_next_offset_when_more_exist(self):
+        for i in range(5):
+            await self._create_log(item_id=str(i), created_at=timezone.now() - timedelta(minutes=i))
+
+        context = self._create_context()
+        result = await context.fetch_and_format(limit=2, offset=0)
+
+        assert "use offset=2" in result
+
+    async def test_pagination_hint_shows_end_when_no_more_results(self):
+        for i in range(3):
+            await self._create_log(item_id=str(i))
+
+        context = self._create_context()
+        result = await context.fetch_and_format(limit=10, offset=0)
+
+        assert "end of results" in result
+
+    async def test_offset_beyond_total_returns_no_results(self):
+        await self._create_log(item_id="1")
+
+        context = self._create_context()
+        result = await context.fetch_and_format(offset=100)
+
+        assert result == ACTIVITY_LOG_NO_RESULTS
+
+    async def test_pagination_last_page_shows_end(self):
+        for i in range(5):
+            await self._create_log(item_id=str(i), created_at=timezone.now() - timedelta(minutes=i))
+
+        context = self._create_context()
+        result = await context.fetch_and_format(limit=2, offset=4)
+
+        assert "5-5 of 5" in result
+        assert "end of results" in result
 
 
 @freeze_time("2025-06-15T12:00:00Z")
