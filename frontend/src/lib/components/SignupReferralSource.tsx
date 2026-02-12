@@ -8,21 +8,18 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 // Used to trigger the AI prompt when the user enters an AI-related referral source. This is a simple heuristic and can be adjusted as needed.
 const AI_REFERRAL_PATTERNS = [
     // AI labs
-    'openai',
-    'open ai',
+    'open ?ai',
     'anthropic',
     'perplexity',
-    'xai',
+    'x ?ai',
     'mistral',
-    'eleven labs',
-    'elevenlabs',
-    'meta ai',
+    'eleven ?labs',
+    'meta ?ai',
     'anysphere',
     'groq',
     'z.ai',
     // AI models and tooling
-    'chatgpt',
-    'chat gpt',
+    'chat ?gpt',
     'gpt',
     'claude',
     'claud', // common typo
@@ -33,8 +30,7 @@ const AI_REFERRAL_PATTERNS = [
     'flash',
     'bard',
     'copilot',
-    'deepseek',
-    'deep seek',
+    'deep ?seek',
     'grok',
     'qwen',
     'kimi',
@@ -49,8 +45,7 @@ const AI_REFERRAL_PATTERNS = [
     'cline',
     'dia',
     // LLM coding platforms
-    'replit',
-    'repl it',
+    'repl ?it',
     'lovable',
     'hercules',
     'vercel',
@@ -58,7 +53,7 @@ const AI_REFERRAL_PATTERNS = [
     'bolt',
     'rork',
     'retool',
-    'figma make',
+    'figma ?make',
     'poke',
     'clawdbot',
     'moltbot',
@@ -71,8 +66,7 @@ const AI_REFERRAL_PATTERNS = [
     'artificial intelligence',
     'assistant',
     'chat',
-    'vibecoding',
-    'vibe coding',
+    'vibe ?coding',
     'mcp',
 ]
 const AI_REFERRAL_PATTERN = new RegExp(`\\b(${AI_REFERRAL_PATTERNS.join('|')})\\b`, 'i')
