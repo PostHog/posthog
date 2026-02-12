@@ -1,13 +1,12 @@
 import { combineUrl, router } from 'kea-router'
 
-import { IconInfo } from '@posthog/icons'
-
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -197,18 +196,13 @@ export function renderColumn(
             content
         )
     } else if ((isActorsQuery(query.source) || isActorsQuery(query)) && key === 'last_seen_at') {
-        // For now only persons query is using the rounded last seen
+        const isWithinLastHour = dayjs().diff(dayjs(value), 'hour', true) < 1
         return (
-            <TZLabel
-                time={value}
-                showSeconds
-                banner={
-                    <div className="flex gap-1 text-xs border-b p-2">
-                        <IconInfo />
-                        Last seen updates hourly and may not reflect the exact timestamp of the latest event
-                    </div>
-                }
-            />
+            <TZLabel time={value} showSeconds>
+                {isWithinLastHour ? (
+                    <span className="whitespace-nowrap align-middle border-dotted border-b">last hour</span>
+                ) : undefined}
+            </TZLabel>
         )
     } else if (DATETIME_KEYS.includes(key)) {
         return <TZLabel time={value} showSeconds />

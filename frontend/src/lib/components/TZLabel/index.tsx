@@ -32,7 +32,6 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     className?: string
     title?: string
     children?: JSX.Element
-    banner?: JSX.Element
     /** 'relative' shows "Just now", "Today", "Yesterday" when applicable. 'absolute' always shows full date+time. */
     timestampStyle?: 'relative' | 'absolute'
     /** Timezone to display the time in (e.g., 'UTC', 'America/New_York'). If not set, uses local timezone.
@@ -45,8 +44,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     time,
     title,
     displayTimezone,
-    banner,
-}: Pick<TZLabelProps, 'showSeconds' | 'title' | 'displayTimezone' | 'banner'> & {
+}: Pick<TZLabelProps, 'showSeconds' | 'title' | 'displayTimezone'> & {
     time: dayjs.Dayjs
 }): JSX.Element {
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : BASE_OUTPUT_FORMAT_WITH_SECONDS
@@ -85,7 +83,6 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                     to={urls.settings('environment-customization', 'date-and-time')}
                 />
             </div>
-            {banner}
             <div className="flex flex-col gap-1 p-2">
                 {displayedTime && (
                     <TZLabelPopoverRow
@@ -184,7 +181,6 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         className,
         children,
         displayTimezone,
-        banner,
         ...dropdownProps
     },
     ref
@@ -257,7 +253,6 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
                         showSeconds={showSeconds}
                         title={title}
                         displayTimezone={displayTimezone}
-                        banner={banner}
                     />
                 }
             >
