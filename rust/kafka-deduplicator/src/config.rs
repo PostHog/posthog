@@ -9,13 +9,13 @@ use envconfig::Envconfig;
 ///
 /// Each pipeline type handles a different event format:
 /// - `IngestionEvents`: Events from capture (CapturedEvent/RawEvent format)
-/// - `ClickHouseEvents`: Events from ingestion pipeline (ClickHouseEvent format)
+/// - `ClickhouseEvents`: Events from ingestion pipeline (ClickhouseEvent format)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum_macros::EnumString)]
 #[strum(serialize_all = "snake_case")]
 pub enum PipelineType {
     #[default]
     IngestionEvents,
-    ClickHouseEvents,
+    ClickhouseEvents,
 }
 
 #[derive(Envconfig, Clone, Debug)]
