@@ -777,7 +777,7 @@ class TestPropertyDefinitionQuerySerializer(BaseTest):
 class TestNotCountingLimitOffsetPaginator(BaseTest):
     def _make_result(self, full_count, name="test"):
         obj = PropertyDefinition(name=name)
-        obj.full_count = full_count
+        obj.full_count = full_count  # type: ignore[attr-defined]
         return obj
 
     def _make_request(self, params=None):
@@ -793,6 +793,7 @@ class TestNotCountingLimitOffsetPaginator(BaseTest):
 
         page = paginator.paginate_queryset(results, self._make_request())
         assert paginator.count == 42
+        assert page is not None
         assert len(page) == 3
 
     def test_returns_zero_count_for_empty_results(self):
