@@ -674,7 +674,7 @@ async def _start_session_group_summary_workflow(
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=settings.MAX_AI_TASK_QUEUE,
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         retry_policy=retry_policy,
     )
 
