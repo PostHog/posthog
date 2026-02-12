@@ -852,7 +852,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if query_kind == "HogQLQuery":
             # HogQL: allowed variables are code_names from query["variables"]
             variables = query.get("variables", {})
-            return {v.get("code_name") for v in variables.values() if v.get("code_name")}
+            return {v.get("code_name") for v in variables.values() if v.get("code_name")} if variables else set()
 
         # Insight queries
         allowed: set[str] = set()

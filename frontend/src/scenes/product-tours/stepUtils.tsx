@@ -95,15 +95,17 @@ export function getWidthValue(maxWidth: ProductTourStep['maxWidth']): number {
 }
 
 export function hasElementTarget(step: ProductTourStep): boolean {
-    if (step.useManualSelector) {
+    if (step.elementTargeting === 'manual') {
         return !!step.selector
+    } else if (step.elementTargeting === 'auto') {
+        return !!step.inferenceData
     }
-    return !!step.inferenceData
+
+    return false
 }
 
 export function hasIncompleteTargeting(step: ProductTourStep): boolean {
-    const needsTarget = step.type === 'element' || !!step.useManualSelector
-    return needsTarget && !hasElementTarget(step)
+    return step.elementTargeting !== undefined && !hasElementTarget(step)
 }
 
 export function createDefaultStep(type: ProductTourStepType): ProductTourStep {
