@@ -28,6 +28,11 @@ const DEFAULT_V2_POLLING_INTERVAL_MS: number = 10000
 const MAX_V2_POLLING_INTERVAL_MS = 60000
 const POLLING_INACTIVITY_TIMEOUT_MS = 5 * MAX_V2_POLLING_INTERVAL_MS
 
+// Buffer-ahead throttle for long recordings (timestamp-based loading only)
+const MAX_BUFFER_AHEAD_MS = 60 * 60 * 1000 // 1 hour of recording time
+const THROTTLE_CHECK_INTERVAL_MS = 10_000 // re-check every 10 seconds
+const MAX_THROTTLE_PAUSES = 6 // force-resume after ~1 min stuck (6 × 10s)
+
 export interface SnapshotLogicProps {
     sessionRecordingId: SessionRecordingId
     // allows disabling polling for new sources in tests
@@ -282,6 +287,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             cache.lastTargetTimestamp = timestamp
 
             if (timestamp !== null) {
+                cache.estimatedPlaybackTimestamp = timestamp
+
                 // If we don't have sources loaded yet, always start with find_target
                 // hasPlayableFullSnapshot returns true when no sources (safety default)
                 // but we need to actually load data first
@@ -612,6 +619,53 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 }
             }
 
+            // Buffer-ahead throttle for long recordings (flag-gated)
+            if (isTimestampBased && hasBlobV2) {
+                const loadedSources = sources.filter(isSourceLoaded)
+                if (loadedSources.length > 0 && getUnloadedSources().length > 0) {
+                    const loadedUpTo = Math.max(
+                        ...loadedSources.map((s) => (s.end_timestamp ? new Date(s.end_timestamp).getTime() : 0))
+                    )
+                    const recordingStart = sources[0]?.start_timestamp
+                        ? new Date(sources[0].start_timestamp).getTime()
+                        : 0
+                    const playbackPos = values.targetTimestamp ?? cache.estimatedPlaybackTimestamp ?? recordingStart
+
+                    if (loadedUpTo - playbackPos > MAX_BUFFER_AHEAD_MS) {
+                        cache.throttlePauseCount = (cache.throttlePauseCount || 0) + 1
+
+                        if (cache.throttlePauseCount > MAX_THROTTLE_PAUSES) {
+                            // Stuck: playback hasn't caught up after many cycles.
+                            // Force-load one more batch and report so we can investigate.
+                            posthog.capture('recording_buffer_throttle_stuck', {
+                                pauseCount: cache.throttlePauseCount,
+                                bufferAheadMs: loadedUpTo - playbackPos,
+                            })
+                            cache.throttlePauseCount = 0
+                            // Fall through to sequential loading
+                        } else {
+                            if (!cache.bufferCheckTimer) {
+                                cache.bufferCheckTimer = setTimeout(() => {
+                                    cache.bufferCheckTimer = null
+                                    // Advance estimated playback position by elapsed real time (1x speed assumption)
+                                    if (!values.targetTimestamp && cache.estimatedPlaybackTimestamp !== undefined) {
+                                        cache.estimatedPlaybackTimestamp += THROTTLE_CHECK_INTERVAL_MS
+                                    }
+                                    actions.loadNextSnapshotSource()
+                                }, THROTTLE_CHECK_INTERVAL_MS)
+                            }
+                            return
+                        }
+                    } else {
+                        cache.throttlePauseCount = 0
+                        if (cache.bufferCheckTimer) {
+                            clearTimeout(cache.bufferCheckTimer)
+                            cache.bufferCheckTimer = null
+                        }
+                    }
+                }
+            }
+
             // Sequential loading (default behavior or fallback)
             if (hasBlobV2) {
                 const nextSourcesToLoad = getUnloadedSources()
@@ -844,5 +898,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         cache.timestampLoadingBlobCount = undefined
         cache.timestampLoadingStartTime = undefined
         cache.lastTargetTimestamp = undefined
+        if (cache.bufferCheckTimer) {
+            clearTimeout(cache.bufferCheckTimer)
+            cache.bufferCheckTimer = undefined
+        }
+        cache.estimatedPlaybackTimestamp = undefined
+        cache.throttlePauseCount = undefined
     }),
 ])
