@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
-import { IconExternal, IconPlus } from '@posthog/icons'
+import { IconExternal, IconPlay, IconPlus } from '@posthog/icons'
 import {
     LemonBadge,
+    LemonBanner,
     LemonButton,
     LemonCollapse,
     LemonDivider,
@@ -12,20 +13,26 @@ import {
     LemonSelect,
 } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { urls } from 'scenes/urls'
 
 import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySelect'
 
+import { sanitizeWorkflow } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isOptOutEligibleAction } from '../steps/types'
-import { HogFlowAction } from '../types'
+import type { HogflowTestResult } from '../steps/types'
+import type { HogFlowAction } from '../types'
+import { OutputTestResultTree } from './OutputTestResultTree'
+import { createExampleEvent, hogFlowEditorTestLogic } from './testing/hogFlowEditorTestLogic'
 
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
-    const { selectedNode, workflow, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
+    const { selectedNode, workflow, categories, categoriesLoading, hogFunctionTemplatesById } =
+        useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setMode } = useActions(hogFlowEditorLogic)
 
     /**
@@ -45,6 +52,75 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
             } as HogFlowAction)
         }
     }, [outputResultPath]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const [testLoading, setTestLoading] = useState(false)
+    const [testError, setTestError] = useState<string | null>(null)
+    const [testResultData, setTestResultData] = useState<any>(null)
+
+    // Reset test state when switching nodes
+    useEffect(() => {
+        setTestError(null)
+        setTestResultData(null)
+    }, [selectedNode?.data.id])
+
+    const runOutputTest = useCallback(async () => {
+        if (!selectedNode || workflow.id === 'new') {
+            return
+        }
+
+        setTestLoading(true)
+        setTestError(null)
+        setTestResultData(null)
+
+        try {
+            const testLogic = hogFlowEditorTestLogic.findMounted({ id: workflow.id })
+            const sampleGlobals = testLogic?.values.sampleGlobals ?? createExampleEvent(workflow.team_id, workflow.name)
+
+            const variableDefaults =
+                workflow.variables?.reduce(
+                    (acc: Record<string, any>, v) => {
+                        acc[v.key] = v.default
+                        return acc
+                    },
+                    {} as Record<string, any>
+                ) ?? {}
+
+            const globals = {
+                ...sampleGlobals,
+                variables: {
+                    ...variableDefaults,
+                    ...testLogic?.values.accumulatedVariables,
+                },
+            }
+
+            const config = sanitizeWorkflow(JSON.parse(JSON.stringify(workflow)), hogFunctionTemplatesById)
+
+            const result: HogflowTestResult = await api.hogFlows.createTestInvocation(workflow.id, {
+                configuration: config,
+                globals,
+                mock_async_functions: false,
+                current_action_id: selectedNode.data.id,
+            })
+
+            if (result.status === 'error') {
+                setTestError(result.errors?.join(', ') || 'Test execution failed')
+            } else if (result.execResult != null) {
+                setTestResultData(result.execResult)
+            } else {
+                setTestError(
+                    'Test succeeded but no response data was returned. Make sure the Node.js server has been restarted.'
+                )
+            }
+        } catch (e: any) {
+            if (e.data) {
+                setTestError(JSON.stringify(e.data, null, 2))
+            } else {
+                setTestError(e.detail || e.message || 'Failed to run test')
+            }
+        } finally {
+            setTestLoading(false)
+        }
+    }, [selectedNode, workflow, hogFunctionTemplatesById]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const Step = useHogFlowStep(selectedNode?.data)
 
@@ -160,6 +236,43 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     placeholder="body.results[0].id"
                                                 />
                                             </LemonField.Pure>
+                                            <LemonButton
+                                                icon={<IconPlay />}
+                                                size="small"
+                                                type="secondary"
+                                                loading={testLoading}
+                                                tooltip="Executes a real HTTP request to this step's endpoint and shows the response so you can pick which property to store."
+                                                disabledReason={
+                                                    workflow.id === 'new'
+                                                        ? 'Save the workflow first to test steps'
+                                                        : undefined
+                                                }
+                                                onClick={runOutputTest}
+                                            >
+                                                Pick from response
+                                            </LemonButton>
+                                            {testError && (
+                                                <LemonBanner type="error" className="w-full">
+                                                    {testError}
+                                                </LemonBanner>
+                                            )}
+                                            {testResultData !== null && (
+                                                <div className="w-full">
+                                                    <p className="text-xs text-secondary mb-1">
+                                                        Click a key to use as result path
+                                                    </p>
+                                                    <div className="max-h-64 overflow-auto border rounded p-1">
+                                                        <OutputTestResultTree
+                                                            data={testResultData}
+                                                            selectedPath={outputResultPath}
+                                                            onPathSelect={(path) => {
+                                                                setOutputResultPath(path)
+                                                            }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <LemonDivider className="my-1" />
                                             <LemonButton
                                                 icon={<IconPlus />}
                                                 sideIcon={<IconExternal />}

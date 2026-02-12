@@ -353,6 +353,7 @@ export class HogFlowExecutorService {
 
                 if (handlerResult.result) {
                     this.trackActionResult(result, currentAction, handlerResult.result)
+                    result.execResult = handlerResult.result
                 }
 
                 if (handlerResult.finished) {
