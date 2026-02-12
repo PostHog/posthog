@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { BuiltLogic, useValues } from 'kea'
 
 import { IconCheck, IconMinus, IconWarning, IconX } from '@posthog/icons'
 import { LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
@@ -8,12 +8,12 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { EvaluationRun } from '../evaluations/types'
-import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
+import { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogicType'
 
 export function GenerationEvalRunsTable({
     generationRunsLogic,
 }: {
-    generationRunsLogic: ReturnType<typeof generationEvaluationRunsLogic.build>
+    generationRunsLogic: BuiltLogic<generationEvaluationRunsLogicType>
 }): JSX.Element {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(generationRunsLogic)
 

@@ -267,9 +267,8 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
 export function LLMAnalyticsEvaluationsScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const evaluationsLogic = useMountedLogic(llmEvaluationsLogic)
-    const evaluationMetrics = evaluationMetricsLogic({})
 
-    useAttachedLogic(evaluationMetrics, evaluationsLogic)
+    useAttachedLogic(evaluationMetricsLogic({}), evaluationsLogic)
 
     const activeTab = searchParams.tab || 'evaluations'
 

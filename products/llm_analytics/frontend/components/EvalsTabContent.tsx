@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
@@ -7,6 +7,7 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
+import { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogicType'
 import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { llmEvaluationExecutionLogic } from '../llmEvaluationExecutionLogic'
 import { GenerationEvalRunsTable } from './GenerationEvalRunsTable'
@@ -48,7 +49,7 @@ function EvalsTabContentInner({
     timestamp: string
     event: string
     distinctId?: string
-    generationRunsLogic: ReturnType<typeof generationEvaluationRunsLogic.build>
+    generationRunsLogic: BuiltLogic<generationEvaluationRunsLogicType>
 }): JSX.Element {
     const { evaluations, evaluationsLoading } = useValues(llmEvaluationsLogic)
     const { runEvaluation } = useActions(llmEvaluationExecutionLogic)
