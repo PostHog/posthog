@@ -200,7 +200,12 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                         reason: 'Transactional surveys can be more frequent',
                     }
                 }
-                if (templateType?.includes('Onboarding') || templateType?.includes('Attribution')) {
+                if (
+                    templateType?.includes('Onboarding') ||
+                    templateType?.includes('Attribution') ||
+                    templateType?.includes('Exit') ||
+                    templateType?.includes('Announcement')
+                ) {
                     return { value: 'once', label: 'Once ever', reason: 'One-time feedback collection' }
                 }
                 return { value: 'monthly', label: 'Every month', reason: 'General feedback cadence' }
