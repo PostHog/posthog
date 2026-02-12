@@ -337,9 +337,10 @@ export const productTourLogic = kea<productTourLogicType>([
                     }
 
                     if (hasIncompleteTargeting(step)) {
-                        error = step.useManualSelector
-                            ? `Step ${index + 1} missing element selector`
-                            : `Select an element for step ${index + 1}`
+                        error =
+                            step.elementTargeting === 'manual'
+                                ? `Step ${index + 1} missing element selector`
+                                : `Select an element for step ${index + 1}`
                     }
 
                     if (error) {

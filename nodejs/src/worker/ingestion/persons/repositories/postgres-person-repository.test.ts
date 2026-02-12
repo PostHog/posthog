@@ -406,6 +406,7 @@ describe('PostgresPersonRepository', () => {
                 is_identified: Number(person.is_identified),
                 is_deleted: 1,
                 version: person.version + 100, // version is incremented by 100 for deletions
+                last_seen_at: person.last_seen_at?.toFormat('yyyy-MM-dd HH:mm:ss') ?? null,
             })
         })
 
@@ -1372,6 +1373,7 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
             }
 
             // First update should succeed
@@ -1409,6 +1411,7 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
             }
 
             // Update should fail due to version mismatch
@@ -1445,6 +1448,7 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
             }
 
             // Update should fail because person doesn't exist
@@ -1476,6 +1480,7 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
             }
 
             const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
@@ -1516,6 +1521,7 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: ['remove_me'],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
             }
 
             const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
@@ -1554,6 +1560,7 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: ['remove'],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
             }
 
             const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
@@ -2178,6 +2185,7 @@ describe('PostgresPersonRepository', () => {
                     properties_to_unset: [],
                     original_is_identified: false,
                     original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                    original_last_seen_at: null,
                 }
 
                 await expect(oversizedRepository.updatePersonAssertVersion(personUpdate)).rejects.toThrow(
@@ -2433,6 +2441,7 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                original_last_seen_at: null,
             })
 
             const personUpdate1 = createPersonUpdate(person1, 'test-assert-1')

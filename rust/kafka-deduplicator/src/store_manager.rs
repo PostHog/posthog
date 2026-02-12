@@ -144,7 +144,7 @@ impl StoreManager {
         store_config: DeduplicationStoreConfig,
         rebalance_tracker: Arc<RebalanceTracker>,
     ) -> Self {
-        let metrics = MetricsHelper::new().with_label("service", "kafka-deduplicator");
+        let metrics = MetricsHelper::new();
 
         Self {
             stores: DashMap::new(),
@@ -615,6 +615,11 @@ impl StoreManager {
     /// Get the base path where stores are created
     pub fn base_path(&self) -> &Path {
         &self.store_config.path
+    }
+
+    /// Get the store configuration
+    pub fn config(&self) -> &DeduplicationStoreConfig {
+        &self.store_config
     }
 
     /// Cleanup old entries across all stores to maintain global capacity

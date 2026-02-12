@@ -115,7 +115,7 @@ export function InsightDisplayConfig(): JSX.Element {
                               ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
                               : []),
                           ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
-                          ...((isTrends || isRetention) && !isNonTimeSeriesDisplay
+                          ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
                               ? [{ label: () => <ShowTrendLinesFilter /> }]
                               : []),
                       ],

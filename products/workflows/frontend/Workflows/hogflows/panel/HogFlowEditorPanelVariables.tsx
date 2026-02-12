@@ -109,7 +109,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                                         className="bg-white/80"
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            void navigator.clipboard.writeText(`{{ variables.${variable.key} }}`)
+                                            void navigator.clipboard.writeText(`{ variables.${variable.key} }`)
                                             lemonToast.success('Copied to clipboard')
                                         }}
                                     />

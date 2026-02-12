@@ -311,6 +311,7 @@ class UpsertDashboardTool(MaxTool):
             t.id for t in all_tiles if t.id not in active_tile_ids and not t.deleted and t.insight_id is not None
         ]
         if tiles_to_delete:
+            # nosemgrep: idor-lookup-without-team
             DashboardTile.objects.filter(id__in=tiles_to_delete).update(deleted=True)
 
         # 4. Update coordinates based on insight_ids order, keeping original sizes

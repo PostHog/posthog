@@ -259,7 +259,11 @@ def sync_execute(
                 with_column_types=with_column_types,
                 query_id=query_id,
             )
-            if "INSERT INTO" in prepared_sql and client.last_query.progress.written_rows > 0:
+            if (
+                "INSERT INTO" in prepared_sql
+                and hasattr(client, "last_query")
+                and client.last_query.progress.written_rows > 0
+            ):
                 result = client.last_query.progress.written_rows
     except Exception as e:
         exception_type = clickhouse_error_type(e)

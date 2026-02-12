@@ -1717,6 +1717,7 @@ class FileSystemIconType(StrEnum):
     WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
     ACTION = "action"
+    ACTIVITY = "activity"
     COMMENT = "comment"
     ANNOTATION = "annotation"
     EVENT = "event"
@@ -6314,6 +6315,7 @@ class SourceFieldInputConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    caption: str | None = None
     label: str
     name: str
     placeholder: str
@@ -15355,6 +15357,10 @@ class FunnelsFilter(BaseModel):
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
         description="Customizations for the appearance of result datasets.",
+    )
+    showTrendLines: bool | None = Field(
+        default=None,
+        description=("Display linear regression trend lines on the chart (only for historical trends viz)"),
     )
     showValuesOnSeries: bool | None = False
     useUdf: bool | None = None
