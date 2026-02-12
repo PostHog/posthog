@@ -27,7 +27,7 @@ def _validate_period(period: ReplayInactivityPeriod, index: int, inactivity_peri
     if period.ts_to_s is None and index != inactivity_periods_count - 1:
         return False
     if period.recording_ts_to_s is None:
-        logger.warning(f"Inactivity period has no recording_ts_to_s")
+        logger.warning("Inactivity period has no recording_ts_to_s")
         return False
     return True
 
