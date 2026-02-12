@@ -138,7 +138,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
         try:
             slack_user_info = slack.client.users_info(user=slack_user_id)
             # SlackResponse.get() returns Any, so nested .get() calls don't type-check
-            slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")  # type: ignore[union-attr]
+            slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")  # type: ignore[call-overload]
             if not slack_email:
                 logger.warning("slack_app_no_user_email", slack_user_id=slack_user_id)
                 slack.client.chat_postEphemeral(
@@ -247,7 +247,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
                 try:
                     user_info = slack.client.users_info(user=uid)
                     # SlackResponse.get() returns Any, so nested .get() calls don't type-check
-                    profile = user_info.get("user", {}).get("profile", {})  # type: ignore[union-attr]
+                    profile = user_info.get("user", {}).get("profile", {})  # type: ignore[call-overload]
                     user_cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
                 except Exception:
                     user_cache[uid] = "Unknown"
