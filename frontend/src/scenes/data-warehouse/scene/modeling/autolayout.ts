@@ -27,14 +27,19 @@ export const getFormattedNodes = async (nodes: Node[], edges: Edge[], direction?
     direction ??= 'DOWN'
     const elkOptions = {
         'elk.algorithm': 'layered',
-        'elk.layered.spacing.nodeNodeBetweenLayers': '30',
-        'elk.spacing.nodeNode': '30',
-        'elk.spacing.edgeNode': '30',
         'elk.direction': direction,
-        'elk.layered.nodePlacement.strategy': 'SIMPLE',
-        'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
+        'elk.edgeRouting': 'ORTHOGONAL',
         'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+        'elk.layered.cycleBreaking.strategy': 'GREEDY',
+        'elk.layered.layering.strategy': 'NETWORK_SIMPLEX',
+        'elk.layered.mergeEdges': 'true',
+        'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
+        'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+        'elk.layered.spacing.nodeNodeBetweenLayers': '60',
         'elk.padding': '[left=0, top=0, right=0, bottom=0]',
+        'elk.separateConnectedComponents': 'true',
+        'elk.spacing.edgeNode': '30',
+        'elk.spacing.nodeNode': '30',
     }
 
     const graph: ElkNode = {
