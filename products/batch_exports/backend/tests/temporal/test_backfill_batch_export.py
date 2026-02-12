@@ -953,7 +953,7 @@ async def run_backfill_workflow(
     )
     await handle.result()
 
-    backfills = await afetch_batch_export_backfills(batch_export_id=batch_export_id_str)
+    backfills = await afetch_batch_export_backfills(batch_export_id=uuid.UUID(batch_export_id_str))
     assert len(backfills) == 1
     return backfills[0]
 
