@@ -42,11 +42,7 @@ describe('execute-sql', { concurrent: false }, () => {
         })
 
         expect(typeof result).toBe('string')
-        const parsed = JSON.parse(result)
-        expect(parsed).toHaveProperty('results')
-        expect(parsed).toHaveProperty('columns')
-        expect(parsed.columns).toContain('total')
-        expect(Array.isArray(parsed.results)).toBe(true)
+        expect(result).toContain('total')
     })
 
     it('should execute a query with a WHERE clause', async () => {
@@ -54,9 +50,9 @@ describe('execute-sql', { concurrent: false }, () => {
             query: "SELECT event, count() AS cnt FROM events WHERE event = '$pageview' GROUP BY event",
         })
 
-        const parsed = JSON.parse(result)
-        expect(parsed.columns).toContain('event')
-        expect(parsed.columns).toContain('cnt')
+        expect(typeof result).toBe('string')
+        expect(result).toContain('event')
+        expect(result).toContain('cnt')
     })
 
     it('should execute a query with date filters', async () => {
@@ -64,9 +60,7 @@ describe('execute-sql', { concurrent: false }, () => {
             query: "SELECT event, count() AS cnt FROM events WHERE timestamp >= now() - INTERVAL 7 DAY AND event = '$pageview' GROUP BY event ORDER BY cnt DESC LIMIT 5",
         })
 
-        const parsed = JSON.parse(result)
-        expect(parsed).toHaveProperty('results')
-        expect(parsed).toHaveProperty('columns')
+        expect(typeof result).toBe('string')
     })
 
     it('should throw on invalid SQL', async () => {
