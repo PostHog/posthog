@@ -78,20 +78,17 @@ class TestMappings(ClickhouseTestMixin, BaseTest):
 
     def test_compare_types_string_literal_matching_value(self):
         sig = (StringLiteralType(values=frozenset({"month", "year"})),)
-        args = [ast.Constant(value="month")]
-        res = compare_types([StringType()], sig, args=args)
+        res = compare_types([StringType()], sig, args=[ast.Constant(value="month")])
         assert res is True
 
     def test_compare_types_string_literal_non_matching_value(self):
         sig = (StringLiteralType(values=frozenset({"month", "year"})),)
-        args = [ast.Constant(value="day")]
-        res = compare_types([StringType()], sig, args=args)
+        res = compare_types([StringType()], sig, args=[ast.Constant(value="day")])
         assert res is False
 
     def test_compare_types_string_literal_non_constant_arg(self):
         sig = (StringLiteralType(values=frozenset({"month"})),)
-        args = [ast.Field(chain=["unit"])]
-        res = compare_types([StringType()], sig, args=args)
+        res = compare_types([StringType()], sig, args=[ast.Field(chain=["unit"])])
         assert res is False
 
     def test_compare_types_string_literal_no_args_provided(self):
@@ -101,8 +98,7 @@ class TestMappings(ClickhouseTestMixin, BaseTest):
 
     def test_compare_types_string_literal_case_insensitive(self):
         sig = (StringLiteralType(values=frozenset({"month"})),)
-        args = [ast.Constant(value="MONTH")]
-        res = compare_types([StringType()], sig, args=args)
+        res = compare_types([StringType()], sig, args=[ast.Constant(value="MONTH")])
         assert res is True
 
     def test_unknown_type_mapping(self):
