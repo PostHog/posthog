@@ -558,7 +558,8 @@ class HogQLPrinter(Visitor[str]):
                     )
 
             # Handle format strings in function names before checking function type
-            if func_meta.using_placeholder_arguments:
+            # For HogQL, don't expand the macro, just display it in its original shape.
+            if func_meta.using_placeholder_arguments and self.dialect != "hogql":
                 return self._render_placeholder_macro(
                     node=node,
                     clickhouse_name=func_meta.clickhouse_name,
