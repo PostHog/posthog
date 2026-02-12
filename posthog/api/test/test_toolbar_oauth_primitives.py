@@ -104,6 +104,24 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
             },
         )
 
+    def test_callback_renders_bridge_with_code_and_state(self):
+        response = self.client.get("/toolbar_oauth/callback?code=test_code&state=test_state")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "openerWindow.postMessage")
+        self.assertContains(response, '"code": "test_code"')
+        self.assertContains(response, '"state": "test_state"')
+
+    def test_callback_renders_bridge_with_error_payload(self):
+        response = self.client.get(
+            "/toolbar_oauth/callback?error=access_denied&error_description=user+cancelled&state=test_state"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '"error": "access_denied"')
+        self.assertContains(response, '"error_description": "user cancelled"')
+        self.assertContains(response, '"state": "test_state"')
+
     @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_exchange_success(self, mock_post):
         start_data = self._start()
