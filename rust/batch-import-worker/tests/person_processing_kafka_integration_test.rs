@@ -116,12 +116,12 @@ fn create_test_events() -> Vec<InternallyCapturedEvent> {
     ]
 }
 
-/// Consume messages from Kafka topic and return them with their keys and headers
+/// Consume messages from Kafka topic and return them with their keys, headers, and payload
 async fn consume_messages_with_metadata(
     topic: &str,
     expected_count: usize,
     timeout: Duration,
-) -> Result<Vec<(Option<String>, CapturedEventHeaders)>> {
+) -> Result<Vec<(Option<String>, CapturedEventHeaders, String)>> {
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", KAFKA_BROKERS)
         .set("group.id", format!("test-{}", Uuid::new_v4()))
@@ -141,9 +141,13 @@ async fn consume_messages_with_metadata(
                 let headers = msg
                     .headers()
                     .map(|h| CapturedEventHeaders::from(h.detach()));
+                let payload = msg
+                    .payload()
+                    .map(|p| String::from_utf8_lossy(p).to_string())
+                    .unwrap_or_default();
 
                 if let Some(headers) = headers {
-                    messages.push((key, headers));
+                    messages.push((key, headers, payload));
                 }
             }
             Ok(Err(e)) => {
@@ -202,8 +206,23 @@ async fn test_person_processing_filter_with_kafka() -> Result<()> {
 
     assert_eq!(messages.len(), 3, "Should have received 3 messages");
 
+    // Verify all payloads deserialize as InternallyCapturedEvent (not as a tuple/array)
+    for (i, (_, _, payload)) in messages.iter().enumerate() {
+        let parsed: serde_json::Value =
+            serde_json::from_str(payload).expect("payload should be valid JSON");
+        assert!(
+            parsed.is_object(),
+            "Message {i} payload should be a JSON object, got: {payload}"
+        );
+        let deserialized: InternallyCapturedEvent = serde_json::from_str(payload).unwrap_or_else(
+            |e| panic!("Message {i} payload should deserialize as InternallyCapturedEvent: {e}"),
+        );
+        assert_eq!(deserialized.inner.token, events[i].inner.token);
+        assert_eq!(deserialized.inner.distinct_id, events[i].inner.distinct_id);
+    }
+
     // Event 1: token1:user1 should have no key and force_disable_person_processing=true
-    let (key1, headers1) = &messages[0];
+    let (key1, headers1, _) = &messages[0];
     assert!(key1.is_none(), "First event should have no key");
     assert_eq!(
         headers1.force_disable_person_processing,
@@ -214,7 +233,7 @@ async fn test_person_processing_filter_with_kafka() -> Result<()> {
     assert_eq!(headers1.distinct_id, Some("user1".to_string()));
 
     // Event 2: token1:user2 should have a key and no force_disable_person_processing
-    let (key2, headers2) = &messages[1];
+    let (key2, headers2, _) = &messages[1];
     assert!(
         key2.is_some(),
         "Second event should have a key (not in filter)"
@@ -227,7 +246,7 @@ async fn test_person_processing_filter_with_kafka() -> Result<()> {
     assert_eq!(headers2.distinct_id, Some("user2".to_string()));
 
     // Event 3: token2:user3 should have no key and force_disable_person_processing=true
-    let (key3, headers3) = &messages[2];
+    let (key3, headers3, _) = &messages[2];
     assert!(key3.is_none(), "Third event should have no key");
     assert_eq!(
         headers3.force_disable_person_processing,
@@ -282,11 +301,17 @@ async fn test_empty_person_processing_filter() -> Result<()> {
     assert_eq!(messages.len(), 3, "Should have received 3 messages");
 
     // All events should have keys and no force_disable_person_processing header
-    for (key, headers) in messages {
+    for (key, headers, payload) in &messages {
         assert!(key.is_some(), "All events should have keys");
         assert_eq!(
             headers.force_disable_person_processing, None,
             "No events should have force_disable_person_processing header"
+        );
+        let parsed: serde_json::Value =
+            serde_json::from_str(payload).expect("payload should be valid JSON");
+        assert!(
+            parsed.is_object(),
+            "Payload should be a JSON object, got: {payload}"
         );
     }
 
