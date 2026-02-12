@@ -354,8 +354,7 @@ export const commentsLogic = kea<commentsLogicType>([
             (s) => [s.user],
             (user) => {
                 return (comment: CommentType): string | null => {
-                    const isOwner = comment.created_by?.uuid === user?.uuid
-                    if (isOwner) {
+                    if (comment.created_by?.uuid === user?.uuid) {
                         return null
                     }
                     return "You can only delete your own comments"
