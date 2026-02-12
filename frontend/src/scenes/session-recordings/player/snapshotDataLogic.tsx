@@ -302,15 +302,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         actions.setLoadingPhase('sequential')
                     }
                 } else {
-                    // If already in sequential phase, don't reset - sequential loading will eventually
-                    // make this timestamp playable. Only reset if we're in an earlier phase.
-                    if (values.loadingPhase !== 'sequential') {
-                        // Reset timestamp-based loading state for clean start
-                        cache.timestampLoadingRange = undefined
-                        cache.timestampLoadingBlobCount = undefined
-                        cache.timestampLoadingStartTime = undefined
-                        actions.setLoadingPhase('find_target')
-                    }
+                    cache.timestampLoadingRange = undefined
+                    cache.timestampLoadingBlobCount = undefined
+                    cache.timestampLoadingStartTime = undefined
+                    actions.setLoadingPhase('find_target')
+                    actions.loadNextSnapshotSource()
                 }
             }
         },
