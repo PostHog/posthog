@@ -36,6 +36,17 @@ from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
 from posthog.api.email_verification import EmailVerifier
+from posthog.api.oauth.toolbar_service import (
+    ToolbarOAuthError,
+    ToolbarOAuthState,
+    build_authorization_url,
+    build_toolbar_oauth_state,
+    exchange_code_for_tokens,
+    get_or_create_toolbar_oauth_application,
+    new_state_nonce,
+    normalize_and_validate_app_url,
+    validate_and_consume_toolbar_oauth_state,
+)
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
@@ -77,6 +88,7 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
+from posthog.utils import render_template
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
@@ -777,6 +789,130 @@ class UserViewSet(
         send_two_factor_auth_disabled_email.delay(user.id)
 
         return Response({"success": True})
+
+
+###
+# Toolbar
+
+
+class ToolbarOAuthStartSerializer(serializers.Serializer):
+    app_url = serializers.URLField()
+    code_challenge = serializers.CharField()
+    code_challenge_method = serializers.ChoiceField(choices=["S256"], default="S256")
+    action_id = serializers.IntegerField(required=False, allow_null=True)
+    experiment_id = serializers.CharField(required=False, allow_null=True)
+    product_tour_id = serializers.CharField(required=False, allow_null=True)
+    user_intent = serializers.CharField(required=False, allow_null=True)
+
+
+class ToolbarOAuthExchangeSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    state = serializers.CharField()
+    code_verifier = serializers.CharField()
+
+
+@session_auth_required
+@require_http_methods(["POST"])
+def toolbar_oauth_start(request):
+    if not settings.TOOLBAR_OAUTH_ENABLED:
+        return HttpResponse(status=404)
+
+    serializer = ToolbarOAuthStartSerializer(data=json.loads(request.body or "{}"))
+    serializer.is_valid(raise_exception=True)
+
+    team = request.user.team
+    if not team:
+        return JsonResponse({"code": "no_team", "detail": "No project found"}, status=400)
+
+    try:
+        app_url = normalize_and_validate_app_url(team, serializer.validated_data["app_url"])
+        base_url = request.build_absolute_uri("/").rstrip("/")
+
+        oauth_app = get_or_create_toolbar_oauth_application(base_url=base_url, user=request.user)
+
+        signed_state, expires_at = build_toolbar_oauth_state(
+            ToolbarOAuthState(
+                nonce=new_state_nonce(),
+                user_id=request.user.id,
+                team_id=team.id,
+                app_url=app_url,
+                action_id=serializer.validated_data.get("action_id"),
+                experiment_id=serializer.validated_data.get("experiment_id"),
+                product_tour_id=serializer.validated_data.get("product_tour_id"),
+                user_intent=serializer.validated_data.get("user_intent"),
+            )
+        )
+
+        authorization_url = build_authorization_url(
+            base_url=base_url,
+            application=oauth_app,
+            state=signed_state,
+            code_challenge=serializer.validated_data["code_challenge"],
+            code_challenge_method=serializer.validated_data.get("code_challenge_method", "S256"),
+        )
+    except ToolbarOAuthError as exc:
+        return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
+
+    return JsonResponse({"authorization_url": authorization_url, "expires_at": expires_at.isoformat()})
+
+
+@session_auth_required
+@require_http_methods(["POST"])
+def toolbar_oauth_exchange(request):
+    if not settings.TOOLBAR_OAUTH_ENABLED:
+        return HttpResponse(status=404)
+
+    # Validate the request
+    serializer = ToolbarOAuthExchangeSerializer(data=json.loads(request.body or "{}"))
+    serializer.is_valid(raise_exception=True)
+
+    # Check if the user has a team
+    team = request.user.team
+    if not team:
+        return JsonResponse({"code": "no_team", "detail": "No project found"}, status=400)
+
+    try:
+        state_payload = validate_and_consume_toolbar_oauth_state(
+            signed_state=serializer.validated_data["state"],
+            request_user=request.user,
+            request_team=team,
+        )
+        base_url = request.build_absolute_uri("/").rstrip("/")
+        oauth_app = get_or_create_toolbar_oauth_application(base_url=base_url, user=request.user)
+
+        token_payload = exchange_code_for_tokens(
+            base_url=base_url,
+            client_id=oauth_app.client_id,
+            code=serializer.validated_data["code"],
+            code_verifier=serializer.validated_data["code_verifier"],
+        )
+        # keep response minimal and explicit
+        return JsonResponse(
+            {
+                "access_token": token_payload["access_token"],
+                "refresh_token": token_payload["refresh_token"],
+                "token_type": token_payload["token_type"],
+                "expires_in": token_payload["expires_in"],
+                "scope": token_payload["scope"],
+                "app_url": state_payload["app_url"],
+            }
+        )
+    except ToolbarOAuthError as exc:
+        return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
+
+
+@session_auth_required
+def toolbar_oauth_callback(request):
+    # scaffold only, not implemented
+    return render_template(
+        "toolbar_oauth_callback.html",
+        request=request,
+        context={
+            "code_present": True,
+            "error_code": None,
+            "error_description": None,
+        },
+    )
 
 
 @session_auth_required
