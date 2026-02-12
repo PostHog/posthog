@@ -96,8 +96,8 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
         issue = self.get_object()
         try:
             issue.resolve()
-        except ValueError as e:
-            return Response({"detail": str(e)}, status=HTTP_400_BAD_REQUEST)
+        except ValueError:
+            return Response({"detail": "Could not resolve health issue."}, status=HTTP_400_BAD_REQUEST)
         return Response(HealthIssueSerializer(issue).data)
 
     @action(methods=["GET"], detail=False)
