@@ -44,7 +44,7 @@ class GithubSource(SimpleSource[GithubSourceConfig]):
                 list[FieldType],
                 [
                     SourceFieldSelectConfig(
-                        name="auth_type",
+                        name="auth_method",
                         label="Authentication type",
                         required=True,
                         defaultValue="oauth",
@@ -118,14 +118,14 @@ class GithubSource(SimpleSource[GithubSourceConfig]):
         return integration
 
     def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:
-        if config.auth_type.selection == "pat":
-            if not config.auth_type.personal_access_token:
+        if config.auth_method.selection == "pat":
+            if not config.auth_method.personal_access_token:
                 raise ValueError("Missing personal access token")
-            return config.auth_type.personal_access_token
+            return config.auth_method.personal_access_token
 
-        if not config.auth_type.github_integration_id:
+        if not config.auth_method.github_integration_id:
             raise ValueError("Missing GitHub integration ID")
-        integration = self._get_github_integration(config.auth_type.github_integration_id, team_id)
+        integration = self._get_github_integration(config.auth_method.github_integration_id, team_id)
         if not integration.access_token:
             raise ValueError("GitHub access token not found")
         return integration.access_token

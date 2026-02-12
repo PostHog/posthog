@@ -38,24 +38,24 @@ class TestMigrateGithubJobInputs:
             (
                 {"personal_access_token": "ghp_test123", "repository": "owner/repo"},
                 {
-                    "auth_type": {"selection": "pat", "personal_access_token": "ghp_test123"},
+                    "auth_method": {"selection": "pat", "personal_access_token": "ghp_test123"},
                     "repository": "owner/repo",
                 },
             ),
             (
                 {"github_integration_id": 42, "repository": "org/project"},
                 {
-                    "auth_type": {"selection": "oauth", "github_integration_id": "42"},
+                    "auth_method": {"selection": "oauth", "github_integration_id": "42"},
                     "repository": "org/project",
                 },
             ),
             (
                 {
-                    "auth_type": {"selection": "pat", "personal_access_token": "ghp_existing"},
+                    "auth_method": {"selection": "pat", "personal_access_token": "ghp_existing"},
                     "repository": "owner/repo",
                 },
                 {
-                    "auth_type": {"selection": "pat", "personal_access_token": "ghp_existing"},
+                    "auth_method": {"selection": "pat", "personal_access_token": "ghp_existing"},
                     "repository": "owner/repo",
                 },
             ),
@@ -75,14 +75,14 @@ class TestMigrateGithubJobInputs:
         [
             (
                 {
-                    "auth_type": {"selection": "pat", "personal_access_token": "ghp_test123"},
+                    "auth_method": {"selection": "pat", "personal_access_token": "ghp_test123"},
                     "repository": "owner/repo",
                 },
                 {"personal_access_token": "ghp_test123", "repository": "owner/repo"},
             ),
             (
                 {
-                    "auth_type": {"selection": "oauth", "github_integration_id": "42"},
+                    "auth_method": {"selection": "oauth", "github_integration_id": "42"},
                     "repository": "org/project",
                 },
                 {"github_integration_id": "42", "repository": "org/project"},

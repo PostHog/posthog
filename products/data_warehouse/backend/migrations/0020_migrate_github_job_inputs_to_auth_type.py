@@ -10,18 +10,18 @@ def migrate_github_job_inputs(apps, schema_editor):
             continue
 
         # Already migrated
-        if "auth_type" in job_inputs:
+        if "auth_method" in job_inputs:
             continue
 
         if "personal_access_token" in job_inputs:
             pat = job_inputs.pop("personal_access_token")
-            job_inputs["auth_type"] = {
+            job_inputs["auth_method"] = {
                 "selection": "pat",
                 "personal_access_token": pat,
             }
         elif "github_integration_id" in job_inputs:
             integration_id = job_inputs.pop("github_integration_id")
-            job_inputs["auth_type"] = {
+            job_inputs["auth_method"] = {
                 "selection": "oauth",
                 "github_integration_id": integration_id,
             }
@@ -38,16 +38,16 @@ def reverse_migrate_github_job_inputs(apps, schema_editor):
         if not isinstance(job_inputs, dict):
             continue
 
-        auth_type = job_inputs.get("auth_type")
-        if not isinstance(auth_type, dict):
+        auth_method = job_inputs.get("auth_method")
+        if not isinstance(auth_method, dict):
             continue
 
-        if auth_type.get("selection") == "pat":
-            job_inputs["personal_access_token"] = auth_type.get("personal_access_token", "")
-        elif auth_type.get("selection") == "oauth":
-            job_inputs["github_integration_id"] = auth_type.get("github_integration_id")
+        if auth_method.get("selection") == "pat":
+            job_inputs["personal_access_token"] = auth_method.get("personal_access_token", "")
+        elif auth_method.get("selection") == "oauth":
+            job_inputs["github_integration_id"] = auth_method.get("github_integration_id")
 
-        job_inputs.pop("auth_type", None)
+        job_inputs.pop("auth_method", None)
         source.job_inputs = job_inputs
         source.save(update_fields=["job_inputs"])
 

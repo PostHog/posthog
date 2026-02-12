@@ -119,7 +119,7 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class GithubSourceConfig(config.Config):
-    auth_type: GithubAuthTypeConfig
+    auth_method: GithubAuthTypeConfig
     repository: str
 
 

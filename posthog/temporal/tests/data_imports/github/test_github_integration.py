@@ -22,7 +22,7 @@ def external_data_source(team):
         status="running",
         source_type="Github",
         job_inputs={
-            "auth_type": {"selection": "pat", "personal_access_token": "test-token"},
+            "auth_method": {"selection": "pat", "personal_access_token": "test-token"},
             "repository": "owner/repo",
         },
     )
