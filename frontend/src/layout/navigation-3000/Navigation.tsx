@@ -129,7 +129,9 @@ export function Navigation({
                             tabIndex={0}
                             id="main-content"
                             className={cn(
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 transition-[width] duration-300 rounded-t',
+                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 rounded-t',
+                                // Only apply width transition when not using the new side panel (avoids delay when opening)
+                                !isRemovingSidePanelFlag && 'transition-[width] duration-300',
                                 {
                                     'p-0':
                                         sceneConfig?.layout === 'app-raw-no-header' ||
