@@ -23,6 +23,10 @@ Retrieves recent activity log entries showing who changed what and when.
 - item_id: Filter by specific item ID. Optional.
 - user_email: Filter by the email of the user who made the change. Optional.
 - limit: Number of entries to return (1-50, default 20).
+
+## Important note on organization-level logs:
+Some activity logs are organization-level — they are not tied to a specific project but to the organization as a whole. Examples include Organization, OrganizationDomain, OrganizationMembership, Role, User, and similar scopes that represent org-wide settings, members, or permissions rather than project-specific entities like feature flags or insights.
+These logs are always captured, but they are only included in query results when the project has the "Include organization-level activity" setting enabled. If the user asks about such changes and no results are found, let them know this setting may need to be turned on in Project settings > Activity log.
 """.strip()
 
 READ_DATA_PROMPT = """
