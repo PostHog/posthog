@@ -34,6 +34,7 @@ class MatchedRecording(TypedDict):
 class CommonActor(TypedDict):
     id: Union[uuid.UUID, str]
     created_at: Optional[str]
+    last_seen_at: Optional[str]
     properties: dict[str, Any]
     matched_recordings: list[MatchedRecording]
     value_at_data_point: Optional[float]
