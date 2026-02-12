@@ -354,13 +354,16 @@ def send_alerts(
         )
 
         # Post the summary message
-        slack_client.chat_postMessage(channel=channel, blocks=blocks)
+        response = slack_client.chat_postMessage(channel=channel, blocks=blocks)
+
+        # Get channel ID from the response (files_upload_v2 requires channel ID, not name)
+        channel_id = response.get("channel")
 
         # Upload detailed report as a file
         csv_report = generate_csv_report(results)
         timestamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
         slack_client.files_upload_v2(
-            channel=channel,
+            channel=channel_id,
             content=csv_report,
             filename=f"distinct_id_usage_report_{timestamp}.csv",
             title="Distinct ID Usage Report",
