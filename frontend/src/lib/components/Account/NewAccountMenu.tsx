@@ -207,7 +207,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 tooltip="Project settings"
                                                 tooltipPlacement="right"
                                                 data-attr="top-menu-project-settings"
-                                                to={urls.project(currentTeam?.id, urls.settings('project'))}
+                                                to={urls.project(currentTeam.id, urls.settings('project'))}
                                             >
                                                 <IconGear />
                                                 Project settings
