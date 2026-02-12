@@ -96,6 +96,7 @@ export class SessionRecordingIngester {
     >
     private readonly kafkaMetadataProducer: KafkaProducerWrapper
     private readonly kafkaMessageProducer: KafkaProducerWrapper
+    private readonly ingestionWarningProducer?: KafkaProducerWrapper
     private readonly overflowTopic: string
     private readonly topTracker: TopTracker
     private topTrackerLogInterval?: NodeJS.Timeout
@@ -127,6 +128,7 @@ export class SessionRecordingIngester {
 
         this.kafkaMetadataProducer = kafkaMetadataProducer
         this.kafkaMessageProducer = kafkaMessageProducer
+        this.ingestionWarningProducer = ingestionWarningProducer
 
         let s3Client: S3Client | null = null
         if (
@@ -443,7 +445,12 @@ export class SessionRecordingIngester {
         const promiseResults = await this.promiseScheduler.waitForAllSettled()
 
         // Clean up resources owned by this ingester
+        // Note: kafkaMetadataProducer may be shared (e.g., hub.kafkaProducer in production),
+        // so callers are responsible for disconnecting it if they created it
         await this.kafkaMessageProducer.disconnect()
+        if (this.ingestionWarningProducer) {
+            await this.ingestionWarningProducer.disconnect()
+        }
         await this.redisPool.drain()
         await this.redisPool.clear()
         await this.restrictionRedisPool.drain()

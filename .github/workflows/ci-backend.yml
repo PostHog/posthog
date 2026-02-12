@@ -40,6 +40,7 @@ env:
     # this is a fake key so this workflow can run for external contributors as they do not have access to secrets (that we don't need here)
     OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    SANDBOX_JWT_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
 
 permissions:
     contents: write
@@ -375,6 +376,26 @@ jobs:
                   path: .test_durations
                   include-hidden-files: true
                   retention-days: 2
+    check-idor-coverage:
+        needs: [changes]
+        if: needs.changes.outputs.backend == 'true'
+        timeout-minutes: 5
+        name: Check IDOR semgrep rule coverage
+        runs-on: depot-ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+            - name: Set up Python
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              with:
+                  python-version: 3.12.12
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: 0.9.9
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            - name: Check IDOR model coverage
+              run: python .github/scripts/check-idor-model-coverage.py
 
     check-migrations:
         needs: [changes]
@@ -855,6 +876,7 @@ jobs:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
+                  lfs: true
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
@@ -1376,8 +1398,7 @@ jobs:
                 async-migrations,
                 turbo-discover,
                 turbo-tests,
-                handle-snapshots,
-            ]
+                handle-snapshots, check-idor-coverage,]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -1405,6 +1426,12 @@ jobs:
                   # Check async migrations - must pass for Django Tests to be green
                   if [[ "${{ needs.async-migrations.result }}" != "success" && "${{ needs.async-migrations.result }}" != "skipped" ]]; then
                     echo "Async migrations tests failed."
+                    exit 1
+                  fi
+
+                  # Check IDOR coverage - must pass for Django Tests to be green
+                  if [[ "${{ needs.check-idor-coverage.result }}" != "success" && "${{ needs.check-idor-coverage.result }}" != "skipped" ]]; then
+                    echo "IDOR coverage check failed."
                     exit 1
                   fi
 

@@ -185,6 +185,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         try:
             ## Upsert cohort_id as a cohort might have been soft deleted
+            # nosemgrep: idor-lookup-without-team (cohort scoped to team before use)
             _ = ErrorTrackingIssueCohort.objects.update_or_create(issue=issue, defaults={"cohort_id": cohort.id})
         except Exception as e:
             posthoganalytics.capture_exception(
@@ -297,6 +298,7 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
             if not Role.objects.filter(id=assignee["id"], organization=organization).exists():
                 raise ValidationError("Assignee role does not belong to this organization.")
 
+        # nosemgrep: idor-lookup-without-team (assignee validated against org above)
         assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
             issue_id=issue.id,
             defaults={

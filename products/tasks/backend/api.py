@@ -26,6 +26,7 @@ from posthog.storage import object_storage
 
 from .models import Task, TaskRun
 from .serializers import (
+    ConnectionTokenResponseSerializer,
     ErrorResponseSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
@@ -33,11 +34,13 @@ from .serializers import (
     TaskRunArtifactPresignResponseSerializer,
     TaskRunArtifactsUploadRequestSerializer,
     TaskRunArtifactsUploadResponseSerializer,
+    TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunSessionLogsQuerySerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
 )
+from .services.connection_token import create_sandbox_connection_token
 from .temporal.client import execute_task_processing_workflow, execute_video_segment_clustering_workflow
 
 logger = logging.getLogger(__name__)
@@ -152,7 +155,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(TaskSerializer(task).data)
 
     @validated_request(
-        request_serializer=None,
+        request_serializer=TaskRunCreateRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             404: OpenApiResponse(description="Task not found"),
@@ -163,10 +166,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
         task = cast(Task, self.get_object())
+        mode = request.validated_data.get("mode", "background")
 
-        logger.info(f"Creating task run for task {task.id}")
+        logger.info(f"Creating task run for task {task.id} with mode={mode}")
 
-        task_run = task.create_run()
+        task_run = task.create_run(mode=mode)
 
         logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
 
@@ -301,22 +305,49 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def partial_update(self, request, *args, **kwargs):
         task_run = cast(TaskRun, self.get_object())
+        old_status = task_run.status
 
         # Update fields from validated data
         for key, value in request.validated_data.items():
             setattr(task_run, key, value)
 
+        new_status = request.validated_data.get("status")
+        terminal_statuses = [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]
+
         # Auto-set completed_at if status is completed or failed
-        if "status" in request.validated_data and request.validated_data["status"] in [
-            TaskRun.Status.COMPLETED,
-            TaskRun.Status.FAILED,
-        ]:
+        if new_status in terminal_statuses:
             if not task_run.completed_at:
                 task_run.completed_at = timezone.now()
+
+            # Signal Temporal workflow if status changed to terminal state
+            if old_status != new_status:
+                self._signal_workflow_completion(
+                    task_run,
+                    new_status,
+                    request.validated_data.get("error_message"),
+                )
 
         task_run.save()
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+
+    def _signal_workflow_completion(self, task_run: TaskRun, status: str, error_message: str | None) -> None:
+        """Send completion signal to Temporal workflow."""
+        from posthog.temporal.common.client import sync_connect
+
+        from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+
+        try:
+            client = sync_connect()
+            workflow_id = f"task-processing-{task_run.task_id}-{task_run.id}"
+            handle = client.get_workflow_handle(workflow_id)
+
+            import asyncio
+
+            asyncio.run(handle.signal(ProcessTaskWorkflow.complete_task, args=[status, error_message]))
+            logger.info(f"Signaled workflow completion for task run {task_run.id} with status {status}")
+        except Exception as e:
+            logger.warning(f"Failed to signal workflow completion for task run {task_run.id}: {e}")
 
     def safely_get_queryset(self, queryset):
         # Task runs are always scoped to a specific task
@@ -511,7 +542,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": expires_in})
         return Response(serializer.data)
 
-    @validated_request(
+    @extend_schema(
         responses={
             200: OpenApiResponse(description="Log content in JSONL format"),
             404: OpenApiResponse(description="Task run not found"),
@@ -531,6 +562,30 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response["Cache-Control"] = "no-cache"
         response["Server-Timing"] = timer.to_header_string()
         return response
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=ConnectionTokenResponseSerializer,
+                description="Connection token for direct sandbox connection",
+            ),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get sandbox connection token",
+        description="Generate a JWT token for direct connection to the sandbox. Valid for 24 hours.",
+    )
+    @action(detail=True, methods=["get"], url_path="connection_token", required_scopes=["task:read"])
+    def connection_token(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        user = request.user
+
+        token = create_sandbox_connection_token(
+            task_run=task_run,
+            user_id=user.id,
+            distinct_id=user.distinct_id,
+        )
+
+        return Response(ConnectionTokenResponseSerializer({"token": token}).data)
 
     @validated_request(
         query_serializer=TaskRunSessionLogsQuerySerializer,

@@ -157,9 +157,7 @@ jobs:
                   # Check all JS bundles in the dist folder
                   pattern: 'frontend/dist/**/*.js'
                   # Exclude source maps and chunk files (chunk hashes change every build)
-                  exclude: |
-                      **/*.js.map
-                      **/chunk*.js
+                  exclude: '{**/*.js.map,**/chunk*.js}'
                   # Only show large changes
                   minimum-change-threshold: 1000
                   order-by: 'Size:desc'
