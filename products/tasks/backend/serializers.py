@@ -19,6 +19,8 @@ class TaskSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     title = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    origin_product = serializers.ChoiceField(choices=Task.OriginProduct.choices, required=False)
 
     class Meta:
         model = Task
@@ -265,3 +267,44 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+
+
+class ConnectionTokenResponseSerializer(serializers.Serializer):
+    """Response containing a JWT token for direct sandbox connection"""
+
+    token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")
+
+
+class TaskRunCreateRequestSerializer(serializers.Serializer):
+    """Request body for creating a new task run"""
+
+    mode = serializers.ChoiceField(
+        choices=["interactive", "background"],
+        required=False,
+        default="background",
+        help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
+    )
+
+
+class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
+    """Query parameters for filtering task run log events"""
+
+    after = serializers.DateTimeField(
+        required=False,
+        help_text="Only return events after this ISO8601 timestamp",
+    )
+    event_types = serializers.CharField(
+        required=False,
+        help_text="Comma-separated list of event types to include",
+    )
+    exclude_types = serializers.CharField(
+        required=False,
+        help_text="Comma-separated list of event types to exclude",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=1000,
+        min_value=1,
+        max_value=5000,
+        help_text="Maximum number of entries to return (default 1000, max 5000)",
+    )

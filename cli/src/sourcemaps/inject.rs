@@ -99,7 +99,7 @@ pub fn get_release_for_maps<'a>(
 ) -> Result<Option<Release>> {
     // We need to fetch or create a release if: the user specified one, any pair is missing one, or the user
     // forced release overriding
-    let needs_release = release.project.is_some()
+    let needs_release = release.name.is_some()
         || release.version.is_some()
         || maps.into_iter().any(|p| !p.has_release_id());
 

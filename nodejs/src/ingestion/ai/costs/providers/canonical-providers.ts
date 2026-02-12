@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-02-09 10:21:45 UTC
+// Generated at: 2026-02-11 20:08:04 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -9,6 +9,7 @@ export type CanonicalProvider =
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
+    | 'ambient-bf16'
     | 'anthropic'
     | 'arcee-ai'
     | 'arcee-ai-bf16'
@@ -42,7 +43,6 @@ export type CanonicalProvider =
     | 'deepseek'
     | 'featherless'
     | 'fireworks'
-    | 'fireworks-fp16'
     | 'fireworks-fp8'
     | 'friendli'
     | 'gmicloud-fp8'
@@ -58,6 +58,7 @@ export type CanonicalProvider =
     | 'hyperbolic-fp8'
     | 'inception'
     | 'inceptron-fp8'
+    | 'inceptron-int4'
     | 'infermatic'
     | 'infermatic-bf16'
     | 'inflection'

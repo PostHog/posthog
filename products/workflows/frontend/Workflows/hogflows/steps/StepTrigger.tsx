@@ -47,16 +47,95 @@ import { HogFlowAction } from '../types'
 import { batchTriggerLogic } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 
-export function StepTriggerConfiguration({
-    node,
-}: {
-    node: Node<Extract<HogFlowAction, { type: 'trigger' }>>
-}): JSX.Element {
+type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
+type EventTriggerConfig = {
+    type: 'event'
+    filters: {
+        events?: any[]
+        properties?: any[]
+        actions?: any[]
+        filter_test_accounts?: boolean
+    }
+}
+
+const SUPPORT_STATUS_VALUES = ['new', 'open', 'pending', 'on_hold', 'resolved'] as const
+type SupportStatusValue = (typeof SUPPORT_STATUS_VALUES)[number]
+
+const SUPPORT_TRIGGER_TYPES = {
+    statusChanged: 'support_ticket_status_changed',
+    messageSent: 'support_message_sent',
+    messageReceived: 'support_message_received',
+} as const
+
+type SupportTriggerType = (typeof SUPPORT_TRIGGER_TYPES)[keyof typeof SUPPORT_TRIGGER_TYPES]
+
+function getEventId(config: EventTriggerConfig): string | null {
+    const [firstEvent] = config.filters?.events ?? []
+    return typeof firstEvent?.id === 'string' ? firstEvent.id : null
+}
+
+function isSupportStatusValue(value: unknown): value is SupportStatusValue {
+    return typeof value === 'string' && SUPPORT_STATUS_VALUES.includes(value as SupportStatusValue)
+}
+
+function getSupportNewStatus(config: EventTriggerConfig): SupportStatusValue {
+    const statusProperty = (config.filters?.properties ?? []).find((property: any) => property?.key === 'new_status')
+    const statusValue = Array.isArray(statusProperty?.value) ? statusProperty.value[0] : statusProperty?.value
+
+    return isSupportStatusValue(statusValue) ? statusValue : 'new'
+}
+
+function supportStatusChangedFilters(newStatus: SupportStatusValue): EventTriggerConfig['filters'] {
+    return {
+        events: [{ id: '$conversation_ticket_status_changed', type: 'events', name: 'Ticket status changed' }],
+        properties: [
+            {
+                key: 'new_status',
+                value: newStatus,
+                operator: 'exact',
+                type: 'event',
+            },
+        ],
+    }
+}
+
+function isSupportStatusChangedConfig(config: any): config is EventTriggerConfig {
+    return config.type === 'event' && getEventId(config) === '$conversation_ticket_status_changed'
+}
+
+function isSupportMessageSentConfig(config: any): config is EventTriggerConfig {
+    return config.type === 'event' && getEventId(config) === '$conversation_message_sent'
+}
+
+function isSupportMessageReceivedConfig(config: any): config is EventTriggerConfig {
+    return config.type === 'event' && getEventId(config) === '$conversation_message_received'
+}
+
+function getTriggerDisplayType(type: string, config: any): string | SupportTriggerType {
+    if (type !== 'event') {
+        return type
+    }
+
+    if (isSupportStatusChangedConfig(config)) {
+        return SUPPORT_TRIGGER_TYPES.statusChanged
+    }
+    if (isSupportMessageSentConfig(config)) {
+        return SUPPORT_TRIGGER_TYPES.messageSent
+    }
+    if (isSupportMessageReceivedConfig(config)) {
+        return SUPPORT_TRIGGER_TYPES.messageReceived
+    }
+
+    return type
+}
+
+export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const type = node.data.config.type
+    const displayType = getTriggerDisplayType(type, node.data.config)
     const validationResult = actionValidationErrorsById[node.id]
 
     const triggerOptions = [
@@ -135,6 +214,44 @@ export function StepTriggerConfiguration({
         })
     }
 
+    if (featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT]) {
+        triggerOptions.push(
+            {
+                label: 'Ticket status changed',
+                value: SUPPORT_TRIGGER_TYPES.statusChanged,
+                icon: <IconBolt />,
+                labelInMenu: (
+                    <div className="flex flex-col my-1">
+                        <div className="font-semibold">Ticket status changed</div>
+                        <p className="text-xs text-muted">Trigger when a ticket status changes to a selected status</p>
+                    </div>
+                ),
+            },
+            {
+                label: 'Ticket message sent',
+                value: SUPPORT_TRIGGER_TYPES.messageSent,
+                icon: <IconBolt />,
+                labelInMenu: (
+                    <div className="flex flex-col my-1">
+                        <div className="font-semibold">Ticket message sent</div>
+                        <p className="text-xs text-muted">Trigger when a teammate replies on a ticket</p>
+                    </div>
+                ),
+            },
+            {
+                label: 'Ticket message received',
+                value: SUPPORT_TRIGGER_TYPES.messageReceived,
+                icon: <IconBolt />,
+                labelInMenu: (
+                    <div className="flex flex-col my-1">
+                        <div className="font-semibold">Ticket message received</div>
+                        <p className="text-xs text-muted">Trigger when a customer sends a message on a ticket</p>
+                    </div>
+                ),
+            }
+        )
+    }
+
     return (
         <div className="flex flex-col items-start w-full gap-2" data-attr="workflow-trigger">
             <span className="flex gap-1">
@@ -145,76 +262,115 @@ export function StepTriggerConfiguration({
             <LemonField.Pure error={validationResult?.errors?.type}>
                 <LemonSelect
                     options={triggerOptions}
-                    value={type}
+                    value={displayType}
                     placeholder="Select trigger type"
                     onChange={(value) => {
                         value === 'event'
                             ? setWorkflowActionConfig(node.id, { type: 'event', filters: {} })
-                            : value === 'webhook'
+                            : value === SUPPORT_TRIGGER_TYPES.statusChanged
                               ? setWorkflowActionConfig(node.id, {
-                                    type: 'webhook',
-                                    template_id: 'template-source-webhook',
-                                    inputs: {},
+                                    type: 'event',
+                                    filters: supportStatusChangedFilters('new'),
                                 })
-                              : value === 'manual'
+                              : value === SUPPORT_TRIGGER_TYPES.messageSent
                                 ? setWorkflowActionConfig(node.id, {
-                                      type: 'manual',
-                                      template_id: 'template-source-webhook',
-                                      inputs: {
-                                          event: {
-                                              order: 0,
-                                              value: '$workflow_triggered',
-                                          },
-                                          distinct_id: {
-                                              order: 1,
-                                              value: '{request.body.user_id}',
-                                          },
-                                          method: {
-                                              order: 2,
-                                              value: 'POST',
-                                          },
+                                      type: 'event',
+                                      filters: {
+                                          events: [
+                                              {
+                                                  id: '$conversation_message_sent',
+                                                  type: 'events',
+                                                  name: 'Ticket message sent',
+                                              },
+                                          ],
                                       },
                                   })
-                                : value === 'schedule'
+                                : value === SUPPORT_TRIGGER_TYPES.messageReceived
                                   ? setWorkflowActionConfig(node.id, {
-                                        type: 'schedule',
-                                        template_id: 'template-source-webhook',
-                                        inputs: {
-                                            event: {
-                                                order: 0,
-                                                value: '$workflow_triggered',
-                                            },
-                                            distinct_id: {
-                                                order: 1,
-                                                value: '{request.body.user_id}',
-                                            },
-                                            method: {
-                                                order: 2,
-                                                value: 'POST',
-                                            },
+                                        type: 'event',
+                                        filters: {
+                                            events: [
+                                                {
+                                                    id: '$conversation_message_received',
+                                                    type: 'events',
+                                                    name: 'Ticket message received',
+                                                },
+                                            ],
                                         },
-                                        scheduled_at: undefined,
                                     })
-                                  : value === 'batch'
+                                  : value === 'webhook'
                                     ? setWorkflowActionConfig(node.id, {
-                                          type: 'batch',
-                                          filters: {
-                                              properties: [],
-                                          },
-                                          scheduled_at: undefined,
+                                          type: 'webhook',
+                                          template_id: 'template-source-webhook',
+                                          inputs: {},
                                       })
-                                    : value === 'tracking_pixel'
+                                    : value === 'manual'
                                       ? setWorkflowActionConfig(node.id, {
-                                            type: 'tracking_pixel',
-                                            template_id: 'template-source-webhook-pixel',
-                                            inputs: {},
+                                            type: 'manual',
+                                            template_id: 'template-source-webhook',
+                                            inputs: {
+                                                event: {
+                                                    order: 0,
+                                                    value: '$workflow_triggered',
+                                                },
+                                                distinct_id: {
+                                                    order: 1,
+                                                    value: '{request.body.user_id}',
+                                                },
+                                                method: {
+                                                    order: 2,
+                                                    value: 'POST',
+                                                },
+                                            },
                                         })
-                                      : null
+                                      : value === 'schedule'
+                                        ? setWorkflowActionConfig(node.id, {
+                                              type: 'schedule',
+                                              template_id: 'template-source-webhook',
+                                              inputs: {
+                                                  event: {
+                                                      order: 0,
+                                                      value: '$workflow_triggered',
+                                                  },
+                                                  distinct_id: {
+                                                      order: 1,
+                                                      value: '{request.body.user_id}',
+                                                  },
+                                                  method: {
+                                                      order: 2,
+                                                      value: 'POST',
+                                                  },
+                                              },
+                                              scheduled_at: undefined,
+                                          })
+                                        : value === 'batch'
+                                          ? setWorkflowActionConfig(node.id, {
+                                                type: 'batch',
+                                                filters: {
+                                                    properties: [],
+                                                },
+                                                scheduled_at: undefined,
+                                            })
+                                          : value === 'tracking_pixel'
+                                            ? setWorkflowActionConfig(node.id, {
+                                                  type: 'tracking_pixel',
+                                                  template_id: 'template-source-webhook-pixel',
+                                                  inputs: {},
+                                              })
+                                            : null
                     }}
                 />
             </LemonField.Pure>
             {node.data.config.type === 'event' ? (
-                <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
+                isSupportStatusChangedConfig(node.data.config) ? (
+                    <StepTriggerConfigurationSupportStatusChanged action={node.data} config={node.data.config} />
+                ) : isSupportMessageSentConfig(node.data.config) ? (
+                    <StepTriggerConfigurationSupportMessage kind="sent" />
+                ) : isSupportMessageReceivedConfig(node.data.config) ? (
+                    <StepTriggerConfigurationSupportMessage kind="received" />
+                ) : (
+                    <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
+                )
             ) : node.data.config.type === 'webhook' ? (
                 <StepTriggerConfigurationWebhook action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'manual' ? (
@@ -230,12 +386,61 @@ export function StepTriggerConfiguration({
     )
 }
 
+function StepTriggerConfigurationSupportStatusChanged({
+    action,
+    config,
+}: {
+    action: TriggerAction
+    config: EventTriggerConfig
+}): JSX.Element {
+    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const selectedStatus = getSupportNewStatus(config)
+
+    return (
+        <div className="flex flex-col gap-2 w-full">
+            <p className="mb-0 text-sm text-muted-alt">
+                This trigger runs when a ticket changes to the selected status.
+            </p>
+            <LemonField.Pure label="New status">
+                <LemonSelect<SupportStatusValue>
+                    value={selectedStatus}
+                    options={[
+                        { label: 'New', value: 'new' },
+                        { label: 'Open', value: 'open' },
+                        { label: 'Pending', value: 'pending' },
+                        { label: 'On hold', value: 'on_hold' },
+                        { label: 'Resolved', value: 'resolved' },
+                    ]}
+                    onChange={(value) =>
+                        setWorkflowActionConfig(action.id, {
+                            type: 'event',
+                            filters: supportStatusChangedFilters(value),
+                        })
+                    }
+                />
+            </LemonField.Pure>
+        </div>
+    )
+}
+
+function StepTriggerConfigurationSupportMessage({ kind }: { kind: 'sent' | 'received' }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2 w-full">
+            <p className="mb-0 text-sm text-muted-alt">
+                {kind === 'sent'
+                    ? 'This trigger runs when a teammate sends a reply on a ticket.'
+                    : 'This trigger runs when a customer sends a message on a ticket.'}
+            </p>
+        </div>
+    )
+}
+
 function StepTriggerConfigurationEvents({
     action,
     config,
 }: {
-    action: Extract<HogFlowAction, { type: 'trigger' }>
-    config: Extract<HogFlowAction['config'], { type: 'event' }>
+    action: TriggerAction
+    config: EventTriggerConfig
 }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
@@ -297,7 +502,7 @@ function StepTriggerConfigurationWebhook({
     const webhookUrl = workflow.id === 'new' ? null : publicWebhooksHostOrigin() + '/public/webhooks/' + workflow.id
 
     return (
-        <>
+        <div className="w-full">
             <LemonCollapse
                 className="shrink-0"
                 defaultActiveKey="instructions"
@@ -339,7 +544,7 @@ function StepTriggerConfigurationWebhook({
                 }
                 errors={validationResult?.errors}
             />
-        </>
+        </div>
     )
 }
 

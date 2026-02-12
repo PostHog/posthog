@@ -66,7 +66,7 @@ describe('Feature Routing Integration', () => {
 
     it.each(integrationTests)('should return $description', async ({ features, expectedTools }) => {
         const context = createMockContext()
-        const tools = await getToolsFromContext(context, features)
+        const tools = await getToolsFromContext(context, { features })
         const toolNames = tools.map((t) => t.name)
 
         for (const tool of expectedTools) {
