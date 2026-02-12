@@ -920,6 +920,7 @@ export interface ClickHousePerson {
     is_deleted: number
     timestamp: string
     version: number
+    last_seen_at: string | null
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4

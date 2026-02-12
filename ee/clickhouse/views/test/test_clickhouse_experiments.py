@@ -196,6 +196,129 @@ class TestExperimentCRUD(APILicensedTest):
         created_ff_default = FeatureFlag.objects.get(key=ff_key_default)
         self.assertEqual(created_ff_default.ensure_experience_continuity, False)
 
+    def test_creating_experiment_with_rollout_percentage(self):
+        ff_key = "test-rollout-flag"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment with Rollout",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {"rollout_percentage": 50},
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(created_ff.filters["groups"][0]["rollout_percentage"], 50)
+
+    def test_creating_experiment_without_rollout_percentage_defaults_to_100(self):
+        ff_key = "test-default-rollout-flag"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment Default Rollout",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(created_ff.filters["groups"][0]["rollout_percentage"], 100)
+
+    def test_updating_experiment_preserves_release_conditions(self):
+        ff_key = "test-update-rollout-flag"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment Update Rollout",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {"rollout_percentage": 80},
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(created_ff.filters["groups"][0]["rollout_percentage"], 80)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        created_ff.refresh_from_db()
+        self.assertEqual(created_ff.filters["groups"][0]["rollout_percentage"], 80)
+
+    def test_updating_experiment_applies_rollout_percentage_to_feature_flag(self):
+        ff_key = "test-rollout-flag"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment Rollout",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {"rollout_percentage": 80},
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                    ],
+                    "rollout_percentage": 30,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flag = FeatureFlag.objects.get(key=ff_key, team=self.team)
+        self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], 30)
+
     def test_creating_updating_web_experiment(self):
         ff_key = "a-b-tests"
         response = self.client.post(
@@ -958,6 +1081,23 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
             {"metrics": [dict_properties_metric]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "metrics")
+
+    def test_rejects_metrics_with_invalid_kind(self):
+        """Regression test: invalid metric kinds should be rejected, not silently skipped."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Invalid kind experiment",
+                "feature_flag_key": "invalid-kind-flag",
+                "parameters": {},
+                "filters": {},
+                "metrics": [{"kind": "ExperimentEventMetric", "event": "test"}],
+            },
             format="json",
         )
 
@@ -2669,8 +2809,21 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "filters": {"events": [{"order": 0, "id": "$pageview"}]},
-                "metrics": [{"metric_type": "count", "count_query": {"events": [{"id": "$pageview"}]}}],
-                "metrics_secondary": [{"metric_type": "count", "count_query": {"events": [{"id": "$click"}]}}],
+                "metrics": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    }
+                ],
+                "metrics_secondary": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$click"}]},
+                    }
+                ],
                 "stats_config": {"method": "bayesian"},
                 "exposure_criteria": {"filterTestAccounts": True},
             },
@@ -2777,8 +2930,21 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "filters": {"events": [{"order": 0, "id": "$pageview"}]},
-                "metrics": [{"metric_type": "count", "count_query": {"events": [{"id": "$pageview"}]}}],
-                "metrics_secondary": [{"metric_type": "count", "count_query": {"events": [{"id": "$click"}]}}],
+                "metrics": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    }
+                ],
+                "metrics_secondary": [
+                    {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$click"}]},
+                    }
+                ],
             },
         )
 

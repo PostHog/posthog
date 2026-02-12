@@ -1,4 +1,8 @@
-import { EventHeaders, IncomingEventWithTeam, Team } from '../../types'
+import { Message } from 'node-rdkafka'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
+import { EventHeaders, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import {
@@ -12,8 +16,9 @@ import { createDropOldEventsStep } from '../event-processing/drop-old-events-ste
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 
 export interface PostTeamPreprocessingSubpipelineInput {
+    message: Message
     headers: EventHeaders
-    eventWithTeam: IncomingEventWithTeam
+    event: PluginEvent
     team: Team
 }
 

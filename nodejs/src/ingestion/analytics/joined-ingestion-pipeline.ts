@@ -2,7 +2,6 @@ import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { PipelineEvent } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
@@ -61,7 +60,7 @@ type PreprocessedEventWithGroupStore = PostTeamPreprocessingSubpipelineInput & {
 }
 
 function getTokenAndDistinctId(input: PerEventProcessingInput): string {
-    const token = input.event.token ?? ''
+    const token = input.headers.token ?? ''
     const distinctId = input.event.distinct_id ?? ''
     return `${token}:${distinctId}`
 }
@@ -72,8 +71,8 @@ function mapToPerEventInput<C>(
     const input = element.result.value
     return {
         result: ok({
-            message: input.eventWithTeam.message,
-            event: input.eventWithTeam.event as PipelineEvent,
+            message: input.message,
+            event: input.event,
             team: input.team,
             headers: input.headers,
             groupStoreForBatch: input.groupStoreForBatch,
