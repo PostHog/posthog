@@ -1,4 +1,9 @@
-import { detectTabularFormat, isTabularData, parseTabularDataToTipTapTable } from './DropAndPasteHandlerExtension'
+import {
+    detectTabularFormat,
+    isTabularData,
+    parseCSVLine,
+    parseTabularDataToTipTapTable,
+} from './DropAndPasteHandlerExtension'
 
 describe('DropAndPasteHandlerExtension', () => {
     describe('detectTabularFormat', () => {
@@ -107,6 +112,39 @@ describe('DropAndPasteHandlerExtension', () => {
             const dataRow = result.content![1]
             expect(dataRow.content![0].content![0].content![0].text).toBe('Alice')
             expect(dataRow.content![1].content![0].content![0].text).toBe('30')
+        })
+
+        it('strips quotes from CSV quoted fields', () => {
+            const result = parseTabularDataToTipTapTable('"df","df"\n"123","456"', ',')
+
+            const headerRow = result.content![0]
+            expect(headerRow.content![0].content![0].content![0].text).toBe('df')
+            expect(headerRow.content![1].content![0].content![0].text).toBe('df')
+
+            const dataRow = result.content![1]
+            expect(dataRow.content![0].content![0].content![0].text).toBe('123')
+            expect(dataRow.content![1].content![0].content![0].text).toBe('456')
+        })
+
+        it('handles commas inside quoted CSV fields', () => {
+            const result = parseTabularDataToTipTapTable('"Name","Note"\n"Alice","hello, world"', ',')
+
+            const dataRow = result.content![1]
+            expect(dataRow.content![0].content![0].content![0].text).toBe('Alice')
+            expect(dataRow.content![1].content![0].content![0].text).toBe('hello, world')
+        })
+    })
+
+    describe('parseCSVLine', () => {
+        it.each([
+            { input: 'a,b,c', expected: ['a', 'b', 'c'], desc: 'unquoted fields' },
+            { input: '"a","b","c"', expected: ['a', 'b', 'c'], desc: 'quoted fields' },
+            { input: '"hello, world",b', expected: ['hello, world', 'b'], desc: 'comma inside quotes' },
+            { input: '"say ""hi""",b', expected: ['say "hi"', 'b'], desc: 'escaped quotes' },
+            { input: '"","",""', expected: ['', '', ''], desc: 'empty quoted fields' },
+            { input: ',,', expected: ['', '', ''], desc: 'empty unquoted fields' },
+        ])('parses $desc', ({ input, expected }) => {
+            expect(parseCSVLine(input)).toEqual(expected)
         })
     })
 })
