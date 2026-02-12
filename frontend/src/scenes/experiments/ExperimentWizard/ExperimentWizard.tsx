@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -65,12 +65,28 @@ export function ExperimentWizard(): JSX.Element {
                     </div>
                 </div>
 
-                <p className="text-center text-xs text-muted">
-                    Need more control?{' '}
-                    <button type="button" onClick={openFullEditor} className="text-link hover:underline cursor-pointer">
-                        Open full editor
-                    </button>
-                </p>
+                <div className="text-center text-xs text-muted space-y-1">
+                    <p>
+                        Prefer the old layout?{' '}
+                        <button
+                            type="button"
+                            onClick={openFullEditor}
+                            className="text-link hover:underline cursor-pointer"
+                        >
+                            Open full editor
+                        </button>
+                    </p>
+                    <p>
+                        Looking for no-code? They are created using the toolbar,{' '}
+                        <Link
+                            target="_blank"
+                            targetBlankIcon
+                            to="https://posthog.com/docs/experiments/no-code-web-experiments"
+                        >
+                            read more
+                        </Link>
+                    </p>
+                </div>
             </div>
         </div>
     )
