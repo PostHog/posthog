@@ -6,6 +6,7 @@ import { IconCheck, IconPlus, IconX } from '@posthog/icons'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -113,18 +114,21 @@ export function SavedInsightsTable({ isSelected, onToggle, isToggling }: SavedIn
                 />
             </div>
             {!insightsLoading && insights.count < 1 ? (
-                <SavedInsightsModalEmptyState
-                    search={filters.search}
-                    hasFilters={
-                        (filters.insightType !== undefined && filters.insightType !== 'All types') ||
-                        (filters.createdBy !== undefined && filters.createdBy !== 'All users') ||
-                        (filters.tags !== undefined && filters.tags.length > 0)
-                    }
-                    onClearFilters={() =>
-                        setModalFilters({ insightType: 'All types', createdBy: 'All users', tags: [] })
-                    }
-                    onClearSearch={() => setModalFilters({ search: '' })}
-                />
+                <>
+                    <LemonDivider className="my-0" />
+                    <SavedInsightsModalEmptyState
+                        search={filters.search}
+                        hasFilters={
+                            (filters.insightType !== undefined && filters.insightType !== 'All types') ||
+                            (filters.createdBy !== undefined && filters.createdBy !== 'All users') ||
+                            (filters.tags !== undefined && filters.tags.length > 0)
+                        }
+                        onClearFilters={() =>
+                            setModalFilters({ insightType: 'All types', createdBy: 'All users', tags: [] })
+                        }
+                        onClearSearch={() => setModalFilters({ search: '' })}
+                    />
+                </>
             ) : (
                 <div className="overflow-x-hidden">
                     <LemonTable

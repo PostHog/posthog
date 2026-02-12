@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconFlag, IconStar } from '@posthog/icons'
 import { LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
@@ -36,6 +37,9 @@ export function SavedInsightsFilters({
     const quickFilterSet = new Set(quickFilters)
     const hasInsightTypeSelection = !!insightType && insightType !== 'All types'
     const hasCreatedBySelection = createdBy !== 'All users' && (createdBy as number[]).length > 0
+    const currentUserId = meFirstMembers[0]?.user.id
+    const isFilteredToCurrentUser =
+        hasCreatedBySelection && (createdBy as number[]).length === 1 && (createdBy as number[])[0] === currentUserId
 
     const handleMemberToggle = (userId: number): void => {
         const currentUsers = createdBy !== 'All users' ? (createdBy as number[]) : []
@@ -46,7 +50,9 @@ export function SavedInsightsFilters({
             selected.add(userId)
         }
         const newValue = Array.from(selected)
-        setFilters({ createdBy: newValue.length > 0 ? newValue : 'All users' })
+        const createdByValue = newValue.length > 0 ? newValue : 'All users'
+        setFilters({ createdBy: createdByValue })
+        posthog.capture('saved insights filtered', { filter_type: 'created_by', value: createdByValue })
     }
 
     return (
@@ -69,6 +75,7 @@ export function SavedInsightsFilters({
                             status={borderless && !hasInsightTypeSelection ? 'alt' : 'default'}
                             onChange={(value) => {
                                 setFilters({ insightType: value as string })
+                                posthog.capture('saved insights filtered', { filter_type: 'insight_type', value })
                             }}
                             options={INSIGHT_TYPE_OPTIONS}
                             value={insightType || 'All types'}
@@ -79,14 +86,15 @@ export function SavedInsightsFilters({
                             value={tags || []}
                             onChange={(tags) => {
                                 setFilters({ tags: tags.length > 0 ? tags : [] })
+                                posthog.capture('saved insights filtered', { filter_type: 'tags', value: tags })
                             }}
                         >
                             {(selectedTags) => (
                                 <LemonButton
                                     size="small"
                                     type="secondary"
-                                    status={borderless && selectedTags.length === 0 ? 'alt' : 'default'}
                                     active={selectedTags.length > 0}
+                                    status={borderless && selectedTags.length === 0 ? 'alt' : 'default'}
                                 >
                                     {selectedTags.length > 0 ? `Tags (${selectedTags.length})` : 'Tags'}
                                 </LemonButton>
@@ -170,9 +178,11 @@ export function SavedInsightsFilters({
                                 status={borderless && !hasCreatedBySelection ? 'alt' : 'default'}
                                 active={hasCreatedBySelection}
                             >
-                                {hasCreatedBySelection
-                                    ? `Created by (${(createdBy as number[]).length})`
-                                    : 'Created by'}
+                                {isFilteredToCurrentUser
+                                    ? 'Created by you'
+                                    : hasCreatedBySelection
+                                      ? `Created by (${(createdBy as number[]).length})`
+                                      : 'Created by'}
                             </LemonButton>
                         </LemonDropdown>
                     )}
