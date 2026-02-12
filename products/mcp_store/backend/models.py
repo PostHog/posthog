@@ -45,6 +45,8 @@ class MCPServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     icon_url = models.URLField(max_length=2048, blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="none")
     is_default = models.BooleanField(default=False)
+    oauth_metadata = models.JSONField(default=dict, blank=True)
+    oauth_client_id = models.CharField(max_length=500, blank=True, default="")
 
     class Meta:
         db_table = "mcp_store_mcpserver"

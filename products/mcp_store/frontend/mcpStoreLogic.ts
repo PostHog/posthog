@@ -1,10 +1,11 @@
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { getCookie } from 'lib/api'
+import { fromParamsGivenUrl } from 'lib/utils'
 
 import type { mcpStoreLogicType } from './mcpStoreLogicType'
 
@@ -123,8 +124,19 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
 
     urlToAction(({ actions }) => ({
         '/mcp-store': (_, searchParams) => {
-            const { code, server_id } = searchParams
-            if (code && server_id) {
+            const { code, state, server_id } = searchParams
+            if (code && state) {
+                // DCR OAuth callback: code + state (contains token + server_id)
+                const parsed = fromParamsGivenUrl(`?${state}`)
+                if (parsed.token !== getCookie('ph_oauth_state')) {
+                    lemonToast.error('Invalid OAuth state token')
+                    router.actions.replace('/mcp-store')
+                    return
+                }
+                actions.completeOAuthInstall({ code, serverId: parsed.server_id })
+                router.actions.replace('/mcp-store')
+            } else if (code && server_id) {
+                // Known-provider OAuth callback: code + server_id
                 actions.completeOAuthInstall({ code, serverId: server_id })
             }
         },

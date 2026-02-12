@@ -5,17 +5,20 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { mcpStoreLogic } from './mcpStoreLogic'
 
 const AUTH_TYPE_OPTIONS = [
     { value: 'none', label: 'None' },
     { value: 'api_key', label: 'API key' },
+    { value: 'oauth', label: 'OAuth' },
 ]
 
 export function AddCustomServerModal(): JSX.Element {
     const { addCustomServerModalVisible } = useValues(mcpStoreLogic)
     const { closeAddCustomServerModal, loadServers, loadInstallations } = useActions(mcpStoreLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     const [name, setName] = useState('')
     const [url, setUrl] = useState('')
@@ -28,6 +31,12 @@ export function AddCustomServerModal(): JSX.Element {
         setSaving(true)
         try {
             const server = await api.mcpServers.create({ name, url, description, auth_type: authType })
+
+            if (authType === 'oauth') {
+                window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${server.id}`
+                return
+            }
+
             const configuration: Record<string, any> = {}
             if (authType === 'api_key' && apiKey) {
                 configuration.api_key = apiKey
