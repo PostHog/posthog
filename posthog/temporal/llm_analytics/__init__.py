@@ -14,6 +14,7 @@ from posthog.temporal.llm_analytics.trace_clustering import (
     DailyTraceClusteringWorkflow,
     TraceClusteringCoordinatorWorkflow,
     emit_cluster_events_activity,
+    fetch_all_clustering_filters_activity,
     generate_cluster_labels_activity,
     perform_clustering_compute_activity,
 )
@@ -59,6 +60,7 @@ ACTIVITIES = [
     perform_clustering_compute_activity,
     generate_cluster_labels_activity,
     emit_cluster_events_activity,
+    fetch_all_clustering_filters_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,

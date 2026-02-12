@@ -9,6 +9,7 @@ gracefully (returning empty results).
 """
 
 import dataclasses
+from datetime import timedelta
 from typing import Any
 
 import structlog
@@ -38,16 +39,12 @@ with temporalio.workflow.unsafe.imports_passed_through():
         TeamDiscoveryInput,
         get_team_ids_for_llm_analytics,
     )
+    from posthog.temporal.llm_analytics.trace_clustering.activities import (
+        FetchAllClusteringFiltersInput,
+        fetch_all_clustering_filters_activity,
+    )
 
 logger = structlog.get_logger(__name__)
-
-# Per-team trace filters to scope which traces are included in clustering.
-# team_id=2 (PostHog internal): only cluster posthog_ai traces, excluding
-# summarization LLM calls, playground, and other internal noise.
-# TODO: generalize via FF payload config so any team can define filters without code changes.
-PER_TEAM_TRACE_FILTERS: dict[int, list[dict[str, Any]]] = {
-    2: [{"key": "ai_product", "value": "posthog_ai", "operator": "exact", "type": "event"}],
-}
 
 
 @dataclasses.dataclass
@@ -107,6 +104,17 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
 
         logger.info("Processing discovered teams", team_count=len(team_ids), team_ids=team_ids)
 
+        # Fetch user-configured event filters for all teams
+        try:
+            per_team_filters: dict[int, list[dict[str, Any]]] = await temporalio.workflow.execute_activity(
+                fetch_all_clustering_filters_activity,
+                FetchAllClusteringFiltersInput(team_ids=team_ids),
+                start_to_close_timeout=timedelta(seconds=30),
+            )
+        except Exception:
+            logger.warning("Failed to fetch clustering filters, proceeding without filters", exc_info=True)
+            per_team_filters = {}
+
         # Spawn child workflows for each team with concurrency limit
         total_clusters = 0
         total_items = 0
@@ -125,7 +133,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             # Start all workflows in batch concurrently
             workflow_handles: list[tuple[int, ChildWorkflowHandle[DailyTraceClusteringWorkflow, ClusteringResult]]] = []
             for team_id in batch:
-                trace_filters = PER_TEAM_TRACE_FILTERS.get(team_id, [])
+                event_filters = per_team_filters.get(team_id, [])
                 handle = await temporalio.workflow.start_child_workflow(
                     DailyTraceClusteringWorkflow.run,
                     ClusteringWorkflowInputs(
@@ -135,7 +143,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                         max_samples=inputs.max_samples,
                         min_k=inputs.min_k,
                         max_k=inputs.max_k,
-                        trace_filters=trace_filters,
+                        event_filters=event_filters,
                     ),
                     id=f"{child_id_prefix}-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,

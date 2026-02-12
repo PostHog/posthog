@@ -2,6 +2,7 @@
 
 from posthog.temporal.llm_analytics.trace_clustering.activities import (
     emit_cluster_events_activity,
+    fetch_all_clustering_filters_activity,
     generate_cluster_labels_activity,
     perform_clustering_compute_activity,
 )
@@ -16,4 +17,5 @@ __all__ = [
     "perform_clustering_compute_activity",
     "generate_cluster_labels_activity",
     "emit_cluster_events_activity",
+    "fetch_all_clustering_filters_activity",
 ]

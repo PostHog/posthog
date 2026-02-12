@@ -169,7 +169,7 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                     clustering_method=inputs.clustering_method,
                     clustering_method_params=inputs.clustering_method_params,
                     visualization_method=inputs.visualization_method,
-                    trace_filters=inputs.trace_filters,
+                    event_filters=inputs.event_filters,
                 )
             ],
             start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,

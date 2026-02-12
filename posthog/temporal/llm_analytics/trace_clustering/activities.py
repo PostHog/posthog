@@ -4,10 +4,14 @@ This module contains the 3 activities that make up the clustering pipeline:
 1. perform_clustering_compute_activity - fetch embeddings, cluster, compute distances
 2. generate_cluster_labels_activity - LLM labeling for clusters
 3. emit_cluster_events_activity - emit results to ClickHouse
+
+Plus a shared activity:
+4. fetch_all_clustering_filters_activity - read saved event filters from ClusteringConfig
 """
 
 import asyncio
-from typing import Literal, cast
+from dataclasses import dataclass
+from typing import Any, Literal, cast
 
 from django.utils.dateparse import parse_datetime
 
@@ -75,7 +79,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         window_end=window_end,
         max_samples=inputs.max_samples,
         analysis_level=inputs.analysis_level,
-        trace_filters=inputs.trace_filters if inputs.trace_filters else None,
+        event_filters=inputs.event_filters if inputs.event_filters else None,
     )
 
     logger.debug(
@@ -351,3 +355,23 @@ async def emit_cluster_events_activity(inputs: EmitEventsActivityInputs) -> Clus
     """
     async with Heartbeater():
         return await asyncio.to_thread(_emit_cluster_events, inputs)
+
+
+@dataclass
+class FetchAllClusteringFiltersInput:
+    team_ids: list[int]
+
+
+@activity.defn
+async def fetch_all_clustering_filters_activity(
+    inputs: FetchAllClusteringFiltersInput,
+) -> dict[int, list[dict[str, Any]]]:
+    """Fetch saved event filters from ClusteringConfig for the given teams.
+
+    Used by both clustering and summarization coordinators to read
+    user-configured filters at runtime.
+    """
+    from products.llm_analytics.backend.models.clustering_config import ClusteringConfig
+
+    configs = ClusteringConfig.objects.filter(team_id__in=inputs.team_ids).exclude(event_filters=[])
+    return {config.team_id: config.event_filters for config in configs}
