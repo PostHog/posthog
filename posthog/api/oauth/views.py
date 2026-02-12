@@ -3,9 +3,10 @@ import uuid
 import hashlib
 import calendar
 from datetime import timedelta
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
+from urllib.parse import urlparse
 
-from django.http import JsonResponse
+from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -25,9 +26,11 @@ from oauth2_provider.views import (
     UserInfoView,
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
+from prometheus_client import Counter
 from rest_framework import serializers, status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -38,6 +41,184 @@ from posthog.utils import render_template
 from posthog.views import login_required
 
 logger = structlog.get_logger(__name__)
+
+OAUTH_FLOW_COUNTER = Counter(
+    "posthog_oauth_flow_total",
+    "OAuth flow outcome counts",
+    labelnames=["stage", "outcome", "reason"],
+)
+
+OAUTH_STAGE_START = "start"
+OAUTH_STAGE_EXCHANGE = "exchange"
+OAUTH_OUTCOME_REQUESTED = "requested"
+OAUTH_OUTCOME_SUCCEEDED = "succeeded"
+OAUTH_OUTCOME_FAILED = "failed"
+OAUTH_REASON_OK = "ok"
+
+
+def _safe_redirect_host(redirect_uri: str | None) -> str | None:
+    if not redirect_uri:
+        return None
+    try:
+        return urlparse(redirect_uri).hostname
+    except Exception:
+        return None
+
+
+def _scope_count(scope: str | None) -> int | None:
+    if not scope:
+        return None
+    return len([value for value in scope.split(" ") if value])
+
+
+def _application_context(application: OAuthApplication | None) -> dict[str, Any]:
+    if not application:
+        return {}
+    return {
+        "application_id": str(application.id),
+        "application_name": application.name,
+        "application_is_first_party": application.is_first_party,
+        "application_is_dcr_client": application.is_dcr_client,
+    }
+
+
+def _application_from_client_id(client_id: str | None) -> OAuthApplication | None:
+    if not client_id:
+        return None
+    try:
+        return OAuthApplication.objects.get(client_id=client_id)
+    except OAuthApplication.DoesNotExist:
+        return None
+
+
+def _oauth_authorize_context(request: Request, application: OAuthApplication | None = None) -> dict[str, Any]:
+    client_id = request.query_params.get("client_id") or request.data.get("client_id")
+    redirect_uri = request.query_params.get("redirect_uri") or request.data.get("redirect_uri")
+    scope = request.query_params.get("scope") or request.data.get("scope")
+    state_value = request.query_params.get("state") or request.data.get("state")
+
+    context: dict[str, Any] = {
+        "client_id": client_id,
+        "redirect_uri_host": _safe_redirect_host(redirect_uri),
+        "scope_count": _scope_count(scope),
+        "state_present": bool(state_value),
+        "request_method": request.method,
+    }
+    context.update(_application_context(application))
+    return context
+
+
+def _oauth_token_context(request: HttpRequest, application: OAuthApplication | None = None) -> dict[str, Any]:
+    client_id = request.POST.get("client_id")
+    redirect_uri = request.POST.get("redirect_uri")
+    grant_type = request.POST.get("grant_type")
+
+    context: dict[str, Any] = {
+        "client_id": client_id,
+        "redirect_uri_host": _safe_redirect_host(redirect_uri),
+        "grant_type": grant_type,
+        "has_code": bool(request.POST.get("code")),
+        "has_code_verifier": bool(request.POST.get("code_verifier")),
+        "has_refresh_token": bool(request.POST.get("refresh_token")),
+    }
+    context.update(_application_context(application))
+    return context
+
+
+def _emit_oauth_log(stage: str, outcome: str, reason: str, **context: Any) -> None:
+    event = f"oauth_{stage}_{outcome}"
+    log_data = {"stage": stage, "outcome": outcome, "reason": reason, **context}
+
+    if outcome == OAUTH_OUTCOME_FAILED:
+        logger.warning(event, **log_data)
+    else:
+        logger.info(event, **log_data)
+
+    if outcome in {OAUTH_OUTCOME_SUCCEEDED, OAUTH_OUTCOME_FAILED}:
+        OAUTH_FLOW_COUNTER.labels(stage=stage, outcome=outcome, reason=reason).inc()
+
+
+def _reason_from_authorize_error(error_code: str | None, error_description: str | None) -> str:
+    description = (error_description or "").lower()
+
+    if "state" in description:
+        return "invalid_state"
+    if "redirect uri" in description or "redirect_uri" in description:
+        return "invalid_app_url"
+    if "client_id" in description:
+        return "invalid_client_id"
+    if "code challenge" in description or "code_challenge" in description or "code verifier" in description:
+        return "invalid_pkce"
+
+    if error_code == "access_denied":
+        return "access_denied"
+    if error_code == "invalid_scope":
+        return "invalid_scope"
+    if error_code == "unauthorized_client":
+        return "unauthorized_client"
+    if error_code == "unsupported_response_type":
+        return "unsupported_response_type"
+    if error_code == "invalid_request":
+        return "invalid_request"
+    if error_code == "server_error":
+        return "server_error"
+    if error_code == "temporarily_unavailable":
+        return "temporarily_unavailable"
+
+    return "unknown"
+
+
+def _reason_from_invalid_grant(request: HttpRequest, error_description: str | None) -> str:
+    description = (error_description or "").lower()
+    if "code verifier" in description or "code_challenge" in description:
+        return "invalid_pkce"
+
+    grant_type = request.POST.get("grant_type")
+    if grant_type == "authorization_code":
+        code_value = request.POST.get("code")
+        if not code_value:
+            return "missing_code"
+        grant = OAuthGrant.objects.filter(code=code_value).first()
+        if grant is None:
+            return "replay"
+        if grant.expires and grant.expires < timezone.now():
+            return "expired_code"
+        return "invalid_grant"
+
+    if grant_type == "refresh_token":
+        refresh_token_value = request.POST.get("refresh_token")
+        if not refresh_token_value:
+            return "missing_refresh_token"
+        refresh_token = OAuthRefreshToken.objects.filter(token=refresh_token_value).first()
+        if refresh_token is None:
+            return "invalid_refresh_token"
+        if refresh_token.revoked is not None:
+            return "replay"
+        return "invalid_refresh_token"
+
+    return "invalid_grant"
+
+
+def _reason_from_token_error(error_code: str | None, error_description: str | None, request: HttpRequest) -> str:
+    description = (error_description or "").lower()
+
+    if error_code == "invalid_client":
+        return "invalid_client_id"
+    if error_code == "unsupported_grant_type":
+        return "unsupported_grant_type"
+    if error_code == "invalid_request":
+        if "code_verifier" in description or "code_challenge" in description:
+            return "invalid_pkce"
+        if "redirect uri" in description or "redirect_uri" in description:
+            return "invalid_app_url"
+        return "invalid_request"
+    if error_code == "invalid_grant":
+        return _reason_from_invalid_grant(request, error_description)
+
+    if "state" in description:
+        return "invalid_state"
+
+    return "unknown"
 
 
 class OAuthAuthorizationContext(TypedDict):
@@ -289,6 +470,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
     @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
+        _emit_oauth_log(
+            OAUTH_STAGE_START,
+            OAUTH_OUTCOME_REQUESTED,
+            "requested",
+            **_oauth_authorize_context(request),
+        )
+
         try:
             scopes, credentials = self.validate_authorization_request(request)
         except OAuthToolkitError as error:
@@ -296,12 +484,24 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         # Handle login prompt
         if request.query_params.get("prompt") == "login":
+            _emit_oauth_log(
+                OAUTH_STAGE_START,
+                OAUTH_OUTCOME_FAILED,
+                "login_required",
+                **_oauth_authorize_context(request),
+            )
             return Response({"error": "login_required"}, status=status.HTTP_401_UNAUTHORIZED)
 
         # Get application and scope details
         try:
             application = OAuthApplication.objects.get(client_id=credentials["client_id"])
         except OAuthApplication.DoesNotExist:
+            _emit_oauth_log(
+                OAUTH_STAGE_START,
+                OAUTH_OUTCOME_FAILED,
+                "invalid_client_id",
+                **_oauth_authorize_context(request),
+            )
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
 
         # First-party apps skip consent screen entirely
@@ -314,6 +514,12 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
+                )
+                _emit_oauth_log(
+                    OAUTH_STAGE_START,
+                    OAUTH_OUTCOME_SUCCEEDED,
+                    OAUTH_REASON_OK,
+                    **_oauth_authorize_context(request, application),
                 )
                 return self.redirect(uri, application)
             except OAuthToolkitError as error:
@@ -331,21 +537,55 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
                         )
+                        _emit_oauth_log(
+                            OAUTH_STAGE_START,
+                            OAUTH_OUTCOME_SUCCEEDED,
+                            OAUTH_REASON_OK,
+                            **_oauth_authorize_context(request, application),
+                        )
                         return self.redirect(uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
+        _emit_oauth_log(
+            OAUTH_STAGE_START,
+            OAUTH_OUTCOME_SUCCEEDED,
+            OAUTH_REASON_OK,
+            **_oauth_authorize_context(request, application),
+        )
         return render_template("index.html", request)
 
     def post(self, request, *args, **kwargs):
+        _emit_oauth_log(
+            OAUTH_STAGE_START,
+            OAUTH_OUTCOME_REQUESTED,
+            "requested",
+            **_oauth_authorize_context(request),
+        )
+
         serializer = OAuthAuthorizationSerializer(data=request.data, context={"user": request.user})
 
         if not serializer.is_valid():
+            _emit_oauth_log(
+                OAUTH_STAGE_START,
+                OAUTH_OUTCOME_FAILED,
+                "invalid_request",
+                **{
+                    **_oauth_authorize_context(request),
+                    "error_fields": list(serializer.errors.keys()),
+                },
+            )
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             application = OAuthApplication.objects.get(client_id=serializer.validated_data["client_id"])
         except OAuthApplication.DoesNotExist:
+            _emit_oauth_log(
+                OAUTH_STAGE_START,
+                OAUTH_OUTCOME_FAILED,
+                "invalid_client_id",
+                **_oauth_authorize_context(request),
+            )
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
 
         credentials = {
@@ -379,6 +619,21 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         redirect = self.redirect(uri, application)
 
+        if not serializer.validated_data["allow"]:
+            _emit_oauth_log(
+                OAUTH_STAGE_START,
+                OAUTH_OUTCOME_FAILED,
+                "access_denied",
+                **_oauth_authorize_context(request, application),
+            )
+        else:
+            _emit_oauth_log(
+                OAUTH_STAGE_START,
+                OAUTH_OUTCOME_SUCCEEDED,
+                OAUTH_REASON_OK,
+                **_oauth_authorize_context(request, application),
+            )
+
         return Response(
             {
                 "redirect_to": redirect.url,
@@ -403,6 +658,19 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         error details or providing an error response
         """
         redirect, error_response = super().error_response(error, **kwargs)
+        error_code = error_response["error"].error
+        error_description = error_response["error"].description
+        reason = _reason_from_authorize_error(error_code, error_description)
+        _emit_oauth_log(
+            OAUTH_STAGE_START,
+            OAUTH_OUTCOME_FAILED,
+            reason,
+            **{
+                **_oauth_authorize_context(self.request, application),
+                "error_code": error_code,
+                "error_description": error_description,
+            },
+        )
 
         if redirect:
             if no_redirect:
@@ -445,14 +713,39 @@ class OAuthTokenView(TokenView):
                 for key, value in json_data.items():
                     request.POST[key] = value
             except (json.JSONDecodeError, ValueError):
+                _emit_oauth_log(
+                    OAUTH_STAGE_EXCHANGE,
+                    OAUTH_OUTCOME_REQUESTED,
+                    "requested",
+                    **_oauth_token_context(request),
+                )
+                reason = _reason_from_token_error("invalid_request", "Invalid JSON payload", request)
+                _emit_oauth_log(
+                    OAUTH_STAGE_EXCHANGE,
+                    OAUTH_OUTCOME_FAILED,
+                    reason,
+                    **{
+                        **_oauth_token_context(request),
+                        "error_code": "invalid_request",
+                        "error_description": "Invalid JSON payload",
+                    },
+                )
                 return JsonResponse(
                     {"error": "invalid_request", "error_description": "Invalid JSON payload"},
                     status=400,
                 )
 
+        application = _application_from_client_id(request.POST.get("client_id"))
+        _emit_oauth_log(
+            OAUTH_STAGE_EXCHANGE,
+            OAUTH_OUTCOME_REQUESTED,
+            "requested",
+            **_oauth_token_context(request, application),
+        )
         response = super().post(request, *args, **kwargs)
 
         if response.status_code == 200:
+            context = _oauth_token_context(request, application)
             try:
                 response_data = json.loads(response.content)
                 access_token_value = response_data.get("access_token")
@@ -461,10 +754,45 @@ class OAuthTokenView(TokenView):
                     access_token = OAuthAccessToken.objects.get(token=access_token_value)
                     response_data["scoped_teams"] = access_token.scoped_teams or []
                     response_data["scoped_organizations"] = access_token.scoped_organizations or []
+                    _emit_oauth_log(
+                        OAUTH_STAGE_EXCHANGE,
+                        OAUTH_OUTCOME_SUCCEEDED,
+                        OAUTH_REASON_OK,
+                        **context,
+                    )
                     return JsonResponse(response_data)
             except (json.JSONDecodeError, OAuthAccessToken.DoesNotExist) as e:
                 logger.warning(f"Error adding scoped fields to token response: {e}")
 
+            _emit_oauth_log(
+                OAUTH_STAGE_EXCHANGE,
+                OAUTH_OUTCOME_SUCCEEDED,
+                OAUTH_REASON_OK,
+                **context,
+            )
+            return response
+
+        error_code = None
+        error_description = None
+        try:
+            error_data = json.loads(response.content)
+            error_code = error_data.get("error")
+            error_description = error_data.get("error_description")
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+        reason = _reason_from_token_error(error_code, error_description, request)
+        _emit_oauth_log(
+            OAUTH_STAGE_EXCHANGE,
+            OAUTH_OUTCOME_FAILED,
+            reason,
+            **{
+                **_oauth_token_context(request, application),
+                "error_code": error_code,
+                "error_description": error_description,
+                "status_code": response.status_code,
+            },
+        )
         return response
 
 
