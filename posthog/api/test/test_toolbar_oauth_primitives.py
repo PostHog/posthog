@@ -67,6 +67,15 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_start_rejects_invalid_json_body(self):
+        response = self.client.post(
+            "/api/user/toolbar_oauth_start/",
+            data="{not-json",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "invalid_json")
+
     def test_oauth_application_is_scoped_per_organization(self):
         base_url = "https://us.posthog.example"
 
@@ -144,6 +153,32 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["access_token"], "pha_abc")
+
+    def test_exchange_rejects_invalid_json_body(self):
+        response = self.client.post(
+            "/api/user/toolbar_oauth_exchange/",
+            data="{not-json",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "invalid_json")
+
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_exchange_returns_error_for_non_json_token_response(self, mock_post):
+        start_data = self._start()
+        state = parse_qs(urlparse(start_data["authorization_url"]).query)["state"][0]
+
+        mock_post.return_value.status_code = 502
+        mock_post.return_value.content = b"bad gateway html"
+        mock_post.return_value.json.side_effect = ValueError("invalid json")
+
+        response = self.client.post(
+            "/api/user/toolbar_oauth_exchange/",
+            data=json.dumps({"code": "test_code", "state": state, "code_verifier": "test_verifier"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()["code"], "token_exchange_invalid_response")
 
     @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_exchange_replay_fails(self, mock_post):
