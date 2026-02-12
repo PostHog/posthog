@@ -147,7 +147,9 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         <div className="text-sm">
                             {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
                         </div>
-                        <div className={`font-semibold ${passRateColor}`}>{parseFloat(stats.pass_rate.toFixed(2))}%</div>
+                        <div className={`font-semibold ${passRateColor}`}>
+                            {parseFloat(stats.pass_rate.toFixed(2))}%
+                        </div>
                     </div>
                 )
             },
