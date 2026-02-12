@@ -14,7 +14,14 @@ impl PersonProcessingFilter {
             .split(',')
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(String::from)
+            .filter_map(|entry| {
+                // Find the first colon to split token from distinct_id
+                entry.find(':').map(|idx| {
+                    let token = &entry[..idx];
+                    let distinct_id = &entry[idx + 1..];
+                    format!("{}:{}", token, distinct_id)
+                })
+            })
             .collect();
 
         Self { disabled_pairs }
@@ -82,6 +89,26 @@ mod tests {
     fn test_distinct_id_with_special_characters() {
         let filter = PersonProcessingFilter::new("token1:user@example.com");
         assert!(filter.should_disable_person_processing("token1", "user@example.com"));
+        assert!(!filter.should_disable_person_processing("token1", "user"));
+    }
+
+    #[test]
+    fn test_entry_with_multiple_colons() {
+        // Entry with multiple colons - splits on first colon only during parsing
+        let filter = PersonProcessingFilter::new("phc_abc:def:user123");
+        // Stored as: "phc_abc:def:user123"
+        // This matches because format!("{}:{}", "phc_abc", "def:user123") == "phc_abc:def:user123"
+        assert!(filter.should_disable_person_processing("phc_abc", "def:user123"));
+        // This also matches because format!("{}:{}", "phc_abc:def", "user123") == "phc_abc:def:user123"
+        assert!(filter.should_disable_person_processing("phc_abc:def", "user123"));
+        // This does NOT match
+        assert!(!filter.should_disable_person_processing("phc_abc", "def"));
+    }
+
+    #[test]
+    fn test_distinct_id_with_colons() {
+        let filter = PersonProcessingFilter::new("token1:user:session:123");
+        assert!(filter.should_disable_person_processing("token1", "user:session:123"));
         assert!(!filter.should_disable_person_processing("token1", "user"));
     }
 }
