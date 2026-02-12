@@ -20,6 +20,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
+from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     AzureBlobIntegration,
@@ -542,7 +543,10 @@ class IntegrationViewSet(
             try:
                 domain, service_id, variables = resolve_email_context(integration_id, self.team_id)
             except ValueError as e:
-                raise ValidationError(str(e))
+                capture_exception(e, {"integration_id": integration_id, "team_id": self.team_id, "context": context})
+                raise ValidationError(
+                    "Validation error resolving email context. Please try again later or contact support."
+                )
 
         elif context == "proxy":
             proxy_record_id = request.data.get("proxy_record_id")
@@ -552,8 +556,12 @@ class IntegrationViewSet(
             try:
                 domain, service_id, host, variables = resolve_proxy_context(proxy_record_id, str(organization.id))
             except ValueError as e:
-                raise ValidationError(str(e))
-
+                capture_exception(
+                    e, {"proxy_record_id": proxy_record_id, "organization_id": organization.id, "context": context}
+                )
+                raise ValidationError(
+                    "Validation error resolving proxy context. Please try again later or contact support."
+                )
         else:
             raise ValidationError("context must be 'email' or 'proxy'")
 
@@ -567,6 +575,17 @@ class IntegrationViewSet(
                 redirect_uri=redirect_uri,
             )
         except ValueError as e:
-            raise ValidationError(str(e))
+            capture_exception(
+                e,
+                {
+                    "context": context,
+                    "domain": domain,
+                    "service_id": service_id,
+                    "host": host,
+                    "provider_endpoint": provider_endpoint,
+                    "redirect_uri": redirect_uri,
+                },
+            )
+            raise ValidationError("Error generating apply URL. Please try again later or contact support.")
 
         return Response({"url": url})
