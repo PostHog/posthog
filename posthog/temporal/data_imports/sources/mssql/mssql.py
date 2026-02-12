@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.utils import resolve_primary_keys
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -110,7 +111,31 @@ def _build_query(
     }
 
 
-def _get_primary_keys(cursor: Cursor, schema: str, table_name: str) -> list[str] | None:
+def _has_duplicate_primary_keys(
+    cursor: Cursor, schema: str, table_name: str, primary_keys: list[str] | None, logger: FilteringBoundLogger
+) -> bool:
+    if not primary_keys:
+        return False
+
+    try:
+        pk_columns = ", ".join(f"[{key}]" for key in primary_keys)
+        query = f"""
+            SELECT TOP 1 {pk_columns}
+            FROM [{schema}].[{table_name}]
+            GROUP BY {pk_columns}
+            HAVING COUNT(*) > 1
+        """
+        cursor.execute(query)
+        row = cursor.fetchone()
+        return row is not None
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+
+def _get_primary_keys(
+    cursor: Cursor, schema: str, table_name: str, logger: FilteringBoundLogger, existing_fields: set[str] | None = None
+) -> tuple[list[str] | None, bool]:
     query = """
         SELECT c.name AS column_name
         FROM sys.indexes i
@@ -130,11 +155,9 @@ def _get_primary_keys(cursor: Cursor, schema: str, table_name: str) -> list[str]
             "table_name": table_name,
         },
     )
-    rows = cursor.fetchall()
-    if not rows:
-        return None
-
-    return [row[0] for row in rows]
+    rows = cursor.fetchall() or []
+    keys = [row[0] for row in rows] or None
+    return resolve_primary_keys(keys, table_name, logger, existing_fields=existing_fields)
 
 
 class MSSQLColumn(Column):
@@ -484,8 +507,15 @@ def mssql_source(
                     db_incremental_field_last_value,
                 )
 
-                primary_keys = _get_primary_keys(cursor, schema, table_name)
                 table = _get_table(cursor, schema, table_name)
+                primary_keys, is_id_fallback = _get_primary_keys(
+                    cursor, schema, table_name, logger, existing_fields={col.name for col in table.columns}
+                )
+                has_duplicate_keys = False
+                # If we had to fall back to 'id' as the primary key, we need to check if there are duplicates
+                # on that column since it is not a real PK
+                if primary_keys is not None and is_id_fallback:
+                    has_duplicate_keys = _has_duplicate_primary_keys(cursor, schema, table_name, primary_keys, logger)
                 rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
                 chunk_size = _get_table_chunk_size(
                     cursor,
@@ -507,10 +537,6 @@ def mssql_source(
                     logger.debug(f"_get_partition_settings: Error: {e}. Skipping partitioning.")
                     capture_exception(e)
                     partition_settings = None
-
-                # Fallback on checking for an `id` field on the table
-                if primary_keys is None and "id" in table:
-                    primary_keys = ["id"]
 
     def get_rows() -> Iterator[Any]:
         arrow_schema = table.to_arrow_schema()
@@ -558,4 +584,5 @@ def mssql_source(
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
+        has_duplicate_primary_keys=has_duplicate_keys,
     )

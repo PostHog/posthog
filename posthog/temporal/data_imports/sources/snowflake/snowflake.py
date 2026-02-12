@@ -14,6 +14,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.utils import resolve_primary_keys
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType
@@ -186,7 +187,49 @@ def _get_rows_to_sync(
         return 0
 
 
-def _get_primary_keys(cursor: SnowflakeCursor, database: str, schema: str, table_name: str) -> list[str] | None:
+def _get_existing_fields(
+    cursor: SnowflakeCursor,
+    schema: str,
+    table_name: str,
+) -> set[str]:
+    cursor.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = %s",
+        (schema, table_name),
+    )
+    return {row[0].lower() for row in cursor}
+
+
+def _has_duplicate_primary_keys(
+    cursor: SnowflakeCursor,
+    database: str,
+    schema: str,
+    table_name: str,
+    primary_keys: list[str] | None,
+) -> bool:
+    if not primary_keys:
+        return False
+
+    try:
+        pk_identifiers = ", ".join(f"IDENTIFIER(%s)" for _ in primary_keys)
+        query = f"SELECT {pk_identifiers} FROM IDENTIFIER(%s) GROUP BY {pk_identifiers} HAVING COUNT(*) > 1 LIMIT 1"
+        params = (*primary_keys, f"{database}.{schema}.{table_name}", *primary_keys)
+
+        cursor.execute(query, params)
+        row = cursor.fetchone()
+        return row is not None
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+
+def _get_primary_keys(
+    cursor: SnowflakeCursor,
+    database: str,
+    schema: str,
+    table_name: str,
+    logger: FilteringBoundLogger,
+    existing_fields: set[str] | None,
+) -> tuple[list[str] | None, bool]:
     cursor.execute("SHOW PRIMARY KEYS IN IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",))
 
     column_index = next((i for i, row in enumerate(cursor.description) if row.name == "column_name"), -1)
@@ -194,9 +237,8 @@ def _get_primary_keys(cursor: SnowflakeCursor, database: str, schema: str, table
     if column_index == -1:
         raise ValueError("column_name not found in Snowflake cursor description")
 
-    keys = [row[column_index] for row in cursor]
-
-    return keys if len(keys) > 0 else None
+    keys = [row[column_index] for row in cursor] or None
+    return resolve_primary_keys(keys, table_name, logger, existing_fields=existing_fields)
 
 
 def snowflake_source(
@@ -234,7 +276,12 @@ def snowflake_source(
                 incremental_field_type,
                 db_incremental_field_last_value,
             )
-            primary_keys = _get_primary_keys(cursor, database, schema, table_name)
+            existing_fields = _get_existing_fields(cursor, schema, table_name)
+            primary_keys, _ = _get_primary_keys(cursor, database, schema, table_name, logger, existing_fields)
+
+            # Snowflake doesn't enforce PK uniqueness, so always check
+            # the PK(s) for uniqueness
+            has_duplicate_keys = _has_duplicate_primary_keys(cursor, database, schema, table_name, primary_keys)
             rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_params, logger)
 
     def get_rows() -> Iterator[Any]:
@@ -260,4 +307,10 @@ def snowflake_source(
 
     name = NamingConvention().normalize_identifier(table_name)
 
-    return SourceResponse(name=name, items=get_rows, primary_keys=primary_keys, rows_to_sync=rows_to_sync)
+    return SourceResponse(
+        name=name,
+        items=get_rows,
+        primary_keys=primary_keys,
+        rows_to_sync=rows_to_sync,
+        has_duplicate_primary_keys=has_duplicate_keys,
+    )

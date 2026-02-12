@@ -29,6 +29,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.utils import resolve_primary_keys
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -306,8 +307,12 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
 
 
 def _get_primary_keys(
-    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
-) -> list[str] | None:
+    cursor: psycopg.Cursor,
+    schema: str,
+    table_name: str,
+    logger: FilteringBoundLogger,
+    existing_fields: set[str] | None = None,
+) -> tuple[list[str] | None, bool]:
     query = sql.SQL("""
         SELECT
             kcu.column_name
@@ -326,14 +331,8 @@ def _get_primary_keys(
     logger.debug(f"Running query: {query.as_string()}")
     cursor.execute(query)
     rows = cursor.fetchall()
-    if len(rows) > 0:
-        return [row[0] for row in rows]
-
-    logger.warning(
-        f"No primary keys found for {table_name}. If the table is not a view, (a) does the table have a primary key set? (b) is the primary key returned from querying information_schema?"
-    )
-
-    return None
+    keys = [row[0] for row in rows] or None
+    return resolve_primary_keys(keys, table_name, logger, existing_fields=existing_fields)
 
 
 def _has_duplicate_primary_keys(
@@ -727,9 +726,9 @@ def postgres_source(
                     using_read_replica = _is_read_replica(cursor)
                     logger.debug(f"using_read_replica = {using_read_replica}")
                     logger.debug("Getting primary keys...")
-                    primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
-                    if primary_keys:
-                        logger.debug(f"Found primary keys: {primary_keys}")
+                    primary_keys, is_id_fallback = _get_primary_keys(
+                        cursor, schema, table_name, logger, existing_fields={col.name for col in table.columns}
+                    )
                     logger.debug("Getting table chunk size...")
                     if chunk_size_override is not None:
                         chunk_size = chunk_size_override
@@ -746,11 +745,9 @@ def postgres_source(
                     )
                     has_duplicate_primary_keys = False
 
-                    # Fallback on checking for an `id` field on the table
-                    if primary_keys is None and "id" in table:
-                        logger.debug("Falling back to ['id'] for primary keys...")
-                        primary_keys = ["id"]
-                        logger.debug("Checking duplicate primary keys...")
+                    # If we had to fall back to 'id' as the primary key, we need to check if there are duplicates
+                    # on that column since it is not a real PK
+                    if primary_keys is not None and is_id_fallback:
                         has_duplicate_primary_keys = _has_duplicate_primary_keys(
                             cursor, schema, table_name, primary_keys, logger
                         )
