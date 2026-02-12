@@ -108,7 +108,11 @@ def fetch_generation_ids_for_traces(
     window_start: datetime,
     window_end: datetime,
 ) -> list[ItemId]:
-    """Map trace IDs to generation IDs by querying $ai_generation events.
+    """Map trace IDs to generation event UUIDs by querying $ai_generation events.
+
+    Generation embeddings are keyed by event UUID (not $ai_generation_id), matching
+    the sampling logic in trace_summarization/sampling.py which uses
+    argMaxIf(uuid, timestamp, ...) as the generation identifier.
 
     Args:
         team: Team object to query for
@@ -117,7 +121,7 @@ def fetch_generation_ids_for_traces(
         window_end: End of time window
 
     Returns:
-        List of distinct generation IDs belonging to the given traces
+        List of generation event UUIDs belonging to the given traces
     """
     if not trace_ids:
         return []
@@ -126,13 +130,11 @@ def fetch_generation_ids_for_traces(
 
     query = parse_select(
         """
-        SELECT DISTINCT properties.$ai_generation_id as generation_id
+        SELECT DISTINCT uuid
         FROM events
         WHERE event = {event_name}
             AND timestamp >= {start_dt}
             AND timestamp < {end_dt}
-            AND isNotNull(properties.$ai_generation_id)
-            AND properties.$ai_generation_id != ''
             AND properties.$ai_trace_id IN {trace_ids}
         """
     )
