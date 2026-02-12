@@ -1,5 +1,7 @@
 metadata:
     categories:
+        - key: devenv
+          title: Intent-based dev environment
         - key: core
           title: Core development commands
         - key: start
@@ -82,6 +84,11 @@ metadata:
             name: mprocs
             about: Process orchestrator that runs all dev services in parallel with live
                 output and easy process management.
+devenv:
+    dev:setup:
+    dev:generate:
+    dev:explain:
+    dev:intents:
 core:
     categories:
         description: Show all available commands grouped by category
@@ -124,8 +131,15 @@ core:
               else: migrations:run
             - dev:demo-data
             - dev:sync-flags
+            - dev:api-key
         description: Full reset - wipe volumes, migrate, load demo data, sync flags
         prompt: true
+    dev:api-key:
+        cmd: python manage.py setup_local_api_key
+        description: Creates a personal API key that's always the same,
+            so you don't need to manually create a new one every time you reset the stack.
+        services:
+            - postgresql
 health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up
@@ -294,6 +308,9 @@ build:
             - postgresql
             - clickhouse
             - django
+    build:schema-mcp:
+        cmd: cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm prettier --write schema/tool-inputs.json
+        description: Generate MCP tool-inputs.json schema from Zod definitions
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema
@@ -309,16 +326,7 @@ build:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
 docker:
-    docker:services:up:
-        cmd: docker compose -f docker-compose.dev.yml up -d
-        description: Start Docker infrastructure services (Postgres, ClickHouse, Redis,
-            Kafka)
-        services:
-            - docker
-            - postgresql
-            - clickhouse
-            - redis
-            - kafka
+    # docker:services:up is a Python command in common/hogli/devenv/cli.py that respects intent config
     docker:services:down:
         cmd: docker compose -f docker-compose.dev.yml down
         description: Stop Docker infrastructure services
@@ -326,8 +334,7 @@ docker:
             - docker
     docker:services:remove:
         cmd: docker compose -f docker-compose.dev.yml down -v
-        description: Stop Docker infrastructure services and remove all volumes (complete
-            wipe)
+        description: Stop Docker infrastructure services and remove all volumes (complete wipe)
         services:
             - docker
         prompt: true
@@ -456,6 +463,11 @@ db:
                   gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose exec -T db psql -q -U posthog posthog
                   echo "✅ Schema restored"
             - db:migrate
+            - name: ensure-migration-defaults
+              cmd: |
+                  set -e
+                  echo "Ensuring default migration data..."
+                  python manage.py ensure_migration_defaults
         description: Fetch pre-migrated schema from CI, restore it, and run any pending migrations (creates backup first)
         prompt: true
         services:

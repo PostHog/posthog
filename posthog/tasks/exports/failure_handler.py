@@ -1,25 +1,41 @@
+from ssl import SSLError
+
 from django.db import OperationalError
 
 from billiard.exceptions import SoftTimeLimitExceeded
-from urllib3.exceptions import MaxRetryError, ProtocolError
+from clickhouse_driver.errors import SocketTimeoutError
+from selenium.common import TimeoutException
+from urllib3.exceptions import MaxRetryError, ProtocolError, ReadTimeoutError
 
 from posthog.hogql.errors import (
     QueryError,
+    ResolutionError,
     SyntaxError as HogQLSyntaxError,
 )
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.errors import (
+    CHQueryErrorCannotParseUuid,
     CHQueryErrorIllegalAggregation,
     CHQueryErrorIllegalTypeOfArgument,
+    CHQueryErrorInvalidJoinOnExpression,
     CHQueryErrorNoCommonType,
     CHQueryErrorNotAnAggregate,
+    CHQueryErrorNumberOfArgumentsDoesntMatch,
     CHQueryErrorS3Error,
+    CHQueryErrorTooManyBytes,
     CHQueryErrorTooManySimultaneousQueries,
     CHQueryErrorTypeMismatch,
     CHQueryErrorUnknownFunction,
+    CHQueryErrorUnknownIdentifier,
+    CHQueryErrorUnsupportedMethod,
 )
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
+)
 
 # =============================================================================
 # Export Failure Classification
@@ -46,6 +62,16 @@ class ExportCancelled(Exception):
     pass
 
 
+class ExcelColumnLimitExceeded(Exception):
+    """Raised when export data exceeds openpyxl's 18,278 column limit (ZZZ)."""
+
+    def __init__(self, message: str | None = None):
+        super().__init__(
+            message
+            or "Export exceeds the maximum of 18,278 columns. Try exporting fewer columns or use CSV format instead."
+        )
+
+
 EXCEPTIONS_TO_RETRY = (
     CHQueryErrorS3Error,
     CHQueryErrorTooManySimultaneousQueries,
@@ -53,7 +79,10 @@ EXCEPTIONS_TO_RETRY = (
     ProtocolError,
     ConcurrencyLimitExceeded,
     MaxRetryError,  # This is from urllib, e.g. HTTP retries instead of "job retries"
+    ReadTimeoutError,  # Network timeout from urllib3
     ClickHouseAtCapacity,
+    SocketTimeoutError,
+    SSLError,
 )
 
 USER_QUERY_ERRORS = (
@@ -67,17 +96,23 @@ USER_QUERY_ERRORS = (
     CHQueryErrorUnknownFunction,
     CHQueryErrorTypeMismatch,
     CHQueryErrorIllegalAggregation,
+    CHQueryErrorNumberOfArgumentsDoesntMatch,
+    CHQueryErrorUnknownIdentifier,
+    CHQueryErrorTooManyBytes,
+    CHQueryErrorCannotParseUuid,
+    ClickHouseQuerySizeExceeded,
+    CHQueryErrorUnsupportedMethod,
+    ResolutionError,
+    CHQueryErrorInvalidJoinOnExpression,
+    ExcelColumnLimitExceeded,
 )
 
 TIMEOUT_ERRORS = (
     SoftTimeLimitExceeded,
     TimeoutError,
+    TimeoutException,
     ExportCancelled,
 )
-
-# Intentionally uncategorized errors (neither retryable nor user errors):
-# - CHQueryErrorUnsupportedMethod: Known to be caused by missing UDFs (infrastructure issue, but not retryable)
-# These should be revisited as we gather more data on their root causes.
 
 # Exception class names for string-based classification (used in backfill)
 USER_QUERY_ERROR_NAMES = frozenset(cls.__name__ for cls in USER_QUERY_ERRORS)

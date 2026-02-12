@@ -26,7 +26,13 @@
             "lastFundingAt": "2025-02-25T00:00:00Z",
             "lastFundingType": "POST_IPO_DEBT",
             "lastFundingTotal": 500000000,
-            "fundingStage": "EXITED"
+            "fundingStage": "EXITED",
+            "investors": [
+                {"name": "Formus Capital"},
+                {"name": "Peak XV Partners"},
+                {"name": "GV"},
+                {"fullName": "Julia Dewahl"}
+            ]
         },
         "tractionMetrics": {
             "webTraffic": {

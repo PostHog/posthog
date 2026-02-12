@@ -35,16 +35,27 @@ test.describe('Logs', () => {
         })
 
         test('service filter passes serviceNames to API', async ({ page }) => {
-            // ARRANGE: Start waiting BEFORE the action (prevents race condition)
-            const [request] = await Promise.all([
-                page.waitForRequest((req) => req.url().includes('/logs/query') && req.method() === 'POST'),
-                // ACT: Click the service filter and select a value
-                (async () => {
-                    await page.getByTestId('logs-service-filter').click()
-                    // Wait for dropdown to be visible, then select first option
-                    await page.locator('[data-attr^="prop-val-"]').first().click()
-                })(),
-            ])
+            // ARRANGE: Set up request interception that only captures requests with serviceNames
+            // This ensures we capture the filter-triggered request, not the initial page load
+            const requestPromise = page.waitForRequest((req) => {
+                if (!req.url().includes('/logs/query') || req.method() !== 'POST') {
+                    return false
+                }
+                try {
+                    const body = req.postDataJSON()
+                    return body?.query?.serviceNames && body.query.serviceNames.length > 0
+                } catch {
+                    return false
+                }
+            })
+
+            // ACT: Click the service filter and select a value
+            await page.getByTestId('logs-service-filter').click()
+            // Wait for dropdown to be visible, then select first option
+            await page.locator('[data-attr^="prop-val-"]').first().click()
+
+            // Wait for the filter-triggered request
+            const request = await requestPromise
 
             // ASSERT: Verify the request contains serviceNames
             const body = request.postDataJSON()
@@ -53,18 +64,29 @@ test.describe('Logs', () => {
         })
 
         test('severity filter passes severityLevels to API', async ({ page }) => {
-            // ARRANGE: Start waiting BEFORE the action (prevents race condition)
-            const [request] = await Promise.all([
-                page.waitForRequest((req) => req.url().includes('/logs/query') && req.method() === 'POST'),
-                // ACT: Click the severity filter and select "Error"
-                (async () => {
-                    await page.getByTestId('logs-severity-filter').click()
-                    // Select "Error" from the dropdown menu
-                    await page.locator('[data-attr="logs-severity-option-error"]').click()
-                    // Close the menu by pressing Escape
-                    await page.keyboard.press('Escape')
-                })(),
-            ])
+            // ARRANGE: Set up request interception that only captures requests with severityLevels
+            // This ensures we capture the filter-triggered request, not the initial page load
+            const requestPromise = page.waitForRequest((req) => {
+                if (!req.url().includes('/logs/query') || req.method() !== 'POST') {
+                    return false
+                }
+                try {
+                    const body = req.postDataJSON()
+                    return body?.query?.severityLevels && body.query.severityLevels.length > 0
+                } catch {
+                    return false
+                }
+            })
+
+            // ACT: Click the severity filter and select "Error"
+            await page.getByTestId('logs-severity-filter').click()
+            // Select "Error" from the dropdown menu
+            await page.locator('[data-attr="logs-severity-option-error"]').click()
+            // Close the menu by pressing Escape
+            await page.keyboard.press('Escape')
+
+            // Wait for the filter-triggered request
+            const request = await requestPromise
 
             // ASSERT: Verify the request contains severityLevels with 'error'
             const body = request.postDataJSON()

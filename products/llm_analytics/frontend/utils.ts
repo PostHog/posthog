@@ -4,6 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
+import { EVALUATION_SUMMARY_MAX_RUNS } from './evaluations/constants'
 import type { EvaluationRun } from './evaluations/types'
 import type { SpanAggregation } from './llmAnalyticsTraceDataLogic'
 import {
@@ -85,6 +86,30 @@ const usdFormatter = new Intl.NumberFormat('en-US', {
 
 export function formatLLMCost(cost: number): string {
     return usdFormatter.format(cost)
+}
+
+export function formatTokens(tokens: number): string {
+    if (tokens >= 1000000) {
+        return `${(tokens / 1000000).toFixed(1)}M`
+    }
+    if (tokens >= 1000) {
+        return `${(tokens / 1000).toFixed(1)}k`
+    }
+    return tokens.toFixed(0)
+}
+
+export function formatErrorRate(errorRate: number): string {
+    const percentage = errorRate * 100
+    if (percentage === 0) {
+        return '0%'
+    }
+    if (percentage < 0.1) {
+        return '<0.1%'
+    }
+    if (percentage < 1) {
+        return `${percentage.toFixed(1)}%`
+    }
+    return `${Math.round(percentage)}%`
 }
 
 export function isLLMEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
@@ -623,9 +648,10 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     }
     // Tool result completion
     if (isAnthropicToolResultMessage(rawMessage)) {
+        const toolResultRole = normalizeRole('assistant (tool result)', roleToUse)
         if (Array.isArray(rawMessage.content)) {
             return rawMessage.content
-                .map((content) => normalizeMessage(content, roleToUse))
+                .map((content) => normalizeMessage(content, toolResultRole))
                 .flat()
                 .map((msg) => ({
                     ...msg,
@@ -634,7 +660,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         }
         return [
             {
-                role: roleToUse,
+                role: toolResultRole,
                 content: rawMessage.content,
                 tool_call_id: rawMessage.tool_use_id,
             },
@@ -824,11 +850,24 @@ type RawEvaluationRunRow = [
     evaluation_name: string | null,
     generation_id: string,
     trace_id: string,
-    result: boolean | string,
+    result: boolean | string | null,
     reasoning: string | null,
+    applicable: boolean | string | null,
 ]
 
 export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
+    const rawResult = row[6]
+    const applicable = row[8]
+
+    // N/A only when backend explicitly sets applicable=false
+    // Otherwise, convert result to boolean (handle string 'false' from HogQL)
+    let result: boolean | null
+    if (applicable === false || applicable === 'false') {
+        result = null
+    } else {
+        result = rawResult === true || rawResult === 'true'
+    }
+
     return {
         id: row[0],
         timestamp: row[1],
@@ -836,9 +875,10 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         evaluation_name: row[3] || 'Unknown Evaluation',
         generation_id: row[4],
         trace_id: row[5],
-        result: row[6] === true || row[6] === 'true',
+        result,
         reasoning: row[7] || 'No reasoning provided',
         status: 'completed' as const,
+        applicable: applicable === null ? undefined : applicable === 'true' || applicable === true,
     }
 }
 
@@ -865,13 +905,14 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_target_event_id as generation_id,
             properties.$ai_trace_id as trace_id,
             properties.$ai_evaluation_result as result,
-            properties.$ai_evaluation_reasoning as reasoning
+            properties.$ai_evaluation_reasoning as reasoning,
+            properties.$ai_evaluation_applicable as applicable
         FROM events
         WHERE
             event = '$ai_evaluation'
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
         ORDER BY timestamp DESC
-        LIMIT 100
+        LIMIT ${EVALUATION_SUMMARY_MAX_RUNS}
     `
 
     const response = await api.queryHogQL(

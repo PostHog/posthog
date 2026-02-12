@@ -166,6 +166,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
     )
     schedule = serializers.CharField(required=False, allow_null=True)
     enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
+    enable_iframe_embedding = serializers.BooleanField(required=False, allow_null=True)
 
     def get_feature_flag_keys(self, survey: Survey) -> list:
         return [
@@ -215,6 +216,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "enable_iframe_embedding",
             "user_access_level",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
@@ -239,6 +241,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     )
     schedule = serializers.CharField(required=False, allow_null=True)
     enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
+    enable_iframe_embedding = serializers.BooleanField(required=False, allow_null=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
@@ -277,6 +280,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "enable_iframe_embedding",
             "_create_in_folder",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
@@ -407,6 +411,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 linked_flag = FeatureFlag.objects.get(pk=linked_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
+
+        targeting_flag_id = data.get("targeting_flag_id")
+        if targeting_flag_id:
+            try:
+                FeatureFlag.objects.get(pk=targeting_flag_id, team_id=self.context["team_id"])
+            except FeatureFlag.DoesNotExist:
+                raise serializers.ValidationError("Targeting Feature Flag with this ID does not exist")
 
         # Validate linkedFlagVariant if provided
         conditions = data.get("conditions") or {}
@@ -1552,6 +1563,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if question_text is None:
             raise exceptions.ValidationError("the text of the question is required")
 
+        # Get archived response UUIDs to exclude
+        archived_uuids = get_archived_response_uuids(survey_id, self.team.pk)
+
         # Fetch responses using the new module
         # For choice questions, exclude predefined choices to only get open-ended "Other" responses
         responses = fetch_responses(
@@ -1562,6 +1576,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             end_date=end_date,
             team=self.team,
             exclude_values=question_choices,
+            exclude_uuids=archived_uuids,
         )
         response_count = len(responses)
 
@@ -2062,6 +2077,7 @@ def public_survey_page(request, survey_id: str):
 
     # Database query with minimal fields and timeout protection
     try:
+        # nosemgrep: idor-lookup-without-team (public survey page, intentionally unauthenticated)
         survey = Survey.objects.select_related("team").get(id=survey_id)
     except Survey.DoesNotExist:
         logger.info("survey_page_not_found", survey_id=survey_id)
@@ -2123,16 +2139,22 @@ def public_survey_page(request, survey_id: str):
     survey_data = serializer.data
     context = {
         "name": survey.name,
+        "survey_id": survey_id,
         "survey_data": survey_data,
         "project_config": project_config,
         "debug": settings.DEBUG,
+        "embed_mode": request.GET.get("embed") == "true",
     }
 
     logger.info("survey_page_rendered", survey_id=survey_id, team_id=survey.team.id)
 
     response = render(request, "surveys/public_survey.html", context)
 
-    response["X-Frame-Options"] = "DENY"  # Override global SAMEORIGIN to prevent iframe embedding
+    if survey.enable_iframe_embedding:
+        response.xframe_options_exempt = True
+    else:
+        response["X-Frame-Options"] = "DENY"
+
     # Cache headers
     response["Cache-Control"] = f"public, max-age={CACHE_TIMEOUT_SECONDS}"
     response["Vary"] = "Accept-Encoding"  # Enable compression caching

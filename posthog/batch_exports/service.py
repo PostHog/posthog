@@ -15,9 +15,11 @@ from temporalio.client import (
     Client,
     Schedule,
     ScheduleActionStartWorkflow,
+    ScheduleCalendarSpec,
     ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
     SchedulePolicy,
+    ScheduleRange,
     ScheduleSpec,
     ScheduleState,
 )
@@ -408,6 +410,7 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
         `True` if the batch export was paused, `False` if it was already paused.
     """
     try:
+        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         batch_export = BatchExport.objects.get(id=batch_export_id)
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
@@ -436,6 +439,7 @@ async def apause_batch_export(temporal: Client, batch_export_id: str, note: str 
         `True` if the batch export was paused, `False` if it was already paused.
     """
     try:
+        # nosemgrep: idor-lookup-without-team (internal service called from Temporal, not user-facing)
         batch_export = await BatchExport.objects.aget(id=batch_export_id)
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
@@ -476,6 +480,7 @@ def unpause_batch_export(
         BatchExportIdError: If the provided batch_export_id doesn't point to an existing BatchExport.
     """
     try:
+        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         batch_export = BatchExport.objects.get(id=batch_export_id)
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
@@ -728,6 +733,7 @@ def update_batch_export_run(
     Arguments:
         run_id: The id of the BatchExportRun to update.
     """
+    # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
     model = BatchExportRun.objects.filter(id=run_id)
     update_at = dt.datetime.now(dt.UTC)
 
@@ -751,6 +757,7 @@ async def aupdate_batch_export_run(
     Arguments:
         run_id: The id of the BatchExportRun to update.
     """
+    # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
     model = BatchExportRun.objects.filter(id=run_id)
     update_at = dt.datetime.now(dt.UTC)
 
@@ -768,6 +775,7 @@ async def aupdate_batch_export_run(
 def count_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
     """Count failed batch export runs in the 'last_n' runs."""
     count_of_failures = (
+        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         BatchExportRun.objects.filter(
             id__in=BatchExportRun.objects.filter(batch_export_id=batch_export_id)
             .order_by("-last_updated_at")
@@ -783,6 +791,7 @@ def count_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
 async def acount_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
     """Count failed batch export runs in the 'last_n' runs."""
     count_of_failures = (
+        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         await BatchExportRun.objects.filter(
             id__in=BatchExportRun.objects.filter(batch_export_id=batch_export_id)
             .order_by("-last_updated_at")
@@ -793,6 +802,58 @@ async def acount_failed_batch_export_runs(batch_export_id: UUID, last_n: int) ->
     )
 
     return count_of_failures
+
+
+def _get_schedule_spec(batch_export: BatchExport) -> ScheduleSpec:
+    timezone = str(batch_export.timezone_info)
+    # if daily or weekly interval, use ScheduleCalendarSpec so we can set the time of day to run (and ensure timezones
+    # are respected)
+    if batch_export.interval == "day":
+        offset_hour = batch_export.offset_hour
+        # should never be the case so assert is safe
+        assert offset_hour is not None
+        return ScheduleSpec(
+            start_at=batch_export.start_at,
+            end_at=batch_export.end_at,
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment=f"Daily at {offset_hour} hours after midnight local time",
+                    hour=[ScheduleRange(start=offset_hour, end=offset_hour)],
+                )
+            ],
+            jitter=batch_export.jitter,
+            time_zone_name=timezone,
+        )
+    elif batch_export.interval == "week":
+        offset_day = batch_export.offset_day
+        assert offset_day is not None
+        day_name = batch_export.offset_day_name
+        assert day_name is not None
+        offset_hour = batch_export.offset_hour
+        assert offset_hour is not None
+
+        return ScheduleSpec(
+            start_at=batch_export.start_at,
+            end_at=batch_export.end_at,
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment=f"Weekly on {day_name} at {offset_hour} hours after midnight local time",
+                    day_of_week=[ScheduleRange(start=offset_day, end=offset_day)],
+                    hour=[ScheduleRange(start=offset_hour, end=offset_hour)],
+                )
+            ],
+            jitter=batch_export.jitter,
+            time_zone_name=timezone,
+        )
+    # for other intervals, use ScheduleIntervalSpec
+    else:
+        return ScheduleSpec(
+            start_at=batch_export.start_at,
+            end_at=batch_export.end_at,
+            intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
+            jitter=batch_export.jitter,
+            time_zone_name=timezone,
+        )
 
 
 def sync_batch_export(batch_export: BatchExport, created: bool):
@@ -850,13 +911,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                 non_retryable_error_types=["ActivityError", "ApplicationError", "CancelledError"],
             ),
         ),
-        spec=ScheduleSpec(
-            start_at=batch_export.start_at,
-            end_at=batch_export.end_at,
-            intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
-            jitter=batch_export.jitter,
-            time_zone_name=batch_export.team.timezone,
-        ),
+        spec=_get_schedule_spec(batch_export),
         state=state,
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
     )
@@ -864,11 +919,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
     if created:
         create_schedule(temporal, id=str(batch_export.id), schedule=schedule)
     else:
-        # For the time being, do not update existing time_zone_name to avoid losing
-        # data due to the shift in start times.
-        # TODO: This should require input from the user for example when changing a project's timezone.
-        # With user's input, then we can more confidently do the update.
-        update_schedule(temporal, id=str(batch_export.id), schedule=schedule, keep_tz=True)
+        update_schedule(temporal, id=str(batch_export.id), schedule=schedule)
 
     return batch_export
 
@@ -941,6 +992,7 @@ def update_batch_export_backfill_status(
         status: The new status to assign to the BatchExportBackfill.
         finished_at: The time the BatchExportBackfill finished.
     """
+    # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
     model = BatchExportBackfill.objects.filter(id=backfill_id)
     updated = model.update(status=status, finished_at=finished_at)
 

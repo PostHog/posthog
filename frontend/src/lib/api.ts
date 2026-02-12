@@ -72,6 +72,7 @@ import {
     CommentCreationParams,
     CommentType,
     ConversationDetail,
+    ConversationQueueResponse,
     CoreMemory,
     CreateGroupParams,
     CustomerProfileConfigType,
@@ -82,7 +83,9 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
+    DataModelingEdge,
     DataModelingJob,
+    DataModelingNode,
     DataWarehouseActivityRecord,
     DataWarehouseJobStats,
     DataWarehouseJobStatsRequestPayload,
@@ -100,7 +103,7 @@ import {
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EndpointType,
-    EndpointVersion,
+    EndpointVersionType,
     EventDefinition,
     EventDefinitionMetrics,
     EventDefinitionType,
@@ -131,6 +134,7 @@ import {
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    JiraProjectType,
     LLMPrompt,
     LineageGraph,
     LinearTeamType,
@@ -197,6 +201,10 @@ import {
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import {
+    ColumnConfigurationApi,
+    PaginatedColumnConfigurationListApi,
+} from 'products/product_analytics/frontend/generated/api.schemas'
 import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
@@ -205,7 +213,12 @@ import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import { HogFlow, HogFlowAction, HogFlowTemplate } from 'products/workflows/frontend/Workflows/hogflows/types'
+import {
+    HogFlow,
+    HogFlowAction,
+    HogFlowBatchJob,
+    HogFlowTemplate,
+} from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
 import { MaxUIContext } from '../scenes/max/maxTypes'
@@ -218,6 +231,7 @@ import {
     ErrorTrackingSymbolSet,
     SymbolSetStatusFilter,
 } from './components/Errors/types'
+import { ErrorTrackingAutoCaptureControls, ErrorTrackingLibrary } from './components/IngestionControls/types'
 import {
     ACTIVITY_PAGE_SIZE,
     COHORT_PERSONS_QUERY_LIMIT,
@@ -525,6 +539,15 @@ export class ApiRequest {
         return this.insights(teamId).addPathComponent('cancel')
     }
 
+    // # Column Configurations
+    public columnConfigurations(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('column_configurations')
+    }
+
+    public columnConfigurationDetail(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.columnConfigurations(teamId).addPathComponent(id)
+    }
+
     // # File System
     public fileSystem(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('file_system')
@@ -689,6 +712,10 @@ export class ApiRequest {
 
     public logsExplainWithAI(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('explainLogWithAI')
+    }
+
+    public logsExport(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('export')
     }
 
     // # Data management
@@ -1170,6 +1197,14 @@ export class ApiRequest {
         return this.errorTrackingReleases().addPathComponent(id)
     }
 
+    public errorTrackingAutoCaptureControls(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('autocapture_controls')
+    }
+
+    public errorTrackingAutoCaptureControl(id: ErrorTrackingAutoCaptureControls['id']): ApiRequest {
+        return this.errorTrackingAutoCaptureControls().addPathComponent(id)
+    }
+
     public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId)
             .addPathComponent('error_tracking')
@@ -1255,6 +1290,28 @@ export class ApiRequest {
             .withQueryString({ saved_query_id: savedQueryId, limit: pageSize, offset })
     }
 
+    public dataModelingJobsRunning(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('running')
+    }
+
+    public dataModelingJobsRecent(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
+    }
+
+    // # Data Modeling Nodes
+    public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
+    }
+
+    public dataModelingNode(id: DataModelingNode['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataModelingNodes(teamId).addPathComponent(id)
+    }
+
+    // # Data Modeling Edges
+    public dataModelingEdges(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_edges')
+    }
+
     // # Warehouse view link
     public dataWarehouseViewLinks(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_view_link')
@@ -1336,6 +1393,10 @@ export class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('github_repos')
     }
 
+    public integrationJiraProjects(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('jira_projects')
+    }
+
     public integrationGoogleAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('google_accessible_accounts')
     }
@@ -1386,6 +1447,10 @@ export class ApiRequest {
 
     public integrationClickUpWorkspaces(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('clickup_workspaces')
+    }
+
+    public integrationEmail(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('email')
     }
 
     public integrationEmailVerify(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1722,6 +1787,10 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('llm_prompts').addPathComponent(id)
     }
 
+    public llmPromptByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmPrompts(teamId).addPathComponent('name').addPathComponent(name)
+    }
+
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
     }
@@ -1895,14 +1964,21 @@ const api = {
         async analyze(id: number): Promise<{ result: string }> {
             return await new ApiRequest().insight(id).withAction('analyze').get()
         },
+        async generateName(query: Record<string, any>): Promise<{ name: string }> {
+            return await new ApiRequest().insights().withAction('generate_name').create({ data: { query } })
+        },
     },
 
     endpoint: {
         async list(): Promise<CountedPaginatedResponse<EndpointType>> {
             return await new ApiRequest().endpoint().get()
         },
-        async get(name: string): Promise<EndpointType> {
-            return await new ApiRequest().endpointDetail(name).get()
+        async get(name: string, version?: number): Promise<EndpointVersionType> {
+            let request = new ApiRequest().endpointDetail(name)
+            if (version !== undefined) {
+                request = request.withQueryString({ version })
+            }
+            return await request.get()
         },
         async create(data: EndpointRequest): Promise<EndpointType> {
             return await new ApiRequest().endpoint().create({ data })
@@ -1910,8 +1986,12 @@ const api = {
         async delete(name: string): Promise<void> {
             return await new ApiRequest().endpointDetail(name).delete()
         },
-        async update(name: string, data: EndpointRequest): Promise<EndpointType> {
-            return await new ApiRequest().endpointDetail(name).update({ data })
+        async update(name: string, data: EndpointRequest, version?: number): Promise<EndpointType> {
+            const request = new ApiRequest().endpointDetail(name)
+            if (version !== undefined) {
+                request.withQueryString({ version })
+            }
+            return await request.update({ data })
         },
         async run(name: string, data: EndpointRunRequest): Promise<AnyResponseType> {
             return await new ApiRequest().endpointDetail(name).withAction('run').create({ data })
@@ -1939,14 +2019,15 @@ const api = {
 
             return result
         },
-        async getMaterializationStatus(name: string): Promise<EndpointType['materialization']> {
-            return await new ApiRequest().endpointDetail(name).withAction('materialization_status').get()
+        async getMaterializationStatus(name: string, version?: number): Promise<EndpointType['materialization']> {
+            let request = new ApiRequest().endpointDetail(name).withAction('materialization_status')
+            if (version !== undefined) {
+                request = request.withQueryString({ version })
+            }
+            return await request.get()
         },
-        async listVersions(name: string): Promise<EndpointVersion[]> {
+        async listVersions(name: string): Promise<EndpointVersionType[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
-        },
-        async getVersion(name: string, version: number): Promise<EndpointVersion> {
-            return await new ApiRequest().endpointDetail(name).withAction(`versions/${version}`).get()
         },
     },
 
@@ -2233,6 +2314,7 @@ const api = {
                     ActivityScope.EXPERIMENT,
                     ActivityScope.TAG,
                     ActivityScope.ENDPOINT,
+                    ActivityScope.PRODUCT_TOUR,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -2348,7 +2430,7 @@ const api = {
         }: {
             query: Omit<LogsQuery, 'kind'>
             signal?: AbortSignal
-        }): Promise<{ results: LogMessage[]; hasMore: boolean; nextCursor?: string }> {
+        }): Promise<{ results: LogMessage[]; hasMore: boolean; nextCursor?: string; maxExportableLogs: number }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
@@ -2362,6 +2444,15 @@ const api = {
         },
         async explain(uuid: string, timestamp: string): Promise<LogExplanation> {
             return new ApiRequest().logsExplainWithAI().create({ data: { uuid, timestamp } })
+        },
+        async exportQuery({
+            query,
+            columns,
+        }: {
+            query: Omit<LogsQuery, 'kind'>
+            columns?: string[]
+        }): Promise<{ id: number; export_format: string; has_content: boolean; filename: string }> {
+            return new ApiRequest().logsExport().create({ data: { query, columns } })
         },
     },
 
@@ -2574,6 +2665,54 @@ const api = {
                     })
                 )
                 .assembleFullUrl()
+        },
+    },
+
+    columnConfigurations: {
+        async list({
+            teamId = ApiConfig.getCurrentTeamId(),
+            context_key,
+            ...params
+        }: {
+            teamId?: TeamType['id']
+            context_key?: string
+        } = {}): Promise<PaginatedColumnConfigurationListApi> {
+            return new ApiRequest()
+                .columnConfigurations(teamId)
+                .withQueryString(toParams({ context_key, ...params }))
+                .get()
+        },
+
+        async create({
+            teamId = ApiConfig.getCurrentTeamId(),
+            data,
+        }: {
+            teamId?: TeamType['id']
+            data: Partial<ColumnConfigurationApi>
+        }): Promise<ColumnConfigurationApi> {
+            return new ApiRequest().columnConfigurations(teamId).create({ data })
+        },
+
+        async update({
+            teamId = ApiConfig.getCurrentTeamId(),
+            id,
+            data,
+        }: {
+            teamId?: TeamType['id']
+            id: string
+            data: Partial<ColumnConfigurationApi>
+        }): Promise<ColumnConfigurationApi> {
+            return new ApiRequest().columnConfigurationDetail(id, teamId).update({ data })
+        },
+
+        async delete({
+            teamId = ApiConfig.getCurrentTeamId(),
+            id,
+        }: {
+            teamId?: TeamType['id']
+            id: string
+        }): Promise<void> {
+            return new ApiRequest().columnConfigurationDetail(id, teamId).delete()
         },
     },
 
@@ -3374,6 +3513,21 @@ const api = {
             },
         },
 
+        autoCaptureControls: {
+            async get(library: ErrorTrackingLibrary = 'web'): Promise<ErrorTrackingAutoCaptureControls | null> {
+                return await new ApiRequest().errorTrackingAutoCaptureControls().withQueryString({ library }).get()
+            },
+            async create(library: ErrorTrackingLibrary = 'web'): Promise<ErrorTrackingAutoCaptureControls> {
+                return await new ApiRequest().errorTrackingAutoCaptureControls().withQueryString({ library }).create()
+            },
+            async update(data: ErrorTrackingAutoCaptureControls): Promise<ErrorTrackingAutoCaptureControls> {
+                return await new ApiRequest().errorTrackingAutoCaptureControl(data.id).update({ data })
+            },
+            async delete(id: ErrorTrackingAutoCaptureControls['id']): Promise<void> {
+                return await new ApiRequest().errorTrackingAutoCaptureControl(id).delete()
+            },
+        },
+
         async symbolSetStackFrames(
             id: ErrorTrackingSymbolSet['id']
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
@@ -3518,6 +3672,13 @@ const api = {
 
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().recording(recordingId).delete()
+        },
+
+        async batchCheckExists(sessionIds: string[]): Promise<{ results: Record<string, boolean> }> {
+            return await new ApiRequest()
+                .recordings()
+                .withAction('batch_check_exists')
+                .create({ data: { session_ids: sessionIds } })
         },
 
         async createExternalReference(
@@ -3752,6 +3913,34 @@ const api = {
         ): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
         },
+        async hogqlExecute(
+            notebookId: NotebookType['short_id'],
+            data: { query: string }
+        ): Promise<{ columns?: string[]; results?: any[]; error?: string }> {
+            return await new ApiRequest().notebook(notebookId).withAction('hogql/execute').create({ data })
+        },
+        async kernelExecuteStream(
+            notebookId: NotebookType['short_id'],
+            data: { code: string; return_variables?: boolean; timeout?: number },
+            {
+                onMessage,
+                onError,
+                signal,
+            }: {
+                onMessage: (data: EventSourceMessage) => void
+                onError: (error: any) => void
+                signal?: AbortSignal
+            }
+        ): Promise<void> {
+            const url = new ApiRequest().notebook(notebookId).withAction('kernel/execute/stream').assembleFullUrl(true)
+            await api.stream(url, {
+                method: 'POST',
+                data,
+                onMessage,
+                onError,
+                signal,
+            })
+        },
         async kernelDataframe(
             notebookId: NotebookType['short_id'],
             params: { variable_name: string; offset?: number; limit?: number; timeout?: number }
@@ -3843,7 +4032,7 @@ const api = {
             id: BatchExportConfiguration['id'],
             data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
         ): Promise<BatchExportRun> {
-            return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
+            return await new ApiRequest().batchExportBackfills(id).create({ data })
         },
         async listBackfills(
             id: BatchExportConfiguration['id'],
@@ -3962,6 +4151,9 @@ const api = {
         },
         async run(id: Task['id']): Promise<Task> {
             return await new ApiRequest().task(id).withAction('run').create()
+        },
+        async clusterVideoSegments(): Promise<{ status: string; workflow_id: string; message: string }> {
+            return await new ApiRequest().tasks().withAction('cluster_video_segments').create()
         },
         runs: {
             async list(taskId: Task['id']): Promise<PaginatedResponse<TaskRun>> {
@@ -4227,6 +4419,42 @@ const api = {
             ): Promise<PaginatedResponse<DataModelingJob>> {
                 return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
             },
+        },
+    },
+
+    dataModelingNodes: {
+        async list(): Promise<PaginatedResponse<DataModelingNode>> {
+            return await new ApiRequest().dataModelingNodes().get()
+        },
+        async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
+            return await new ApiRequest().dataModelingNode(nodeId).get()
+        },
+        async run(
+            nodeId: DataModelingNode['id'],
+            direction: 'upstream' | 'downstream'
+        ): Promise<{ node_ids: string[] }> {
+            return await new ApiRequest().dataModelingNode(nodeId).withAction('run').create({ data: { direction } })
+        },
+        async materialize(nodeId: DataModelingNode['id']): Promise<void> {
+            await new ApiRequest().dataModelingNode(nodeId).withAction('materialize').create()
+        },
+        async dagIds(): Promise<{ dag_ids: string[] }> {
+            return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
+        },
+    },
+
+    dataModelingEdges: {
+        async list(): Promise<PaginatedResponse<DataModelingEdge>> {
+            return await new ApiRequest().dataModelingEdges().get()
+        },
+    },
+
+    dataModelingJobs: {
+        async listRunning(): Promise<DataModelingJob[]> {
+            return await new ApiRequest().dataModelingJobsRunning().get()
+        },
+        async listRecent(): Promise<DataModelingJob[]> {
+            return await new ApiRequest().dataModelingJobsRecent().get()
         },
     },
 
@@ -4522,6 +4750,9 @@ const api = {
         async githubRepositories(id: IntegrationType['id']): Promise<{ repositories: string[] }> {
             return await new ApiRequest().integrationGitHubRepositories(id).get()
         },
+        async jiraProjects(id: IntegrationType['id']): Promise<{ projects: JiraProjectType[] }> {
+            return await new ApiRequest().integrationJiraProjects(id).get()
+        },
         async googleAdsAccounts(
             id: IntegrationType['id']
         ): Promise<{ accessibleAccounts: { id: string; name: string; level: string; parent_id: string }[] }> {
@@ -4564,6 +4795,12 @@ const api = {
         },
         async verifyEmail(id: IntegrationType['id']): Promise<EmailSenderDomainStatus> {
             return await new ApiRequest().integrationEmailVerify(id).create()
+        },
+        async updateEmailConfig(
+            integrationId: IntegrationType['id'],
+            data: Partial<IntegrationType> | FormData
+        ): Promise<IntegrationType> {
+            return await new ApiRequest().integrationEmail(integrationId).update({ data })
         },
     },
 
@@ -4774,9 +5011,14 @@ const api = {
             hogFlowId: HogFlow['id'],
             data: {
                 variables: Record<string, HogQLVariable>
+                filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+                scheduled_at?: string | null
             }
         ): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').create({ data })
+        },
+        async getHogFlowBatchJobs(hogFlowId: HogFlow['id']): Promise<HogFlowBatchJob[]> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').get()
         },
     },
     hogFlowTemplates: {
@@ -4927,6 +5169,40 @@ const api = {
                 .withAction('append_message')
                 .create({ data: { content } })
         },
+
+        queue: {
+            list(conversationId: string): Promise<ConversationQueueResponse> {
+                return new ApiRequest().conversation(conversationId).withAction('queue').get()
+            },
+
+            enqueue(
+                conversationId: string,
+                data: {
+                    content: string
+                    contextual_tools?: Record<string, any>
+                    ui_context?: MaxUIContext
+                    billing_context?: MaxBillingContext | null
+                    agent_mode?: AgentMode | null
+                }
+            ): Promise<ConversationQueueResponse> {
+                return new ApiRequest().conversation(conversationId).withAction('queue').create({ data })
+            },
+
+            update(conversationId: string, queueId: string, content: string): Promise<ConversationQueueResponse> {
+                return new ApiRequest()
+                    .conversation(conversationId)
+                    .withAction(`queue/${queueId}`)
+                    .update({ data: { content } })
+            },
+
+            delete(conversationId: string, queueId: string): Promise<ConversationQueueResponse> {
+                return new ApiRequest().conversation(conversationId).withAction(`queue/${queueId}`).delete()
+            },
+
+            clear(conversationId: string): Promise<ConversationQueueResponse> {
+                return new ApiRequest().conversation(conversationId).withAction('queue/clear').create({ data: {} })
+            },
+        },
     },
 
     datasets: {
@@ -5035,6 +5311,10 @@ const api = {
         async delete(ticketId: string): Promise<void> {
             return await new ApiRequest().conversationsTicket(ticketId).delete()
         },
+
+        async unreadCount(): Promise<{ count: number }> {
+            return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
+        },
     },
 
     llmPrompts: {
@@ -5049,6 +5329,10 @@ const api = {
 
         get(promptId: string): Promise<LLMPrompt> {
             return new ApiRequest().llmPrompt(promptId).get()
+        },
+
+        getByName(promptName: string): Promise<LLMPrompt> {
+            return new ApiRequest().llmPromptByName(promptName).get()
         },
 
         async create(data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {

@@ -40,7 +40,7 @@ jobs:
                   token: ${{ steps.app-token.outputs.token }}
 
             - name: Install uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
 
             - name: Find CI run to use
               id: find-run
@@ -57,18 +57,22 @@ jobs:
                   # Find a recent successful ci-backend.yml run with timing artifacts
                   # Most runs skip tests due to path filtering (~20 sec), so filter by duration first
                   # Runs that actually execute tests take 15+ minutes
+                  # Only consider runs from the past 14 days to ensure artifacts haven't expired
                   echo "Searching for CI run with timing artifacts..."
 
+                  # Calculate date 14 days ago in ISO 8601 format
+                  cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
                   # Get runs that took more than 5 minutes (300 seconds) - likely ran tests
-                  run_id=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&per_page=100" \
+                  # Filter to runs created in the past 14 days to avoid expired artifacts
+                  run_id=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&per_page=100&created=>=$cutoff_date" \
                       --jq '.workflow_runs[] | select(
                           (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
                       ) | .id' | head -5 | \
                       while read id; do
                           count=$(gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts?per_page=100" \
-                              --jq '[.artifacts[] | select(.name | startswith("timing_data-"))] | length' 2>/dev/null)
+                              --jq '[.artifacts[] | select(.name | startswith("timing_data-")) | select(.expired == false)] | length' 2>/dev/null)
                           echo "Run $id has $count timing artifacts" >&2
-                          if [ "$count" -gt "40" ]; then
+                          if [ "$count" -ge "38" ]; then
                               echo "$id"
                               break
                           fi

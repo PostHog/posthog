@@ -159,9 +159,13 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
      * Also tracks metrics for ignored properties at the batch level.
      */
     private getPersonUpdateOutcome(update: PersonUpdate): 'changed' | 'ignored' | 'no_change' {
+        const lastSeenAtChanged =
+            (update.last_seen_at?.toMillis() ?? null) !== (update.original_last_seen_at?.toMillis() ?? null)
+
         const hasNonPropertyChanges =
             update.is_identified !== update.original_is_identified ||
-            !update.created_at.equals(update.original_created_at)
+            !update.created_at.equals(update.original_created_at) ||
+            lastSeenAtChanged
 
         if (hasNonPropertyChanges) {
             return 'changed'
@@ -1186,6 +1190,13 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             // Handle force_update with || operator - once true, stays true
             mergedPersonUpdate.force_update = existingPersonUpdate.force_update || person.force_update
 
+            // Handle last_seen_at - take the newer timestamp (max)
+            if (person.last_seen_at) {
+                if (!mergedPersonUpdate.last_seen_at || person.last_seen_at > mergedPersonUpdate.last_seen_at) {
+                    mergedPersonUpdate.last_seen_at = person.last_seen_at
+                }
+            }
+
             this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, person.id), mergedPersonUpdate)
         } else {
             // First time we're caching this person id
@@ -1373,6 +1384,13 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             personUpdate.is_identified = personUpdate.is_identified || otherUpdates.is_identified
         }
 
+        // Handle last_seen_at - take the newer timestamp
+        if (otherUpdates.last_seen_at) {
+            if (!personUpdate.last_seen_at || otherUpdates.last_seen_at > personUpdate.last_seen_at) {
+                personUpdate.last_seen_at = otherUpdates.last_seen_at
+            }
+        }
+
         personUpdate.needs_write = true
 
         // Set force_update flag with || operator - once set to true by a $identify/$set event, it stays true
@@ -1397,6 +1415,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             properties_last_operation: person.properties_last_operation,
             is_identified: person.is_identified,
             created_at: person.created_at,
+            last_seen_at: person.last_seen_at,
         }
 
         this.incrementCount('updatePersonNoAssert', personUpdate.distinct_id)
@@ -1618,11 +1637,13 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             version: currentPerson.version,
             is_identified: currentPerson.is_identified || personUpdate.is_identified,
             is_user_id: personUpdate.is_user_id,
+            last_seen_at: personUpdate.last_seen_at,
             needs_write: personUpdate.needs_write,
             properties_to_set: personUpdate.properties_to_set,
             properties_to_unset: personUpdate.properties_to_unset,
             original_is_identified: personUpdate.original_is_identified,
             original_created_at: personUpdate.original_created_at,
+            original_last_seen_at: personUpdate.original_last_seen_at,
         }
 
         return updatedPersonUpdate

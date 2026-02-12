@@ -1,5 +1,9 @@
+from typing import Optional
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from rest_framework import status
 
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -648,7 +652,7 @@ class TestHogFlowAPI(APIBaseTest):
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_hog_flow_batch_jobs_endpoint_creates_job(self, mock_create_invocation):
+    def test_post_hog_flow_batch_jobs_endpoint_creates_job(self, mock_create_invocation):
         hog_flow, _ = self._create_hog_flow_with_action(
             {
                 "template_id": "template-webhook",
@@ -671,12 +675,58 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["status"] == "queued"
         mock_create_invocation.assert_called_once()
 
-    def test_hog_flow_batch_jobs_endpoint_nonexistent_flow(self):
+    def test_post_hog_flow_batch_jobs_endpoint_nonexistent_flow(self):
         batch_job_data = {"variables": [{"key": "first_name", "value": "Test"}]}
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/99999/batch_jobs", batch_job_data)
 
         assert response.status_code == 404, response.json()
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_get_hog_flow_batch_jobs_only_returns_jobs_for_flow(self, mock_create_invocation):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Create another flow
+        hog_flow_2, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example2.com"}},
+            }
+        )
+        create_response_2 = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow_2)
+        assert create_response_2.status_code == 201, create_response_2.json()
+        flow_id_2 = create_response_2.json()["id"]
+
+        # Create batch jobs for both flows
+        batch_job_data_1 = {"variables": [{"key": "first_name", "value": "Test1"}]}
+        batch_job_data_2 = {"variables": [{"key": "first_name", "value": "Test2"}]}
+
+        job_response_1 = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs", batch_job_data_1
+        )
+        assert job_response_1.status_code == 200, job_response_1.json()
+
+        job_response_2 = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id_2}/batch_jobs", batch_job_data_2
+        )
+        assert job_response_2.status_code == 200, job_response_2.json()
+
+        # Fetch jobs for the first flow
+        get_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs")
+        assert get_response.status_code == 200, get_response.json()
+        jobs = get_response.json()
+        assert len(jobs) == 1
+        assert jobs[0]["id"] == job_response_1.json()["id"]
 
     def test_hog_flow_filter_test_accounts_compiles_bytecode(self):
         """Test that filter_test_accounts includes team's test account filters in bytecode"""
@@ -750,3 +800,63 @@ class TestHogFlowAPI(APIBaseTest):
         assert "%@posthog.com%" in bytecode_with, "Bytecode should include test account filter value"
         assert "email" in bytecode_with, "Bytecode should include email property check"
         assert "person" in bytecode_with, "Bytecode should include person property type"
+
+    def _get_hog_flow_activity(self, flow_id: Optional[str] = None) -> list:
+        params: dict = {"scope": "HogFlow", "page": 1, "limit": 20}
+        if flow_id:
+            params["item_id"] = flow_id
+        activity = self.client.get(f"/api/projects/{self.team.pk}/activity_log", data=params)
+        assert activity.status_code == status.HTTP_200_OK
+        return activity.json().get("results")
+
+    def test_create_hog_flow_logs_activity(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        flow_id = response.json()["id"]
+        flow_name = response.json()["name"]
+
+        activity = self._get_hog_flow_activity(flow_id)
+        assert len(activity) >= 1
+
+        latest = activity[0]
+        assert latest["activity"] == "created"
+        assert latest["scope"] == "HogFlow"
+        assert latest["item_id"] == flow_id
+        assert latest["detail"]["name"] == flow_name
+        assert latest["detail"]["type"] == "standard"
+
+    def test_update_hog_flow_logs_activity(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        flow_id = response.json()["id"]
+        original_name = response.json()["name"]
+
+        new_name = "Updated Flow Name"
+        update_response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"name": new_name})
+        assert update_response.status_code == status.HTTP_200_OK, update_response.json()
+
+        activity = self._get_hog_flow_activity(flow_id)
+        assert len(activity) >= 2
+
+        latest = activity[0]
+        assert latest["activity"] == "updated"
+        assert latest["scope"] == "HogFlow"
+        assert latest["item_id"] == flow_id
+        assert latest["detail"]["name"] == new_name
+        changes = latest["detail"]["changes"]
+        name_change = next((c for c in changes if c["field"] == "name"), None)
+        assert name_change is not None
+        assert name_change["before"] == original_name
+        assert name_change["after"] == new_name

@@ -67,9 +67,10 @@ class ClickHousePrinter(HogQLPrinter):
         if len(self.stack) == 0 and self.settings:
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
-            settings = self._print_settings(self.settings)
-            if settings is not None:
-                response += " " + settings
+            merged = self._merge_table_top_level_settings(self.settings)
+            printed = self._print_settings(merged)
+            if printed is not None:
+                response += " " + printed
 
         return response
 
@@ -275,36 +276,24 @@ class ClickHousePrinter(HogQLPrinter):
         if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             return None
 
-        property_type: ast.PropertyType | None = None
+        # Property can be on either side of the comparison
+        property_source: PrintableMaterializedColumn | None = None
         constant_expr: ast.Constant | None = None
 
-        if isinstance(node.right, ast.Constant):
-            left_type = resolve_field_type(node.left)
-            if isinstance(left_type, ast.PropertyType):
-                property_type = left_type
-                constant_expr = node.right
-        elif isinstance(node.left, ast.Constant):
-            right_type = resolve_field_type(node.right)
-            if isinstance(right_type, ast.PropertyType):
-                property_type = right_type
-                constant_expr = node.left
+        if (ps := self._get_materialized_string_property_source(node.left)) and (
+            ce := self._get_string_pattern_constant(node.right)
+        ):
+            property_source, constant_expr = ps, ce
+        elif (ps := self._get_materialized_string_property_source(node.right)) and (
+            ce := self._get_string_pattern_constant(node.left)
+        ):
+            property_source, constant_expr = ps, ce
 
-        if property_type is None or constant_expr is None:
+        if property_source is None or constant_expr is None:
             return None
 
-        # Only optimize simple property access (not chained like properties.foo.bar)
-        if len(property_type.chain) != 1:
-            return None
-
-        # Only optimize for non-empty, non-null string constants
-        if not isinstance(constant_expr.value, str):
-            return None
+        # Bail out for sentinel values - let normal code path handle with nullIf wrapping
         if constant_expr.value in MAT_COL_NULL_SENTINELS:
-            return None
-
-        # Check if this property uses an individually materialized column (not a property group)
-        property_source = self._get_materialized_property_source_for_property_type(property_type)
-        if not isinstance(property_source, PrintableMaterializedColumn):
             return None
 
         # These are optimized elsewhere
@@ -332,6 +321,63 @@ class ClickHousePrinter(HogQLPrinter):
             else:
                 return f"notEquals({materialized_column_sql}, {constant_sql})"
 
+    def _get_materialized_string_property_source(self, expr: ast.Expr) -> PrintableMaterializedColumn | None:
+        """
+        Extracts a PrintableMaterializedColumn from an expression if it's a simple string property access.
+
+        String properties can have their mat col returned even if they are wrapped in a toString() call. Sometimes this
+        wrapping is added for safety (as users can change the type of key properties), but this should not prevent us
+        from doing optimisations that are safe.
+        Returns None if the expression is not a valid string property access or doesn't have a
+        materialized column.
+        """
+        property_type: ast.PropertyType | None = None
+
+        # Check for direct property access
+        expr_type = resolve_field_type(expr)
+        if isinstance(expr_type, ast.PropertyType):
+            property_type = expr_type
+        # Check for toString(properties.X) wrapper
+        elif isinstance(expr, ast.Call) and expr.name == "toString" and len(expr.args) == 1:
+            # Unwrap Alias if present to check the actual structure
+            inner_expr = expr.args[0]
+            if isinstance(inner_expr, ast.Alias):
+                inner_expr = inner_expr.expr
+            # Only match if the inner expression is a direct Field access, not a Call
+            # (e.g., we want toString(properties.X), not toString(toFloat(properties.X)))
+            # This ensures we don't apply the optimization when PropertySwapper has wrapped
+            # the property in a type conversion function
+            if isinstance(inner_expr, ast.Field):
+                inner_type = resolve_field_type(inner_expr)
+                if isinstance(inner_type, ast.PropertyType) and len(inner_type.chain) == 1:
+                    property_type = inner_type
+
+        if property_type is None:
+            return None
+
+        # Only optimize simple property access (not chained like properties.foo.bar)
+        if len(property_type.chain) != 1:
+            return None
+
+        # Check if this property has a non-string type defined - if so, skip the optimization
+        property_name = str(property_type.chain[0])
+        if self.context.property_swapper is not None:
+            prop_info = self.context.property_swapper.event_properties.get(property_name)
+            if prop_info is not None and prop_info.get("type") not in (None, "String"):
+                return None
+
+        # Check if this property uses an individually materialized column (not a property group)
+        property_source = self._get_materialized_property_source_for_property_type(property_type)
+        if not isinstance(property_source, PrintableMaterializedColumn):
+            return None
+
+        return property_source
+
+    def _get_string_pattern_constant(self, expr: ast.Expr) -> ast.Constant | None:
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+            return expr
+        return None
+
     def _get_optimized_materialized_column_ilike_operation(self, node: ast.CompareOperation) -> str | None:
         """
         Returns an optimized printed expression for ILIKE comparisons involving materialized columns.
@@ -345,28 +391,10 @@ class ClickHousePrinter(HogQLPrinter):
         if node.op not in (ast.CompareOperationOp.ILike, ast.CompareOperationOp.NotILike):
             return None
 
-        property_type: ast.PropertyType | None = None
-        pattern_expr: ast.Constant | None = None
-
-        left_type = resolve_field_type(node.left)
-        if isinstance(left_type, ast.PropertyType) and isinstance(node.right, ast.Constant):
-            property_type = left_type
-            pattern_expr = node.right
-
-        if property_type is None or pattern_expr is None:
-            return None
-
-        # Only optimize simple property access (not chained like properties.foo.bar)
-        if len(property_type.chain) != 1:
-            return None
-
-        # Only optimize for string pattern constants
-        if not isinstance(pattern_expr.value, str):
-            return None
-
-        # Check if this property uses an individually materialized column (not a property group)
-        property_source = self._get_materialized_property_source_for_property_type(property_type)
-        if not isinstance(property_source, PrintableMaterializedColumn):
+        if not (
+            (property_source := self._get_materialized_string_property_source(node.left))
+            and (pattern_expr := self._get_string_pattern_constant(node.right))
+        ):
             return None
 
         materialized_column_sql = str(property_source)
@@ -418,27 +446,10 @@ class ClickHousePrinter(HogQLPrinter):
         if node.op not in (ast.CompareOperationOp.Like, ast.CompareOperationOp.NotLike):
             return None
 
-        property_type: ast.PropertyType | None = None
-        pattern_expr: ast.Constant | None = None
-
-        left_type = resolve_field_type(node.left)
-        if isinstance(left_type, ast.PropertyType) and isinstance(node.right, ast.Constant):
-            property_type = left_type
-            pattern_expr = node.right
-
-        if property_type is None or pattern_expr is None:
-            return None
-
-        # Only optimize simple property access (not chained like properties.foo.bar)
-        if len(property_type.chain) != 1:
-            return None
-
-        # Only optimize for string pattern constants
-        if not isinstance(pattern_expr.value, str):
-            return None
-
-        property_source = self._get_materialized_property_source_for_property_type(property_type)
-        if not isinstance(property_source, PrintableMaterializedColumn):
+        if not (
+            (property_source := self._get_materialized_string_property_source(node.left))
+            and (pattern_expr := self._get_string_pattern_constant(node.right))
+        ):
             return None
 
         materialized_column_sql = str(property_source)
@@ -943,10 +954,16 @@ class ClickHousePrinter(HogQLPrinter):
         if self.context.output_format and is_top_level_query and (not part_of_select_union or is_last_query_in_union):
             clauses.append(f"FORMAT{space}{self.context.output_format}")
 
-        if node.settings is not None:
-            settings = self._print_settings(node.settings)
-            if settings is not None:
-                clauses.append(settings)
+        # When self.settings exists, table-level settings are merged in visit() instead
+        merged = (
+            self._merge_table_top_level_settings(node.settings)
+            if is_top_level_query and not self.settings
+            else node.settings
+        )
+        if merged is not None:
+            printed = self._print_settings(merged)
+            if printed is not None:
+                clauses.append(printed)
 
         return clauses
 

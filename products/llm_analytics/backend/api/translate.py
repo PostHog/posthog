@@ -5,7 +5,8 @@ Endpoint:
 - POST /api/environments/:id/llm_analytics/translate/ - Translate text
 """
 
-from django.conf import settings
+import time
+from typing import cast
 
 import structlog
 from rest_framework import exceptions, serializers, status, viewsets
@@ -14,6 +15,9 @@ from rest_framework.response import Response
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
+from posthog.models import User
+from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
     LLMAnalyticsTranslationBurstThrottle,
     LLMAnalyticsTranslationDailyThrottle,
@@ -48,7 +52,8 @@ class TranslateResponseSerializer(serializers.Serializer):
 class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """ViewSet for translating LLM trace message content."""
 
-    scope_object = "llm_analytics"  # type: ignore[assignment]
+    scope_object = "llm_analytics"
+    permission_classes = [AccessControlPermission]
 
     def get_throttles(self):
         return [
@@ -79,24 +84,34 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         text = serializer.validated_data["text"]
         target_language = serializer.validated_data.get("target_language", DEFAULT_TARGET_LANGUAGE)
 
-        if not getattr(settings, "OPENAI_API_KEY", None):
-            raise exceptions.APIException(
-                detail="Translation service is not configured. OPENAI_API_KEY is required.",
-                code="translation_not_configured",
-            )
-
         try:
             logger.info(
                 "translation_requested",
                 target_language=target_language,
                 text_length=len(text),
             )
-            translation = translate_text(text, target_language)
+            start_time = time.time()
+            user = cast(User, request.user)
+            translation = translate_text(text, target_language, user_distinct_id=user.distinct_id)
+            duration_seconds = time.time() - start_time
             logger.info(
                 "translation_completed",
                 target_language=target_language,
                 translation_length=len(translation),
             )
+
+            report_user_action(
+                user,
+                "llma translation generated",
+                {
+                    "target_language": target_language,
+                    "text_length": len(text),
+                    "translation_length": len(translation),
+                    "duration_seconds": duration_seconds,
+                },
+                self.team,
+            )
+
             return Response(
                 {
                     "translation": translation,

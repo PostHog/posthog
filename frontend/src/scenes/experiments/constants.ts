@@ -30,6 +30,12 @@ export const LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES = [
 
 export const EXPERIMENT_VARIANT_MULTIPLE = '$multiple'
 
+export const CONFIDENCE_LEVEL_OPTIONS = [
+    { value: 0.9, label: '90%' },
+    { value: 0.95, label: '95%' },
+    { value: 0.99, label: '99%' },
+]
+
 export const EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS = 50
 export const EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS = 10
 
@@ -88,6 +94,7 @@ export const NEW_EXPERIMENT: Experiment = {
             { key: 'control', rollout_percentage: 50 },
             { key: 'test', rollout_percentage: 50 },
         ] as any[],
+        rollout_percentage: 100,
     },
     created_at: null,
     created_by: null,

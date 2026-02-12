@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
+from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
 import structlog
@@ -398,7 +399,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             insight = cast(Insight, insight_serializer.instance)
 
             # Create new insight's tags separately. Force create tags on dashboard duplication.
-            self._attempt_set_tags(new_tags, insight, force_create=True)
+            self._attempt_set_tags(new_tags, insight)
 
             DashboardTile.objects.create(
                 dashboard=dashboard,
@@ -443,6 +444,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
+            from posthog.models.team import Team
+
+            Team.objects.filter(
+                primary_dashboard=instance,
+                id=instance.team_id,
+            ).update(primary_dashboard=None)
             group_type_mapping = GroupTypeMapping.objects.filter(
                 team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
             ).first()
@@ -471,8 +478,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         duplicate_tiles = initial_data.pop("duplicate_tiles", [])
         for tile_data in duplicate_tiles:
+            # nosemgrep: idor-lookup-without-team (scoped via parent viewset get_queryset)
             existing_tile = DashboardTile.objects.get(dashboard=instance, id=tile_data["id"])
-            existing_tile.layouts = {}
+            existing_tile.layouts = tile_data.get("layouts", {})
             self._deep_duplicate_tiles(instance, existing_tile)
 
         if "request" in self.context:
@@ -506,9 +514,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["last_modified_by"] = last_modified_by
             validated_data["last_modified_at"] = now()
 
-            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=validated_data)
+            text, _ = Text.objects.update_or_create(
+                id=text_json.get("id", None), team_id=instance.team_id, defaults=validated_data
+            )
+            # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
+                dashboard=instance,
                 defaults={**tile_data, "text": text, "dashboard": instance},
             )
         elif (
@@ -516,8 +528,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
 
+            # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
+                dashboard=instance,
                 defaults={**tile_data, "dashboard": instance},
             )
 
@@ -539,6 +553,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
             if insight_ids_to_delete:
+                # nosemgrep: idor-lookup-without-team
                 Insight.objects.filter(id__in=insight_ids_to_delete).update(deleted=True)
 
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
@@ -688,6 +703,7 @@ class DashboardsViewSet(
                     "caching_states",
                     Prefetch(
                         "insight__dashboards",
+                        # nosemgrep: idor-lookup-without-team (scoped via prefetch on team-scoped queryset)
                         queryset=Dashboard.objects.filter(
                             id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)
                         ),
@@ -859,12 +875,18 @@ class DashboardsViewSet(
         from_dashboard = kwargs["pk"]
         to_dashboard = request.data["toDashboard"]
 
-        tile = DashboardTile.objects.get(dashboard_id=from_dashboard, id=tile["id"])
+        tile = get_object_or_404(
+            DashboardTile,
+            dashboard_id=from_dashboard,
+            id=tile["id"],
+            dashboard__team__project_id=self.team.project_id,
+        )
+        get_object_or_404(Dashboard, id=to_dashboard, team__project_id=self.team.project_id)
         tile.dashboard_id = to_dashboard
         tile.save(update_fields=["dashboard_id"])
 
         serializer = DashboardSerializer(
-            Dashboard.objects.get(id=from_dashboard),
+            get_object_or_404(Dashboard, id=from_dashboard, team__project_id=self.team.project_id),
             context=self.get_serializer_context(),
         )
         return Response(serializer.data)
@@ -956,7 +978,7 @@ class DashboardsViewSet(
                 creation_mode="unlisted",
             )
 
-            create_from_template(dashboard, template, cast(User, request.user), force_system_tags=True)
+            create_from_template(dashboard, template, cast(User, request.user))
 
             return Response(
                 DashboardSerializer(dashboard, context=self.get_serializer_context()).data,

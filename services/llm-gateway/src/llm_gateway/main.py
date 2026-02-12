@@ -22,18 +22,14 @@ from llm_gateway.callbacks import init_callbacks
 from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
-from llm_gateway.rate_limiting.model_throttles import (
-    ProductModelInputTokenThrottle,
-    ProductModelOutputTokenThrottle,
-    UserModelInputTokenThrottle,
-    UserModelOutputTokenThrottle,
-)
+from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
+from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
-from llm_gateway.rate_limiting.tokenizer import TokenCounter
 from llm_gateway.request_context import RequestContext, set_request_context
 
 
-def configure_logging() -> None:
+def configure_logging(debug: bool = False) -> None:
+    log_level = logging.DEBUG if debug else logging.INFO
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -43,14 +39,14 @@ def configure_logging() -> None:
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.JSONRenderer(),
         ],
-        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+        wrapper_class=structlog.make_filtering_bound_logger(log_level),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True,
+        cache_logger_on_first_use=False,
     )
 
 
-configure_logging()
+configure_logging(get_settings().debug)
 logger = structlog.get_logger(__name__)
 
 
@@ -129,24 +125,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if app.state.redis:
         logger.info("Redis connected")
 
-    app.state.token_counter = TokenCounter()
-
-    output_throttles = [
-        ProductModelOutputTokenThrottle(redis=app.state.redis),
-        UserModelOutputTokenThrottle(redis=app.state.redis),
-    ]
-    app.state.output_throttles = output_throttles
-
     app.state.throttle_runner = ThrottleRunner(
         throttles=[
-            ProductModelInputTokenThrottle(redis=app.state.redis),
-            UserModelInputTokenThrottle(redis=app.state.redis),
-            *output_throttles,
+            ProductCostThrottle(redis=app.state.redis),
+            UserCostThrottle(redis=app.state.redis),
         ]
     )
     logger.info("Throttle runner initialized")
 
+    logger.info(
+        "product_cost_limits_configured",
+        limits={
+            k: {"limit_usd": v.limit_usd, "window_seconds": v.window_seconds}
+            for k, v in settings.product_cost_limits.items()
+        },
+        default_user_limit_usd=settings.default_user_cost_limit_usd,
+        default_user_window_seconds=settings.default_user_cost_window_seconds,
+    )
+
     init_callbacks()
+
+    ensure_costs_fresh()
+    logger.info("Model costs initialized")
 
     yield
 

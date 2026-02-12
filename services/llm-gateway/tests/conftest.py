@@ -8,12 +8,7 @@ from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.rate_limiting.model_throttles import (
-    ProductModelInputTokenThrottle,
-    ProductModelOutputTokenThrottle,
-    UserModelInputTokenThrottle,
-    UserModelOutputTokenThrottle,
-)
+from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import Throttle
 
@@ -26,10 +21,8 @@ def create_test_app(
     from llm_gateway.api.routes import router
 
     default_throttles: list[Throttle] = [
-        ProductModelInputTokenThrottle(redis=None),
-        UserModelInputTokenThrottle(redis=None),
-        ProductModelOutputTokenThrottle(redis=None),
-        UserModelOutputTokenThrottle(redis=None),
+        ProductCostThrottle(redis=None),
+        UserCostThrottle(redis=None),
     ]
 
     @asynccontextmanager

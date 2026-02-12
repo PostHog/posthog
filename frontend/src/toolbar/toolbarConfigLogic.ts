@@ -39,7 +39,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     selectors({
         posthog: [(s) => [s.props], (props) => props.posthog ?? null],
-        // UI host for navigation links (actions, feature flags, experiments, etc.)
+        // UI host for navigation links (actions, feature flags, experiments, etc.) and API requests
         // Uses posthog.config.ui_host if available, otherwise falls back to props.apiURL for backwards compatibility
         uiHost: [
             (s) => [s.props],
@@ -57,7 +57,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 return window.location.origin
             },
         ],
-        // API host for API calls and static assets (CSS)
+        // API host for JS and static assets (CSS)
         // Uses posthog.config.api_host if available, otherwise falls back to props.apiURL for backwards compatibility
         apiHost: [
             (s) => [s.props],
@@ -121,7 +121,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         if (props.instrument) {
             const distinctId = props.distinctId
 
-            void toolbarPosthogJS.optIn()
+            toolbarPosthogJS.opt_in_capturing()
 
             if (distinctId) {
                 toolbarPosthogJS.identify(distinctId, props.userEmail ? { email: props.userEmail } : {})
@@ -145,7 +145,7 @@ export async function toolbarFetch(
     urlConstruction: 'full' | 'use-as-provided' = 'full'
 ): Promise<Response> {
     const temporaryToken = toolbarConfigLogic.findMounted()?.values.temporaryToken
-    const apiHost = toolbarConfigLogic.findMounted()?.values.apiHost
+    const host = toolbarConfigLogic.findMounted()?.values.uiHost // Use UI host for API requests since it's pointing to PostHog's UI
 
     let fullUrl: string
     if (urlConstruction === 'use-as-provided') {
@@ -153,7 +153,7 @@ export async function toolbarFetch(
     } else {
         const { pathname, searchParams } = combineUrl(url)
         const params = { ...searchParams, temporary_token: temporaryToken }
-        fullUrl = `${apiHost}${pathname}${encodeParams(params, '?')}`
+        fullUrl = `${host}${pathname}${encodeParams(params, '?')}`
     }
 
     const payloadData = payload

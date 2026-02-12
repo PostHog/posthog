@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
@@ -112,6 +113,9 @@ export async function createPlaylist(
         playlist.filters = undefined
     }
     const res = await api.recordings.createPlaylist(playlist)
+    if (playlist.type === 'collection') {
+        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateRecordingPlaylist)
+    }
     if (redirect) {
         router.actions.push(urls.replayPlaylist(res.short_id))
     }

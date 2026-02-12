@@ -2,11 +2,12 @@
 FROM rust:1.91-bookworm AS base
 # Note - sccache pinned due to problem with depot builds. See https://posthog.slack.com/archives/C0457KENW2E/p1768558484810999?thread_ts=1768497407.301109&cid=C0457KENW2E
 RUN cargo install --locked cargo-chef sccache@0.12.0
-ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
+ENV RUSTC_WRAPPER=sccache SCCACHE_LOG=debug SCCACHE_DIR=/sccache
 
 FROM base AS planner
 WORKDIR /app
 ARG BIN
+ENV PROTO_ROOT=../proto
 
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json --bin $BIN
@@ -14,17 +15,20 @@ RUN cargo chef prepare --recipe-path recipe.json --bin $BIN
 FROM base AS builder
 WORKDIR /app
 ARG BIN
+ENV PROTO_ROOT=../proto
 
 # Ensure working C compile setup (not installed by default in arm64 images)
 # libclang-dev is required for bindgen (used by librocksdb-sys)
 # pkg-config is required for openssl-sys to find system OpenSSL
-RUN apt-get update && apt-get install build-essential libssl-dev pkg-config cmake libclang-dev -y
+RUN apt-get update && apt-get install build-essential libssl-dev pkg-config cmake libclang-dev protobuf-compiler -y
 
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo chef cook --release --recipe-path recipe.json --bin $BIN
+    SCCACHE_NO_DAEMON=1 SCCACHE_START_SERVER=1 sccache 2>&1 & \
+    cargo chef cook --release --recipe-path recipe.json --bin $BIN && \
+    sccache --show-stats
 
 COPY . .
 RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
@@ -33,13 +37,12 @@ RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     if [ -f "/run/secrets/SCCACHE_WEBDAV_ENDPOINT" ] && [ -f "/run/secrets/SCCACHE_WEBDAV_TOKEN" ]; then \
-    SCCACHE_WEBDAV_ENDPOINT=$(cat /run/secrets/SCCACHE_WEBDAV_ENDPOINT) \
-    SCCACHE_WEBDAV_TOKEN=$(cat /run/secrets/SCCACHE_WEBDAV_TOKEN) \
-    cargo build --release --bin $BIN; \
-    else \
-    cargo build --release --bin $BIN; \
-    fi
-
+        export SCCACHE_WEBDAV_ENDPOINT=$(cat /run/secrets/SCCACHE_WEBDAV_ENDPOINT); \
+        export SCCACHE_WEBDAV_TOKEN=$(cat /run/secrets/SCCACHE_WEBDAV_TOKEN); \
+    fi && \
+    SCCACHE_NO_DAEMON=1 SCCACHE_START_SERVER=1 sccache 2>&1 & \
+    cargo build --release --bin $BIN && \
+    sccache --show-stats
 
 FROM debian:bookworm-slim AS runtime
 

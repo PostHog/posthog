@@ -67,6 +67,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
+from posthog.hogql.database.schema.experiment_exposures_preaggregated import ExperimentExposuresPreaggregatedTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -130,6 +131,7 @@ from posthog.models.team.team import WeekStartDay
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
@@ -211,6 +213,9 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "web_pre_aggregated_stats": TableNode(name="web_pre_aggregated_stats", table=WebPreAggregatedStatsTable()),
     "web_pre_aggregated_bounces": TableNode(name="web_pre_aggregated_bounces", table=WebPreAggregatedBouncesTable()),
     "preaggregation_results": TableNode(name="preaggregation_results", table=PreaggregationResultsTable()),
+    "experiment_exposures_preaggregated": TableNode(
+        name="experiment_exposures_preaggregated", table=ExperimentExposuresPreaggregatedTable()
+    ),
     # Revenue analytics tables
     "persons_revenue_analytics": TableNode(name="persons_revenue_analytics", table=PersonsRevenueAnalyticsTable()),
     "groups_revenue_analytics": TableNode(name="groups_revenue_analytics", table=GroupsRevenueAnalyticsTable()),
@@ -314,7 +319,10 @@ class Database(BaseModel):
         )
 
     # These are the tables exposed via SQL editor autocomplete and data management
-    def get_posthog_table_names(self) -> list[str]:
+    def get_posthog_table_names(self, include_hidden: bool = False) -> list[str]:
+        if include_hidden:
+            return sorted(ROOT_TABLES__DO_NOT_ADD_ANY_MORE.keys())
+
         return [
             "events",
             "groups",
@@ -351,6 +359,7 @@ class Database(BaseModel):
         self,
         context: HogQLContext,
         include_only: set[str] | None = None,
+        include_hidden_posthog_tables: bool = False,
     ) -> dict[str, DatabaseSchemaTable]:
         from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
         from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
@@ -361,7 +370,7 @@ class Database(BaseModel):
             raise ResolutionError("Must provide team_id to serialize database")
 
         # PostHog tables
-        posthog_table_names = self.get_posthog_table_names()
+        posthog_table_names = self.get_posthog_table_names(include_hidden=include_hidden_posthog_tables)
         for table_name in posthog_table_names:
             if include_only and table_name not in include_only:
                 continue
@@ -454,17 +463,7 @@ class Database(BaseModel):
                 )
 
             # Temp until we migrate all table names in the DB to use dot notation
-            if warehouse_table.external_data_source:
-                source_type = warehouse_table.external_data_source.source_type
-                prefix = warehouse_table.external_data_source.prefix
-                if prefix is not None and isinstance(prefix, str) and prefix != "":
-                    table_name_stripped = warehouse_table.name.replace(f"{prefix}{source_type}_".lower(), "")
-                    table_key = f"{source_type}.{prefix.strip('_')}.{table_name_stripped}".lower()
-                else:
-                    table_name_stripped = warehouse_table.name.replace(f"{source_type}_".lower(), "")
-                    table_key = f"{source_type}.{table_name_stripped}".lower()
-            else:
-                table_key = warehouse_table.name
+            table_key = get_data_warehouse_table_name(warehouse_table.external_data_source, warehouse_table.name)
 
             if include_only and table_key not in include_only:
                 continue
@@ -1077,6 +1076,22 @@ class Database(BaseModel):
                     capture_exception(e)
 
         return database
+
+
+def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
+    if source:
+        source_type = source.source_type
+        prefix = source.prefix
+        if prefix is not None and isinstance(prefix, str) and prefix != "":
+            table_name_stripped = table_name.replace(f"{prefix}{source_type}_".lower(), "")
+            table_key = f"{source_type}.{prefix.strip('_')}.{table_name_stripped}".lower()
+        else:
+            table_name_stripped = table_name.replace(f"{source_type}_".lower(), "")
+            table_key = f"{source_type}.{table_name_stripped}".lower()
+    else:
+        table_key = table_name
+
+    return table_key
 
 
 def _use_person_properties_from_events(database: Database) -> None:

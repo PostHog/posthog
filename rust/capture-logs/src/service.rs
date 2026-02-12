@@ -88,17 +88,13 @@ pub fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest
         merged_request.resource_logs.extend(request.resource_logs);
     }
 
-    if merged_request.resource_logs.is_empty() {
-        return Err(anyhow::anyhow!("No valid log data found in request"));
-    }
-
     Ok(merged_request)
 }
 
 #[derive(Clone)]
 pub struct Service {
-    sink: KafkaSink,
-    token_dropper: Arc<TokenDropper>,
+    pub(crate) sink: KafkaSink,
+    pub(crate) token_dropper: Arc<TokenDropper>,
 }
 
 #[derive(Deserialize)]
@@ -109,11 +105,11 @@ pub struct QueryParams {
 impl Service {
     pub async fn new(
         kafka_sink: KafkaSink,
-        token_dropper: TokenDropper,
+        token_dropper: Arc<TokenDropper>,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
-            token_dropper: token_dropper.into(),
+            token_dropper,
         })
     }
 }

@@ -1,22 +1,16 @@
-import { getReactSteps as getReactStepsPA } from '../product-analytics/react'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getReactSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    dedent: any,
-    Tab: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+import { getReactSteps as getReactStepsPA } from '../product-analytics/react'
+import { StepDefinition } from '../steps'
+
+export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, Tab, snippets } = ctx
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
     const FlagPayload = snippets?.FlagPayloadSnippet
 
     // Get installation steps from product-analytics
-    const installationSteps = getReactStepsPA(CodeBlock, Markdown, CalloutBox, dedent, snippets)
+    const installationSteps = getReactStepsPA(ctx)
 
     // Add flag-specific steps
     const flagSteps: StepDefinition[] = [
@@ -127,21 +121,7 @@ export const getReactSteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...flagSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...flagSteps]
 }
 
-export const ReactInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets, Tab } = useMDXComponents()
-    const steps = getReactSteps(CodeBlock, Markdown, CalloutBox, dedent, Tab, snippets, { modifySteps })
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const ReactInstallation = createInstallation(getReactSteps)

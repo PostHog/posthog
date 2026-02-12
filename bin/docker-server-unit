@@ -58,6 +58,7 @@ else
 
     export NGINX_UNIT_PYTHON_PROTOCOL=${NGINX_UNIT_PYTHON_PROTOCOL:-wsgi}
     export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
+    export NGINX_UNIT_REQUEST_LIMIT=${NGINX_UNIT_REQUEST_LIMIT:-7500}
     envsubst < /docker-entrypoint.d/unit.json.tpl > /docker-entrypoint.d/unit.json
 
     # We need to run as root so that nginx unit can proxy the control socket for stats

@@ -8,7 +8,6 @@ import { PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -19,7 +18,6 @@ import { DefinitionHeader } from './DefinitionHeader'
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
     const { loadPropertiesForEvent } = useActions(eventDefinitionsTableLogic)
     const { eventPropertiesCacheMap, eventDefinitionPropertiesLoading } = useValues(eventDefinitionsTableLogic)
-    const { hasTagging } = useValues(organizationLogic)
 
     useOnMountEffect(() => loadPropertiesForEvent(definition))
 
@@ -44,17 +42,13 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                 return <LemonTag type="muted">{_definition.property_type ?? '—'}</LemonTag>
             },
         },
-        ...(hasTagging
-            ? [
-                  {
-                      title: 'Tags',
-                      key: 'tags',
-                      render: function Render(_, _definition: PropertyDefinition) {
-                          return <ObjectTags tags={_definition.tags ?? []} staticOnly />
-                      },
-                  } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: function Render(_, _definition: PropertyDefinition) {
+                return <ObjectTags tags={_definition.tags ?? []} staticOnly />
+            },
+        } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
         {
             title: 'Example',
             key: 'example',

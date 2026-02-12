@@ -4,14 +4,16 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { UserBasicType } from '~/types'
+
 import type { supportSettingsLogicType } from './supportSettingsLogicType'
 
 export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
         actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
-    }),
+    })),
     actions({
         generateNewToken: true,
         setConversationsEnabledLoading: (loading: boolean) => ({ loading }),
@@ -24,6 +26,17 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         removeDomain: (index: number) => ({ index }),
         startEditDomain: (index: number) => ({ index }),
         cancelDomainEdit: true,
+        setGreetingInputValue: (value: string | null) => ({ value }),
+        saveGreetingText: true,
+        // Identification form settings
+        setIdentificationFormTitleValue: (value: string | null) => ({ value }),
+        saveIdentificationFormTitle: true,
+        setIdentificationFormDescriptionValue: (value: string | null) => ({ value }),
+        saveIdentificationFormDescription: true,
+        setPlaceholderTextValue: (value: string | null) => ({ value }),
+        savePlaceholderText: true,
+        // Notification recipients
+        setNotificationRecipients: (users: UserBasicType[]) => ({ users }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -67,11 +80,39 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 setIsAddingDomain: () => '',
             },
         ],
+        greetingInputValue: [
+            null as string | null,
+            {
+                setGreetingInputValue: (_, { value }) => value,
+            },
+        ],
+        identificationFormTitleValue: [
+            null as string | null,
+            {
+                setIdentificationFormTitleValue: (_, { value }) => value,
+            },
+        ],
+        identificationFormDescriptionValue: [
+            null as string | null,
+            {
+                setIdentificationFormDescriptionValue: (_, { value }) => value,
+            },
+        ],
+        placeholderTextValue: [
+            null as string | null,
+            {
+                setPlaceholderTextValue: (_, { value }) => value,
+            },
+        ],
     }),
     selectors({
         conversationsDomains: [
             (s) => [s.currentTeam],
             (currentTeam): string[] => currentTeam?.conversations_settings?.widget_domains || [],
+        ],
+        notificationRecipients: [
+            (s) => [s.currentTeam],
+            (currentTeam): number[] => currentTeam?.conversations_settings?.notification_recipients || [],
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -112,6 +153,68 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         startEditDomain: ({ index }) => {
             actions.setEditingDomainIndex(index)
             actions.setDomainInputValue(values.conversationsDomains[index])
+        },
+        saveGreetingText: () => {
+            const trimmedValue = values.greetingInputValue?.trim()
+            if (!trimmedValue) {
+                return
+            }
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    widget_greeting_text: trimmedValue,
+                },
+            })
+        },
+        saveIdentificationFormTitle: () => {
+            const trimmedValue = values.identificationFormTitleValue?.trim()
+            if (!trimmedValue) {
+                return
+            }
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    widget_identification_form_title: trimmedValue,
+                },
+            })
+        },
+        saveIdentificationFormDescription: () => {
+            const trimmedValue = values.identificationFormDescriptionValue?.trim()
+            if (!trimmedValue) {
+                return
+            }
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    widget_identification_form_description: trimmedValue,
+                },
+            })
+        },
+        savePlaceholderText: () => {
+            const trimmedValue = values.placeholderTextValue?.trim()
+            if (!trimmedValue) {
+                return
+            }
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    widget_placeholder_text: trimmedValue,
+                },
+            })
+        },
+        setNotificationRecipients: ({ users }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    notification_recipients: users.map((u) => u.id),
+                },
+            })
+        },
+        updateCurrentTeamSuccess: () => {
+            actions.setGreetingInputValue(null)
+            actions.setIdentificationFormTitleValue(null)
+            actions.setIdentificationFormDescriptionValue(null)
+            actions.setPlaceholderTextValue(null)
         },
     })),
 ])

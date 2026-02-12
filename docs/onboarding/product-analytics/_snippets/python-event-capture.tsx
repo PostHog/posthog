@@ -1,7 +1,6 @@
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { PersonProfiles } from './person-profiles'
 
-export const PythonEventCapture = function PythonEventCapture(): JSX.Element {
+export const PythonEventCapture = (): JSX.Element => {
     const { Markdown, CodeBlock, dedent } = useMDXComponents()
 
     return (
@@ -21,7 +20,6 @@ export const PythonEventCapture = function PythonEventCapture(): JSX.Element {
                     },
                 ]}
             />
-            <PersonProfiles language="python" />
         </>
     )
 }

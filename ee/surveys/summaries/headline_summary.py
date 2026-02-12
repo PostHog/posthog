@@ -13,7 +13,7 @@ from posthog.api.utils import ServerTimingsGathered
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team, User
 from posthog.models.surveys.survey import Survey
-from posthog.models.surveys.util import get_survey_response_clickhouse_query
+from posthog.models.surveys.util import get_archived_response_uuids, get_survey_response_clickhouse_query
 
 from ee.hogai.llm import MaxChatOpenAI
 
@@ -116,6 +116,11 @@ def generate_survey_headline(
             OR JSONExtractBool(properties, '$survey_completed') = true
         )"""
 
+    # Get archived response UUIDs to exclude
+    # UUIDs are pre-validated by Django's UUIDField when stored in SurveyResponseArchive
+    archived_uuids = get_archived_response_uuids(survey.id, team.pk)
+    archived_filter = " AND uuid NOT IN {exclude_uuids}" if archived_uuids else ""
+
     with timer("query"):
         query = f"""
             SELECT {", ".join(select_fields)}
@@ -125,21 +130,24 @@ def generate_survey_headline(
                 AND timestamp >= {{start_date}}
                 AND timestamp <= {{end_date}}
                 {partial_filter}
+                {archived_filter}
             ORDER BY timestamp DESC
         """
+
+        placeholders: dict[str, ast.Expr] = {
+            "survey_id": ast.Constant(value=str(survey.id)),
+            "start_date": ast.Constant(value=start_date),
+            "end_date": ast.Constant(value=end_date),
+        }
+
+        if archived_uuids:
+            placeholders["exclude_uuids"] = ast.Tuple(exprs=[ast.Constant(value=uuid) for uuid in archived_uuids])
 
         paginator = HogQLHasMorePaginator(limit=RESPONSE_LIMIT, offset=0)
         result = paginator.execute_hogql_query(
             team=team,
             query_type="survey_headline_responses",
-            query=parse_select(
-                query,
-                placeholders={
-                    "survey_id": ast.Constant(value=str(survey.id)),
-                    "start_date": ast.Constant(value=start_date),
-                    "end_date": ast.Constant(value=end_date),
-                },
-            ),
+            query=parse_select(query, placeholders=placeholders),
         )
 
     rows = result.results or []

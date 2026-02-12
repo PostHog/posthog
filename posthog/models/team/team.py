@@ -105,7 +105,12 @@ class TeamManager(models.Manager):
                 example_email = re.search(r"@[\w.]+", example_emails[0])
                 if example_email:
                     return [
-                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},
+                        {
+                            "key": "email",
+                            "operator": "not_icontains",
+                            "value": example_email.group(),
+                            "type": "person",
+                        },
                         *filters,
                     ]
         return filters
@@ -129,7 +134,8 @@ class TeamManager(models.Manager):
         # Self-hosted deployments get 5-year session recording retention by default
         if not is_cloud():
             team.session_recording_retention_period = kwargs.get(
-                "session_recording_retention_period", SessionRecordingRetentionPeriod.FIVE_YEARS
+                "session_recording_retention_period",
+                SessionRecordingRetentionPeriod.FIVE_YEARS,
             )
 
         if team.extra_settings is None:
@@ -297,7 +303,10 @@ class Team(UUIDTClassicModel):
     )
     # NOTE: To be removed in favour of parent_team
     project = models.ForeignKey(
-        "posthog.Project", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
+        "posthog.Project",
+        on_delete=models.CASCADE,
+        related_name="teams",
+        related_query_name="team",
     )
     api_token = models.CharField(
         max_length=200,
@@ -380,7 +389,9 @@ class Team(UUIDTClassicModel):
         "editor",
     )
     session_recording_trigger_match_type_config = field_access_control(
-        models.CharField(null=True, blank=True, max_length=24), "session_recording", "editor"
+        models.CharField(null=True, blank=True, max_length=24),
+        "session_recording",
+        "editor",
     )
     session_replay_config = field_access_control(models.JSONField(null=True, blank=True), "session_recording", "editor")
     session_recording_retention_period = models.CharField(
@@ -393,6 +404,9 @@ class Team(UUIDTClassicModel):
     # Conversations
     conversations_enabled = models.BooleanField(null=True, blank=True)
     conversations_settings = models.JSONField(null=True, blank=True)
+
+    # Proactive tasks (#team-signals)
+    proactive_tasks_enabled = models.BooleanField(null=True, blank=True)
 
     # Surveys
     survey_config = field_access_control(models.JSONField(null=True, blank=True), "survey", "editor")
@@ -411,9 +425,7 @@ class Team(UUIDTClassicModel):
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
 
-    # Capture logs
-    # Kind of confusing but this is separate from capture_console_log_opt_in, which is for session replay
-    # This captures console logs to the Logs product, not as part of a recording
+    # Logs
     logs_settings = models.JSONField(null=True, blank=True)
 
     # Heatmaps
@@ -434,17 +446,21 @@ class Team(UUIDTClassicModel):
     flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_enabled = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_message = models.TextField(null=True, blank=True)
-    default_evaluation_environments_enabled = models.BooleanField(
+    # DEPRECATED: Use default_evaluation_contexts_enabled instead. Will be removed in a future migration after full rollout.
+    default_evaluation_environments_enabled = models.BooleanField(null=True, blank=True, default=False)
+    # DEPRECATED: Use require_evaluation_contexts instead. Will be removed in a future migration after full rollout.
+    require_evaluation_environment_tags = models.BooleanField(null=True, blank=True, default=False)
+    default_evaluation_contexts_enabled = models.BooleanField(
         null=True,
         blank=True,
         default=False,
-        help_text="Whether to automatically apply default evaluation environments to new feature flags",
+        help_text="Whether to automatically apply default evaluation contexts to new feature flags",
     )
-    require_evaluation_environment_tags = models.BooleanField(
+    require_evaluation_contexts = models.BooleanField(
         null=True,
         blank=True,
         default=False,
-        help_text="Whether to require at least one evaluation environment tag when creating new feature flags",
+        help_text="Whether to require at least one evaluation context tag when creating new feature flags",
     )
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
@@ -470,7 +486,9 @@ class Team(UUIDTClassicModel):
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
     human_friendly_comparison_periods = models.BooleanField(default=False, null=True, blank=True)
     cookieless_server_hash_mode = models.SmallIntegerField(
-        default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
+        default=CookielessServerHashMode.DISABLED,
+        choices=CookielessServerHashMode.choices,
+        null=True,
     )
 
     primary_dashboard = models.ForeignKey(
@@ -554,6 +572,23 @@ class Team(UUIDTClassicModel):
         help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
     )
 
+    default_experiment_confidence_level = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.",
+    )
+
+    default_experiment_stats_method = models.CharField(
+        max_length=20,
+        choices=Organization.DefaultExperimentStatsMethod.choices,
+        default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
+        help_text="Default statistical method for new experiments in this environment.",
+        null=True,
+        blank=True,
+    )
+
     business_model = models.CharField(
         max_length=10,
         choices=BusinessModel.choices,
@@ -634,7 +669,13 @@ class Team(UUIDTClassicModel):
                 "persons-on-events-person-id-no-override-properties-on-events",
                 str(self.uuid),
                 groups={"project": str(self.id)},
-                group_properties={"project": {"id": str(self.id), "created_at": self.created_at, "uuid": self.uuid}},
+                group_properties={
+                    "project": {
+                        "id": str(self.id),
+                        "created_at": self.created_at,
+                        "uuid": self.uuid,
+                    }
+                },
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
@@ -691,6 +732,7 @@ class Team(UUIDTClassicModel):
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
         from posthog.clickhouse.client import sync_execute
 
+        # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
         return sync_execute(
             f"""
             SELECT
@@ -743,6 +785,14 @@ class Team(UUIDTClassicModel):
                 ],
             ),
         )
+
+        self._notify_vercel_of_token_rotation()
+
+    def _notify_vercel_of_token_rotation(self) -> None:
+        """Push updated API token to Vercel integrations in the background."""
+        from posthog.tasks.integrations import push_vercel_secrets
+
+        push_vercel_secrets.delay(self.id)
 
     def rotate_secret_token_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -908,7 +958,8 @@ class Team(UUIDTClassicModel):
 
             # Get all organization admins and owners
             admin_user_ids = OrganizationMembership.objects.filter(
-                organization_id=self.organization_id, level__gte=OrganizationMembership.Level.ADMIN
+                organization_id=self.organization_id,
+                level__gte=OrganizationMembership.Level.ADMIN,
             ).values_list("user_id", flat=True)
 
             # Get users with specific access control entries for this team

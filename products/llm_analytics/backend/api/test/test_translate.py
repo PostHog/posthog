@@ -11,6 +11,8 @@ from products.llm_analytics.backend.translation.constants import (
     TRANSLATION_MODEL,
 )
 
+MOCK_PATH = "products.llm_analytics.backend.translation.llm.get_llm_client"
+
 
 class TestTranslateAPI(APIBaseTest):
     def test_unauthenticated_user_cannot_access_translation(self):
@@ -18,15 +20,13 @@ class TestTranslateAPI(APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/llm_analytics/translate")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    @patch("products.llm_analytics.backend.api.translate.settings")
-    @patch("openai.OpenAI")
-    def test_successful_translation(self, mock_openai_class, mock_settings):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_successful_translation(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Hola mundo"))]
-        mock_openai_class.return_value.chat.completions.create.return_value = mock_response
+        mock_get_client.return_value.chat.completions.create.return_value = mock_response
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -38,17 +38,15 @@ class TestTranslateAPI(APIBaseTest):
         assert response.data["translation"] == "Hola mundo"
         assert response.data["provider"] == "openai"
 
-    @patch("products.llm_analytics.backend.api.translate.settings")
-    @patch("openai.OpenAI")
-    def test_translation_uses_correct_model(self, mock_openai_class, mock_settings):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_translation_uses_correct_model(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
-        mock_openai_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -59,17 +57,15 @@ class TestTranslateAPI(APIBaseTest):
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["model"] == TRANSLATION_MODEL
 
-    @patch("products.llm_analytics.backend.api.translate.settings")
-    @patch("openai.OpenAI")
-    def test_translation_uses_default_language_when_not_specified(self, mock_openai_class, mock_settings):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_translation_uses_default_language_when_not_specified(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
-        mock_openai_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -81,11 +77,11 @@ class TestTranslateAPI(APIBaseTest):
         target_name = SUPPORTED_LANGUAGES.get(DEFAULT_TARGET_LANGUAGE, DEFAULT_TARGET_LANGUAGE)
         assert target_name in call_kwargs["messages"][0]["content"]
 
-    @patch("products.llm_analytics.backend.api.translate.settings")
-    def test_translation_fails_without_openai_key(self, mock_settings):
+    @patch(MOCK_PATH)
+    def test_translation_fails_when_gateway_not_configured(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        mock_settings.OPENAI_API_KEY = None
+        mock_get_client.side_effect = ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -94,7 +90,6 @@ class TestTranslateAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert "not configured" in response.data["detail"]
 
     def test_translation_validates_text_max_length(self):
         self.organization.is_ai_data_processing_approved = True
@@ -122,13 +117,11 @@ class TestTranslateAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.data["attr"] == "text"
 
-    @patch("products.llm_analytics.backend.api.translate.settings")
-    @patch("openai.OpenAI")
-    def test_translation_handles_openai_error(self, mock_openai_class, mock_settings):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_translation_handles_llm_error(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        mock_openai_class.return_value.chat.completions.create.side_effect = Exception("API error")
+        mock_get_client.return_value.chat.completions.create.side_effect = Exception("API error")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -139,17 +132,15 @@ class TestTranslateAPI(APIBaseTest):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert response.data["detail"] == "Translation failed due to an internal error."
 
-    @patch("products.llm_analytics.backend.api.translate.settings")
-    @patch("openai.OpenAI")
-    def test_translation_preserves_formatting(self, mock_openai_class, mock_settings):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_translation_preserves_formatting(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
-        mock_openai_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -161,15 +152,13 @@ class TestTranslateAPI(APIBaseTest):
         system_content = call_kwargs["messages"][0]["content"]
         assert "Preserve formatting" in system_content
 
-    @patch("products.llm_analytics.backend.api.translate.settings")
-    @patch("openai.OpenAI")
-    def test_translation_handles_empty_response(self, mock_openai_class, mock_settings):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_translation_handles_empty_response(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content=None))]
-        mock_openai_class.return_value.chat.completions.create.return_value = mock_response
+        mock_get_client.return_value.chat.completions.create.return_value = mock_response
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -193,15 +182,13 @@ class TestTranslateAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "AI data processing must be approved" in response.data["detail"]
 
-    @patch("openai.OpenAI")
-    @patch("products.llm_analytics.backend.api.translate.settings")
-    def test_translation_allowed_when_ai_consent_approved(self, mock_settings, mock_openai_class):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_translation_allowed_when_ai_consent_approved(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Hola mundo"))]
-        mock_openai_class.return_value.chat.completions.create.return_value = mock_response
+        mock_get_client.return_value.chat.completions.create.return_value = mock_response
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -210,3 +197,22 @@ class TestTranslateAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
+
+    @patch(MOCK_PATH)
+    def test_translation_passes_user_distinct_id(self, mock_get_client):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/translate",
+            {"text": "Test", "target_language": "es"},
+            format="json",
+        )
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["user"] == self.user.distinct_id

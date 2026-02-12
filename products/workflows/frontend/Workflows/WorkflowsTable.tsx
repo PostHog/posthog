@@ -1,12 +1,13 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonDialog, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonDivider, LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { MailHog } from 'lib/components/hedgehogs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -16,10 +17,12 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { WorkflowsSceneProps } from '../WorkflowsScene'
 import { NewWorkflowModal } from './NewWorkflowModal'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { newWorkflowLogic } from './newWorkflowLogic'
+import { workflowLogic } from './workflowLogic'
 import { workflowsLogic } from './workflowsLogic'
 
 function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
@@ -82,12 +85,32 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
     )
 }
 
-export function WorkflowsTable(): JSX.Element {
+export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
     useMountedLogic(workflowsLogic)
-    const { filteredWorkflows, workflowsLoading, filters } = useValues(workflowsLogic)
-    const { toggleWorkflowStatus, duplicateWorkflow, deleteWorkflow, setSearchTerm, setCreatedBy, setStatus } =
-        useActions(workflowsLogic)
+    const { filteredWorkflows, archivedWorkflows, workflowsLoading, filters } = useValues(workflowsLogic)
+    const {
+        loadWorkflows,
+        toggleWorkflowStatus,
+        duplicateWorkflow,
+        archiveWorkflow,
+        restoreWorkflow,
+        deleteWorkflow,
+        setSearchTerm,
+        setCreatedBy,
+        setStatus,
+    } = useActions(workflowsLogic)
     const { showNewWorkflowModal } = useActions(newWorkflowLogic)
+
+    useOnMountEffect(() => {
+        // Tricky: unmount the new workflow logic when leaving the new workflow scene
+        // We can't just reset state within the logic's unmount as that would trigger when switching tabs
+        const newWorkflowLogic = workflowLogic.findMounted({ id: 'new', tabId: props.tabId })
+        newWorkflowLogic?.unmount()
+
+        // Since logic isn't getting unmounted when navigating away from this scene, we need to reload workflows
+        // when the component re-mounts
+        loadWorkflows()
+    })
 
     const columns: LemonTableColumns<HogFlow> = [
         {
@@ -95,7 +118,11 @@ export function WorkflowsTable(): JSX.Element {
             key: 'name',
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
             render: (_, item) => {
-                return (
+                return item.status === 'archived' ? (
+                    <Tooltip title="Restore this workflow to make changes">
+                        <span className="font-semibold text-sm text-muted">{item.name}</span>
+                    </Tooltip>
+                ) : (
                     <LemonTableLink
                         to={urls.workflow(item.id, 'workflow')}
                         title={item.name}
@@ -192,19 +219,21 @@ export function WorkflowsTable(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    data-attr="workflow-edit"
-                                    fullWidth
-                                    status={workflow.status === 'draft' ? 'default' : 'danger'}
-                                    onClick={() => toggleWorkflowStatus(workflow)}
-                                    tooltip={
-                                        workflow.status === 'draft'
-                                            ? 'Enables the workflow to start sending messages'
-                                            : 'Disables the workflow from sending any new messages. In-progress workflows will end immediately.'
-                                    }
-                                >
-                                    {workflow.status === 'draft' ? 'Enable' : 'Disable'}
-                                </LemonButton>
+                                {workflow.status !== 'archived' && (
+                                    <LemonButton
+                                        data-attr="workflow-edit"
+                                        fullWidth
+                                        status={workflow.status === 'draft' ? 'default' : 'danger'}
+                                        onClick={() => toggleWorkflowStatus(workflow)}
+                                        tooltip={
+                                            workflow.status === 'draft'
+                                                ? 'Enables the workflow to start sending messages'
+                                                : 'Disables the workflow from sending any new messages. In-progress workflows will end immediately.'
+                                        }
+                                    >
+                                        {workflow.status === 'draft' ? 'Enable' : 'Disable'}
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     data-attr="workflow-duplicate"
                                     fullWidth
@@ -214,32 +243,27 @@ export function WorkflowsTable(): JSX.Element {
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
-                                    data-attr="workflow-delete"
+                                    data-attr="workflow-archive-restore"
                                     fullWidth
-                                    status="danger"
+                                    status={workflow.status === 'archived' ? 'default' : 'danger'}
                                     onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete workflow',
-                                            description: (
-                                                <p>
-                                                    Are you sure you want to delete the workflow "
-                                                    <strong>{workflow.name}</strong>"? This action cannot be undone.
-                                                    In-progress workflows will end immediately.
-                                                </p>
-                                            ),
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                status: 'danger',
-                                                onClick: () => {
-                                                    deleteWorkflow(workflow)
-                                                },
-                                            },
-                                            secondaryButton: { children: 'Cancel' },
-                                        })
+                                        workflow.status === 'archived'
+                                            ? restoreWorkflow(workflow)
+                                            : archiveWorkflow(workflow)
                                     }}
                                 >
-                                    Delete
+                                    {workflow.status === 'archived' ? 'Restore' : 'Archive'}
                                 </LemonButton>
+                                {workflow.status === 'archived' && (
+                                    <LemonButton
+                                        data-attr="workflow-delete"
+                                        fullWidth
+                                        status="danger"
+                                        onClick={() => deleteWorkflow(workflow)}
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                )}
                             </>
                         }
                     />
@@ -305,6 +329,26 @@ export function WorkflowsTable(): JSX.Element {
                 columns={columns}
                 defaultSorting={{ columnKey: 'status', order: 1 }}
             />
+            {archivedWorkflows.length > 0 && (
+                <LemonCollapse
+                    className="mt-4"
+                    panels={[
+                        {
+                            header: 'Archived workflows',
+                            key: 'archived_workflows',
+                            className: 'p-1',
+                            content: (
+                                <LemonTable
+                                    dataSource={archivedWorkflows}
+                                    loading={workflowsLoading}
+                                    columns={columns}
+                                    defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
+                                />
+                            ),
+                        },
+                    ]}
+                />
+            )}
             <NewWorkflowModal />
         </div>
     )

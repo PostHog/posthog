@@ -39,6 +39,7 @@ ActivityScope = Literal[
     "PropertyDefinition",
     "Notebook",
     "Endpoint",
+    "EndpointVersion",
     "Dashboard",
     "Replay",
     "Experiment",
@@ -76,6 +77,7 @@ ActivityScope = Literal[
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
     "Log",
+    "ProductTour",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out"
@@ -227,6 +229,8 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     ],
     "OrganizationDomain": [
         "scim_bearer_token",
+        "verification_challenge",
+        "saml_x509_cert",
     ],
     "User": [
         "email",
@@ -259,6 +263,15 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     "ExternalDataSchema": {
         "should_sync": "enabled",
     },
+    "OrganizationDomain": {
+        "jit_provisioning_enabled": "just-in-time provisioning",
+        "sso_enforcement": "SSO enforcement",
+        "saml_entity_id": "SAML entity ID",
+        "saml_acs_url": "SAML ACS URL",
+        "saml_x509_cert": "SAML X.509 certificate",
+        "scim_enabled": "SCIM provisioning",
+        "verified_at": "domain verification",
+    },
 }
 
 # Fields that prevent activity signal triggering entirely when only these fields change
@@ -282,6 +295,9 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "current_organization_id",
         "current_team_id",
     ],
+    "OrganizationDomain": [
+        "last_verification_retry",
+    ],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -302,6 +318,10 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[ActivityScope, list[str]] = {
+    "OrganizationDomain": [
+        "organization",
+        "scim_provisioned_users",
+    ],
     "Cohort": [
         "version",
         "pending_version",
@@ -319,7 +339,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "text_content",
     ],
     "FeatureFlag": [
-        "is_simple_flag",
         "experiment",
         "featureflagoverride",
         "usage_dashboard",
@@ -411,6 +430,10 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "deleted_name",
     ],
     "Endpoint": [
+        "saved_query",
+        "current_version",
+    ],
+    "EndpointVersion": [
         "saved_query",
     ],
     "Organization": [

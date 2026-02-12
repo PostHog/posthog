@@ -1,7 +1,4 @@
 import { useState } from 'react'
-import { P, match } from 'ts-pattern'
-
-import { IconToggle } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -18,22 +15,19 @@ interface VariantsPanelLinkFeatureFlagProps {
 }
 
 const getTargetingSummary = (flag: FeatureFlagType): string[] => {
-    return match(flag)
-        .with({ is_simple_flag: true, rollout_percentage: P.not(P.nullish) }, (f) => [
-            `${f.rollout_percentage}% of all users`,
-        ])
-        .with({ filters: { groups: P.when((g) => !g || g.length === 0) } }, () => ['All users'])
-        .otherwise((f) =>
-            f.filters.groups.map((group) => {
-                const rollout = group.rollout_percentage != null ? `${group.rollout_percentage}% of ` : ''
-                const users = group.properties?.length
-                    ? `users matching ${group.properties.length} ${group.properties.length === 1 ? 'condition' : 'conditions'}`
-                    : 'all users'
-                const variant = group.variant ? ` → variant "${group.variant}"` : ''
+    if (!flag.filters.groups || flag.filters.groups.length === 0) {
+        return ['All users']
+    }
 
-                return `${rollout}${users}${variant}`
-            })
-        )
+    return flag.filters.groups.map((group) => {
+        const rollout = group.rollout_percentage != null ? `${group.rollout_percentage}% of ` : ''
+        const users = group.properties?.length
+            ? `users matching ${group.properties.length} ${group.properties.length === 1 ? 'condition' : 'conditions'}`
+            : 'all users'
+        const variant = group.variant ? ` → variant "${group.variant}"` : ''
+
+        return `${rollout}${users}${variant}`
+    })
 }
 
 const TargetingSummary = ({ flag }: { flag: FeatureFlagType }): JSX.Element => {
@@ -88,10 +82,7 @@ export const VariantsPanelLinkFeatureFlag = ({
             <div>
                 <label className="text-sm font-semibold">Selected Feature Flag</label>
                 <div className="mt-2 p-8 border border-dashed rounded-lg bg-bg-light flex flex-col items-center gap-3">
-                    <div className="flex items-center gap-2">
-                        <IconToggle className="text-muted text-2xl" />
-                        <div className="text-base font-semibold">No feature flag selected</div>
-                    </div>
+                    <div className="text-base font-semibold">No feature flag selected</div>
                     <div className="text-sm text-muted-alt text-center">
                         Select an existing multivariate feature flag to use with this experiment
                     </div>
@@ -107,13 +98,13 @@ export const VariantsPanelLinkFeatureFlag = ({
 
     return (
         <div>
-            <label className="text-sm font-semibold">Linked Feature Flag</label>
+            <label className="text-sm font-semibold">Linked feature flag</label>
             <div className="mt-2 border rounded-lg bg-bg-light p-4 space-y-2">
                 {/* Header: Flag key + link + change button */}
                 <div className="flex flex-row gap-4">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <IconToggle className="text-lg flex-shrink-0" />
                         <div className="font-semibold text-base truncate">{linkedFeatureFlag.key}</div>
+                        {!linkedFeatureFlag.active && <LemonTag type="default">Inactive</LemonTag>}
                         <Link
                             to={urls.featureFlag(linkedFeatureFlag.id as number)}
                             target="_blank"
@@ -137,32 +128,29 @@ export const VariantsPanelLinkFeatureFlag = ({
                     </LemonButton>
                 </div>
 
-                {/* Status */}
-                <div className="flex items-center gap-2">
-                    <div
-                        className={`w-2 h-2 rounded-full ${linkedFeatureFlag.active ? 'bg-success' : 'bg-muted'}`}
-                        title={linkedFeatureFlag.active ? 'Active' : 'Inactive'}
-                    />
-                    <span className="text-sm font-medium">{linkedFeatureFlag.active ? 'Active' : 'Inactive'}</span>
-                </div>
-
                 {/* Description */}
-                {linkedFeatureFlag.name && <div className="text-sm text-muted-alt">{linkedFeatureFlag.name}</div>}
+                {linkedFeatureFlag.name && (
+                    <div className="text-sm text-muted-alt -mt-2 mb-3">{linkedFeatureFlag.name}</div>
+                )}
 
-                {/* Variants */}
-                <div className="space-y-2">
-                    <div className="text-xs uppercase tracking-wide font-semibold text-muted">Variants</div>
-                    <div className="flex flex-wrap gap-1.5">
-                        {variants.map(({ key }) => (
-                            <LemonTag key={key} type={key === 'control' ? 'primary' : 'default'}>
-                                {key}
-                            </LemonTag>
-                        ))}
+                <div className="flex gap-10">
+                    {/* Variants */}
+                    <div className="space-y-2">
+                        <div className="text-xs uppercase tracking-wide font-semibold text-muted">Variants</div>
+                        <div className="flex flex-wrap gap-1.5">
+                            {variants.map(({ key }) => (
+                                <LemonTag key={key} type={key === 'control' ? 'primary' : 'default'}>
+                                    {key}
+                                </LemonTag>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Targeting */}
+                    <div className="flex-1">
+                        <TargetingSummary flag={linkedFeatureFlag} />
                     </div>
                 </div>
-
-                {/* Targeting */}
-                <TargetingSummary flag={linkedFeatureFlag} />
             </div>
         </div>
     )

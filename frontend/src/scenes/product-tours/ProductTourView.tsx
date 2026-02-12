@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -24,6 +25,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { DateRange, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
+    ActivityScope,
     FeatureFlagFilters,
     FunnelConversionWindowTimeUnit,
     FunnelVizType,
@@ -106,10 +108,7 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                 isLoading={productTourLoading}
                 actions={
                     <>
-                        <ProductToursToolbarButton
-                            tourId={id}
-                            mode={isAnnouncement(productTour) ? 'preview' : 'edit'}
-                        />
+                        <ProductToursToolbarButton tourId={id} mode="preview" />
                         <LemonButton type="secondary" size="small" onClick={() => editingProductTour(true)}>
                             Edit
                         </LemonButton>
@@ -221,8 +220,8 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                                     loading={tourStatsLoading}
                                     headerAction={
                                         <DateFilter
-                                            dateFrom={dateRange.date_from}
-                                            dateTo={dateRange.date_to}
+                                            dateFrom={dateRange?.date_from ?? null}
+                                            dateTo={dateRange?.date_to ?? null}
                                             onChange={(dateFrom, dateTo) =>
                                                 setDateRange({ date_from: dateFrom, date_to: dateTo })
                                             }
@@ -239,6 +238,11 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                                 <TargetingSummary tour={productTour} targetingFlagFilters={targetingFlagFilters} />
                             </div>
                         ),
+                    },
+                    {
+                        key: 'history',
+                        label: 'History',
+                        content: <ActivityLog scope={ActivityScope.PRODUCT_TOUR} id={id} />,
                     },
                 ]}
             />
@@ -260,7 +264,7 @@ function formatVersionDate(dateString: string): string {
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-function StepsFunnel({ tour, dateRange }: { tour: ProductTour; dateRange: DateRange }): JSX.Element {
+function StepsFunnel({ tour, dateRange }: { tour: ProductTour; dateRange: DateRange | null }): JSX.Element {
     const allSteps = tour.content?.steps || []
     const stepOrderHistory = tour.content?.step_order_history || []
     const hasVersionHistory = stepOrderHistory.length > 1
@@ -285,8 +289,8 @@ function StepsFunnel({ tour, dateRange }: { tour: ProductTour; dateRange: DateRa
     // Calculate date range for this version
     // Start: version's created_at (or tour start_date, or user-selected date_from)
     // End: next version's created_at (or user-selected date_to)
-    const versionDateFrom = selectedVersion?.created_at || dateRange.date_from
-    const versionDateTo = nextVersion?.created_at || dateRange.date_to
+    const versionDateFrom = selectedVersion?.created_at || dateRange?.date_from
+    const versionDateTo = nextVersion?.created_at || dateRange?.date_to
 
     const tourIdFilter = {
         type: PropertyFilterType.Event,
@@ -295,15 +299,10 @@ function StepsFunnel({ tour, dateRange }: { tour: ProductTour; dateRange: DateRa
         value: tour.id,
     }
 
-    // Build funnel: tour shown → step 1 shown → step 2 shown → ... → tour completed
+    // Build funnel: step 1 shown → step 2 shown → ... → tour completed
     // Filter by step ID (stable across reorders) rather than step order (positional)
+    // "product tour shown" === "step 1 shown", so we do not include it here
     const series = [
-        {
-            kind: NodeKind.EventsNode,
-            event: 'product tour shown',
-            custom_name: 'Tour started',
-            properties: [tourIdFilter],
-        },
         ...steps.map((step, index) => ({
             kind: NodeKind.EventsNode,
             event: 'product tour step shown',
@@ -372,7 +371,7 @@ function StepsFunnel({ tour, dateRange }: { tour: ProductTour; dateRange: DateRa
                     source: funnelsQuery,
                     showTable: false,
                     showLastComputation: true,
-                    showLastComputationRefresh: false,
+                    showLastComputationRefresh: true,
                 }}
                 readOnly
             />

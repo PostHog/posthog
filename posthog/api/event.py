@@ -54,6 +54,7 @@ EVENT_LIST_CACHE_KEY_PREFIX = "event_list_good_period"
 
 
 def _get_limit_size_category(limit: int) -> str:
+    """Groups limits into size categories to limit cache key cardinality."""
     if limit < 1000:
         return "s"
     elif limit < 10000:
@@ -67,6 +68,21 @@ def _get_event_list_cache_key(
     has_distinct_id: bool,
     limit: int,
 ) -> str:
+    """
+    Generate a cache key for the event list progressive window optimization.
+
+    The cache stores {"window": int, "result_count": int} to track which time
+    window worked and how many results it returned. When reading from cache,
+    we only use the cached window if its result_count >= half_limit for the
+    current request. This prevents the bug where a cached window that succeeded
+    for a smaller limit (e.g., 4999 with half_limit=2499) is incorrectly used
+    for a larger limit (e.g., 6000 with half_limit=3000) that needs more results.
+
+    We use size categories (s/m/l) instead of exact limits to bound cache key
+    cardinality to ~3 keys per team/filter combination. Within a size category,
+    different limits share the same cache key but have different half_limit
+    thresholds - the result_count validation handles this.
+    """
     event_flag = "1" if has_event_filter else "0"
     distinct_id_flag = "1" if has_distinct_id else "0"
     size_category = _get_limit_size_category(limit)
@@ -251,7 +267,7 @@ class EventViewSet(
             has_event_filter = bool(request.GET.get("event"))
             has_distinct_id = bool(request.GET.get("distinct_id"))
             cache_key = _get_event_list_cache_key(team.pk, has_event_filter, has_distinct_id, limit)
-            cached_window = cache.get(cache_key)
+            cached_data = cache.get(cache_key)
 
             # Calculate the user's requested time range in seconds
             request_window_seconds: Optional[int] = None
@@ -268,7 +284,21 @@ class EventViewSet(
                 w for w in EVENT_LIST_TIME_WINDOWS if request_window_seconds is None or w < request_window_seconds
             ]
 
-            # If cached window is valid, try it first
+            half_limit = max(limit // 2, 1)  # At least 1 result required
+
+            # Only use cached window if it returned enough results for our threshold.
+            # This prevents the bug where a cached window that succeeded for a smaller
+            # limit (e.g., 4999 with half_limit=2499) is used for a larger limit
+            # (e.g., 6000 with half_limit=3000) that needs more results.
+            cached_window = None
+            if cached_data and isinstance(cached_data, dict):
+                cached_result_count = cached_data.get("result_count", 0)
+                if cached_result_count >= half_limit:
+                    cached_window = cached_data.get("window")
+            elif cached_data and isinstance(cached_data, int):
+                # Backwards compatibility: old cache format was just the window integer
+                cached_window = cached_data
+
             if cached_window and cached_window in windows_to_try:
                 windows_to_try.remove(cached_window)
                 windows_to_try.insert(0, cached_window)
@@ -279,7 +309,6 @@ class EventViewSet(
                 query_result: list = []
                 successful_window: Optional[int] = None
                 applied_window: Optional[int] = None
-                half_limit = max(limit // 2, 1)  # At least 1 result required
 
                 for window in windows_to_try:
                     query_result, applied_window = query_events_list(
@@ -302,9 +331,13 @@ class EventViewSet(
                         break
 
                 if successful_window:
-                    # Cache the successful window for future requests
-                    if successful_window != cached_window:
-                        cache.set(cache_key, successful_window, EVENT_LIST_CACHE_TTL)
+                    # Cache the successful window AND result count for future requests.
+                    # This allows requests with smaller limits to reuse cached windows,
+                    # while requests with larger limits will find their own windows.
+                    # Cache format: {"window": int, "result_count": int} (or int for legacy)
+                    new_cache_data = {"window": successful_window, "result_count": len(query_result)}
+                    if new_cache_data != cached_data:
+                        cache.set(cache_key, new_cache_data, EVENT_LIST_CACHE_TTL)
                 elif applied_window is not None or not windows_to_try:
                     # Windows were applied but didn't return enough results, or no windows to try - run full query
                     query_result, _ = query_events_list(
@@ -415,96 +448,107 @@ class EventViewSet(
 
             return self._event_property_values(query_params)
 
-    @tracer.start_as_current_span("events_api_event_property_values")
     def _event_property_values(
         self,
         query_params: EventValueQueryParams,
     ) -> response.Response:
-        date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
-        date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
+        with tracer.start_as_current_span("events_api_event_property_values") as span:
+            span.set_attribute("team_id", query_params.team.pk)
+            span.set_attribute("property_key", query_params.key)
+            span.set_attribute("is_column", query_params.is_column)
+            span.set_attribute("has_value_filter", query_params.value is not None)
+            span.set_attribute("event_names_count", len(query_params.event_names) if query_params.event_names else 0)
 
-        chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
-        conditions: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=date_from),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=date_to),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq,
-                left=ast.Field(chain=chain),
-                right=ast.Constant(value=None),
-            ),
-        ]
-        # Handle property filters from query parameters
-        for param_key, param_value in query_params.items:
-            if param_key.startswith("properties_"):
-                property_key = param_key.replace("properties_", "", 1)
-                try:
-                    # Expect properly encoded JSON from frontend
-                    property_values = (
-                        json.loads(param_value) if isinstance(param_value, str | bytes | bytearray) else param_value
+            date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
+            date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
+
+            chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
+            conditions: list[ast.Expr] = [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=date_from),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=date_to),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=chain),
+                    right=ast.Constant(value=None),
+                ),
+            ]
+            # Handle property filters from query parameters
+            property_filter_count = 0
+            for param_key, param_value in query_params.items:
+                if param_key.startswith("properties_"):
+                    property_filter_count += 1
+                    property_key = param_key.replace("properties_", "", 1)
+                    try:
+                        # Expect properly encoded JSON from frontend
+                        property_values = (
+                            json.loads(param_value) if isinstance(param_value, str | bytes | bytearray) else param_value
+                        )
+                        conditions.append(create_property_conditions(property_key, property_values))
+                    except json.JSONDecodeError:
+                        # If not JSON, treat as single value
+                        conditions.append(create_property_conditions(property_key, param_value))
+            span.set_attribute("property_filter_count", property_filter_count)
+
+            if query_params.event_names and len(query_params.event_names) > 0:
+                event_conditions: list[ast.Expr] = [
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=event_name),
                     )
-                    conditions.append(create_property_conditions(property_key, property_values))
-                except json.JSONDecodeError:
-                    # If not JSON, treat as single value
-                    conditions.append(create_property_conditions(property_key, param_value))
-        if query_params.event_names and len(query_params.event_names) > 0:
-            event_conditions: list[ast.Expr] = [
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["event"]),
-                    right=ast.Constant(value=event_name),
+                    for event_name in query_params.event_names
+                ]
+                if len(event_conditions) > 1:
+                    conditions.append(ast.Or(exprs=event_conditions))
+                else:
+                    conditions.append(event_conditions[0])
+            if query_params.value:
+                conditions.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.ILike,
+                        left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
+                        right=ast.Constant(value=f"%{query_params.value}%"),
+                    )
                 )
-                for event_name in query_params.event_names
-            ]
-            if len(event_conditions) > 1:
-                conditions.append(ast.Or(exprs=event_conditions))
-            else:
-                conditions.append(event_conditions[0])
-        if query_params.value:
-            conditions.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.ILike,
-                    left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
-                    right=ast.Constant(value=f"%{query_params.value}%"),
-                )
+            order_by = []
+            if query_params.value:
+                order_by = [
+                    ast.OrderExpr(
+                        expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
+                        order="ASC",
+                    )
+                ]
+            query = ast.SelectQuery(
+                select=[ast.Field(chain=chain)],
+                distinct=True,
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                where=ast.And(exprs=conditions),
+                order_by=order_by,
+                limit=ast.Constant(value=10),
             )
-        order_by = []
-        if query_params.value:
-            order_by = [
-                ast.OrderExpr(
-                    expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
-                    order="ASC",
-                )
-            ]
-        query = ast.SelectQuery(
-            select=[ast.Field(chain=chain)],
-            distinct=True,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(exprs=conditions),
-            order_by=order_by,
-            limit=ast.Constant(value=10),
-        )
 
-        result = execute_hogql_query(query, team=query_params.team)
+            result = execute_hogql_query(query, team=query_params.team)
 
-        values = []
-        for value in result.results:
-            if isinstance(value[0], float | int | bool | uuid.UUID):
-                values.append(value[0])
-            else:
-                try:
-                    values.append(json.loads(value[0]))
-                except json.JSONDecodeError:
+            values = []
+            for value in result.results:
+                if isinstance(value[0], float | int | bool | uuid.UUID):
                     values.append(value[0])
+                else:
+                    try:
+                        values.append(json.loads(value[0]))
+                    except json.JSONDecodeError:
+                        values.append(value[0])
 
-        return self._return_with_short_cache([{"name": convert_property_value(value)} for value in flatten(values)])
+            span.set_attribute("result_count", len(values))
+            return self._return_with_short_cache([{"name": convert_property_value(value)} for value in flatten(values)])
 
     @staticmethod
     def _return_with_short_cache(values) -> response.Response:

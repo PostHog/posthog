@@ -8,19 +8,14 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     FuzzyInt,
-    NonAtomicBaseTest,
-    QueryMatchingTest,
     _create_person,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
     snapshot_postgres_queries_context,
 )
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from django.core.cache import cache
-from django.db import connection, connections
-from django.db.utils import OperationalError
-from django.test.client import RequestFactory
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -29,15 +24,10 @@ from rest_framework import status
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
-from posthog.constants import AvailableFeature
 from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, Tag, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
-from posthog.models.feature_flag import (
-    FeatureFlagDashboards,
-    get_all_feature_flags,
-    get_feature_flags_for_team_in_cache,
-)
+from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.feature_flag.flag_status import FeatureFlagStatus
 from posthog.models.group.util import create_group
@@ -214,7 +204,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_cant_create_flag_with_invalid_filters(self):
         count = FeatureFlag.objects.count()
 
-        invalid_operators = ["icontains", "regex", "not_icontains", "not_regex", "lt", "gt", "lte", "gte"]
+        invalid_operators = [
+            "icontains",
+            "regex",
+            "not_icontains",
+            "not_regex",
+            "lt",
+            "gt",
+            "lte",
+            "gte",
+        ]
 
         for operator in invalid_operators:
             response = self.client.post(
@@ -278,6 +277,83 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @parameterized.expand(
+        [
+            ("in",),
+            ("not_in",),
+        ]
+    )
+    def test_cant_create_flag_with_in_operator_for_person_properties(self, operator: str) -> None:
+        count = FeatureFlag.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Beta feature",
+                "key": f"beta-person-{operator}",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": ["user1@example.com", "user2@example.com"],
+                                    "operator": operator,
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_operator",
+                "detail": f"The '{operator}' operator is only valid for cohort properties, not 'person' properties.",
+                "attr": "filters",
+            },
+        )
+        self.assertEqual(FeatureFlag.objects.count(), count)
+
+    @parameterized.expand(
+        [
+            ("in",),
+            ("not_in",),
+        ]
+    )
+    def test_can_create_flag_with_in_operator_for_cohort_properties(self, operator: str) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="test cohort", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": f"Cohort feature {operator}",
+                "key": f"cohort-feature-{operator}",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": cohort.pk,
+                                    "operator": operator,
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["key"], f"cohort-feature-{operator}")
+
     def test_cant_update_flag_with_duplicate_key(self):
         existing_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         another_feature_flag = FeatureFlag.objects.create(
@@ -313,47 +389,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         existing_flag.refresh_from_db()
         self.assertEqual(existing_flag.name, "Beta feature 3")
 
-    def test_is_simple_flag(self):
-        feature_flag = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": "Beta feature",
-                "key": "beta-feature",
-                "filters": {"groups": [{"rollout_percentage": 65}]},
-            },
-            format="json",
-        ).json()
-        self.assertTrue(feature_flag["is_simple_flag"])
-        self.assertEqual(feature_flag["rollout_percentage"], 65)
-
-    def test_is_not_simple_flag(self):
-        feature_flag = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": "Beta feature",
-                "key": "beta-feature",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 65,
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": "@posthog.com",
-                                    "operator": "icontains",
-                                }
-                            ],
-                        }
-                    ]
-                },
-            },
-            format="json",
-        ).json()
-        self.assertFalse(feature_flag["is_simple_flag"])
-
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_is_simple_flag_groups(self, mock_capture):
+    def test_group_type_index_feature_flag(self, mock_capture):
         feature_flag = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -366,7 +403,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
             format="json",
         ).json()
-        self.assertFalse(feature_flag["is_simple_flag"])
         # Assert analytics are sent
         instance = FeatureFlag.objects.get(id=feature_flag["id"])
         mock_capture.assert_called_once_with(
@@ -383,6 +419,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": True,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
+                "source": "web",
             },
         )
 
@@ -418,6 +455,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
+                "source": "web",
             },
         )
 
@@ -472,6 +510,41 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
+                "source": "web",
+            },
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_feature_flag_via_api_key_reports_api_source(self, mock_capture):
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "api-created-feature"},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+
+        mock_capture.assert_called_once_with(
+            self.user,
+            "feature flag created",
+            {
+                "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
+                "has_rollout_percentage": False,
+                "has_filters": False,
+                "filter_count": 0,
+                "created_at": instance.created_at,
+                "aggregating_by_groups": False,
+                "payload_count": 0,
+                "creation_context": "feature_flags",
+                "source": "api",
             },
         )
 
@@ -480,7 +553,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            {"key": "feature-with-analytics-dashboards", "analytics_dashboards": [dashboard.pk]},
+            {
+                "key": "feature-with-analytics-dashboards",
+                "analytics_dashboards": [dashboard.pk],
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -489,6 +565,60 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         instance = FeatureFlag.objects.get(id=response.json()["id"])
         self.assertEqual(instance.key, "feature-with-analytics-dashboards")
         self.assertEqual(instance.analytics_dashboards.all()[0].id, dashboard.pk)
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_feature_flag_rejects_dashboard_from_other_team(self, mock_capture):
+        other_team = Team.objects.create(organization=self.organization, api_token="token_other", name="Other Team")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="other team dashboard", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "flag-with-other-dashboard",
+                "analytics_dashboards": [other_dashboard.pk],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "analytics_dashboards")
+        self.assertIn("does not exist", response.json()["detail"])
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_update_feature_flag_rejects_dashboard_from_other_team(self, mock_capture):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-to-update",
+            name="Flag to Update",
+            created_by=self.user,
+        )
+
+        other_team = Team.objects.create(
+            organization=self.organization,
+            api_token="token_other_update",
+            name="Other Team",
+        )
+        other_dashboard = Dashboard.objects.create(team=other_team, name="other team dashboard", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.pk}/",
+            {"analytics_dashboards": [other_dashboard.pk]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "analytics_dashboards")
+        self.assertIn("does not exist", response.json()["detail"])
+
+    def test_serializer_without_team_context_returns_empty_dashboard_queryset(self):
+        """When team_id is missing from context, analytics_dashboards should allow nothing (fail safe)."""
+        Dashboard.objects.create(team=self.team, name="test dashboard", created_by=self.user)
+
+        # Instantiate serializer WITHOUT team_id in context
+        serializer = FeatureFlagSerializer(context={})
+        fields = serializer.get_fields()
+
+        # The queryset should be empty (fail safe to prevent IDOR)
+        analytics_field = fields["analytics_dashboards"]
+        self.assertEqual(analytics_field.child_relation.queryset.count(), 0)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_evaluation_runtime(self, mock_capture):
@@ -609,6 +739,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "feature_flags",
+                "source": "web",
             },
         )
 
@@ -737,8 +868,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Verify flag wasn't updated
         feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
-        self.assertEqual(feature_flag.filters["multivariate"]["variants"][0]["rollout_percentage"], 50)
-        self.assertEqual(feature_flag.filters["multivariate"]["variants"][1]["rollout_percentage"], 50)
+        self.assertEqual(
+            feature_flag.filters["multivariate"]["variants"][0]["rollout_percentage"],
+            50,
+        )
+        self.assertEqual(
+            feature_flag.filters["multivariate"]["variants"][1]["rollout_percentage"],
+            50,
+        )
 
     def test_cant_create_feature_flag_without_key(self):
         count = FeatureFlag.objects.count()
@@ -981,7 +1118,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                     ]
                                 },
                             },
-                            {"action": "changed", "after": 2, "before": 1, "field": "version", "type": "FeatureFlag"},
+                            {
+                                "action": "changed",
+                                "after": 2,
+                                "before": 1,
+                                "field": "version",
+                                "type": "FeatureFlag",
+                            },
                         ],
                         "trigger": None,
                         "type": None,
@@ -1024,7 +1167,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             {
                                 "variant": None,
                                 "properties": [
-                                    {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}
+                                    {
+                                        "key": "plan",
+                                        "type": "person",
+                                        "value": ["pro"],
+                                        "operator": "exact",
+                                    }
                                 ],
                                 "rollout_percentage": 100,
                             }
@@ -1185,7 +1333,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             {
                                 "variant": None,
                                 "properties": [
-                                    {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}
+                                    {
+                                        "key": "plan",
+                                        "type": "person",
+                                        "value": ["pro"],
+                                        "operator": "exact",
+                                    }
                                 ],
                                 "rollout_percentage": 100,
                             }
@@ -1228,7 +1381,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             {
                                 "variant": None,
                                 "properties": [
-                                    {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}
+                                    {
+                                        "key": "plan",
+                                        "type": "person",
+                                        "value": ["pro"],
+                                        "operator": "exact",
+                                    }
                                 ],
                                 "rollout_percentage": 45,
                             }
@@ -1243,7 +1401,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 {
                                     "variant": None,
                                     "properties": [
-                                        {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}
+                                        {
+                                            "key": "plan",
+                                            "type": "person",
+                                            "value": ["pro"],
+                                            "operator": "exact",
+                                        }
                                     ],
                                     "rollout_percentage": 100,
                                 }
@@ -1355,7 +1518,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Create two teams with different secret keys
         self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
         other_team = Team.objects.create(
-            organization=self.organization, api_token="phc_other_team_token", name="Other Team"
+            organization=self.organization,
+            api_token="phc_other_team_token",
+            name="Other Team",
         )
         other_team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
 
@@ -1387,6 +1552,56 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Should be forbidden due to team mismatch
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_remote_config_with_numeric_id_scopes_to_project(self):
+        other_team = Team.objects.create(
+            organization=self.organization,
+            api_token="phc_numeric_id_test",
+            name="Numeric ID Team",
+        )
+
+        other_flag = FeatureFlag.objects.create(
+            team=other_team,
+            key="other-flag-numeric",
+            name="Other Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"leaked": true}'},
+            },
+            is_remote_configuration=True,
+        )
+
+        # Try to access the other team's flag using its numeric ID from our project endpoint
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{other_flag.pk}/remote_config")
+
+        # Should return 404 because the flag doesn't belong to this project
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_remote_config_with_string_key_scopes_to_project(self):
+        other_team = Team.objects.create(
+            organization=self.organization,
+            api_token="phc_string_key_test",
+            name="String Key Team",
+        )
+
+        FeatureFlag.objects.create(
+            team=other_team,
+            key="unique-other-flag-key",
+            name="Other Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"leaked": true}'},
+            },
+            is_remote_configuration=True,
+        )
+
+        # Try to access the other team's flag using its key from our project endpoint
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/unique-other-flag-key/remote_config")
+
+        # Should return 404 because the flag doesn't belong to this project
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_remote_config_returns_not_found_for_unknown_flag(self):
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/nonexistent_key/remote_config")
@@ -2028,7 +2243,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             },
-                            {"action": "changed", "after": 2, "before": 1, "field": "version", "type": "FeatureFlag"},
+                            {
+                                "action": "changed",
+                                "after": 2,
+                                "before": 1,
+                                "field": "version",
+                                "type": "FeatureFlag",
+                            },
                         ],
                         "trigger": None,
                         "type": None,
@@ -2134,7 +2355,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             },
-                            {"action": "changed", "after": 2, "before": 1, "field": "version", "type": "FeatureFlag"},
+                            {
+                                "action": "changed",
+                                "after": 2,
+                                "before": 1,
+                                "field": "version",
+                                "type": "FeatureFlag",
+                            },
                         ],
                         "trigger": None,
                         "type": None,
@@ -2399,7 +2626,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert flag.deleted is True
         assert flag.key == f"flag1:deleted:{flag.id}"
         # Should now be able to create a new flag with the original key
-        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/", {"name": "Flag1", "key": "flag1"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "Flag1", "key": "flag1"},
+        )
         assert response.status_code == 201
         assert response.json()["key"] == "flag1"
 
@@ -2413,36 +2643,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             == f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {exp.id}. Please delete the experiment(s) before deleting the flag."
         )
 
-    def test_my_flags_is_not_nplus1(self) -> None:
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": f"flag",
-                "key": f"flag",
-                "filters": {"groups": [{"rollout_percentage": 5}]},
-            },
-            format="json",
-        ).json()
-
-        with self.assertNumQueries(FuzzyInt(10, 11)):
-            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        for i in range(1, 4):
-            self.client.post(
-                f"/api/projects/{self.team.id}/feature_flags/",
-                data={
-                    "name": f"flag",
-                    "key": f"flag_{i}",
-                    "filters": {"groups": [{"rollout_percentage": 5}]},
-                },
-                format="json",
-            ).json()
-
-        with self.assertNumQueries(FuzzyInt(12, 13)):
-            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
     def test_getting_flags_is_not_nplus1(self) -> None:
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -2454,7 +2654,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(18, 19)):
+        with self.assertNumQueries(FuzzyInt(19, 20)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2469,7 +2669,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(18, 19)):
+        with self.assertNumQueries(FuzzyInt(19, 20)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2493,7 +2693,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Flag role access",
         )
 
-        with self.assertNumQueries(FuzzyInt(18, 19)):
+        with self.assertNumQueries(FuzzyInt(19, 20)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -2612,7 +2812,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Should not cause extra queries for the targeting flags
-        with self.assertNumQueries(FuzzyInt(15, 21)):
+        with self.assertNumQueries(FuzzyInt(15, 22)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should include main_flag but not targeting flags (they're filtered out)
@@ -2622,116 +2822,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # targeting_flag and internal_targeting_flag should be excluded
             # (they're survey-specific and filtered out from the main list)
 
-    @patch("posthog.api.feature_flag.report_user_action")
-    def test_my_flags(self, mock_capture):
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "filters": {
-                    "groups": [{"rollout_percentage": 20}],
-                    "multivariate": {
-                        "variants": [
-                            {
-                                "key": "first-variant",
-                                "name": "First Variant",
-                                "rollout_percentage": 50,
-                            },
-                            {
-                                "key": "second-variant",
-                                "name": "Second Variant",
-                                "rollout_percentage": 25,
-                            },
-                            {
-                                "key": "third-variant",
-                                "name": "Third Variant",
-                                "rollout_percentage": 25,
-                            },
-                        ]
-                    },
-                },
-            },
-            format="json",
-        )
-
-        # # alpha-feature is set for "distinct_id"
-        distinct_id_user = User.objects.create_and_join(self.organization, "distinct_id_user@posthog.com", None)
-        distinct_id_user.distinct_id = "distinct_id"
-        distinct_id_user.save()
-        self.client.force_login(distinct_id_user)
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(len(response_data), 2)
-
-        first_flag = response_data[0]
-        self.assertEqual(first_flag["feature_flag"]["key"], "alpha-feature")
-        self.assertEqual(first_flag["value"], "third-variant")
-
-        second_flag = response_data[1]
-        self.assertEqual(second_flag["feature_flag"]["key"], "red_button")
-        self.assertEqual(second_flag["value"], True)
-
-        # alpha-feature is not set for "distinct_id_0"
-        distinct_id_0_user = User.objects.create_and_join(self.organization, "distinct_id_0_user@posthog.com", None)
-        distinct_id_0_user.distinct_id = "distinct_id_0"
-        distinct_id_0_user.save()
-        self.client.force_login(distinct_id_0_user)
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(len(response_data), 2)
-
-        first_flag = response_data[0]
-        self.assertEqual(first_flag["feature_flag"]["key"], "alpha-feature")
-        self.assertEqual(first_flag["value"], False)
-
-    @patch("posthog.api.feature_flag.report_user_action")
-    def test_my_flags_empty_flags(self, mock_capture):
-        # Ensure empty feature flag list
-        FeatureFlag.objects.all().delete()
-
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(len(response_data), 0)
-
-    @patch("posthoganalytics.capture")
-    def test_my_flags_groups(self, mock_capture):
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "groups flag",
-                "key": "groups-flag",
-                "filters": {
-                    "aggregation_group_type_index": 0,
-                    "groups": [{"rollout_percentage": 100}],
-                },
-            },
-            format="json",
-        )
-
-        create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        groups_flag = response.json()[0]
-        self.assertEqual(groups_flag["feature_flag"]["key"], "groups-flag")
-        self.assertEqual(groups_flag["value"], False)
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/my_flags",
-            data={"groups": json.dumps({"organization": "7"})},
-        )
-        groups_flag = response.json()[0]
-        self.assertEqual(groups_flag["feature_flag"]["key"], "groups-flag")
-        self.assertEqual(groups_flag["value"], True)
-
-    @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag_usage_dashboard(self, mock_capture):
         response = self.client.post(
@@ -2751,7 +2841,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         dashboard = instance.usage_dashboard
         assert dashboard is not None
         assert dashboard.tiles is not None
-        tiles = sorted(dashboard.tiles.all(), key=lambda x: str(x.insight.name if x.insight is not None else ""))
+        tiles = sorted(
+            dashboard.tiles.all(),
+            key=lambda x: str(x.insight.name if x.insight is not None else ""),
+        )
 
         self.assertEqual(dashboard.name, "Generated Dashboard: alpha-feature Usage")
         self.assertEqual(
@@ -2770,7 +2863,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "kind": "InsightVizNode",
                 "source": {
                     "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "name": "$feature_flag_called", "event": "$feature_flag_called"}],
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "name": "$feature_flag_called",
+                            "event": "$feature_flag_called",
+                        }
+                    ],
                     "interval": "day",
                     "dateRange": {"date_from": "-30d", "explicitDate": False},
                     "properties": {
@@ -2799,7 +2898,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "aggregationAxisFormat": "numeric",
                         "showAlertThresholdLines": False,
                     },
-                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "breakdownFilter": {
+                        "breakdown": "$feature_flag_response",
+                        "breakdown_type": "event",
+                    },
                     "filterTestAccounts": False,
                 },
             },
@@ -2848,7 +2950,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "aggregationAxisFormat": "numeric",
                         "showAlertThresholdLines": False,
                     },
-                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "breakdownFilter": {
+                        "breakdown": "$feature_flag_response",
+                        "breakdown_type": "event",
+                    },
                     "filterTestAccounts": False,
                 },
             },
@@ -2869,7 +2974,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         dashboard = instance.usage_dashboard
         assert dashboard is not None
         assert dashboard.tiles is not None
-        tiles = sorted(dashboard.tiles.all(), key=lambda x: str(x.insight.name if x.insight is not None else ""))
+        tiles = sorted(
+            dashboard.tiles.all(),
+            key=lambda x: str(x.insight.name if x.insight is not None else ""),
+        )
 
         self.assertEqual(dashboard.name, "Generated Dashboard: alpha-feature Usage")
         self.assertEqual(
@@ -2886,7 +2994,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "kind": "InsightVizNode",
                 "source": {
                     "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "name": "$feature_flag_called", "event": "$feature_flag_called"}],
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "name": "$feature_flag_called",
+                            "event": "$feature_flag_called",
+                        }
+                    ],
                     "interval": "day",
                     "dateRange": {"date_from": "-30d", "explicitDate": False},
                     "properties": {
@@ -2915,7 +3029,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "aggregationAxisFormat": "numeric",
                         "showAlertThresholdLines": False,
                     },
-                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "breakdownFilter": {
+                        "breakdown": "$feature_flag_response",
+                        "breakdown_type": "event",
+                    },
                     "filterTestAccounts": False,
                 },
             },
@@ -2964,7 +3081,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "aggregationAxisFormat": "numeric",
                         "showAlertThresholdLines": False,
                     },
-                    "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
+                    "breakdownFilter": {
+                        "breakdown": "$feature_flag_response",
+                        "breakdown_type": "event",
+                    },
                     "filterTestAccounts": False,
                 },
             },
@@ -2980,7 +3100,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "source": {
                     "kind": "TrendsQuery",
                     "series": [
-                        {"kind": "EventsNode", "name": "Feature Interaction - Total", "event": "$feature_interaction"},
+                        {
+                            "kind": "EventsNode",
+                            "name": "Feature Interaction - Total",
+                            "event": "$feature_interaction",
+                        },
                         {
                             "kind": "EventsNode",
                             "math": "dau",
@@ -3030,7 +3154,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "source": {
                     "kind": "TrendsQuery",
                     "series": [
-                        {"kind": "EventsNode", "name": "Feature View - Total", "event": "$feature_view"},
+                        {
+                            "kind": "EventsNode",
+                            "name": "Feature View - Total",
+                            "event": "$feature_view",
+                        },
                         {
                             "kind": "EventsNode",
                             "math": "dau",
@@ -3245,7 +3373,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         FeatureFlag.objects.create(
             team=self.team,
             filters={
-                "groups": [{"properties": [{"key": "id", "value": cohort_with_nested_invalid.pk, "type": "cohort"}]}]
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": cohort_with_nested_invalid.pk,
+                                "type": "cohort",
+                            }
+                        ]
+                    }
+                ]
             },
             name="This is a cohort-based flag",
             key="cohort-flag-2",
@@ -3253,7 +3391,19 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         FeatureFlag.objects.create(
             team=self.team,
-            filters={"groups": [{"properties": [{"key": "id", "value": cohort_from_other_team.pk, "type": "cohort"}]}]},
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": cohort_from_other_team.pk,
+                                "type": "cohort",
+                            }
+                        ]
+                    }
+                ]
+            },
             name="This is a cohort-based flag",
             key="cohort-flag-3",
             created_by=self.user,
@@ -3263,7 +3413,15 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             filters={
                 "groups": [
                     {"properties": [{"key": "id", "value": cohort_valid.pk, "type": "cohort"}]},
-                    {"properties": [{"key": "id", "value": cohort_with_nested_invalid.pk, "type": "cohort"}]},
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": cohort_with_nested_invalid.pk,
+                                "type": "cohort",
+                            }
+                        ]
+                    },
                     {"properties": [{"key": "id", "value": 99999, "type": "cohort"}]},
                     {"properties": [{"key": "id", "value": deleted_cohort.pk, "type": "cohort"}]},
                 ]
@@ -3291,27 +3449,15 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(FuzzyInt(22, 24)):
-            # 1. SAVEPOINT
-            # 2. SELECT "posthog_personalapikey"."id",
-            # 3. RELEASE SAVEPOINT
-            # 4. UPDATE "posthog_personalapikey" SET "last_used_at"
-            # 5. SELECT "posthog_team"."id", "posthog_team"."uuid",
-            # 6. SELECT "posthog_team"."id", "posthog_team"."uuid",
-            # 7. SELECT "posthog_project"."id", "posthog_project"."organization_id",
-            # 8. SELECT "posthog_organizationmembership"."id",
-            # 9. SELECT "ee_accesscontrol"."id",
-            # 10. SELECT "posthog_organizationmembership"."id",
-            # 11. SELECT "posthog_cohort"."id"  -- all cohorts
-            # 12. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", -- all flags
-            # 13. SELECT "posthog_team"."id", "posthog_team"."uuid",
-            # 14. SELECT "posthog_cohort". id = 99999
-            # 15. SELECT "posthog_team"."id", "posthog_team"."uuid",
-            # 16. SELECT "posthog_cohort". id = deleted cohort
-            # 17. SELECT "posthog_team"."id", "posthog_team"."uuid",
-            # 18. SELECT "posthog_cohort". id = cohort from other team
-            # 19. SELECT "posthog_grouptypemapping"."id", -- group type mapping
-            # TODO add the evaluation tag queries
+        with self.assertNumQueries(FuzzyInt(17, 21)):
+            # 1-10: Auth, team, project, membership, and access control queries
+            # 11. SELECT surveys (for survey exclusion)
+            # 12. SELECT all feature flags
+            # 13. SELECT cohorts (only referenced cohorts in bulk, not all cohorts)
+            # 14-18. SELECT evaluation tags (one per flag)
+            # 19. SELECT group type mapping
+            # Note: Query count reduced because cohorts are now loaded in bulk
+            # for only those referenced by flags, instead of loading all cohorts.
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
@@ -3965,504 +4111,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 {b"165192618": b"6"},
             )
 
-    @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", True)
-    def test_local_evaluation_quota_limited(self):
-        """Test that local evaluation returns 402 Payment Required when over quota."""
-        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource
-
-        # Set up a feature flag
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Beta feature",
-                "key": "beta-feature",
-                "filters": {"groups": [{"rollout_percentage": 65}]},
-            },
-            format="json",
-        )
-
-        # Mock the quota limiting cache to simulate being over quota
-        with (
-            patch(
-                "ee.billing.quota_limiting.list_limited_team_attributes",
-                return_value=[self.team.api_token],
-            ) as mock_quota_limited,
-            self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True),
-        ):
-            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-            mock_quota_limited.assert_called_once_with(
-                QuotaResource.FEATURE_FLAG_REQUESTS,
-                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
-            )
-
-            self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-            response_data = response.json()
-
-            # Verify the error response structure
-            self.assertEqual(
-                response_data,
-                {
-                    "type": "quota_limited",
-                    "detail": "You have exceeded your feature flag request quota",
-                    "code": "payment_required",
-                },
-            )
-
-    @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", True)
-    def test_local_evaluation_not_quota_limited(self):
-        """Test that local evaluation returns normal response when not over quota."""
-        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource
-
-        # Set up a feature flag
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Beta feature",
-                "key": "beta-feature",
-                "filters": {"groups": [{"rollout_percentage": 65}]},
-            },
-            format="json",
-        )
-
-        # Mock the quota limiting cache to simulate not being over quota
-        with (
-            patch(
-                "ee.billing.quota_limiting.list_limited_team_attributes",
-                return_value=[],
-            ) as mock_quota_limited,
-            self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True),
-        ):
-            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-            mock_quota_limited.assert_called_once_with(
-                QuotaResource.FEATURE_FLAG_REQUESTS,
-                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
-            )
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            response_data = response.json()
-
-            # Verify normal response structure when not quota limited
-            self.assertTrue(len(response_data["flags"]) > 0)
-            self.assertNotIn("quotaLimited", response_data)
-
-    def test_local_evaluation_quota_check_disabled(self):
-        """Test that local evaluation bypasses quota check when the setting is disabled."""
-
-        # Set up a feature flag
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Beta feature",
-                "key": "beta-feature",
-                "filters": {"groups": [{"rollout_percentage": 65}]},
-            },
-            format="json",
-        )
-
-        with (
-            patch(
-                "ee.billing.quota_limiting.list_limited_team_attributes",
-            ) as mock_quota_limited,
-            self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=False),
-        ):
-            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-
-            # Verify quota limiting was not checked
-            mock_quota_limited.assert_not_called()
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            response_data = response.json()
-
-            # Verify normal response structure
-            self.assertTrue(len(response_data["flags"]) > 0)
-            self.assertNotIn("quotaLimited", response_data)
-
-    @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", False)
-    def test_local_evaluation_only_survey_targeting_flags(self):
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches, update_flag_caches
-
-        FeatureFlag.objects.all().delete()
-        # Clear any existing flag caches to ensure clean test state
-        clear_flag_caches(self.team)
-
-        client = redis.get_client()
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
-
-        with freeze_time("2022-05-07 12:23:07"):
-
-            def make_request_and_assert_requests_recorded(expected_requests=None):
-                response = self.client.get(
-                    f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                    headers={"authorization": f"Bearer {personal_api_key}"},
-                )
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertEqual(
-                    client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
-                    expected_requests or {},
-                )
-
-            # No requests should be recorded if there are no flags
-            # Warm cache with empty flags
-            update_flag_caches(self.team)
-            make_request_and_assert_requests_recorded()
-
-            FeatureFlag.objects.create(
-                name="Survey Targeting Flag",
-                key="survey-targeting-flag",
-                team=self.team,
-                filters={"properties": [{"key": "survey-targeting-property", "value": "survey-targeting-value"}]},
-            )
-            # Warm cache after creating survey targeting flag
-            update_flag_caches(self.team)
-
-            # No requests should be recorded if the only flags are survey targeting flags
-            make_request_and_assert_requests_recorded()
-
-            # Requests should be recorded if there is one regular feature flag
-            FeatureFlag.objects.create(
-                name="Regular Feature Flag",
-                key="regular-feature-flag",
-                team=self.team,
-                filters={"properties": [{"key": "regular-property", "value": "regular-value"}]},
-            )
-            # Warm cache after creating regular flag
-            update_flag_caches(self.team)
-
-            # Calculate expected time bucket: int(timestamp / 120)
-            # With freeze_time("2022-05-07 12:23:07"), timestamp should be ~1651951387
-            # time_bucket = int(1651951387 / 120) = 13766261
-            import time
-
-            expected_bucket = str(int(time.time() / 120)).encode()
-            make_request_and_assert_requests_recorded({expected_bucket: b"1"})
-
-    @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", False)
-    def test_local_evaluation_with_project_secret_key(self):
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches, update_flag_caches
-
-        FeatureFlag.objects.all().delete()
-        # Clear any existing flag caches to ensure clean test state
-        clear_flag_caches(self.team)
-
-        # Rotate the secret token to get a fresh one
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
-
-        # Create a test feature flag
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag-for-secret-auth",
-            name="Test Flag for Secret Auth",
-            active=True,
-            filters={
-                "groups": [
-                    {
-                        "properties": [],
-                        "rollout_percentage": 100,
-                    }
-                ],
-            },
-        )
-        # Warm cache after creating flag
-        update_flag_caches(self.team)
-
-        # Logout to ensure we're not using session authentication
-        self.client.logout()
-
-        # Make request using project secret key authentication
-        response = self.client.get(
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
-        )
-
-        # Verify successful response
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-
-        # Verify response structure
-        self.assertIn("flags", response_data)
-        self.assertIn("group_type_mapping", response_data)
-        self.assertIn("cohorts", response_data)
-
-        # Verify our flag is included
-        flag_keys = [flag["key"] for flag in response_data["flags"]]
-        self.assertIn("test-flag-for-secret-auth", flag_keys)
-
-    @patch("posthog.api.feature_flag.report_user_action")
-    def test_evaluation_reasons(self, mock_capture):
-        FeatureFlag.objects.all().delete()
-        create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-        create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
-        )
-        Person.objects.create(
-            team_id=self.team.pk,
-            distinct_ids=["1", "2"],
-            properties={"beta-property": "beta-value"},
-        )
-
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "filters": {
-                    "groups": [{"rollout_percentage": 20}],
-                    "multivariate": {
-                        "variants": [
-                            {
-                                "key": "first-variant",
-                                "name": "First Variant",
-                                "rollout_percentage": 50,
-                            },
-                            {
-                                "key": "second-variant",
-                                "name": "Second Variant",
-                                "rollout_percentage": 25,
-                            },
-                            {
-                                "key": "third-variant",
-                                "name": "Third Variant",
-                                "rollout_percentage": 25,
-                            },
-                        ],
-                    },
-                },
-            },
-            format="json",
-        )
-
-        # old style feature flags
-        FeatureFlag.objects.create(
-            name="Beta feature",
-            key="beta-feature",
-            team=self.team,
-            rollout_percentage=81,
-            filters={"properties": [{"key": "beta-property", "value": "beta-value"}]},
-            created_by=self.user,
-        )
-        # and inactive flag
-        FeatureFlag.objects.create(
-            name="Inactive feature",
-            key="inactive-flag",
-            team=self.team,
-            active=False,
-            rollout_percentage=100,
-            filters={"properties": []},
-            created_by=self.user,
-        )
-
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Group feature",
-                "key": "group-feature",
-                "filters": {
-                    "aggregation_group_type_index": 0,
-                    "groups": [{"rollout_percentage": 61}],
-                },
-            },
-            format="json",
-        )
-
-        # general test
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons",
-            {
-                "distinct_id": "test",
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(len(response_data), 4)
-
-        self.assertEqual(
-            response_data,
-            {
-                "alpha-feature": {
-                    "value": False,
-                    "evaluation": {
-                        "reason": "out_of_rollout_bound",
-                        "condition_index": 0,
-                    },
-                },
-                "beta-feature": {
-                    "value": False,
-                    "evaluation": {
-                        "reason": "no_condition_match",
-                        "condition_index": 0,
-                    },
-                },
-                "group-feature": {
-                    "value": False,
-                    "evaluation": {
-                        "reason": "no_group_type",
-                        "condition_index": None,
-                    },
-                },
-                "inactive-flag": {
-                    "value": False,
-                    "evaluation": {
-                        "reason": "disabled",
-                        "condition_index": None,
-                    },
-                },
-            },
-        )
-
-        # with person having beta-property for beta-feature
-        # also matches alpha-feature as within rollout bounds
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons",
-            {
-                "distinct_id": "2",
-                # "groups": json.dumps({"organization": "org1", "company": "company1"}),
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(len(response_data), 4)
-
-        self.assertEqual(
-            response_data,
-            {
-                "alpha-feature": {
-                    "value": "first-variant",
-                    "evaluation": {
-                        "reason": "condition_match",
-                        "condition_index": 0,
-                    },
-                },
-                "beta-feature": {
-                    "value": True,
-                    "evaluation": {
-                        "reason": "condition_match",
-                        "condition_index": 0,
-                    },
-                },
-                "group-feature": {
-                    "value": False,
-                    "evaluation": {
-                        "reason": "no_group_type",
-                        "condition_index": None,
-                    },
-                },
-                "inactive-flag": {
-                    "value": False,
-                    "evaluation": {
-                        "reason": "disabled",
-                        "condition_index": None,
-                    },
-                },
-            },
-        )
-
-        # with groups
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons",
-            {
-                "distinct_id": "org1234",
-                "groups": json.dumps({"organization": "org1234"}),
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(len(response_data), 4)
-
-        self.assertEqual(
-            response_data,
-            {
-                "alpha-feature": {
-                    "value": False,
-                    "evaluation": {
-                        "reason": "out_of_rollout_bound",
-                        "condition_index": 0,
-                    },
-                },
-                "beta-feature": {
-                    "value": False,
-                    "evaluation": {
-                        "reason": "no_condition_match",
-                        "condition_index": 0,
-                    },
-                },
-                "group-feature": {
-                    "value": True,
-                    "evaluation": {
-                        "reason": "condition_match",
-                        "condition_index": 0,
-                    },
-                },
-                "inactive-flag": {
-                    "value": False,
-                    "evaluation": {
-                        "reason": "disabled",
-                        "condition_index": None,
-                    },
-                },
-            },
-        )
-
-    def test_validation_person_properties(self):
-        person_request = self._create_flag_with_properties(
-            "person-flag",
-            [
-                {
-                    "key": "email",
-                    "type": "person",
-                    "value": "@posthog.com",
-                    "operator": "icontains",
-                }
-            ],
-        )
-        self.assertEqual(person_request.status_code, status.HTTP_201_CREATED)
-
-        cohort: Cohort = Cohort.objects.create(team=self.team, name="My Cohort")
-        cohort_request = self._create_flag_with_properties(
-            "cohort-flag", [{"key": "id", "type": "cohort", "value": cohort.id}]
-        )
-        self.assertEqual(cohort_request.status_code, status.HTTP_201_CREATED)
-
-        event_request = self._create_flag_with_properties(
-            "illegal-event-flag",
-            [{"key": "id", "value": 5}],
-            expected_status=status.HTTP_400_BAD_REQUEST,
-        )
-        self.assertEqual(
-            event_request.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Filters are not valid (can only use person, cohort, and flag properties)",
-                "attr": "filters",
-            },
-        )
-
-        groups_request = self._create_flag_with_properties(
-            "illegal-groups-flag",
-            [
-                {
-                    "key": "industry",
-                    "value": "finance",
-                    "type": "group",
-                    "group_type_index": 0,
-                }
-            ],
-            expected_status=status.HTTP_400_BAD_REQUEST,
-        )
-        self.assertEqual(
-            groups_request.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Filters are not valid (can only use person, cohort, and flag properties)",
-                "attr": "filters",
-            },
-        )
-
     def test_create_flag_with_invalid_date(self):
         resp = self._create_flag_with_properties(
             "date-flag",
@@ -4907,7 +4555,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         """Test that creating a flag with empty groups raises validation error"""
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            {"name": "Empty groups flag", "key": "empty-groups-flag", "filters": {"groups": []}},
+            {
+                "name": "Empty groups flag",
+                "key": "empty-groups-flag",
+                "filters": {"groups": []},
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -5149,7 +4801,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_get_flags_with_type_filters(self):
         feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         Experiment.objects.create(
-            team=self.team, created_by=self.user, name="Experiment 1", feature_flag_id=feature_flag.id
+            team=self.team,
+            created_by=self.user,
+            name="Experiment 1",
+            feature_flag_id=feature_flag.id,
         )
         FeatureFlag.objects.create(
             team=self.team,
@@ -5175,7 +4830,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_get_flags_with_search(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="blue_search_term_button")
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="green_search_term_button", active=False)
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="green_search_term_button",
+            active=False,
+        )
 
         # Test searching by flag key
         filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=true&search=search_term")
@@ -5202,7 +4862,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Test that deleted experiments are not included in search
         deleted_flag = FeatureFlag.objects.create(
-            team=self.team, created_by=self.user, key="deleted_experiment_flag", active=True
+            team=self.team,
+            created_by=self.user,
+            key="deleted_experiment_flag",
+            active=True,
         )
         Experiment.objects.create(
             team=self.team,
@@ -5218,6 +4881,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_get_flags_with_stale_filter(self):
         # Create a stale flag (100% rollout with no properties and 30+ days old)
+        # No last_called_at so it falls back to config-based staleness detection
         with freeze_time("2024-01-01"):
             FeatureFlag.objects.create(
                 team=self.team,
@@ -5234,21 +4898,24 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             key="recent_flag",
             active=True,
             filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+            last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         # Create another non-stale flag (old but not 100% rollout)
         with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
+            partial_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="partial_flag",
                 active=True,
                 filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
             )
+        partial_flag.last_called_at = datetime.now(UTC) - timedelta(days=1)
+        partial_flag.save()
 
         # Create a non-stale flag (100% rollout but has properties)
         with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
+            filtered_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="filtered_flag",
@@ -5258,16 +4925,23 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         {
                             "rollout_percentage": 100,
                             "properties": [
-                                {"key": "email", "value": "test@example.com", "operator": "exact", "type": "person"}
+                                {
+                                    "key": "email",
+                                    "value": "test@example.com",
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                         }
                     ]
                 },
             )
+        filtered_flag.last_called_at = datetime.now(UTC) - timedelta(days=1)
+        filtered_flag.save()
 
         # Create a non-stale flag (100% rollout but has multiple groups, with only 1 group that has 100% rollout)
         with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
+            multi_group_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="filtered_flag_with_multiple_groups",
@@ -5277,18 +4951,31 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         {
                             "rollout_percentage": 100,
                             "properties": [
-                                {"key": "email", "value": "test@example.com", "operator": "exact", "type": "person"}
+                                {
+                                    "key": "email",
+                                    "value": "test@example.com",
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                         },
                         {
                             "properties": [
-                                {"key": "$browser_version", "value": ["136"], "operator": "exact", "type": "person"}
+                                {
+                                    "key": "$browser_version",
+                                    "value": ["136"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                             "rollout_percentage": 50,
                         },
                     ]
                 },
             )
+        multi_group_flag.last_called_at = datetime.now(UTC) - timedelta(days=1)
+        multi_group_flag.save()
+
         # Test filtering by stale status
         filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
         response = filtered_flags_list.json()
@@ -5298,7 +4985,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["status"] == "STALE"
 
     def test_get_flags_with_stale_filter_multivariate(self):
-        # Create a stale multivariate flag
+        # Create a stale multivariate flag (no last_called_at so it falls back to config-based detection)
         with freeze_time("2023-01-01"):
             FeatureFlag.objects.create(
                 team=self.team,
@@ -5318,7 +5005,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Create a non-stale multivariate flag (no variant at 100%)
         with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
+            active_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="active_multivariate",
@@ -5333,6 +5020,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     },
                 },
             )
+        active_flag.last_called_at = datetime.now(UTC) - timedelta(days=1)
+        active_flag.save()
 
         # Test filtering by stale status
         filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
@@ -5343,7 +5032,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["status"] == "STALE"
 
     def test_get_flags_with_stale_filter_multivariate_condition_variant_override(self):
-        # Create a stale multivariate flag
+        # Create a stale multivariate flag (no last_called_at so it falls back to config-based detection)
         with freeze_time("2023-01-01"):
             FeatureFlag.objects.create(
                 team=self.team,
@@ -5364,7 +5053,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Create a multivariate flag with rollout <100% should not be stale
         with freeze_time("2023-01-01"):
-            FeatureFlag.objects.create(
+            low_rollout_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="low_rollout",
@@ -5380,10 +5069,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     },
                 },
             )
+        low_rollout_flag.last_called_at = datetime.now(UTC) - timedelta(days=1)
+        low_rollout_flag.save()
 
         # Create a multivariate flag with rollout 100% but has properties filter, should not be stale
         with freeze_time("2023-01-01"):
-            FeatureFlag.objects.create(
+            with_props_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="with_properties",
@@ -5393,7 +5084,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         {
                             "rollout_percentage": 100,
                             "properties": [
-                                {"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "person"}
+                                {
+                                    "key": "$browser",
+                                    "value": ["Chrome"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                             "variant": "test",
                         }
@@ -5407,6 +5103,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     },
                 },
             )
+        with_props_flag.last_called_at = datetime.now(UTC) - timedelta(days=1)
+        with_props_flag.save()
+
         # Test filtering by stale status
         filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
         response = filtered_flags_list.json()
@@ -5418,6 +5117,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_get_flags_with_stale_filter_explicit_multivariate_null(self):
         # Regression test: flags created via frontend have explicit multivariate: null
         # The SQL filter should handle both missing key AND explicit null value
+        # No last_called_at so it falls back to config-based detection
         with freeze_time("2024-01-01"):
             FeatureFlag.objects.create(
                 team=self.team,
@@ -5442,6 +5142,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "multivariate": None,
                 "payloads": {},
             },
+            last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         filtered_flags_list = self.client.get("/api/projects/@current/feature_flags?active=STALE")
@@ -5453,9 +5154,24 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_get_flags_with_evaluation_runtime_filter(self):
         # Create flags with different evaluation runtimes
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="server_flag", evaluation_runtime="server")
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="client_flag", evaluation_runtime="client")
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="both_flag", evaluation_runtime="both")
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="server_flag",
+            evaluation_runtime="server",
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="client_flag",
+            evaluation_runtime="client",
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="both_flag",
+            evaluation_runtime="both",
+        )
 
         # Test filtering by server environment
         filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_runtime=server")
@@ -5536,13 +5252,15 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         for _ in range(5):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags", headers={"authorization": f"Bearer {personal_api_key}"}
+                f"/api/projects/{self.team.pk}/feature_flags",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Call to flags gets rate limited
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags", headers={"authorization": f"Bearer {personal_api_key}"}
+            f"/api/projects/{self.team.pk}/feature_flags",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(
@@ -5565,7 +5283,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # but not call to local evaluation
         for _ in range(7):
             response = self.client.get(
-                f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+                f"/api/feature_flag/local_evaluation",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -5684,7 +5403,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         with (
             snapshot_postgres_queries_context(self),
             self.settings(
-                CELERY_TASK_ALWAYS_EAGER=True, PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False
+                CELERY_TASK_ALWAYS_EAGER=True,
+                PERSON_ON_EVENTS_OVERRIDE=False,
+                PERSON_ON_EVENTS_V2_OVERRIDE=False,
             ),
         ):
             response = self.client.post(
@@ -5697,7 +5418,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # fires an async task for computation, but celery runs sync in tests
         cohort_id = response.json()["cohort"]["id"]
         cohort = Cohort.objects.get(id=cohort_id)
-        self.assertEqual(cohort.name, "Users with feature flag some-feature enabled at 2021-01-01 00:00:00")
+        self.assertEqual(
+            cohort.name,
+            "Users with feature flag some-feature enabled at 2021-01-01 00:00:00",
+        )
         self.assertEqual(cohort.count, 1)
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
@@ -5731,7 +5455,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             }
         }
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{feature_flag.id}/", update_data, format="json"
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag.id}/",
+            update_data,
+            format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -5793,10 +5519,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_cant_create_flag_with_group_data_that_fails_to_query(self):
         create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
         create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="xyz", group_type_index=1
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="xyz",
+            group_type_index=1,
         )
 
         for i in range(5):
@@ -5941,7 +5673,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         feature_flag.refresh_from_db()
 
         # Verify the super_groups were updated
-        self.assertEqual(feature_flag.filters["super_groups"][0]["properties"][0]["key"], "$feature_enrollment/new-key")
+        self.assertEqual(
+            feature_flag.filters["super_groups"][0]["properties"][0]["key"],
+            "$feature_enrollment/new-key",
+        )
 
         # Verify the old key is not present
         self.assertNotIn("$feature_enrollment/old-key", str(feature_flag.filters))
@@ -6080,14 +5815,20 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         """Test that flags from other teams are not returned"""
         # Create flag in current team
         flag1 = FeatureFlag.objects.create(
-            key="current-team-flag", name="Current Team Flag", team=self.team, created_by=self.user
+            key="current-team-flag",
+            name="Current Team Flag",
+            team=self.team,
+            created_by=self.user,
         )
 
         # Create another team and flag
         other_user = User.objects.create_user(email="other@test.com", password="password", first_name="Other")
         other_organization, _, other_team = Organization.objects.bootstrap(other_user)
         flag2 = FeatureFlag.objects.create(
-            key="other-team-flag", name="Other Team Flag", team=other_team, created_by=other_user
+            key="other-team-flag",
+            name="Other Team Flag",
+            team=other_team,
+            created_by=other_user,
         )
 
         response = self.client.post(
@@ -6106,7 +5847,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         """Test that deleted flags are not returned"""
         flag1 = FeatureFlag.objects.create(key="active-flag", name="Active Flag", team=self.team, created_by=self.user)
         flag2 = FeatureFlag.objects.create(
-            key="deleted-flag", name="Deleted Flag", team=self.team, created_by=self.user, deleted=True
+            key="deleted-flag",
+            name="Deleted Flag",
+            team=self.team,
+            created_by=self.user,
+            deleted=True,
         )
 
         response = self.client.post(
@@ -6171,7 +5916,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # First request should miss cache and populate it
         self.client.logout()
         response = self.client.get(
-            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+            f"/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -6213,7 +5959,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Test cache for send_cohorts=true
         self.client.logout()
         response = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts", headers={"authorization": f"Bearer {personal_api_key}"}
+            f"/api/feature_flag/local_evaluation?send_cohorts",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -6245,7 +5992,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Populate cache
         self.client.logout()
         response = self.client.get(
-            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+            f"/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -6299,10 +6047,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Populate both cache variants
         self.client.logout()
         response1 = self.client.get(
-            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+            f"/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         response2 = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts", headers={"authorization": f"Bearer {personal_api_key}"}
+            f"/api/feature_flag/local_evaluation?send_cohorts",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
 
         self.assertEqual(response1.status_code, status.HTTP_200_OK)
@@ -6315,10 +6065,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Make new requests to get potentially updated cache
         self.client.logout()
         updated_response1 = self.client.get(
-            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+            f"/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         updated_response2 = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts", headers={"authorization": f"Bearer {personal_api_key}"}
+            f"/api/feature_flag/local_evaluation?send_cohorts",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
 
         self.assertEqual(updated_response1.status_code, status.HTTP_200_OK)
@@ -6398,7 +6150,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "OR",
                 "values": [
-                    {"type": "AND", "values": [{"key": "email", "value": "test@example.com", "type": "person"}]}
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "email",
+                                "value": "test@example.com",
+                                "type": "person",
+                            }
+                        ],
+                    }
                 ],
             },
         )
@@ -6683,7 +6444,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
         response = self.client.get(
-            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("ETag", response.headers)
@@ -6713,7 +6475,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # First request to get the ETag
         response1 = self.client.get(
-            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response1.status_code, status.HTTP_200_OK)
         etag = response1.headers["ETag"]
@@ -6721,7 +6484,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Second request with If-None-Match header
         response2 = self.client.get(
             "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": etag},
+            headers={
+                "authorization": f"Bearer {personal_api_key}",
+                "If-None-Match": etag,
+            },
         )
         self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
         self.assertEqual(response2.headers["ETag"], etag)
@@ -6748,7 +6514,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Request with non-matching ETag
         response = self.client.get(
             "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": '"wrong-etag"'},
+            headers={
+                "authorization": f"Bearer {personal_api_key}",
+                "If-None-Match": '"wrong-etag"',
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("ETag", response.headers)
@@ -6776,7 +6545,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # First request to get the initial ETag
         response1 = self.client.get(
-            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response1.status_code, status.HTTP_200_OK)
         etag1 = response1.headers["ETag"]
@@ -6787,7 +6557,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Second request should have a different ETag
         response2 = self.client.get(
-            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response2.status_code, status.HTTP_200_OK)
         etag2 = response2.headers["ETag"]
@@ -6836,7 +6607,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Second request with same ETag should return 304
         response2 = self.client.get(
             "/api/feature_flag/local_evaluation?send_cohorts",
-            headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": etag_with_cohorts},
+            headers={
+                "authorization": f"Bearer {personal_api_key}",
+                "If-None-Match": etag_with_cohorts,
+            },
         )
         self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
 
@@ -6872,7 +6646,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # First request to get the ETag
         response1 = self.client.get(
-            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response1.status_code, status.HTTP_200_OK)
         etag = response1.headers["ETag"]
@@ -6880,7 +6655,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Second request with matching ETag should return 304 with empty body
         response2 = self.client.get(
             "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": etag},
+            headers={
+                "authorization": f"Bearer {personal_api_key}",
+                "If-None-Match": etag,
+            },
         )
         self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
         self.assertEqual(response2.content, b"")
@@ -6906,7 +6684,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Get initial ETag
         response1 = self.client.get(
-            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         etag = response1.headers["ETag"]
         # ETag is returned as weak ETag, e.g., 'W/"abc123"'
@@ -6915,7 +6694,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Client sends ETag with quotes (standard format) - should match
         response2 = self.client.get(
             "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": etag},
+            headers={
+                "authorization": f"Bearer {personal_api_key}",
+                "If-None-Match": etag,
+            },
         )
         self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
 
@@ -6940,7 +6722,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Get initial ETag
         response1 = self.client.get(
-            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         etag = response1.headers["ETag"]
         # Strip weak ETag prefix and quotes to get raw ETag value (W/"abc123" -> abc123)
@@ -6949,7 +6732,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Client sends ETag without quotes (non-standard but should work)
         response2 = self.client.get(
             "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": raw_etag},
+            headers={
+                "authorization": f"Bearer {personal_api_key}",
+                "If-None-Match": raw_etag,
+            },
         )
         self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
 
@@ -6974,7 +6760,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Get initial ETag
         response1 = self.client.get(
-            "/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         etag = response1.headers["ETag"]
 
@@ -6982,9 +6769,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         for i in range(5):
             response = self.client.get(
                 "/api/feature_flag/local_evaluation",
-                headers={"authorization": f"Bearer {personal_api_key}", "If-None-Match": etag},
+                headers={
+                    "authorization": f"Bearer {personal_api_key}",
+                    "If-None-Match": etag,
+                },
             )
-            self.assertEqual(response.status_code, status.HTTP_304_NOT_MODIFIED, f"Request {i + 1} should return 304")
+            self.assertEqual(
+                response.status_code,
+                status.HTTP_304_NOT_MODIFIED,
+                f"Request {i + 1} should return 304",
+            )
             self.assertEqual(response.headers["ETag"], etag)
 
 
@@ -7071,7 +6865,18 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             rollout_percentage=100,
             filters={
-                "groups": [{"properties": [{"key": "key", "value": "value", "type": "group", "group_type_index": 1}]}],
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "key",
+                                "value": "value",
+                                "type": "group",
+                                "group_type_index": 1,
+                            }
+                        ]
+                    }
+                ],
                 "multivariate": None,
                 "aggregation_group_type_index": 1,
             },
@@ -7160,7 +6965,10 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             filters={
                 "groups": [
-                    {"properties": [{"key": "key", "value": "value", "type": "person"}], "rollout_percentage": 50}
+                    {
+                        "properties": [{"key": "key", "value": "value", "type": "person"}],
+                        "rollout_percentage": 50,
+                    }
                 ],
                 "multivariate": None,
             },
@@ -7170,7 +6978,12 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ensure_experience_continuity=True,
         )
 
-        p1 = _create_person(team=self.team, distinct_ids=[f"person1"], properties={"key": "value"}, immediate=True)
+        p1 = _create_person(
+            team=self.team,
+            distinct_ids=[f"person1"],
+            properties={"key": "value"},
+            immediate=True,
+        )
         _create_person(
             team=self.team,
             distinct_ids=[f"person2"],
@@ -7197,7 +7010,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(29):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(24):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -7213,7 +7026,10 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             filters={
                 "groups": [
-                    {"properties": [{"key": "key", "value": "value", "type": "person"}], "rollout_percentage": 100}
+                    {
+                        "properties": [{"key": "key", "value": "value", "type": "person"}],
+                        "rollout_percentage": 100,
+                    }
                 ],
                 "multivariate": None,
             },
@@ -7251,7 +7067,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(47):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(37):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -7262,7 +7078,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 3, response)
 
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(26):
+        with self.assertNumQueries(21):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
@@ -7279,7 +7095,14 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             filters={
                 "groups": [
                     {
-                        "properties": [{"key": "key", "value": "value", "type": "person", "operator": "icontains"}],
+                        "properties": [
+                            {
+                                "key": "key",
+                                "value": "value",
+                                "type": "person",
+                                "operator": "icontains",
+                            }
+                        ],
                         "rollout_percentage": 100,
                     }
                 ],
@@ -7295,7 +7118,14 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             filters={
                 "groups": [
                     {
-                        "properties": [{"key": "key", "value": "value", "type": "person", "operator": "is_set"}],
+                        "properties": [
+                            {
+                                "key": "key",
+                                "value": "value",
+                                "type": "person",
+                                "operator": "is_set",
+                            }
+                        ],
                         "rollout_percentage": 100,
                     }
                 ],
@@ -7326,7 +7156,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(28):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(23):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -7343,7 +7173,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(28):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(23):
             # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
@@ -7362,7 +7192,11 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "does-not-exist", "value": "none", "type": "person"},
+                                {
+                                    "key": "does-not-exist",
+                                    "value": "none",
+                                    "type": "person",
+                                },
                             ],
                         }
                     ],
@@ -7384,8 +7218,16 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             "values": [
                                 {"key": "group", "value": "none", "type": "person"},
                                 {"key": "group2", "value": [1, 2, 3], "type": "person"},
-                                {"key": "id", "value": cohort_static.pk, "type": "cohort"},
-                                {"key": "id", "value": cohort_nested.pk, "type": "cohort"},
+                                {
+                                    "key": "id",
+                                    "value": cohort_static.pk,
+                                    "type": "cohort",
+                                },
+                                {
+                                    "key": "id",
+                                    "value": cohort_nested.pk,
+                                    "type": "cohort",
+                                },
                             ],
                         }
                     ],
@@ -7401,7 +7243,10 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "properties": [{"key": "id", "value": cohort_existing.pk, "type": "cohort"}],
                         "rollout_percentage": 100,
                     },
-                    {"properties": [{"key": "key", "value": "value", "type": "person"}], "rollout_percentage": 100},
+                    {
+                        "properties": [{"key": "key", "value": "value", "type": "person"}],
+                        "rollout_percentage": 100,
+                    },
                 ],
                 "multivariate": None,
             },
@@ -7437,7 +7282,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(43):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(40):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 
@@ -7600,7 +7445,11 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "type": "OR",
                             "values": [
                                 {"key": "group", "value": "none", "type": "person"},
-                                {"key": "group", "value": ["1", "2", "3"], "type": "person"},
+                                {
+                                    "key": "group",
+                                    "value": ["1", "2", "3"],
+                                    "type": "person",
+                                },
                             ],
                         }
                     ],
@@ -7662,7 +7511,11 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                             "type": "OR",
                             "values": [
                                 {"key": "group", "value": "none", "type": "person"},
-                                {"key": "group", "value": ["1", "2", "3"], "type": "person"},
+                                {
+                                    "key": "group",
+                                    "value": ["1", "2", "3"],
+                                    "type": "person",
+                                },
                             ],
                         }
                     ],
@@ -7794,7 +7647,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_groups(self):
         create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
 
         for i in range(10):
@@ -7831,7 +7687,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_with_groups_zero_selected(self):
         create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
 
         for i in range(5):
@@ -7868,10 +7727,16 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_with_groups_all_selected(self):
         create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
         create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="company",
+            group_type_index=1,
         )
 
         for i in range(5):
@@ -7901,10 +7766,16 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_groups_multiple_queries(self):
         create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
         create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="company",
+            group_type_index=1,
         )
 
         for i in range(10):
@@ -7950,7 +7821,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_group_key_property(self):
         """Test that $group_key property correctly identifies groups by their key"""
         GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
 
         # Create groups with specific keys
@@ -8043,7 +7917,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             {
                 "condition": {
                     "properties": [
-                        {"key": "age", "type": "person", "value": [25], "operator": "exact"},
+                        {
+                            "key": "age",
+                            "type": "person",
+                            "value": [25],
+                            "operator": "exact",
+                        },
                     ],
                     "rollout_percentage": 100,
                 },
@@ -8059,12 +7938,30 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_group_key_regex(self):
         """Test $group_key with regex operator"""
         GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
 
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-prod-001", properties={})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-staging-002", properties={})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="workspace-test-003", properties={})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-prod-001",
+            properties={},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-staging-002",
+            properties={},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="workspace-test-003",
+            properties={},
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
@@ -8094,12 +7991,30 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_group_key_not_regex(self):
         """Test $group_key with not_regex operator"""
         GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
 
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-prod-001", properties={})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-staging-002", properties={})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="workspace-test-003", properties={})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-prod-001",
+            properties={},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-staging-002",
+            properties={},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="workspace-test-003",
+            properties={},
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
@@ -8129,12 +8044,30 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_group_key_not_icontains(self):
         """Test $group_key with not_icontains operator"""
         GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
 
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-prod-001", properties={})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-staging-002", properties={})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="workspace-test-003", properties={})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-prod-001",
+            properties={},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-staging-002",
+            properties={},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="workspace-test-003",
+            properties={},
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
@@ -8164,13 +8097,24 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_group_key_and_regular_properties(self):
         """Test combining $group_key with regular group properties"""
         GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
 
         create_group(
-            team_id=self.team.pk, group_type_index=0, group_key="org:premium", properties={"plan": "enterprise"}
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:premium",
+            properties={"plan": "enterprise"},
         )
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:free", properties={"plan": "free"})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:free",
+            properties={"plan": "free"},
+        )
         create_group(
             team_id=self.team.pk,
             group_type_index=0,
@@ -8218,13 +8162,28 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             filters={
                 "properties": {
                     "type": "OR",
-                    "values": [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}],
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@posthog.com",
+                            "operator": "icontains",
+                        }
+                    ],
                 }
             },
         )
 
-        _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"email": "user@posthog.com"})
-        _create_person(distinct_ids=["p2"], team_id=self.team.pk, properties={"email": "user@example.com"})
+        _create_person(
+            distinct_ids=["p1"],
+            team_id=self.team.pk,
+            properties={"email": "user@posthog.com"},
+        )
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"email": "user@example.com"},
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
@@ -8243,10 +8202,16 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_with_groups_incorrect_group_type(self):
         create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
         create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="company",
+            group_type_index=1,
         )
 
         for i in range(10):
@@ -8298,10 +8263,18 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_group_key_unsupported_operator(self):
         """Test that unsupported operators on $group_key raise validation errors"""
         GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
 
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="test-org", properties={})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="test-org",
+            properties={},
+        )
 
         # Test with unsupported operator (e.g., 'gt' - greater than)
         response = self.client.post(
@@ -8329,12 +8302,30 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_group_key_exact_list_values(self):
         """Test that EXACT operator with list values uses IN logic"""
         GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
 
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-alpha", properties={})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-beta", properties={})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-gamma", properties={})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-alpha",
+            properties={},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-beta",
+            properties={},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-gamma",
+            properties={},
+        )
 
         # Test EXACT with list of values (should match any value in the list)
         response = self.client.post(
@@ -8365,12 +8356,30 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_group_key_is_not_list_values(self):
         """Test that IS_NOT operator with list values uses NOT IN logic"""
         GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
 
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-alpha", properties={})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-beta", properties={})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-gamma", properties={})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-alpha",
+            properties={},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-beta",
+            properties={},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-gamma",
+            properties={},
+        )
 
         # Test IS_NOT with list of values (should exclude all values in the list)
         response = self.client.post(
@@ -8381,7 +8390,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                         {
                             "key": "$group_key",
                             "type": "group",
-                            "value": ["org-alpha", "org-beta"],  # List of values to exclude
+                            "value": [
+                                "org-alpha",
+                                "org-beta",
+                            ],  # List of values to exclude
                             "operator": "is_not",
                             "group_type_index": 0,
                         }
@@ -8401,10 +8413,18 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_group_key_icontains_list_values_raises_error(self):
         """Test that ICONTAINS operator with list values raises validation error"""
         GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
 
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org-alpha", properties={})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-alpha",
+            properties={},
+        )
 
         # Test ICONTAINS with list of values (should raise validation error)
         response = self.client.post(
@@ -8415,7 +8435,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                         {
                             "key": "$group_key",
                             "type": "group",
-                            "value": ["alpha", "beta"],  # List not supported for icontains
+                            "value": [
+                                "alpha",
+                                "beta",
+                            ],  # List not supported for icontains
                             "operator": "icontains",
                             "group_type_index": 0,
                         }
@@ -8431,7 +8454,16 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_with_semver_operators(self):
         """Test all semver comparison operators"""
-        versions = ["0.9.0", "1.0.0", "1.2.0", "1.2.3", "1.2.5", "1.3.0", "2.0.0", "2.1.0"]
+        versions = [
+            "0.9.0",
+            "1.0.0",
+            "1.2.0",
+            "1.2.3",
+            "1.2.5",
+            "1.3.0",
+            "2.0.0",
+            "2.1.0",
+        ]
         for version in versions:
             _create_person(
                 team_id=self.team.pk,
@@ -8640,7 +8672,16 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_semver_caret_0x_versions(self):
         """Test semver caret operator handles 0.x.y versions per spec"""
         # Test data with 0.x.y versions to verify caret operator behavior
-        versions = ["0.0.1", "0.0.3", "0.0.5", "0.1.0", "0.2.3", "0.2.5", "0.3.0", "1.0.0"]
+        versions = [
+            "0.0.1",
+            "0.0.3",
+            "0.0.5",
+            "0.1.0",
+            "0.2.3",
+            "0.2.5",
+            "0.3.0",
+            "1.0.0",
+        ]
         for version in versions:
             _create_person(
                 team_id=self.team.pk,
@@ -8695,7 +8736,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_semver_operators_on_groups(self):
         """Test semver operators work with group properties"""
         GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
         )
 
         versions = ["1.0.0", "1.5.0", "2.0.0", "2.5.0", "3.0.0"]
@@ -8740,858 +8784,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_json["total_users"], 5)
 
 
-class QueryTimeoutWrapper:
-    def __call__(self, execute, *args, **kwargs):
-        # execute so we capture queries in snapshots
-        execute(*args, **kwargs)
-        raise OperationalError("canceling statement due to statement timeout")
-
-
-def slow_query(execute, sql, *args, **kwargs):
-    if "statement_timeout" in sql:
-        return execute(sql, *args, **kwargs)
-    return execute(f"SELECT pg_sleep(1); {sql}", *args, **kwargs)
-
-
-class TestResiliency(NonAtomicBaseTest, QueryMatchingTest):
-    def setUp(self) -> None:
-        return super().setUp()
-
-    def test_feature_flags_v3_with_group_properties(self, *args):
-        self.organization = Organization.objects.create(name="test")
-        self.team = Team.objects.create(organization=self.organization)
-        self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
-
-        team_id = self.team.pk
-        project_id = self.team.project_id
-        rf = RequestFactory()
-        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
-        create_request.user = self.user
-
-        create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key=f"org:1",
-            properties={"industry": f"finance"},
-        )
-
-        serialized_data = FeatureFlagSerializer(
-            data={
-                "name": "Alpha feature",
-                "key": "group-flag",
-                "filters": {
-                    "aggregation_group_type_index": 0,
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "industry",
-                                    "value": "finance",
-                                    "type": "group",
-                                    "group_type_index": 0,
-                                }
-                            ],
-                            "rollout_percentage": None,
-                        }
-                    ],
-                },
-            },
-            context={"team_id": team_id, "project_id": project_id, "request": create_request},
-        )
-        self.assertTrue(serialized_data.is_valid())
-        serialized_data.save()
-
-        # Should be enabled for everyone, if groups are given
-        serialized_data = FeatureFlagSerializer(
-            data={
-                "name": "Alpha feature",
-                "key": "default-flag",
-                "filters": {
-                    "aggregation_group_type_index": 0,
-                    "groups": [{"properties": [], "rollout_percentage": None}],
-                },
-            },
-            context={"team_id": team_id, "project_id": project_id, "request": create_request},
-        )
-        self.assertTrue(serialized_data.is_valid())
-        serialized_data.save()
-
-        with self.assertNumQueries(8):
-            # one query to get group type mappings, another to get group properties
-            # 2 to set statement timeout
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", groups={"organization": "org:1"})
-            self.assertTrue(all_flags["group-flag"])
-            self.assertTrue(all_flags["default-flag"])
-            self.assertFalse(errors)
-
-        # now db is down
-        with (
-            snapshot_postgres_queries_context(self),
-            connection.execute_wrapper(QueryTimeoutWrapper()),
-            connections["persons_db_writer"].execute_wrapper(QueryTimeoutWrapper()),
-        ):
-            with self.assertNumQueries(3):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team, "example_id", groups={"organization": "org:1"}
-                )
-
-                self.assertTrue("group-flag" not in all_flags)
-                # can't be true unless we cache group type mappings as well
-                self.assertTrue("default-flag" not in all_flags)
-                self.assertTrue(errors)
-
-            # # now db is down, but decide was sent correct group property overrides
-            with self.assertNumQueries(3):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
-                    "random",
-                    groups={"organization": "org:1"},
-                    group_property_value_overrides={"organization": {"industry": "finance"}},
-                )
-                self.assertTrue("group-flag" not in all_flags)
-                # can't be true unless we cache group type mappings as well
-                self.assertTrue("default-flag" not in all_flags)
-                self.assertTrue(errors)
-
-            # # now db is down, but decide was sent different group property overrides
-            with self.assertNumQueries(3):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
-                    "exam",
-                    groups={"organization": "org:1"},
-                    group_property_value_overrides={"organization": {"industry": "finna"}},
-                )
-                self.assertTrue("group-flag" not in all_flags)
-                # can't be true unless we cache group type mappings as well
-                self.assertTrue("default-flag" not in all_flags)
-                self.assertTrue(errors)
-
-    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
-    def test_feature_flags_v3_with_person_properties(self, mock_counter, *args):
-        self.organization = Organization.objects.create(name="test")
-        self.team = Team.objects.create(organization=self.organization)
-        self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
-
-        team_id = self.team.pk
-        project_id = self.team.project_id
-        rf = RequestFactory()
-        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
-        create_request.user = self.user
-
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=["example_id"],
-            properties={"email": "tim@posthog.com"},
-        )
-
-        serialized_data = FeatureFlagSerializer(
-            data={
-                "name": "Alpha feature",
-                "key": "property-flag",
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "value": "tim@posthog.com",
-                                    "type": "person",
-                                    "operator": "exact",
-                                }
-                            ],
-                            "rollout_percentage": None,
-                        }
-                    ]
-                },
-            },
-            context={"team_id": team_id, "project_id": project_id, "request": create_request},
-        )
-        self.assertTrue(serialized_data.is_valid())
-        serialized_data.save()
-
-        # Should be enabled for everyone
-        serialized_data = FeatureFlagSerializer(
-            data={
-                "name": "Alpha feature",
-                "key": "default-flag",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
-            },
-            context={"team_id": team_id, "project_id": project_id, "request": create_request},
-        )
-        self.assertTrue(serialized_data.is_valid())
-        serialized_data.save()
-
-        with self.assertNumQueries(4):
-            # 1 query to get person properties
-            # 1 to set statement timeout
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
-
-            self.assertTrue(all_flags["property-flag"])
-            self.assertTrue(all_flags["default-flag"])
-            self.assertFalse(errors)
-
-        # now db is down
-        with (
-            snapshot_postgres_queries_context(self),
-            connection.execute_wrapper(QueryTimeoutWrapper()),
-            connections["persons_db_writer"].execute_wrapper(QueryTimeoutWrapper()),
-        ):
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
-
-            self.assertTrue("property-flag" not in all_flags)
-            self.assertTrue(all_flags["default-flag"])
-            self.assertTrue(errors)
-
-            # # now db is down, but decide was sent email parameter with correct email
-            with self.assertNumQueries(0):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
-                    "random",
-                    property_value_overrides={"email": "tim@posthog.com"},
-                )
-                self.assertTrue(all_flags["property-flag"])
-                self.assertTrue(all_flags["default-flag"])
-                self.assertFalse(errors)
-
-                mock_counter.labels.assert_called_once_with(reason="timeout")
-                mock_counter.labels.return_value.inc.assert_called_once_with()
-
-            mock_counter.reset_mock()
-            # # now db is down, but decide was sent email parameter with different email
-            with self.assertNumQueries(0):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
-                    "example_id",
-                    property_value_overrides={"email": "tom@posthog.com"},
-                )
-                self.assertFalse(all_flags["property-flag"])
-                self.assertTrue(all_flags["default-flag"])
-                self.assertFalse(errors)
-
-                mock_counter.labels.assert_not_called()
-
-    def test_feature_flags_v3_with_a_working_slow_db(
-        self,
-    ):
-        self.organization = Organization.objects.create(name="test")
-        self.team = Team.objects.create(organization=self.organization)
-        self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
-
-        team_id = self.team.pk
-        project_id = self.team.project_id
-        rf = RequestFactory()
-        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
-        create_request.user = self.user
-
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=["example_id"],
-            properties={"email": "tim@posthog.com"},
-        )
-
-        serialized_data = FeatureFlagSerializer(
-            data={
-                "name": "Alpha feature",
-                "key": "property-flag",
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "value": "tim@posthog.com",
-                                    "type": "person",
-                                    "operator": "exact",
-                                }
-                            ],
-                            "rollout_percentage": None,
-                        }
-                    ]
-                },
-            },
-            context={"team_id": team_id, "project_id": project_id, "request": create_request},
-        )
-        self.assertTrue(serialized_data.is_valid())
-        serialized_data.save()
-
-        # Should be enabled for everyone
-        serialized_data = FeatureFlagSerializer(
-            data={
-                "name": "Alpha feature",
-                "key": "default-flag",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
-            },
-            context={"team_id": team_id, "project_id": project_id, "request": create_request},
-        )
-        self.assertTrue(serialized_data.is_valid())
-        serialized_data.save()
-
-        with self.assertNumQueries(4):
-            # 1 query to set statement timeout
-            # 1 query to get person properties
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
-
-            self.assertTrue(all_flags["property-flag"])
-            self.assertTrue(all_flags["default-flag"])
-            self.assertFalse(errors)
-
-        # now db is slow and times out
-        with (
-            snapshot_postgres_queries_context(self),
-            connection.execute_wrapper(slow_query),
-            connections["persons_db_writer"].execute_wrapper(slow_query),
-            patch(
-                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
-                500,
-            ),
-        ):
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
-
-            self.assertTrue("property-flag" not in all_flags)
-            self.assertTrue(all_flags["default-flag"])
-            self.assertTrue(errors)
-
-            # # now db is down, but decide was sent email parameter with correct email
-            with self.assertNumQueries(0):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
-                    "random",
-                    property_value_overrides={"email": "tim@posthog.com"},
-                )
-                self.assertTrue(all_flags["property-flag"])
-                self.assertTrue(all_flags["default-flag"])
-                self.assertFalse(errors)
-
-            # # now db is down, but decide was sent email parameter with different email
-            with self.assertNumQueries(0):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
-                    "example_id",
-                    property_value_overrides={"email": "tom@posthog.com"},
-                )
-                self.assertFalse(all_flags["property-flag"])
-                self.assertTrue(all_flags["default-flag"])
-                self.assertFalse(errors)
-
-    def test_feature_flags_v3_with_skip_database_setting(self):
-        self.organization = Organization.objects.create(name="test")
-        self.team = Team.objects.create(organization=self.organization)
-        self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
-
-        team_id = self.team.pk
-        project_id = self.team.project_id
-        rf = RequestFactory()
-        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
-        create_request.user = self.user
-
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=["example_id"],
-            properties={"email": "tim@posthog.com"},
-        )
-
-        serialized_data = FeatureFlagSerializer(
-            data={
-                "name": "Alpha feature",
-                "key": "property-flag",
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "value": "tim@posthog.com",
-                                    "type": "person",
-                                    "operator": "exact",
-                                }
-                            ],
-                            "rollout_percentage": None,
-                        }
-                    ]
-                },
-            },
-            context={"team_id": team_id, "project_id": project_id, "request": create_request},
-        )
-        self.assertTrue(serialized_data.is_valid())
-        serialized_data.save()
-
-        # Should be enabled for everyone
-        serialized_data = FeatureFlagSerializer(
-            data={
-                "name": "Alpha feature",
-                "key": "default-flag",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
-            },
-            context={"team_id": team_id, "project_id": project_id, "request": create_request},
-        )
-        self.assertTrue(serialized_data.is_valid())
-        serialized_data.save()
-
-        with self.assertNumQueries(0), self.settings(DECIDE_SKIP_POSTGRES_FLAGS=True):
-            # No queries because of config parameter
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
-            self.assertTrue("property-flag" not in all_flags)
-            self.assertTrue(all_flags["default-flag"])
-            self.assertTrue(errors)
-
-        # db is slow and times out, but shouldn't matter to us
-        with (
-            self.assertNumQueries(0),
-            connection.execute_wrapper(slow_query),
-            connections["persons_db_writer"].execute_wrapper(slow_query),
-            patch(
-                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
-                500,
-            ),
-            self.settings(DECIDE_SKIP_POSTGRES_FLAGS=True),
-        ):
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
-
-            self.assertTrue("property-flag" not in all_flags)
-            self.assertTrue(all_flags["default-flag"])
-            self.assertTrue(errors)
-
-            # decide was sent email parameter with correct email
-            with self.assertNumQueries(0):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
-                    "random",
-                    property_value_overrides={"email": "tim@posthog.com"},
-                )
-                self.assertTrue(all_flags["property-flag"])
-                self.assertTrue(all_flags["default-flag"])
-                self.assertFalse(errors)
-
-            # # now db is down, but decide was sent email parameter with different email
-            with self.assertNumQueries(0):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
-                    "example_id",
-                    property_value_overrides={"email": "tom@posthog.com"},
-                )
-                self.assertFalse(all_flags["property-flag"])
-                self.assertTrue(all_flags["default-flag"])
-                self.assertFalse(errors)
-
-    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
-    def test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again(self, mock_counter, *args):
-        self.organization = Organization.objects.create(name="test")
-        self.team = Team.objects.create(organization=self.organization)
-        self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
-
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=["example_id"],
-            properties={"email": "tim@posthog.com"},
-        )
-
-        FeatureFlag.objects.create(
-            name="Alpha feature",
-            key="property-flag",
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "email",
-                                "value": "tim@posthog.com",
-                                "type": "person",
-                                "operator": "exact",
-                            }
-                        ],
-                        "rollout_percentage": None,
-                    }
-                ]
-            },
-            team=self.team,
-            created_by=self.user,
-        )
-
-        FeatureFlag.objects.create(
-            name="Alpha feature",
-            key="property-flag2",
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "email",
-                                "value": "tim@posthog.com",
-                                "type": "person",
-                                "operator": "exact",
-                            }
-                        ],
-                        "rollout_percentage": None,
-                    }
-                ]
-            },
-            team=self.team,
-            created_by=self.user,
-        )
-
-        # Should be enabled for everyone
-        FeatureFlag.objects.create(
-            name="Alpha feature",
-            key="default-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
-            team=self.team,
-            created_by=self.user,
-        )
-
-        with self.assertNumQueries(4):
-            # 1 query to get person properties
-            # 1 query to set statement timeout
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
-
-            self.assertTrue(all_flags["property-flag"])
-            self.assertTrue(all_flags["default-flag"])
-            self.assertFalse(errors)
-
-        # now db is slow and times out
-        with (
-            snapshot_postgres_queries_context(self),
-            connection.execute_wrapper(QueryTimeoutWrapper()),
-            connections["persons_db_writer"].execute_wrapper(QueryTimeoutWrapper()),
-            patch(
-                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
-                500,
-            ),
-            self.assertNumQueries(3),
-        ):
-            # no extra queries to get person properties for the second flag after first one failed
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
-
-            self.assertTrue("property-flag" not in all_flags)
-            self.assertTrue("property-flag2" not in all_flags)
-            self.assertTrue(all_flags["default-flag"])
-            self.assertTrue(errors)
-
-            mock_counter.labels.assert_has_calls(
-                [
-                    call(reason="timeout"),
-                    call().inc(),
-                    call(reason="flag_condition_retry"),
-                    call().inc(),
-                ]
-            )
-
-    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
-    def test_feature_flags_v3_with_group_properties_and_slow_db(self, mock_counter, *args):
-        self.organization = Organization.objects.create(name="test")
-        self.team = Team.objects.create(organization=self.organization)
-        self.user = User.objects.create_and_join(self.organization, "randomXYZ@test.com", "password", "first_name")
-
-        team_id = self.team.pk
-        project_id = self.team.project_id
-        rf = RequestFactory()
-        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
-        create_request.user = self.user
-
-        create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key=f"org:1",
-            properties={"industry": f"finance"},
-        )
-
-        serialized_data = FeatureFlagSerializer(
-            data={
-                "name": "Alpha feature",
-                "key": "group-flag",
-                "filters": {
-                    "aggregation_group_type_index": 0,
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "industry",
-                                    "value": "finance",
-                                    "type": "group",
-                                    "group_type_index": 0,
-                                }
-                            ],
-                            "rollout_percentage": None,
-                        }
-                    ],
-                },
-            },
-            context={"team_id": team_id, "project_id": project_id, "request": create_request},
-        )
-        self.assertTrue(serialized_data.is_valid())
-        serialized_data.save()
-
-        # Should be enabled for everyone, if groups are given
-        serialized_data = FeatureFlagSerializer(
-            data={
-                "name": "Alpha feature",
-                "key": "default-flag",
-                "filters": {
-                    "aggregation_group_type_index": 0,
-                    "groups": [{"properties": [], "rollout_percentage": None}],
-                },
-            },
-            context={"team_id": team_id, "project_id": project_id, "request": create_request},
-        )
-        self.assertTrue(serialized_data.is_valid())
-        serialized_data.save()
-
-        with self.assertNumQueries(8):
-            # one query to get group type mappings, another to get group properties
-            # 2 queries to set statement timeout
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", groups={"organization": "org:1"})
-            self.assertTrue(all_flags["group-flag"])
-            self.assertTrue(all_flags["default-flag"])
-            self.assertFalse(errors)
-
-        # now db is slow
-        with (
-            snapshot_postgres_queries_context(self),
-            connection.execute_wrapper(slow_query),
-            connections["persons_db_writer"].execute_wrapper(slow_query),
-            patch(
-                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
-                500,
-            ),
-        ):
-            with self.assertNumQueries(4):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team, "example_id", groups={"organization": "org:1"}
-                )
-
-                self.assertTrue("group-flag" not in all_flags)
-                # can't be true unless we cache group type mappings as well
-                self.assertTrue("default-flag" not in all_flags)
-                self.assertTrue(errors)
-
-            # # now db is slow, but decide was sent correct group property overrides
-            with self.assertNumQueries(4):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
-                    "random",
-                    groups={"organization": "org:1"},
-                    group_property_value_overrides={"organization": {"industry": "finance"}},
-                )
-                self.assertTrue("group-flag" not in all_flags)
-                # can't be true unless we cache group type mappings as well
-                self.assertTrue("default-flag" not in all_flags)
-                self.assertTrue(errors)
-
-                mock_counter.labels.assert_has_calls(
-                    [
-                        call(reason="timeout"),
-                        call().inc(),
-                        call(reason="group_mapping_retry"),
-                        call().inc(),
-                    ]
-                )
-
-            # # now db is down, but decide was sent different group property overrides
-            with self.assertNumQueries(4):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
-                    "exam",
-                    groups={"organization": "org:1"},
-                    group_property_value_overrides={"organization": {"industry": "finna"}},
-                )
-                self.assertTrue("group-flag" not in all_flags)
-                # can't be true unless we cache group type mappings as well
-                self.assertTrue("default-flag" not in all_flags)
-                self.assertTrue(errors)
-
-    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
-    def test_feature_flags_v3_with_experience_continuity_working_slow_db(self, mock_counter, *args):
-        self.organization = Organization.objects.create(name="test")
-        self.team = Team.objects.create(organization=self.organization)
-        self.user = User.objects.create_and_join(self.organization, "random12@test.com", "password", "first_name")
-
-        team_id = self.team.pk
-        project_id = self.team.project_id
-        rf = RequestFactory()
-        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
-        create_request.user = self.user
-
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=["example_id", "random"],
-            properties={"email": "tim@posthog.com"},
-        )
-
-        serialized_data = FeatureFlagSerializer(
-            data={
-                "name": "Alpha feature",
-                "key": "property-flag",
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "value": "tim@posthog.com",
-                                    "type": "person",
-                                    "operator": "exact",
-                                }
-                            ],
-                            "rollout_percentage": 91,
-                        }
-                    ],
-                },
-                "ensure_experience_continuity": True,
-            },
-            context={"team_id": team_id, "project_id": project_id, "request": create_request},
-        )
-        self.assertTrue(serialized_data.is_valid())
-        serialized_data.save()
-
-        # Should be enabled for everyone
-        serialized_data = FeatureFlagSerializer(
-            data={
-                "name": "Alpha feature",
-                "key": "default-flag",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
-            },
-            context={"team_id": team_id, "project_id": project_id, "request": create_request},
-        )
-        self.assertTrue(serialized_data.is_valid())
-        serialized_data.save()
-
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(37):
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", hash_key_override="random")
-
-            self.assertTrue(all_flags["property-flag"])
-            self.assertTrue(all_flags["default-flag"])
-            self.assertFalse(errors)
-
-        # db is slow and times out
-        with (
-            snapshot_postgres_queries_context(self),
-            connection.execute_wrapper(slow_query),
-            connections["persons_db_writer"].execute_wrapper(slow_query),
-            patch(
-                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
-                500,
-            ),
-        ):
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", hash_key_override="random")
-
-            self.assertTrue("property-flag" not in all_flags)
-            self.assertTrue(all_flags["default-flag"])
-            self.assertTrue(errors)
-
-            # # now db is slow, but decide was sent email parameter with correct email
-            # still need to get hash key override from db, so should time out
-            with self.assertNumQueries(4):
-                all_flags, _, _, errors = get_all_feature_flags(
-                    self.team,
-                    "random",
-                    property_value_overrides={"email": "tim@posthog.com"},
-                )
-                self.assertTrue("property-flag" not in all_flags)
-                self.assertTrue(all_flags["default-flag"])
-                self.assertTrue(errors)
-
-            mock_counter.labels.assert_has_calls(
-                [
-                    call(reason="timeout"),
-                    call().inc(),
-                ]
-            )
-
-    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
-    def test_feature_flags_v3_with_experience_continuity_and_incident_mode(self, mock_counter, *args):
-        self.organization = Organization.objects.create(name="test")
-        self.team = Team.objects.create(organization=self.organization)
-        self.user = User.objects.create_and_join(self.organization, "random12@test.com", "password", "first_name")
-
-        team_id = self.team.pk
-        project_id = self.team.project_id
-        rf = RequestFactory()
-        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
-        create_request.user = self.user
-
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=["example_id", "random"],
-            properties={"email": "tim@posthog.com"},
-        )
-
-        serialized_data = FeatureFlagSerializer(
-            data={
-                "name": "Alpha feature",
-                "key": "property-flag",
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "value": "tim@posthog.com",
-                                    "type": "person",
-                                    "operator": "exact",
-                                }
-                            ],
-                            "rollout_percentage": 91,
-                        }
-                    ],
-                },
-                "ensure_experience_continuity": True,
-            },
-            context={"team_id": team_id, "project_id": project_id, "request": create_request},
-        )
-        self.assertTrue(serialized_data.is_valid())
-        serialized_data.save()
-
-        # Should be enabled for everyone
-        serialized_data = FeatureFlagSerializer(
-            data={
-                "name": "Alpha feature",
-                "key": "default-flag",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
-            },
-            context={"team_id": team_id, "project_id": project_id, "request": create_request},
-        )
-        self.assertTrue(serialized_data.is_valid())
-        serialized_data.save()
-
-        with self.assertNumQueries(9), self.settings(DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES=True):
-            all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", hash_key_override="random")
-
-            self.assertTrue(all_flags["property-flag"])
-            self.assertTrue(all_flags["default-flag"])
-            self.assertFalse(errors)
-
-        # should've been false because of the override, but incident mode, so not
-        all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", hash_key_override="other_id")
-
-        self.assertTrue(all_flags["property-flag"])
-        self.assertTrue(all_flags["default-flag"])
-        self.assertFalse(errors)
-
-
 class TestFeatureFlagEvaluationTags(APIBaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
-        # Create a license to enable tagging feature
-        from datetime import datetime as dt
-        from typing import cast
-
-        from ee.models.license import License, LicenseManager
-
-        # Use a date that's always 50 years in the future to avoid expiration
-        future_year = dt.now().year + 50
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="test_license_key",
-            plan="enterprise",
-            valid_until=dt(future_year, 1, 19, 3, 14, 7),
-        )
 
         # Mock FLAG_EVALUATION_TAGS feature flag to be enabled by default
         self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")
@@ -9795,78 +8991,6 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         self.assertIn("Evaluation tags must be a subset of tags", str(response.data))
 
     @pytest.mark.ee
-    def test_evaluation_tags_preserved_when_tagging_access_lost(self):
-        """Test that evaluation tags are preserved when user loses TAGGING access"""
-        # First create a flag with evaluation tags while user has TAGGING access
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Flag with evaluation tags",
-                "key": "flag-with-eval-tags",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
-                "tags": ["web", "mobile"],
-                "evaluation_tags": ["web"],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # Verify the flag was created with evaluation tags
-        flag = FeatureFlag.objects.get(key="flag-with-eval-tags")
-        self.assertEqual(flag.name, "Flag with evaluation tags")
-        self.assertEqual(len(flag.evaluation_tags.all()), 1)
-
-        # Now remove TAGGING feature from organization
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        # Update the flag - evaluation tags should be preserved (not cleared)
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
-            {
-                "name": "Updated flag without tagging access",
-                "evaluation_tags": ["web", "mobile"],  # This should be ignored but not clear existing
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Verify evaluation tags were preserved (not cleared)
-        flag.refresh_from_db()
-        self.assertEqual(len(flag.evaluation_tags.all()), 1)  # Still has the original "web" tag
-
-        # Verify evaluation tags are hidden in API response
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["evaluation_tags"], [])  # Hidden from user
-
-        # Test creating a new flag without TAGGING access
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "New flag without tagging access",
-                "key": "new-flag-no-tagging",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
-                "evaluation_tags": ["web", "mobile"],  # Should be ignored
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # Verify the new flag has no evaluation tags (can't create new ones without TAGGING access)
-        new_flag = FeatureFlag.objects.get(key="new-flag-no-tagging")
-        self.assertEqual(len(new_flag.evaluation_tags.all()), 0)
-
-        # Restore TAGGING access
-        self.organization.available_product_features = [{"key": AvailableFeature.TAGGING, "name": "Tagging"}]
-        self.organization.save()
-
-        # Verify original flag's evaluation tags are visible again
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["evaluation_tags"], ["web"])  # Now visible again
-
-    @pytest.mark.ee
     def test_evaluation_tags_hidden_when_feature_flag_disabled(self):
         """Test that evaluation tags are hidden when FLAG_EVALUATION_TAGS feature flag is disabled"""
         # Override the default mock to disable the feature flag
@@ -10008,7 +9132,10 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         super().setUpTestData()
 
     def assert_expected_response(
-        self, feature_flag_id: int, expected_status: FeatureFlagStatus, expected_reason: Optional[str] = None
+        self,
+        feature_flag_id: int,
+        expected_status: FeatureFlagStatus,
+        expected_reason: Optional[str] = None,
     ):
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}/status",
@@ -10030,7 +9157,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for flag that has been soft deleted
         deleted_flag = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="Deleted feature flag",
             key="deleted-feature-flag",
             team=self.team,
@@ -10041,30 +9168,32 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for flag that is disabled, but recently called
         disabled_flag = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="Disabled feature flag",
             key="disabled-feature-flag",
             team=self.team,
             active=False,
+            last_called_at=datetime.now(UTC) - timedelta(days=1),  # Recently called
         )
 
         self.assert_expected_response(disabled_flag.id, FeatureFlagStatus.ACTIVE)
 
         # Request status for flag that has super group rolled out to <100%
         fifty_percent_super_group_flag = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="50 percent super group flag",
             key="50-percent-super-group-flag",
             team=self.team,
             active=True,
             filters={"super_groups": [{"rollout_percentage": 50, "properties": []}]},
+            last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         self.assert_expected_response(fifty_percent_super_group_flag.id, FeatureFlagStatus.ACTIVE)
 
         # Request status for flag that has super group rolled out to 100% and specific properties
         fully_rolled_out_super_group_flag_with_properties = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="100 percent super group with properties flag",
             key="100-percent-super-group-with-properties-flag",
             team=self.team,
@@ -10084,25 +9213,30 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     }
                 ]
             },
+            last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
-        self.assert_expected_response(fully_rolled_out_super_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
+        self.assert_expected_response(
+            fully_rolled_out_super_group_flag_with_properties.id,
+            FeatureFlagStatus.ACTIVE,
+        )
 
         # Request status for flag that has holdout group rolled out to <100%
         fifty_percent_holdout_group_flag = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="50 percent holdout group flag",
             key="50-percent-holdout-group-flag",
             team=self.team,
             active=True,
             filters={"holdout_groups": [{"rollout_percentage": 50, "properties": []}]},
+            last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         self.assert_expected_response(fifty_percent_holdout_group_flag.id, FeatureFlagStatus.ACTIVE)
 
         # Request status for flag that has holdout group rolled out to 100% and specific properties
         fully_rolled_out_holdout_group_flag_with_properties = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="100 percent holdout group with properties flag",
             key="100-percent-holdout-group-with-properties-flag",
             team=self.team,
@@ -10122,13 +9256,17 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     }
                 ]
             },
+            last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
-        self.assert_expected_response(fully_rolled_out_holdout_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
+        self.assert_expected_response(
+            fully_rolled_out_holdout_group_flag_with_properties.id,
+            FeatureFlagStatus.ACTIVE,
+        )
 
         # Request status for multivariate flag with no variants set to 100%
         multivariate_flag_no_rolled_out_variants = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="Multivariate flag with no variants set to 100%",
             key="multivariate-no-rolled-out-variants-flag",
             team=self.team,
@@ -10141,13 +9279,15 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     ],
                 }
             },
+            last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         self.assert_expected_response(multivariate_flag_no_rolled_out_variants.id, FeatureFlagStatus.ACTIVE)
 
-        # Request status for multivariate flag with no variants set to 100%
+        # Request status for multivariate flag with variant set to 100% and no usage data
+        # This tests config-based staleness detection
         multivariate_flag_rolled_out_variant = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="Multivariate flag with variant set to 100%",
             key="multivariate-rolled-out-variant-flag",
             team=self.team,
@@ -10161,6 +9301,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 },
                 "groups": [{"variant": None, "properties": [], "rollout_percentage": 100}],
             },
+            last_called_at=None,  # No usage data - falls back to config-based detection
         )
         self.assert_expected_response(
             multivariate_flag_rolled_out_variant.id,
@@ -10170,7 +9311,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for multivariate flag with a variant set to 100% but no release condition set to 100%
         multivariate_flag_rolled_out_variant_no_rolled_out_release = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="Multivariate flag with variant set to 100%, no release condition set to 100%",
             key="multivariate-rolled-out-variant-no-release-rolled-out-flag",
             team=self.team,
@@ -10187,6 +9328,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     {"variant": None, "properties": [], "rollout_percentage": 30},
                 ],
             },
+            last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         self.assert_expected_response(
@@ -10196,7 +9338,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for multivariate flag with a variant set to 100% but no release condition set to 100%
         multivariate_flag_rolled_out_release_condition_half_variant = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="Multivariate flag with release condition set to 100%, but variants still 50%",
             key="multivariate-rolled-out-release-half-variant-flag",
             team=self.team,
@@ -10212,6 +9354,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     {"variant": None, "properties": [], "rollout_percentage": 100},
                 ],
             },
+            last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         self.assert_expected_response(
@@ -10221,7 +9364,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for multivariate flag with variants set to 100% and a filtered release condition
         multivariate_flag_rolled_out_variant_rolled_out_filtered_release = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="Multivariate flag with variant and release condition set to 100%",
             key="multivariate-rolled-out-variant-and-release-condition-with-properties-flag",
             team=self.team,
@@ -10248,6 +9391,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     }
                 ],
             },
+            last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         self.assert_expected_response(
@@ -10257,7 +9401,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for multivariate flag with no variants set to 100%, but a filtered and fully rolled out release condition has variant override
         multivariate_flag_filtered_rolled_out_release_with_override = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="Multivariate flag with release condition set to 100% and override",
             key="multivariate-rolled-out-filtered-release-condition-and-override-flag",
             team=self.team,
@@ -10284,6 +9428,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     }
                 ],
             },
+            last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         self.assert_expected_response(
@@ -10292,8 +9437,9 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Request status for multivariate flag with no variants set to 100%, but fully rolled out release condition has variant override
+        # This tests config-based staleness detection
         multivariate_flag_rolled_out_release_with_override = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="Multivariate flag with release condition set to 100% and override",
             key="multivariate-rolled-out-release-condition-and-override-flag",
             team=self.team,
@@ -10313,6 +9459,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     }
                 ],
             },
+            last_called_at=None,  # No usage data - falls back to config-based detection
         )
         self.assert_expected_response(
             multivariate_flag_rolled_out_release_with_override.id,
@@ -10321,13 +9468,15 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Request status for boolean flag with empty filters
+        # This tests config-based staleness detection
         boolean_flag_empty_filters = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="Boolean flag with empty filters",
             key="boolean-empty-filters-flag",
             team=self.team,
             active=True,
             filters={},
+            last_called_at=None,  # No usage data - falls back to config-based detection
         )
         self.assert_expected_response(
             boolean_flag_empty_filters.id,
@@ -10337,7 +9486,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for boolean flag with no fully rolled out release conditions
         boolean_flag_no_rolled_out_release_conditions = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="Boolean flag with no release condition set to 100%",
             key="boolean-no-rolled-out-release-conditions-flag",
             team=self.team,
@@ -10365,6 +9514,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     },
                 ],
             },
+            last_called_at=datetime.now(UTC) - timedelta(days=1),
         )
 
         self.assert_expected_response(
@@ -10373,8 +9523,9 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Request status for boolean flag with a fully rolled out release condition
+        # This tests config-based staleness detection
         boolean_flag_rolled_out_release_condition = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="Boolean flag with a release condition set to 100%",
             key="boolean-rolled-out-release-condition-flag",
             team=self.team,
@@ -10398,6 +9549,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     },
                 ],
             },
+            last_called_at=None,  # No usage data - falls back to config-based detection
         )
         self.assert_expected_response(
             boolean_flag_rolled_out_release_condition.id,
@@ -10407,7 +9559,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for boolean flag with a fully rolled out release condition
         boolean_flag_rolled_out_release_condition_created_twenty_nine_days_ago = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=29),
+            created_at=datetime.now(UTC) - timedelta(days=29),
             name="Boolean flag with a release condition set to 100%, created 29 days ago",
             key="boolean-rolled-out-release-condition-29-days-ago-flag",
             team=self.team,
@@ -10429,7 +9581,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         # Request status for a boolean flag with no rolled out release conditions and has
         # been called recently
         boolean_flag_no_rolled_out_release_condition_recently_evaluated = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
+            created_at=datetime.now(UTC) - timedelta(days=31),
             name="Boolean flag with a release condition set to 100%",
             key="boolean-recently-evaluated-flag",
             team=self.team,
@@ -10449,8 +9601,685 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     },
                 ],
             },
+            last_called_at=datetime.now(UTC) - timedelta(days=1),  # Recently called
         )
 
         self.assert_expected_response(
-            boolean_flag_no_rolled_out_release_condition_recently_evaluated.id, FeatureFlagStatus.ACTIVE
+            boolean_flag_no_rolled_out_release_condition_recently_evaluated.id,
+            FeatureFlagStatus.ACTIVE,
         )
+
+    def test_flag_status_old_flag_no_usage_data_not_fully_rolled_out_is_active(self):
+        """Old flag without usage data and not fully rolled out should be ACTIVE (can't determine staleness)"""
+        old_never_called_flag = FeatureFlag.objects.create(
+            created_at=datetime.now(UTC) - timedelta(days=31),
+            name="Never called flag",
+            key="never-called-flag",
+            team=self.team,
+            active=True,
+            last_called_at=None,
+            # Use 50% rollout so it's not fully rolled out
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        # Without usage data (last_called_at) and not fully rolled out, we can't determine if it's stale
+        self.assert_expected_response(
+            old_never_called_flag.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
+    def test_flag_status_stale_by_usage_not_recently_called(self):
+        """Flag that hasn't been called in 30+ days should be STALE (usage-based detection)"""
+        stale_usage_flag = FeatureFlag.objects.create(
+            created_at=datetime.now(UTC) - timedelta(days=60),
+            name="Not recently called flag",
+            key="not-recently-called-flag",
+            team=self.team,
+            active=True,
+            last_called_at=datetime.now(UTC) - timedelta(days=35),
+            # Use 50% rollout - not fully rolled out but still STALE because not called
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        self.assert_expected_response(
+            stale_usage_flag.id,
+            FeatureFlagStatus.STALE,
+        )
+
+    def test_flag_status_new_flag_without_calls_not_stale(self):
+        """New flag (< 30 days) without usage data should be ACTIVE (grace period)"""
+        new_flag = FeatureFlag.objects.create(
+            created_at=datetime.now(UTC) - timedelta(days=5),
+            name="New flag",
+            key="new-flag",
+            team=self.team,
+            active=True,
+            last_called_at=None,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        self.assert_expected_response(new_flag.id, FeatureFlagStatus.ACTIVE)
+
+    def test_flag_status_recently_called_at_100_rollout_is_active(self):
+        """Flag that was recently called at 100% should be ACTIVE (usage data takes precedence)"""
+        recently_called_flag = FeatureFlag.objects.create(
+            created_at=datetime.now(UTC) - timedelta(days=60),
+            name="Recently called flag",
+            key="recently-called-flag",
+            team=self.team,
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+            last_called_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        # Usage data shows flag is being called, so it's ACTIVE even at 100% rollout
+        self.assert_expected_response(
+            recently_called_flag.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
+    def test_get_flags_with_stale_filter_usage_and_config_based(self):
+        """Test filtering by STALE status with both usage and config-based detection"""
+        FeatureFlag.objects.all().delete()
+
+        # Create a stale flag (usage-based: old + not called in 30+ days)
+        FeatureFlag.objects.create(
+            created_at=datetime.now(UTC) - timedelta(days=60),
+            team=self.team,
+            created_by=self.user,
+            key="stale_by_usage_flag",
+            active=True,
+            last_called_at=datetime.now(UTC) - timedelta(days=35),
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Create a stale flag (config-based: old + 100% rollout + no usage data)
+        FeatureFlag.objects.create(
+            created_at=datetime.now(UTC) - timedelta(days=60),
+            team=self.team,
+            created_by=self.user,
+            key="stale_by_config_flag",
+            active=True,
+            last_called_at=None,
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+
+        # Create an active flag (recently called)
+        FeatureFlag.objects.create(
+            created_at=datetime.now(UTC) - timedelta(days=60),
+            team=self.team,
+            created_by=self.user,
+            key="active_flag",
+            active=True,
+            last_called_at=datetime.now(UTC) - timedelta(hours=1),
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Create an active flag (no usage data + not fully rolled out = can't determine staleness)
+        FeatureFlag.objects.create(
+            created_at=datetime.now(UTC) - timedelta(days=60),
+            team=self.team,
+            created_by=self.user,
+            key="no_data_partial_rollout_flag",
+            active=True,
+            last_called_at=None,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Create a new flag that hasn't been called (should be ACTIVE, grace period)
+        FeatureFlag.objects.create(
+            created_at=datetime.now(UTC) - timedelta(days=5),
+            team=self.team,
+            created_by=self.user,
+            key="new_uncalled_flag",
+            active=True,
+            last_called_at=None,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Test filtering by STALE status
+        response = self.client.get("/api/projects/@current/feature_flags?active=STALE")
+        results = response.json()["results"]
+
+        assert len(results) == 2
+        result_keys = {r["key"] for r in results}
+        assert result_keys == {"stale_by_usage_flag", "stale_by_config_flag"}
+        for result in results:
+            assert result["status"] == "STALE"
+
+
+class TestFeatureFlagMatchingIds(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Clean up any existing flags to ensure test isolation
+        FeatureFlag.objects.filter(team=self.team).delete()
+
+    def test_matching_ids_returns_all_flags(self):
+        # Create several flags
+        flags = []
+        for i in range(5):
+            flag = FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=f"flag_{i}",
+                filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+            )
+            flags.append(flag)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/matching_ids/")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 5
+        assert set(data["ids"]) == {f.id for f in flags}
+
+    def test_matching_ids_respects_search_filter(self):
+        # Create flags with different keys
+        flag1 = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test_feature_a",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        flag2 = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test_feature_b",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="other_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/matching_ids/?search=test_feature")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 2
+        assert set(data["ids"]) == {flag1.id, flag2.id}
+
+    def test_matching_ids_respects_active_filter(self):
+        active_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="active_flag",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="inactive_flag",
+            active=False,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/matching_ids/?active=true")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert data["ids"] == [active_flag.id]
+
+    def test_matching_ids_excludes_deleted_flags(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="active_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="deleted_flag",
+            deleted=True,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/matching_ids/")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert data["ids"] == [flag.id]
+
+    def test_matching_ids_cross_project_isolation(self):
+        # Create a flag in the current team
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="my_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Create another team and a flag there
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        FeatureFlag.objects.create(
+            team=other_team,
+            created_by=self.user,
+            key="other_team_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/matching_ids/")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert data["ids"] == [flag.id]
+
+    def test_matching_ids_respects_type_filter(self):
+        boolean_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="boolean_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="multivariate_flag",
+            filters={
+                "groups": [{"rollout_percentage": 50, "properties": []}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "a", "rollout_percentage": 50},
+                        {"key": "b", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/matching_ids/?type=boolean")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert data["ids"] == [boolean_flag.id]
+
+
+class TestFeatureFlagBulkDelete(APIBaseTest):
+    """Tests for the bulk_delete endpoint that accepts filter criteria or explicit IDs."""
+
+    def setUp(self):
+        super().setUp()
+        # Clean up any existing flags to ensure test isolation
+        FeatureFlag.objects.filter(team=self.team).delete()
+
+    def test_bulk_delete_by_filter_with_search(self):
+        """Test deleting flags matching a search term."""
+        flag1 = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test_feature_a",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        flag2 = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test_feature_b",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        other_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="other_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"filters": {"search": "test_feature"}},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 2
+        assert {d["id"] for d in data["deleted"]} == {flag1.id, flag2.id}
+        assert len(data["errors"]) == 0
+
+        # Verify flags are deleted
+        flag1.refresh_from_db()
+        flag2.refresh_from_db()
+        other_flag.refresh_from_db()
+        assert flag1.deleted is True
+        assert flag2.deleted is True
+        assert other_flag.deleted is False
+
+    def test_bulk_delete_by_filter_with_active_status(self):
+        """Test deleting only inactive flags."""
+        active_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="active_flag",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        inactive_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="inactive_flag",
+            active=False,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"filters": {"active": "false"}},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 1
+        assert data["deleted"][0]["id"] == inactive_flag.id
+
+        # Verify only inactive flag is deleted
+        active_flag.refresh_from_db()
+        inactive_flag.refresh_from_db()
+        assert active_flag.deleted is False
+        assert inactive_flag.deleted is True
+
+    def test_bulk_delete_by_ids_no_limit(self):
+        """Test that ID-based deletion has no 100 limit (unlike the old endpoint)."""
+        # Create 150 flags
+        flags = []
+        for i in range(150):
+            flag = FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=f"flag_{i}",
+                filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+            )
+            flags.append(flag)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [f.id for f in flags]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 150
+        assert len(data["errors"]) == 0
+
+    def test_bulk_delete_validates_experiments(self):
+        """Test that flags linked to active experiments are rejected."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="experiment_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        Experiment.objects.create(
+            team=self.team,
+            name="Test Experiment",
+            feature_flag=flag,
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 0
+        assert len(data["errors"]) == 1
+        assert "experiment" in data["errors"][0]["reason"].lower()
+
+        # Verify flag is NOT deleted
+        flag.refresh_from_db()
+        assert flag.deleted is False
+
+    def test_bulk_delete_requires_filters_or_ids(self):
+        """Test validation error when neither filters nor ids provided."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {},
+        )
+
+        assert response.status_code == 400
+        assert "Must provide either filters or ids" in response.json()["error"]
+
+    def test_bulk_delete_rejects_both_filters_and_ids(self):
+        """Test validation error when both filters and ids provided."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"filters": {"search": "test"}, "ids": [flag.id]},
+        )
+
+        assert response.status_code == 400
+        assert "either filters or ids, not both" in response.json()["error"]
+
+    def test_bulk_delete_cross_project_isolation(self):
+        """Test that flags from other teams are not deleted."""
+        # Create a flag in the current team
+        my_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="my_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Create another team and a flag there
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_flag = FeatureFlag.objects.create(
+            team=other_team,
+            created_by=self.user,
+            key="other_team_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Try to delete the other team's flag from our team's endpoint
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [my_flag.id, other_flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        # Only our flag should be deleted
+        assert len(data["deleted"]) == 1
+        assert data["deleted"][0]["id"] == my_flag.id
+
+        # The other team's flag should be reported as not found
+        assert len(data["errors"]) == 1
+        assert data["errors"][0]["id"] == other_flag.id
+        assert data["errors"][0]["reason"] == "Flag not found"
+
+        # Verify the other team's flag is NOT deleted
+        other_flag.refresh_from_db()
+        assert other_flag.deleted is False
+
+    def test_bulk_delete_by_filter_with_type(self):
+        """Test deleting only boolean flags."""
+        boolean_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="boolean_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        multivariate_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="multivariate_flag",
+            filters={
+                "groups": [{"rollout_percentage": 50, "properties": []}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "a", "rollout_percentage": 50},
+                        {"key": "b", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"filters": {"type": "boolean"}},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 1
+        assert data["deleted"][0]["id"] == boolean_flag.id
+
+        # Verify only boolean flag is deleted
+        boolean_flag.refresh_from_db()
+        multivariate_flag.refresh_from_db()
+        assert boolean_flag.deleted is True
+        assert multivariate_flag.deleted is False
+
+    def test_bulk_delete_includes_rollout_state(self):
+        """Test that rollout_state and active_variant are included in delete responses."""
+        # 100% boolean flag
+        fully_rolled_out = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="fully_rolled_out",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        # 0% rollout flag
+        zero_rollout = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="zero_rollout",
+            filters={"groups": [{"rollout_percentage": 0, "properties": []}]},
+        )
+        # Partial rollout flag
+        partial = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="partial_rollout",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        # Multivariate flag with 100% rollout and active variant
+        multivariate = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="multivariate_full",
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": [], "variant": "winner"}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "winner", "rollout_percentage": 100},
+                        {"key": "loser", "rollout_percentage": 0},
+                    ]
+                },
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {
+                "ids": [
+                    fully_rolled_out.id,
+                    zero_rollout.id,
+                    partial.id,
+                    multivariate.id,
+                ]
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 4
+
+        by_key = {d["key"]: d for d in data["deleted"]}
+
+        assert by_key["fully_rolled_out"]["rollout_state"] == "fully_rolled_out"
+        assert by_key["fully_rolled_out"]["active_variant"] is None
+
+        assert by_key["zero_rollout"]["rollout_state"] == "not_rolled_out"
+        assert by_key["zero_rollout"]["active_variant"] is None
+
+        assert by_key["partial_rollout"]["rollout_state"] == "partial"
+        assert by_key["partial_rollout"]["active_variant"] is None
+
+        assert by_key["multivariate_full"]["rollout_state"] == "fully_rolled_out"
+        assert by_key["multivariate_full"]["active_variant"] == "winner"
+
+    def test_bulk_delete_with_dependent_flags(self):
+        """Test that flags with dependents cannot be deleted."""
+        # Create a flag that other flags depend on
+        base_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="base_flag",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        # Create a flag that depends on the base flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="dependent_flag",
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [{"key": str(base_flag.id), "type": "flag", "value": "true"}],
+                    }
+                ]
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [base_flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 0
+        assert len(data["errors"]) == 1
+        assert "other flags depend on it" in data["errors"][0]["reason"]
+
+        # Verify flag is not deleted
+        base_flag.refresh_from_db()
+        assert base_flag.deleted is False
+
+    def test_bulk_delete_renames_key_with_soft_deleted_experiment(self):
+        """Test that deleting a flag with a soft-deleted experiment renames the key."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="flag_with_deleted_exp",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp.deleted = True
+        exp.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 1
+
+        # Verify flag key is renamed
+        flag.refresh_from_db()
+        assert flag.deleted is True
+        assert flag.key == f"flag_with_deleted_exp:deleted:{flag.id}"
+
+    def test_bulk_delete_rejects_unknown_filter_keys(self):
+        """Test that unknown filter keys are rejected to prevent accidental mass deletion."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"filters": {"invalid_key": "value", "another_bad_key": "test"}},
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert "Unknown filter keys" in data["error"]
+        assert "another_bad_key" in data["error"]
+        assert "invalid_key" in data["error"]

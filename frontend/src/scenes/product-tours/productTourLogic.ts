@@ -2,10 +2,15 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import isEqual from 'lodash.isequal'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -13,73 +18,61 @@ import { urls } from 'scenes/urls'
 import { DateRange } from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
+    FeatureFlagBasicType,
     FeatureFlagFilters,
+    FeatureFlagType,
     ProductTour,
     ProductTourBannerConfig,
     ProductTourContent,
+    ProductTourStep,
     ProductTourStepButton,
 } from '~/types'
 
+import { DEFAULT_APPEARANCE } from './constants'
 import { prepareStepsForRender } from './editor/generateStepHtml'
 import type { productTourLogicType } from './productTourLogicType'
-import { productToursLogic } from './productToursLogic'
+import { isAnnouncement, productToursLogic } from './productToursLogic'
+import { hasIncompleteTargeting } from './stepUtils'
 
-/**
- * Builds a HogQL date filter clause from a DateRange.
- *
- * Handles:
- * - Relative dates like "-30d", "-7d", "-1w", "-1m" → `now() - INTERVAL X UNIT`
- * - ISO dates like "2025-11-10T02:54:31Z" → `toDateTime('2025-11-10 02:54:31')`
- *
- * @param dateRange - The date range to filter by
- * @param timestampColumn - The column name to filter (default: 'timestamp')
- * @returns HogQL WHERE clause fragment (e.g., " AND timestamp >= ...")
- */
-function buildHogQLDateFilter(dateRange: DateRange | null, timestampColumn = 'timestamp'): string {
-    if (!dateRange) {
-        return ''
+export const DEFAULT_TARGETING_FILTERS: FeatureFlagType['filters'] = {
+    ...NEW_FLAG.filters,
+    groups: [{ ...NEW_FLAG.filters.groups[0], rollout_percentage: 100 }],
+}
+
+const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
+
+function getResolvedTourDateRange(
+    tour: Pick<ProductTour, 'start_date' | 'created_at' | 'end_date'>,
+    dateRange?: DateRange | null
+): { fromDate: string; toDate: string } {
+    let fromDate = dayjs
+        .utc(tour.start_date ?? tour.created_at)
+        .startOf('day')
+        .format(DATE_FORMAT)
+    let toDate = tour.end_date
+        ? dayjs.utc(tour.end_date).endOf('day').format(DATE_FORMAT)
+        : dayjs.utc().endOf('day').format(DATE_FORMAT)
+
+    if (dateRange?.date_from && dateRange.date_from !== 'all') {
+        fromDate = dateStringToDayJs(dateRange.date_from)?.startOf('day').format(DATE_FORMAT) ?? fromDate
     }
 
-    const { date_from, date_to } = dateRange
-    let filter = ''
-
-    const formatDate = (dateStr: string): string => {
-        // For ISO dates, convert to YYYY-MM-DD HH:MM:SS format for ClickHouse
-        const date = new Date(dateStr)
-        if (!isNaN(date.getTime())) {
-            return date.toISOString().replace('T', ' ').replace('Z', '').split('.')[0]
-        }
-        return dateStr
+    if (dateRange?.date_to) {
+        toDate = dateStringToDayJs(dateRange.date_to)?.endOf('day').format(DATE_FORMAT) ?? toDate
     }
 
-    const parseRelativeDate = (dateStr: string): { num: number; unit: string } | null => {
-        const match = dateStr.match(/^-(\d+)([dwmqy])$/)
-        if (!match) {
-            return null
-        }
-        const unitMap: Record<string, string> = { d: 'DAY', w: 'WEEK', m: 'MONTH', q: 'QUARTER', y: 'YEAR' }
-        return { num: parseInt(match[1], 10), unit: unitMap[match[2]] || 'DAY' }
-    }
+    return { fromDate, toDate }
+}
 
-    if (date_from) {
-        const relative = parseRelativeDate(date_from)
-        if (relative) {
-            filter += ` AND ${timestampColumn} >= now() - INTERVAL ${relative.num} ${relative.unit}`
-        } else {
-            filter += ` AND ${timestampColumn} >= toDateTime('${formatDate(date_from)}')`
-        }
-    }
+function buildHogQLDateFilter(
+    tour: Pick<ProductTour, 'start_date' | 'created_at' | 'end_date'>,
+    dateRange: DateRange | null,
+    timestampColumn = 'timestamp'
+): string {
+    const { fromDate, toDate } = getResolvedTourDateRange(tour, dateRange)
 
-    if (date_to) {
-        const relative = parseRelativeDate(date_to)
-        if (relative) {
-            filter += ` AND ${timestampColumn} <= now() - INTERVAL ${relative.num} ${relative.unit}`
-        } else {
-            filter += ` AND ${timestampColumn} <= toDateTime('${formatDate(date_to)}')`
-        }
-    }
-
-    return filter
+    return ` AND ${timestampColumn} >= toDateTime('${fromDate}')
+        AND ${timestampColumn} <= toDateTime('${toDate}')`
 }
 
 /**
@@ -123,14 +116,18 @@ export interface ProductTourForm {
     content: ProductTourContent
     auto_launch: boolean
     targeting_flag_filters: FeatureFlagFilters | null
+    linked_flag: FeatureFlagBasicType | null
+    linked_flag_id: number | null
 }
 
 const NEW_PRODUCT_TOUR: ProductTourForm = {
     name: '',
     description: '',
-    content: { steps: [] },
+    content: { steps: [], appearance: DEFAULT_APPEARANCE },
     auto_launch: false,
     targeting_flag_filters: null,
+    linked_flag: null,
+    linked_flag_id: null,
 }
 
 export const productTourLogic = kea<productTourLogicType>([
@@ -138,15 +135,20 @@ export const productTourLogic = kea<productTourLogicType>([
     props({} as ProductTourLogicProps),
     key((props) => props.id),
     connect(() => ({
-        actions: [productToursLogic, ['loadProductTours']],
+        actions: [productToursLogic, ['loadProductTours'], eventUsageLogic, ['reportProductTourViewed']],
     })),
     actions({
         editingProductTour: (editing: boolean) => ({ editing }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setEditTab: (tab: ProductTourEditTab) => ({ tab }),
+        setSelectedStepIndex: (index: number) => ({ index }),
+        updateSelectedStep: (updates: Partial<ProductTourStep>) => ({ updates }),
         launchProductTour: true,
         stopProductTour: true,
         resumeProductTour: true,
+        openToolbarModal: true,
+        closeToolbarModal: true,
+        submitAndOpenToolbar: true,
     }),
     loaders(({ props, values }) => ({
         productTour: {
@@ -165,7 +167,7 @@ export const productTourLogic = kea<productTourLogicType>([
                     return null
                 }
 
-                const dateFilter = buildHogQLDateFilter(values.dateRange)
+                const dateFilter = buildHogQLDateFilter(values.productTour, values.dateRange)
                 const escapedTourId = escapeSqlString(props.id)
 
                 // Query for overall tour stats with unique and total counts
@@ -317,12 +319,29 @@ export const productTourLogic = kea<productTourLogicType>([
                     return undefined
                 }
 
-                for (const step of content.steps || []) {
-                    const error =
-                        step.type === 'banner'
-                            ? validateBannerAction(step.bannerConfig?.action, 'Banner click action')
-                            : validateButton(step.buttons?.primary, 'Primary button') ||
-                              validateButton(step.buttons?.secondary, 'Secondary button')
+                for (const [index, step] of (content.steps || []).entries()) {
+                    let error: string | undefined
+
+                    if (step.type === 'banner') {
+                        if (step.bannerConfig?.behavior === 'custom' && !step.bannerConfig?.selector?.trim()) {
+                            error = 'Custom banner position requires a CSS selector'
+                        } else {
+                            error = validateBannerAction(step.bannerConfig?.action, 'Banner click action')
+                        }
+                    } else {
+                        const errorPrefix = content.steps.length > 1 ? `Step ${index + 1} ` : ''
+
+                        error =
+                            validateButton(step.buttons?.primary, `${errorPrefix}Primary button`) ||
+                            validateButton(step.buttons?.secondary, `${errorPrefix}Secondary button`)
+                    }
+
+                    if (hasIncompleteTargeting(step)) {
+                        error =
+                            step.elementTargeting === 'manual'
+                                ? `Step ${index + 1} missing element selector`
+                                : `Select an element for step ${index + 1}`
+                    }
 
                     if (error) {
                         errors._form = error
@@ -344,6 +363,7 @@ export const productTourLogic = kea<productTourLogicType>([
                     content: processedContent,
                     auto_launch: formValues.auto_launch,
                     targeting_flag_filters: formValues.targeting_flag_filters,
+                    linked_flag_id: formValues.linked_flag_id,
                 }
 
                 if (props.id && props.id !== 'new') {
@@ -376,13 +396,64 @@ export const productTourLogic = kea<productTourLogicType>([
             },
         ],
         dateRange: [
-            { date_from: '-30d', date_to: null } as DateRange,
+            null as DateRange | null,
             {
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
+        selectedStepIndex: [
+            0,
+            {
+                setSelectedStepIndex: (_, { index }) => index,
+            },
+        ],
+        pendingToolbarOpen: [
+            false,
+            {
+                submitAndOpenToolbar: () => true,
+                openToolbarModal: () => false,
+                closeToolbarModal: () => false,
+                submitProductTourFormFailure: () => false,
+            },
+        ],
+        isToolbarModalOpen: [
+            false,
+            {
+                openToolbarModal: () => true,
+                closeToolbarModal: () => false,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
+        updateSelectedStep: ({ updates }) => {
+            const steps = values.productTourForm.content?.steps ?? []
+            const index = values.selectedStepIndex
+            if (index >= 0 && index < steps.length) {
+                const newSteps = [...steps]
+                newSteps[index] = { ...newSteps[index], ...updates }
+                actions.setProductTourFormValue('content', {
+                    ...values.productTourForm.content,
+                    steps: newSteps,
+                })
+            }
+        },
+        submitAndOpenToolbar: () => {
+            actions.submitProductTourForm()
+        },
+        submitProductTourFormSuccess: () => {
+            if (values.pendingToolbarOpen) {
+                actions.openToolbarModal()
+            } else {
+                actions.editingProductTour(false)
+            }
+        },
+        submitProductTourFormFailure: () => {
+            const errorMessage =
+                values.productTourFormAllErrors._form ||
+                values.productTourFormAllErrors.name ||
+                'Failed to save product tour'
+            lemonToast.error(errorMessage)
+        },
         launchProductTour: async () => {
             if (values.productTour) {
                 await api.productTours.update(values.productTour.id, {
@@ -414,15 +485,15 @@ export const productTourLogic = kea<productTourLogicType>([
             }
         },
         loadProductTourSuccess: ({ productTour }) => {
-            // Set date range to start from tour's start_date (or keep default -30d)
-            // This will trigger loadTourStats via the setDateRange listener
-            if (productTour?.start_date) {
+            if (productTour) {
+                actions.reportProductTourViewed(productTour)
+            }
+            if (!values.dateRange) {
                 actions.setDateRange({
-                    date_from: productTour.start_date,
-                    date_to: null,
+                    date_from: productTour?.start_date || '-30d',
+                    date_to: productTour?.end_date || null,
                 })
             } else {
-                // No start_date, load stats with default date range
                 actions.loadTourStats()
             }
             // Populate form with loaded data
@@ -434,6 +505,8 @@ export const productTourLogic = kea<productTourLogicType>([
                     content: productTour.content,
                     auto_launch: productTour.auto_launch,
                     targeting_flag_filters: productTour.targeting_flag_filters,
+                    linked_flag: productTour.linked_flag,
+                    linked_flag_id: productTour.linked_flag?.id ?? null,
                 })
             }
         },
@@ -447,6 +520,8 @@ export const productTourLogic = kea<productTourLogicType>([
                     content: values.productTour.content,
                     auto_launch: values.productTour.auto_launch,
                     targeting_flag_filters: values.productTour.targeting_flag_filters,
+                    linked_flag: values.productTour.linked_flag,
+                    linked_flag_id: values.productTour.linked_flag?.id ?? null,
                 })
             }
         },
@@ -484,12 +559,22 @@ export const productTourLogic = kea<productTourLogicType>([
                 return undefined
             },
         ],
+        hasCustomTargeting: [
+            (s) => [s.targetingFlagFilters],
+            (targetingFlagFilters: FeatureFlagFilters | undefined): boolean => {
+                return !!targetingFlagFilters && !isEqual(targetingFlagFilters, DEFAULT_TARGETING_FILTERS)
+            },
+        ],
+        entityKeyword: [
+            (s) => [s.productTour],
+            (productTour: ProductTour | null): string => {
+                return productTour && isAnnouncement(productTour) ? 'announcement' : 'tour'
+            },
+        ],
     }),
     urlToAction(({ actions, props }) => ({
         [urls.productTour(props.id)]: (_, searchParams) => {
-            if (searchParams.edit) {
-                actions.editingProductTour(true)
-            }
+            actions.editingProductTour(!!searchParams.edit)
             if (searchParams.tab) {
                 actions.setEditTab(searchParams.tab as ProductTourEditTab)
             }

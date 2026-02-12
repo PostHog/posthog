@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronDown, IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -10,16 +10,19 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
+import { formatErrorRate, formatLLMCost, formatLLMLatency, formatTokens } from '../utils'
 import { BulletList, ClusterDescription, parseBullets } from './ClusterDescriptionComponents'
 import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
 import { ClusterDetailLogicProps, clusterDetailLogic } from './clusterDetailLogic'
 import { TRACES_PER_PAGE } from './constants'
-import { ClusterTraceInfo, TraceSummary } from './types'
+import { ClusterItemInfo, ClusterMetrics, ClusteringLevel, TraceSummary } from './types'
 
 export const scene: SceneExport<ClusterDetailLogicProps> = {
     component: LLMAnalyticsClusterScene,
     logic: clusterDetailLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
     paramsToProps: ({ params: { runId, clusterId } }) => ({
         runId: runId ? decodeURIComponent(runId) : '',
         clusterId: clusterId ? parseInt(clusterId, 10) : 0,
@@ -30,6 +33,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
     const {
         cluster,
         clusterDataLoading,
+        clusteringLevel,
         isOutlierCluster,
         totalTraces,
         totalPages,
@@ -38,6 +42,8 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
         traceSummariesLoading,
         windowStart,
         windowEnd,
+        clusterMetrics,
+        clusterMetricsLoading,
     } = useValues(clusterDetailLogic)
     const { setPage } = useActions(clusterDetailLogic)
 
@@ -72,7 +78,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                 resourceType={{ type: 'llm_analytics' }}
                 actions={
                     <Link to={urls.llmAnalyticsClusters()}>
-                        <LemonButton type="secondary" size="small">
+                        <LemonButton type="secondary" size="small" data-attr="clusters-back-button">
                             Back to clusters
                         </LemonButton>
                     </Link>
@@ -97,6 +103,11 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                     )}
                 </div>
                 <ClusterDescription description={cluster.description} />
+                <ClusterMetricsChips
+                    metrics={clusterMetrics}
+                    metricsLoading={clusterMetricsLoading}
+                    clusteringLevel={clusteringLevel}
+                />
             </div>
 
             {/* Cluster scatter plot */}
@@ -122,6 +133,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                             icon={<IconChevronLeft />}
                             disabled={currentPage === 1}
                             onClick={() => setPage(currentPage - 1)}
+                            data-attr="clusters-detail-prev-page"
                         />
                         <span className="text-sm">
                             Page {currentPage} of {totalPages}
@@ -132,6 +144,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                             icon={<IconChevronRight />}
                             disabled={currentPage === totalPages}
                             onClick={() => setPage(currentPage + 1)}
+                            data-attr="clusters-detail-next-page"
                         />
                     </div>
                 </div>
@@ -153,7 +166,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                                 summary,
                             }: {
                                 traceId: string
-                                traceInfo: ClusterTraceInfo
+                                traceInfo: ClusterItemInfo
                                 summary?: TraceSummary
                             },
                             index: number
@@ -164,6 +177,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                                 traceInfo={traceInfo}
                                 summary={summary}
                                 displayRank={(currentPage - 1) * TRACES_PER_PAGE + index + 1}
+                                clusteringLevel={clusteringLevel}
                             />
                         )
                     )
@@ -180,6 +194,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                             icon={<IconChevronLeft />}
                             disabled={currentPage === 1}
                             onClick={() => setPage(currentPage - 1)}
+                            data-attr="clusters-detail-prev-page"
                         />
                         <span className="text-sm">
                             Page {currentPage} of {totalPages}
@@ -190,6 +205,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                             icon={<IconChevronRight />}
                             disabled={currentPage === totalPages}
                             onClick={() => setPage(currentPage + 1)}
+                            data-attr="clusters-detail-next-page"
                         />
                     </div>
                 </div>
@@ -198,16 +214,91 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
     )
 }
 
+function ClusterMetricsChips({
+    metrics,
+    metricsLoading,
+    clusteringLevel,
+}: {
+    metrics: ClusterMetrics | null
+    metricsLoading: boolean
+    clusteringLevel: ClusteringLevel
+}): JSX.Element | null {
+    const hasMetrics =
+        metrics &&
+        (metrics.avgCost !== null ||
+            metrics.avgLatency !== null ||
+            metrics.avgTokens !== null ||
+            metrics.errorRate !== null)
+
+    if (metricsLoading && !hasMetrics) {
+        return (
+            <div className="flex flex-row flex-wrap items-center gap-2 mt-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="h-5 w-24 bg-border-light rounded animate-pulse" />
+                ))}
+            </div>
+        )
+    }
+
+    if (!hasMetrics) {
+        return null
+    }
+
+    const itemLabel = clusteringLevel === 'generation' ? 'generations' : 'traces'
+
+    return (
+        <div className="flex flex-row flex-wrap items-center gap-2 mt-2">
+            {metrics.avgCost !== null && (
+                <Tooltip title={`Average cost per ${clusteringLevel}`}>
+                    <LemonTag type="muted" size="small">
+                        Avg Cost: {formatLLMCost(metrics.avgCost)}
+                    </LemonTag>
+                </Tooltip>
+            )}
+            {metrics.avgLatency !== null && (
+                <Tooltip title={`Average latency per ${clusteringLevel}`}>
+                    <LemonTag type="muted" size="small">
+                        Avg Latency: {formatLLMLatency(metrics.avgLatency)}
+                    </LemonTag>
+                </Tooltip>
+            )}
+            {metrics.avgTokens !== null && (
+                <Tooltip title={`Average tokens (input + output) per ${clusteringLevel}`}>
+                    <LemonTag type="muted" size="small">
+                        Avg Tokens: {formatTokens(metrics.avgTokens)}
+                    </LemonTag>
+                </Tooltip>
+            )}
+            {metrics.errorRate !== null && (
+                <Tooltip title={`Error rate: ${metrics.errorCount} errors out of ${metrics.itemCount} ${itemLabel}`}>
+                    <LemonTag type={metrics.errorRate > 0 ? 'danger' : 'muted'} size="small">
+                        Errors: {formatErrorRate(metrics.errorRate)}
+                    </LemonTag>
+                </Tooltip>
+            )}
+            {metrics.totalCost !== null && (
+                <Tooltip title={`Total cost across all ${itemLabel} in this cluster`}>
+                    <LemonTag type="muted" size="small">
+                        Total Cost: {formatLLMCost(metrics.totalCost)}
+                    </LemonTag>
+                </Tooltip>
+            )}
+        </div>
+    )
+}
+
 function TraceListItem({
     traceId,
     traceInfo,
     summary,
     displayRank,
+    clusteringLevel = 'trace',
 }: {
     traceId: string
-    traceInfo: ClusterTraceInfo
+    traceInfo: ClusterItemInfo
     summary?: TraceSummary
     displayRank: number
+    clusteringLevel?: ClusteringLevel
 }): JSX.Element {
     const [showFlow, setShowFlow] = useState(false)
     const [showBullets, setShowBullets] = useState(false)
@@ -225,10 +316,19 @@ function TraceListItem({
                 </LemonTag>
                 <span className="font-medium flex-1 min-w-0 truncate">{summary?.title || 'Loading...'}</span>
                 <Link
-                    to={urls.llmAnalyticsTrace(traceId, traceInfo.timestamp ? { timestamp: traceInfo.timestamp } : {})}
+                    to={urls.llmAnalyticsTrace(clusteringLevel === 'generation' ? traceInfo.trace_id : traceId, {
+                        tab: 'summary',
+                        // For generation-level, highlight the specific generation
+                        ...(clusteringLevel === 'generation' && traceInfo.generation_id
+                            ? { event: traceInfo.generation_id }
+                            : {}),
+                        // timestamp is the trace's first_timestamp for both levels
+                        ...(traceInfo.timestamp ? { timestamp: traceInfo.timestamp } : {}),
+                    })}
                     className="text-sm text-link hover:underline shrink-0"
+                    data-attr="clusters-view-trace-link"
                 >
-                    View trace →
+                    {clusteringLevel === 'generation' ? 'View generation →' : 'View trace →'}
                 </Link>
             </div>
 
@@ -242,6 +342,7 @@ function TraceListItem({
                                 type="secondary"
                                 icon={showFlow ? <IconChevronDown /> : <IconChevronRight />}
                                 onClick={() => setShowFlow(!showFlow)}
+                                data-attr="clusters-trace-flow-toggle"
                             >
                                 Flow
                             </LemonButton>
@@ -252,6 +353,7 @@ function TraceListItem({
                                 type="secondary"
                                 icon={showBullets ? <IconChevronDown /> : <IconChevronRight />}
                                 onClick={() => setShowBullets(!showBullets)}
+                                data-attr="clusters-trace-summary-toggle"
                             >
                                 Summary
                             </LemonButton>
@@ -262,6 +364,7 @@ function TraceListItem({
                                 type="secondary"
                                 icon={showNotes ? <IconChevronDown /> : <IconChevronRight />}
                                 onClick={() => setShowNotes(!showNotes)}
+                                data-attr="clusters-trace-notes-toggle"
                             >
                                 Notes
                             </LemonButton>

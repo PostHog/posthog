@@ -106,7 +106,7 @@ class TestWebAuthnRegistration(APIBaseTest):
         self.assertIn("error", response.json())
 
     @patch("posthog.api.webauthn.decode_credential_public_key")
-    @patch("posthog.api.webauthn.verify_registration_response")
+    @patch("posthog.api.webauthn.verify_passkey_registration_response")
     def test_registration_complete_stores_unverified_credential(self, mock_verify, mock_decode):
         begin_response = self.client.post("/api/webauthn/register/begin/")
         self.assertEqual(begin_response.status_code, status.HTTP_200_OK)
@@ -198,7 +198,7 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("userHandle", response.json()["error"])
 
-    @patch("posthog.auth.verify_authentication_response")
+    @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_complete_success(self, mock_verify):
         from webauthn.helpers import bytes_to_base64url
 
@@ -233,7 +233,7 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.status_code, status.HTTP_200_OK)
         self.assertEqual(me_response.json()["email"], self.user.email)
 
-    @patch("posthog.auth.verify_authentication_response")
+    @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_with_unverified_credential_fails(self, mock_verify):
         from webauthn.helpers import bytes_to_base64url
 
@@ -324,10 +324,12 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
         self.assertEqual(len(credentials), 1)
         self.assertEqual(credentials[0]["label"], "My Passkey")
 
-    def test_delete_credential(self):
+    @patch("posthog.api.webauthn.send_passkey_removed_email")
+    def test_delete_credential(self, mock_send_email):
         response = self.client.delete(f"/api/webauthn/credentials/{self.credential.pk}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
+        mock_send_email.delay.assert_called_once_with(self.user.id)
         self.assertFalse(WebauthnCredential.objects.filter(pk=self.credential.pk).exists())
 
     def test_delete_nonexistent_credential(self):
@@ -361,6 +363,35 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
 
         self.credential.refresh_from_db()
         self.assertEqual(self.credential.label, "Renamed Passkey")
+
+    @patch("posthog.api.webauthn.send_passkey_added_email")
+    @patch("posthog.api.webauthn.verify_passkey_authentication_response")
+    def test_verify_complete_sends_passkey_added_email(self, mock_verify, mock_send_email):
+        unverified_credential = WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"unverified-credential-id",
+            label="Unverified Passkey",
+            public_key=b"public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=False,
+        )
+
+        verify_begin_response = self.client.post(f"/api/webauthn/credentials/{unverified_credential.pk}/verify/")
+        self.assertEqual(verify_begin_response.status_code, status.HTTP_200_OK)
+
+        mock_verify.return_value = MagicMock(new_sign_count=1)
+
+        verify_complete_response = self.client.post(
+            f"/api/webauthn/credentials/{unverified_credential.pk}/verify_complete/",
+            {},
+            format="json",
+        )
+        self.assertEqual(verify_complete_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(verify_complete_response.json()["verified"])
+
+        mock_send_email.delay.assert_called_once_with(self.user.id)
 
     @parameterized.expand(
         [

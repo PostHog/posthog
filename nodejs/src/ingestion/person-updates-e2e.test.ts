@@ -241,12 +241,18 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)
                 expect(person).toBeDefined()
                 expect(person!.team_id).toBe(team.id)
+                // last_seen_at should be set to an hour-rounded timestamp
+                expect(person!.last_seen_at).toBeDefined()
+                expect(person!.last_seen_at!.minute).toBe(0)
+                expect(person!.last_seen_at!.second).toBe(0)
+                expect(person!.last_seen_at!.millisecond).toBe(0)
             })
         })
 
         it('should set person properties with $identify and $set', async () => {
             const distinctId = new UUIDT().toString()
             const timestamp = DateTime.now().toMillis()
+            const expectedLastSeenAt = DateTime.fromMillis(timestamp).startOf('hour')
 
             // Create person with initial properties
             await ingester.handleKafkaBatch(
@@ -272,6 +278,9 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                         email: 'test@example.com',
                     })
                 )
+                // last_seen_at should be set to the hour-rounded event timestamp
+                expect(person!.last_seen_at).toBeDefined()
+                expect(person!.last_seen_at!.toMillis()).toBe(expectedLastSeenAt.toMillis())
             })
         })
 
@@ -521,6 +530,50 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                     })
                 )
                 expect(person!.properties).not.toHaveProperty('prop2')
+            })
+        })
+
+        it('should update last_seen_at when event timestamp is in a newer hour', async () => {
+            const distinctId = new UUIDT().toString()
+            // Start at the beginning of an hour to make assertions clearer
+            const baseTime = DateTime.now().startOf('hour')
+            const firstTimestamp = baseTime.toMillis()
+            const secondTimestamp = baseTime.plus({ hours: 2 }).toMillis()
+
+            // First event creates the person
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({ $set: { initial: true } })
+                        .withTimestamp(firstTimestamp)
+                        .build(),
+                ])
+            )
+
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.last_seen_at).toBeDefined()
+                expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
+            })
+
+            // Second event 2 hours later should update last_seen_at
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId).withEvent('pageview').withTimestamp(secondTimestamp).build(),
+                ])
+            )
+
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.last_seen_at).toBeDefined()
+                expect(person!.last_seen_at!.toMillis()).toBe(baseTime.plus({ hours: 2 }).toMillis())
             })
         })
 

@@ -1,0 +1,85 @@
+---
+source: cymbal/tests/exception_list.rs
+expression: body.0
+---
+[
+  {
+    "id": "REDACTED",
+    "type": "CustomError",
+    "value": "Custom error message",
+    "stacktrace": {
+      "type": "resolved",
+      "frames": [
+        {
+          "raw_id": "4b9c7000c31be8f2264cba6a3bfb52213d7b4fe22a0b8ca56a7294ac7b56c24245825e2453b79bc05288f0cda771ff9aae9559c4db01a162c4d00d59aeefe299/0",
+          "mangled_name": "onClok",
+          "line": 123,
+          "column": 45,
+          "in_app": true,
+          "lang": "javascript",
+          "resolved": false,
+          "resolve_failure": "No sourcemap uploaded for chunk id: 124",
+          "synthetic": false,
+          "suspicious": false,
+          "junk_drawer": {
+            "raw_frame": {
+              "chunk_id": "124",
+              "colno": 45,
+              "filename": "main.js",
+              "function": "onClok",
+              "in_app": true,
+              "lineno": 123,
+              "synthetic": false
+            }
+          }
+        },
+        {
+          "raw_id": "4b9c7000c31be8f2264cba6a3bfb52213d7b4fe22a0b8ca56a7294ac7b56c24245825e2453b79bc05288f0cda771ff9aae9559c4db01a162c4d00d59aeefe299/0",
+          "mangled_name": "onClok",
+          "line": 123,
+          "column": 45,
+          "in_app": true,
+          "lang": "javascript",
+          "resolved": false,
+          "resolve_failure": "No sourcemap uploaded for chunk id: 124",
+          "synthetic": false,
+          "suspicious": false,
+          "junk_drawer": {
+            "raw_frame": {
+              "chunk_id": "124",
+              "colno": 45,
+              "filename": "main.js",
+              "function": "onClok",
+              "in_app": true,
+              "lineno": 123,
+              "synthetic": false
+            }
+          }
+        },
+        {
+          "raw_id": "4b9c7000c31be8f2264cba6a3bfb52213d7b4fe22a0b8ca56a7294ac7b56c24245825e2453b79bc05288f0cda771ff9aae9559c4db01a162c4d00d59aeefe299/0",
+          "mangled_name": "onClok",
+          "line": 123,
+          "column": 45,
+          "in_app": true,
+          "lang": "javascript",
+          "resolved": false,
+          "resolve_failure": "No sourcemap uploaded for chunk id: 124",
+          "synthetic": false,
+          "suspicious": false,
+          "junk_drawer": {
+            "raw_frame": {
+              "chunk_id": "124",
+              "colno": 45,
+              "filename": "main.js",
+              "function": "onClok",
+              "in_app": true,
+              "lineno": 123,
+              "synthetic": false
+            }
+          }
+        }
+      ]
+    }
+  }
+]

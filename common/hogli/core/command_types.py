@@ -47,10 +47,13 @@ def _format_command_help(cmd_name: str, cmd_config: dict, underlying_cmd: str) -
     - Original description
     - Service info if available
     - Underlying command being executed
+    - Child commands (variants) if any
 
     Note: Click will rewrap long lines, but we add paragraph breaks between
     services for better readability.
     """
+    from hogli.core.manifest import get_manifest
+
     parts = []
 
     # Add main description
@@ -65,9 +68,20 @@ def _format_command_help(cmd_name: str, cmd_config: dict, underlying_cmd: str) -
         for svc_name, about in services:
             parts.append(f"• {svc_name}: {about}")
 
-    # Add underlying command
+    # Add underlying command and variants
+    manifest = get_manifest()
+    children = manifest.get_children_for_command(cmd_name)
     if underlying_cmd:
-        parts.append(f"Executes: {underlying_cmd}")
+        if children:
+            parts.append("Executes:")
+            parts.append(f"• {underlying_cmd}")
+            for child in children:
+                suffix = child.removeprefix(cmd_name)  # e.g., ":minimal"
+                child_config = manifest.get_command_config(child)
+                child_cmd = child_config.get("cmd", "") if child_config else ""
+                parts.append(f"• {suffix} → {child_cmd}")
+        else:
+            parts.append(f"Executes: {underlying_cmd}")
 
     # Join with double newlines to create paragraph breaks
     return "\n\n".join(parts)

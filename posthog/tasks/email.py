@@ -32,11 +32,13 @@ from posthog.models import (
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
+from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.user_permissions import UserPermissions
 
+from products.conversations.backend.models import Ticket
 from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 
 logger = structlog.get_logger(__name__)
@@ -48,6 +50,7 @@ class NotificationSetting(Enum):
     ERROR_TRACKING_ISSUE_ASSIGNED = "error_tracking_issue_assigned"
     DISCUSSIONS_MENTIONED = "discussions_mentioned"
     PROJECT_API_KEY_EXPOSED = "project_api_key_exposed"
+    MATERIALIZED_VIEW_SYNC_FAILED = "materialized_view_sync_failed"
 
 
 NotificationSettingType = Literal[
@@ -56,6 +59,7 @@ NotificationSettingType = Literal[
     "error_tracking_issue_assigned",
     "discussions_mentioned",
     "project_api_key_exposed",
+    "materialized_view_sync_failed",
 ]
 
 
@@ -84,6 +88,24 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
             memberships_to_email.append(membership)
 
     return memberships_to_email
+
+
+def get_members_to_notify_for_pipeline_error(team: Team, failure_rate: float = 1.0) -> list[OrganizationMembership]:
+    """
+    Get members to notify for a data pipeline error, respecting threshold.
+
+    Args:
+        team: The team that owns the pipeline
+        failure_rate: The current failure rate (0.0 to 1.0). Defaults to 1.0 (100%) for single failures.
+
+    Returns:
+        List of organization memberships to notify
+    """
+    members_to_notify = get_members_to_notify(team, "plugin_disabled")
+
+    return [
+        member for member in members_to_notify if should_send_pipeline_error_notification(member.user, failure_rate)
+    ]
 
 
 def should_send_notification(
@@ -132,10 +154,38 @@ def should_send_notification(
     elif notification_type == NotificationSetting.PROJECT_API_KEY_EXPOSED.value:
         return settings.get(notification_type, True)
 
+    elif notification_type == NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value:
+        return settings.get(notification_type, False)
+
     # The below typeerror is ignored because we're currently handling the notification
     # types above, so technically it's unreachable. However if another is added but
     # not handled in this function, we want this as a fallback.
     return True  # type: ignore
+
+
+def should_send_pipeline_error_notification(
+    user: User,
+    failure_rate: float = 1.0,
+) -> bool:
+    """
+    Determines if a data pipeline error notification should be sent to a user.
+
+    Args:
+        user: The user to check settings for
+        failure_rate: The current failure rate (0.0 to 1.0) for this pipeline. Defaults to 1.0 (100%) for single failures.
+
+    Returns:
+        bool: True if the notification should be sent, False otherwise
+    """
+    settings = user.notification_settings
+
+    # Check threshold - if threshold is 0.0, notify on any failure
+    threshold = settings.get("data_pipeline_error_threshold", 0.0)
+    if threshold == 0.0:
+        return True
+
+    # If threshold > 0.0, only notify if failure rate exceeds threshold
+    return failure_rate > threshold
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -294,7 +344,7 @@ def send_fatal_plugin_error(
     plugin: Plugin = plugin_config.plugin
     team: Team = plugin_config.team
 
-    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
     if not memberships_to_email:
         return
 
@@ -322,8 +372,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     hog_function: HogFunction = HogFunction.objects.prefetch_related("team").get(id=hog_function_id)
     team = hog_function.team
 
-    # We re-use the setting as it is the same from a user perspective
-    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
     if not memberships_to_email:
         return
 
@@ -341,6 +390,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
 
 def send_batch_export_run_failure(
     batch_export_run_id: str | UUIDT,
+    failure_rate: float = 1.0,
 ) -> None:
     logger = structlog.get_logger(__name__)
 
@@ -354,7 +404,7 @@ def send_batch_export_run_failure(
     )
     team: Team = batch_export_run.batch_export.team
 
-    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate)
     if not memberships_to_email:
         return
 
@@ -379,6 +429,47 @@ def send_batch_export_run_failure(
         },
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)
+
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+def send_saved_query_materialization_failure(saved_query_id: str) -> None:
+    """Send email notification when a materialized view sync fails."""
+    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
+    if not is_email_available(with_absolute_urls=True):
+        logger.warning("Email service is not available for materialization failure notification")
+        return
+
+    try:
+        saved_query = DataWarehouseSavedQuery.objects.select_related("team").get(id=saved_query_id)
+    except DataWarehouseSavedQuery.DoesNotExist:
+        logger.warning("Saved query %s not found for materialization failure notification", saved_query_id)
+        return
+
+    team: Team = saved_query.team
+
+    memberships_to_email = get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
+    if not memberships_to_email:
+        return
+
+    logger.info("Preparing materialization failure notification email for saved query %s", saved_query_id)
+
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    campaign_key = f"saved_query_materialization_failure_{saved_query_id}_{today}"
+
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"PostHog: Materialized view '{saved_query.name}' sync failed",
+        template_name="saved_query_materialization_failure",
+        template_context={
+            "team": team,
+            "saved_query_id": str(saved_query.id),
+            "saved_query_name": saved_query.name,
+        },
+    )
 
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
@@ -488,6 +579,40 @@ def send_two_factor_auth_disabled_email(user_id: int) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+def send_passkey_added_email(user_id: int) -> None:
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"passkey_added_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="passkey_added",
+        subject="A passkey was added to your account",
+        template_context={
+            "user_name": user.first_name,
+            "user_email": user.email,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_passkey_removed_email(user_id: int) -> None:
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"passkey_removed_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="passkey_removed",
+        subject="A passkey was removed from your account",
+        template_context={
+            "user_name": user.first_name,
+            "user_email": user.email,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
     user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
@@ -502,6 +627,31 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
     )
     message.add_user_recipient(user)
     message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_two_factor_reset_email(user_id: int, token: str) -> None:
+    """Send 2FA reset email to user when an admin initiates a reset."""
+    user: User = User.objects.get(pk=user_id)
+
+    reset_link = f"{settings.SITE_URL}/reset_2fa/{user.uuid}/{token}"
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"2fa_reset_{user.uuid}-{timezone.now().timestamp()}",
+        subject="Reset your two-factor authentication",
+        template_name="2fa_reset",
+        template_context={
+            "preheader": "An administrator has initiated a 2FA reset for your account.",
+            "user_name": user.first_name,
+            "user_email": user.email,
+            "url": reset_link,
+            "expiration_hours": 1,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send(send_async=False)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -671,7 +821,7 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
             logger.warning("Skipping discussions mentioned email: no valid recipients after filtering")
             return
 
-        href = f"{settings.SITE_URL}{slug}"
+        href = build_comment_item_url(comment.scope, comment.item_id, slug)
 
         campaign_key: str = f"discussions_user_mentioned_{comment.id}_updated_at_{comment.created_at.timestamp()}"
         message = EmailMessage(
@@ -729,30 +879,47 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
         memberships_to_email = [test_membership]
         logger.info(f"Sending test HogFunctions digest email to {test_email_override}")
 
-    campaign_key = f"hog_functions_daily_digest_{team_id}_{timezone.now().strftime('%Y-%m-%d')}"
+    all_functions = digest_data["functions"]
+    date_suffix = timezone.now().strftime("%Y-%m-%d")
+    emails_sent = 0
 
-    # Sort functions by failure rate descending (highest first)
-    sorted_functions = sorted(
-        digest_data["functions"], key=lambda x: float(x.get("failure_rate", 0) or 0), reverse=True
-    )
-
-    message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=f"Data Pipeline Failures Alert for {team.name}",
-        template_name="hog_functions_daily_digest",
-        template_context={
-            "team": team,
-            "functions": sorted_functions,
-            "site_url": settings.SITE_URL,
-        },
-    )
-
-    # Add recipients (either filtered list for test override or full list for normal flow)
+    # Send a unique email to each member with functions filtered by their threshold
     for membership in memberships_to_email:
-        message.add_user_recipient(membership.user)
+        user = membership.user
 
-    message.send()
-    logger.info(f"Sent HogFunctions digest email to team {team_id} with {len(digest_data['functions'])} functions")
+        # Filter functions based on user's threshold
+        # failure_rate is stored as a percentage (e.g., 15.5 for 15.5%), convert to decimal for threshold check
+        user_functions = [
+            f
+            for f in all_functions
+            if should_send_pipeline_error_notification(user, float(f.get("failure_rate", 0) or 0) / 100)
+        ]
+
+        # Skip this user if no functions exceed their threshold
+        if len(user_functions) == 0:
+            continue
+
+        # Sort functions by failure rate descending (highest first)
+        sorted_functions = sorted(user_functions, key=lambda x: float(x.get("failure_rate", 0) or 0), reverse=True)
+
+        campaign_key = f"hog_functions_daily_digest_{team_id}_{user.uuid}_{date_suffix}"
+
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=f"Data Pipeline Failures Alert for {team.name}",
+            template_name="hog_functions_daily_digest",
+            template_context={
+                "team": team,
+                "functions": sorted_functions,
+                "site_url": settings.SITE_URL,
+            },
+        )
+
+        message.add_user_recipient(user)
+        message.send()
+        emails_sent += 1
+
+    logger.info(f"Sent HogFunctions digest email to {emails_sent} members for team {team_id}")
 
 
 @shared_task(ignore_result=True)
@@ -928,30 +1095,34 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
             last_editors[hog_function_id] = None
             last_edit_dates[hog_function_id] = None
 
-    # Build function metrics
+    # Build function metrics. Only include functions with at least one failure; per-user threshold
+    # (data_pipeline_error_threshold) then filters which functions each user sees in send_hog_functions_digest_email.
     function_metrics = []
     for hog_function in hog_functions:
         hog_function_id = str(hog_function["id"])
-        if hog_function_id in metrics_by_function:
-            metrics = metrics_by_function[hog_function_id]
-            total_runs = metrics["succeeded"] + metrics["failed"]
-            failure_rate = (metrics["failed"] / total_runs * 100) if total_runs > 0 else 0
+        if hog_function_id not in metrics_by_function:
+            continue
 
-            # Only include functions with failure rate > 1%
-            if failure_rate > 1.0:
-                function_info = {
-                    "id": hog_function_id,
-                    "name": hog_function["name"],
-                    "type": hog_function["type"],
-                    "created_by_email": hog_function["created_by__email"],
-                    "last_edited_by_email": last_editors.get(hog_function_id),
-                    "last_edit_date": last_edit_dates.get(hog_function_id),
-                    "succeeded": metrics["succeeded"],
-                    "failed": metrics["failed"],
-                    "failure_rate": round(failure_rate, 1),
-                    "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
-                }
-                function_metrics.append(function_info)
+        metrics = metrics_by_function[hog_function_id]
+        if metrics["failed"] <= 0:
+            continue
+
+        total_runs = metrics["succeeded"] + metrics["failed"]
+        failure_rate = (metrics["failed"] / total_runs * 100) if total_runs > 0 else 0
+
+        function_info = {
+            "id": hog_function_id,
+            "name": hog_function["name"],
+            "type": hog_function["type"],
+            "created_by_email": hog_function["created_by__email"],
+            "last_edited_by_email": last_editors.get(hog_function_id),
+            "last_edit_date": last_edit_dates.get(hog_function_id),
+            "succeeded": metrics["succeeded"],
+            "failed": metrics["failed"],
+            "failure_rate": round(failure_rate, 1),
+            "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
+        }
+        function_metrics.append(function_info)
 
     if not function_metrics:
         logger.info(f"No functions with failures found for team {team_id}")
@@ -1027,3 +1198,150 @@ def send_project_secret_api_key_exposed(team_id: int, mask_value: str, more_info
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
     message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_oauth_token_exposed(user_id: int, token_type: str, mask_value: str, more_info: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    user = User.objects.get(pk=user_id)
+    token_type_display = "OAuth access token" if token_type == "access" else "OAuth refresh token"
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"oauth-token-exposed-{user.uuid}-{timezone.now().timestamp()}",
+        subject=f"{token_type_display} has been revoked",
+        template_name="oauth_token_exposed",
+        template_context={
+            "preheader": f"{token_type_display} has been revoked",
+            "token_type": token_type_display,
+            "more_info": more_info,
+            "mask_value": mask_value,
+            "url": f"{settings.SITE_URL}/settings/user-api-keys",
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_content: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        logger.warning("Skipping new ticket notification: email service not available")
+        return
+
+    try:
+        team = Team.objects.get(pk=team_id)
+        ticket = Ticket.objects.get(id=ticket_id, team=team)
+    except (Team.DoesNotExist, Ticket.DoesNotExist):
+        logger.warning(f"Skipping new ticket notification: ticket or team not found (ticket_id={ticket_id})")
+        return
+
+    # Get notification recipients from team settings
+    conversations_settings = team.conversations_settings or {}
+    recipient_ids = conversations_settings.get("notification_recipients", [])
+
+    if not recipient_ids:
+        return
+
+    # Get users who should receive notifications and have access to the project
+    memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
+        organization_id=team.organization_id,
+        user_id__in=recipient_ids,
+    )
+
+    memberships_to_email = []
+    for membership in memberships:
+        team_permissions = UserPermissions(membership.user).team(team)
+        if (
+            team_permissions.effective_membership_level_for_parent_membership(membership.organization, membership)
+            is not None
+        ):
+            memberships_to_email.append(membership)
+
+    if not memberships_to_email:
+        return
+
+    # Extract customer info from anonymous_traits
+    traits = ticket.anonymous_traits or {}
+    customer_name = traits.get("name")
+    customer_email = traits.get("email")
+
+    ticket_url = f"{settings.SITE_URL}/project/{team.pk}/conversations/tickets/{ticket.id}"
+
+    campaign_key = f"new_conversation_ticket_{ticket.id}"
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject=f"[Ticket #{ticket.ticket_number}] New support ticket in {team.name}",
+        template_name="new_conversation_ticket",
+        template_context={
+            "team_name": team.name,
+            "ticket_number": ticket.ticket_number,
+            "customer_name": customer_name,
+            "customer_email": customer_email,
+            "first_message": first_message_content[:500] if first_message_content else "",
+            "ticket_url": ticket_url,
+        },
+    )
+
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+
+    message.send()
+    logger.info(f"Sent new ticket notification for ticket {ticket.id} to {len(memberships_to_email)} recipients")
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_project_deleted_email(
+    user_id: int,
+    project_name: str,
+) -> None:
+    """Send email notification when project deletion is complete."""
+    user = User.objects.filter(id=user_id).first()
+    if not user:
+        logger.warning(f"User {user_id} not found for project deletion email")
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"project_deleted_{user_id}_{timezone.now().timestamp()}",
+        subject=f"Your project '{project_name}' has been deleted",
+        template_name="project_deleted",
+        template_context={
+            "project_name": project_name,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+    logger.info(f"Sent project deletion confirmation email to user {user_id} for project {project_name}")
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_organization_deleted_email(
+    user_id: int,
+    organization_name: str,
+    project_names: list[str],
+) -> None:
+    """Send email notification when organization deletion is complete."""
+    user = User.objects.filter(id=user_id).first()
+    if not user:
+        logger.warning(f"User {user_id} not found for organization deletion email")
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"organization_deleted_{user_id}_{timezone.now().timestamp()}",
+        subject=f"Your organization '{organization_name}' has been deleted",
+        template_name="organization_deleted",
+        template_context={
+            "organization_name": organization_name,
+            "project_names": project_names,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+    logger.info(f"Sent organization deletion confirmation email to user {user_id} for organization {organization_name}")

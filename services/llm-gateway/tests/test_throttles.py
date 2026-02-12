@@ -4,10 +4,7 @@ import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import get_settings
-from llm_gateway.rate_limiting.model_throttles import (
-    ProductModelInputTokenThrottle,
-    UserModelInputTokenThrottle,
-)
+from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import (
     Throttle,
@@ -37,17 +34,11 @@ def make_user(
 def make_context(
     user: AuthenticatedUser | None = None,
     product: str = "llm_gateway",
-    model: str | None = None,
-    input_tokens: int | None = None,
-    max_output_tokens: int | None = None,
     request_id: str | None = None,
 ) -> ThrottleContext:
     return ThrottleContext(
         user=user or make_user(),
         product=product,
-        model=model,
-        input_tokens=input_tokens,
-        max_output_tokens=max_output_tokens,
         request_id=request_id,
     )
 
@@ -142,19 +133,14 @@ class TestThrottleRunner:
         assert result.allowed is True
 
     @pytest.mark.asyncio
-    async def test_composite_throttle_order(self) -> None:
-        product_throttle = ProductModelInputTokenThrottle(redis=None)
-        user_throttle = UserModelInputTokenThrottle(redis=None)
+    async def test_composite_cost_throttle_order(self) -> None:
+        product_throttle = ProductCostThrottle(redis=None)
+        user_throttle = UserCostThrottle(redis=None)
 
         runner = ThrottleRunner(throttles=[product_throttle, user_throttle])
 
         user = make_user(auth_method="personal_api_key")
-        context = make_context(
-            user=user,
-            product="llm_gateway",
-            model="claude-3-5-haiku",
-            input_tokens=100,
-        )
+        context = make_context(user=user, product="llm_gateway")
 
         result = await runner.check(context)
         assert result.allowed is True
@@ -168,19 +154,13 @@ class TestThrottleContext:
         assert context.user.user_id == 42
         assert context.product == "wizard"
 
-    def test_context_holds_model_info(self) -> None:
+    def test_context_holds_request_id(self) -> None:
         context = ThrottleContext(
             user=make_user(),
             product="llm_gateway",
-            model="claude-3-5-sonnet",
-            input_tokens=1000,
-            max_output_tokens=4096,
             request_id="req-123",
         )
 
-        assert context.model == "claude-3-5-sonnet"
-        assert context.input_tokens == 1000
-        assert context.max_output_tokens == 4096
         assert context.request_id == "req-123"
 
 

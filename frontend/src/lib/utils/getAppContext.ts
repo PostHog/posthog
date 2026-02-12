@@ -11,12 +11,21 @@ export function getAppContext(): AppContext | undefined {
     return window.POSTHOG_APP_CONTEXT || undefined
 }
 
-export function getDefaultEventName(): string {
-    return getAppContext()?.default_event_name || PathType.PageView
+export function getDefaultEventName(): string | null {
+    const context = getAppContext()
+    // If context exists but default_event_name is explicitly null, return null (all events)
+    // If context doesn't exist, fall back to $pageview for backwards compatibility
+    if (context === undefined) {
+        return PathType.PageView
+    }
+    return context.default_event_name ?? null
 }
 
 export function getDefaultEventLabel(): string {
     const name = getDefaultEventName()
+    if (name === null) {
+        return 'All events'
+    }
     return name === PathType.PageView ? 'Pageview' : name === PathType.Screen ? 'Screen' : name
 }
 

@@ -11,9 +11,9 @@ from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.types import interrupt
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
-from posthog.schema import AssistantTool
+from posthog.schema import ApprovalResumePayload, AssistantTool
 
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
@@ -24,7 +24,7 @@ from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.core.context import get_node_path, set_node_path
 from ee.hogai.core.mixins import AssistantContextMixin, AssistantDispatcherMixin
 from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL
-from ee.hogai.tool_errors import MaxToolAccessDeniedError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
 
 logger = structlog.get_logger(__name__)
@@ -50,6 +50,7 @@ class ApprovalRequest(BaseModel):
     tool_name: str
     preview: str
     payload: dict[str, Any]
+    original_tool_call_id: str | None = None
 
 
 class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
@@ -118,9 +119,8 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         return None
 
     # -------------------------------------------------------------------------
-    # Access Control (Resource-level)
+    # Access Control
     # -------------------------------------------------------------------------
-    # TODO: Implement object-level access check after retrieval in the ArtifactManager
 
     @cached_property
     def user_access_control(self) -> UserAccessControl:
@@ -178,7 +178,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
         """LangChain default runner."""
-        self._check_access_control()
+        self._check_resource_access()
         try:
             return self._run_with_context(*args, **kwargs)
         except NotImplementedError:
@@ -188,7 +188,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
         """LangChain default runner."""
         # using database_sync_to_async because UserAccessControl is fully sync
-        await database_sync_to_async(self._check_access_control)()
+        await database_sync_to_async(self._check_resource_access)()
         try:
             return await self._arun_with_context(*args, **kwargs)
         except NotImplementedError:
@@ -287,7 +287,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
             team=team, user=user, node_path=node_path, state=state, config=config, context_manager=context_manager
         )
 
-    def _check_access_control(self) -> None:
+    def _check_resource_access(self) -> None:
         """
         Checks all resource-level access requirements declared in `get_required_resource_access()`.
         Raises MaxToolAccessDeniedError if any check fails.
@@ -299,6 +299,31 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         for resource, required_level in required_access:
             if not self.user_access_control.check_access_level_for_resource(resource, required_level):
                 raise MaxToolAccessDeniedError(resource, required_level, action="use")
+
+    async def check_object_access(
+        self,
+        obj,
+        required_level: AccessControlLevel,
+        *,
+        resource: str | None = None,
+        action: str = "access",
+    ) -> None:
+        """
+        Check object-level access for a specific model instance.
+        Raises MaxToolAccessDeniedError if user lacks required access.
+
+        Args:
+            obj: The model instance to check access for (Insight, Dashboard, etc.)
+            required_level: Minimum access level required ("viewer", "editor", etc.)
+            resource: Resource name for error message. If None, derived from model._meta.model_name.
+            action: Verb for error message ("read", "edit", "delete")
+        """
+        has_access = await database_sync_to_async(self.user_access_control.check_access_level_for_object)(
+            obj, required_level
+        )
+        if not has_access:
+            resource_name = resource or obj._meta.model_name
+            raise MaxToolAccessDeniedError(resource_name, required_level, action=action)
 
     async def _check_dangerous_operation(self, **kwargs) -> tuple[str, Any] | None:
         if not await self.is_dangerous_operation(**kwargs):
@@ -335,27 +360,26 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
             tool_name=self.name,
             preview=preview,
             payload=serialized_payload,
+            original_tool_call_id=self._original_tool_call_id,
         )
 
         # Call interrupt() - execution pauses here and ApprovalRequest is sent to frontend
         # When resumed with Command(resume=response), interrupt() returns the response
-        response = interrupt(
-            {
-                **approval_request.model_dump(),
-                # Include original tool_call_id for proper card positioning on reload
-                "original_tool_call_id": self._original_tool_call_id,
-            }
-        )
+        response = interrupt(approval_request)
+        try:
+            approval_resume_payload = ApprovalResumePayload.model_validate(response)
+        except ValidationError as e:
+            raise MaxToolRetryableError(f"Invalid response from the user: {e}")
 
         # Handle the response from the user
-        if isinstance(response, dict) and response.get("action") == "approve":
-            # User approved - update kwargs with any modifications and proceed
-            updated_payload = response.get("payload", serialized_payload)
-            kwargs.update(self._reconstruct_kwargs_from_payload(updated_payload))
+        if approval_resume_payload.action == "approve":
+            if updated_payload := approval_resume_payload.payload:
+                # User approved - update kwargs with any modifications and proceed
+                kwargs.update(self._reconstruct_kwargs_from_payload(updated_payload))
             return None  # Continue with _arun_impl
         else:
             # User rejected
-            feedback = response.get("feedback", "") if isinstance(response, dict) else ""
+            feedback = approval_resume_payload.feedback or ""
             if feedback:
                 return (
                     f"The user rejected this operation with the following feedback: {feedback}. "

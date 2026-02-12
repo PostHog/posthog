@@ -55,6 +55,7 @@ from posthog.schema import (
     StickinessQuery,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
+    TraceNeighborsQuery,
     TraceQuery,
     TracesQuery,
     TrendsQuery,
@@ -732,6 +733,16 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
+    if kind == "TraceNeighborsQuery":
+        from .ai.trace_neighbors_query_runner import TraceNeighborsQueryRunner
+
+        return TraceNeighborsQueryRunner(
+            query=cast(TraceNeighborsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
     if kind == "VectorSearchQuery":
         from .ai.vector_search_query_runner import VectorSearchQueryRunner
 
@@ -819,6 +830,19 @@ def get_query_runner(
         from .endpoints.endpoints_usage_trends import EndpointsUsageTrendsQueryRunner
 
         return EndpointsUsageTrendsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    # Registered here for server-side CSV export only (ExportedAsset + Celery).
+    # Direct queries are blocked by LogsQueryRunner.validate_query_runner_access.
+    if kind == "LogsQuery":
+        from products.logs.backend.logs_query_runner import LogsQueryRunner
+
+        return LogsQueryRunner(
             query=query,
             team=team,
             timings=timings,

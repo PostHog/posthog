@@ -57,6 +57,11 @@ pub const FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER: &str =
 pub const FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED: &str =
     "flags_experience_continuity_optimized_total";
 
+// Hash key override query result metric
+// Tracks the result of hash key override queries to understand cache optimization potential
+// Labels: result="empty" (no overrides found) | result="has_overrides" (overrides exist)
+pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total";
+
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
@@ -70,3 +75,25 @@ pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
 // Tombstone metric for tracking "impossible" failures that should never happen in production
 // Different failure types are tracked via the "failure_type" label
 pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";
+
+// DB operations per request metric
+// Tracks the count of DB operations per request, labeled by team_id and operation_type.
+// This surfaces teams generating excessive DB load regardless of individual query latency.
+// Labels: team_id, operation_type (person_query, cohort_query, group_query)
+pub const FLAG_DB_OPERATIONS_PER_REQUEST: &str = "flags_db_operations_per_request";
+
+// Flag batch evaluation metrics
+// These track the performance difference between sequential and parallel evaluation strategies.
+// Used for A/B testing and tuning the PARALLEL_EVAL_THRESHOLD.
+
+// Time spent evaluating a batch of flags (histogram)
+// Labels: evaluation_type ("sequential" or "parallel")
+pub const FLAG_BATCH_EVALUATION_TIME: &str = "flags_batch_evaluation_time_ms";
+
+// Counter for evaluation batches by type
+// Labels: evaluation_type ("sequential" or "parallel")
+pub const FLAG_BATCH_EVALUATION_COUNTER: &str = "flags_batch_evaluation_total";
+
+// Histogram of flag counts per batch evaluation
+// Labels: evaluation_type ("sequential" or "parallel")
+pub const FLAG_BATCH_SIZE: &str = "flags_batch_size";

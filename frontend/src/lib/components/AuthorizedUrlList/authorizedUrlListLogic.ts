@@ -17,6 +17,7 @@ import { encodeParams, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
@@ -203,14 +204,19 @@ export const filterNotAuthorizedUrls = (
     const suggestedDomains: SuggestedDomain[] = []
 
     suggestions.forEach(({ url, count }) => {
-        const parsedUrl = sanitizePossibleWildCardedURL(url)
-        const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
+        let urlWithoutPath: string
+        try {
+            const parsedUrl = sanitizePossibleWildCardedURL(url)
+            urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
+        } catch {
+            urlWithoutPath = url
+        }
         // Have we already added this domain?
         if (suggestedDomains.some((sd) => sd.url === urlWithoutPath)) {
             return
         }
 
-        if (!checkUrlIsAuthorized(parsedUrl, authorizedUrls)) {
+        if (!checkUrlIsAuthorized(urlWithoutPath, authorizedUrls)) {
             suggestedDomains.push({ url: urlWithoutPath, count })
         }
     })
@@ -419,6 +425,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 if (launch) {
                     actions.launchAtUrl(url)
                 }
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.AddAuthorizedDomain)
             },
         ],
         removeUrl: sharedListeners.saveUrls,

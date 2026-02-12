@@ -21,6 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { teamLogic } from '../teamLogic'
@@ -28,6 +29,7 @@ import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 
 interface DashboardProps {
     id?: string
@@ -43,7 +45,7 @@ export const scene: SceneExport<DashboardLogicProps> = {
         id: parseInt(id as string),
         placement,
     }),
-    settingSectionId: 'environment-product-analytics',
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
 export function Dashboard({ id, dashboard, placement, themes }: DashboardProps): JSX.Element {
@@ -69,6 +71,7 @@ function DashboardScene(): JSX.Element {
         hasVariables,
     } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
     useFileSystemLogView({
@@ -96,7 +99,7 @@ function DashboardScene(): JSX.Element {
     return (
         <SceneContent className={cn('dashboard')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
-            {canEditDashboard && <AddInsightToDashboardModal />}
+            {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" />

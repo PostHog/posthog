@@ -1,4 +1,5 @@
-import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { connect, kea, key, path, props, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import {
     ErrorEventId,
@@ -91,7 +92,10 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         frames: [
             (s) => [s.exceptionList],
             (exceptionList: ErrorTrackingException[]) => {
-                return exceptionList.flatMap((e) => e.stacktrace?.frames ?? []) as ErrorTrackingStackFrame[]
+                return exceptionList.flatMap((e) => {
+                    const frames = e.stacktrace?.frames
+                    return Array.isArray(frames) ? frames : []
+                }) as ErrorTrackingStackFrame[]
             },
         ],
         uuid: [(_, props) => [props.id], (id: ErrorEventId) => id],
@@ -123,10 +127,12 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         ],
     }),
 
-    afterMount(({ values, actions }) => {
-        const rawIds: string[] = values.exceptionList.flatMap((e) => e.stacktrace?.frames).map((frame) => frame.raw_id)
-        actions.loadFromRawIds(rawIds)
-    }),
+    subscriptions(({ actions }) => ({
+        frames: (frames) => {
+            const rawIds: string[] = frames.map((frame: ErrorTrackingStackFrame) => frame.raw_id)
+            actions.loadFromRawIds(rawIds)
+        },
+    })),
 ])
 
 function hasInAppFrames(exceptionList: ErrorTrackingException[]): boolean {

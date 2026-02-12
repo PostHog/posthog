@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { IconArrowLeft, IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
+import { EditableField } from 'lib/components/EditableField/EditableField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,6 +19,7 @@ import { SurveyQuestionBranchingType } from '~/types'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { NewSurvey } from '../constants'
 import { surveyLogic } from '../surveyLogic'
+import { doesSurveyHaveDisplayConditions } from '../utils'
 import { MaxTip } from './MaxTip'
 import { WizardStepper } from './WizardStepper'
 import { AppearanceStep } from './steps/AppearanceStep'
@@ -50,15 +52,14 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         surveyLaunching,
         surveySaving,
         surveyLoading,
-        selectedTemplate,
         stepValidationErrors,
         currentStepHasErrors,
     } = useValues(surveyWizardLogic)
     const isEditing = id !== 'new'
     const { nextStep, setStep, launchSurvey, saveDraft, updateSurvey } = useActions(surveyWizardLogic)
 
-    // Survey form state from surveyLogic
     const { survey } = useValues(surveyLogic)
+    const { setSurveyValue } = useActions(surveyLogic)
 
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -66,13 +67,13 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
 
     const [previewPageIndex, setPreviewPageIndex] = useState(0)
 
-    // Reset preview index if it's out of bounds (e.g., when disabling thank you message)
+    const maxPreviewIndex = survey.appearance?.displayThankYouMessage
+        ? survey.questions.length
+        : survey.questions.length - 1
+
     useEffect(() => {
-        const maxIndex = survey.appearance?.displayThankYouMessage
-            ? survey.questions.length
-            : survey.questions.length - 1
-        setPreviewPageIndex((current) => (current > maxIndex ? Math.max(0, maxIndex) : current))
-    }, [survey.appearance?.displayThankYouMessage, survey.questions.length])
+        setPreviewPageIndex((current) => (current > maxPreviewIndex ? Math.max(0, maxPreviewIndex) : current))
+    }, [maxPreviewIndex])
 
     // Show loading state while loading existing survey
     if (isEditing && surveyLoading) {
@@ -104,20 +105,74 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
 
     const previewSurvey: NewSurvey = {
         ...survey,
-        id: id,
+        id,
     } as NewSurvey
 
     const handleCustomizeMore = (): void => {
-        // Survey state is already in surveyLogic, just navigate
-        // For existing surveys use ?edit=true, for new surveys use #fromTemplate=true
         router.actions.push(urls.survey(id) + (isEditing ? '?edit=true' : '#fromTemplate=true'))
     }
 
-    const handleLaunchClick = (): void => {
-        const doLaunch = (): void => {
-            launchSurvey()
+    const getConditionsSummary = (): string[] => {
+        const conditions = survey.conditions
+        const summary: string[] = []
+
+        if (conditions?.url) {
+            summary.push(`URL contains "${conditions.url}"`)
         }
 
+        if (conditions?.selector) {
+            summary.push(`Element "${conditions.selector}" is present on page`)
+        }
+
+        if (conditions?.deviceTypes && conditions.deviceTypes.length > 0) {
+            summary.push(`Device type is ${conditions.deviceTypes.join(' or ')}`)
+        }
+
+        if (conditions?.events?.values && conditions.events.values.length > 0) {
+            const eventNames = conditions.events.values.map((e) => e.name).join(', ')
+            summary.push(`User performed event: ${eventNames}`)
+        }
+
+        return summary
+    }
+
+    const showLaunchConfirmation = (onConfirm: () => void): void => {
+        const hasConditions = doesSurveyHaveDisplayConditions(survey)
+        const conditionsSummary = getConditionsSummary()
+
+        LemonDialog.open({
+            title: 'Launch this survey?',
+            content: (
+                <div className="space-y-2">
+                    {hasConditions && conditionsSummary.length > 0 ? (
+                        <>
+                            <p className="text-secondary">
+                                The survey will be shown to users who match these conditions:
+                            </p>
+                            <ul className="list-disc list-inside text-secondary">
+                                {conditionsSummary.map((condition, i) => (
+                                    <li key={i}>{condition}</li>
+                                ))}
+                            </ul>
+                        </>
+                    ) : (
+                        <p className="text-secondary">The survey will immediately start displaying to all users.</p>
+                    )}
+                </div>
+            ),
+            primaryButton: {
+                children: 'Launch',
+                type: 'primary',
+                onClick: onConfirm,
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+            },
+        })
+    }
+
+    const handleLaunchClick = (): void => {
         if (!currentTeam?.surveys_opt_in) {
             LemonDialog.open({
                 title: 'Enable surveys?',
@@ -128,11 +183,11 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                     </p>
                 ),
                 primaryButton: {
-                    children: 'Enable & launch',
+                    children: 'Enable & continue',
                     type: 'primary',
                     onClick: () => {
                         updateCurrentTeam({ surveys_opt_in: true })
-                        doLaunch()
+                        showLaunchConfirmation(launchSurvey)
                     },
                 },
                 secondaryButton: {
@@ -141,7 +196,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                 },
             })
         } else {
-            doLaunch()
+            showLaunchConfirmation(launchSurvey)
         }
     }
 
@@ -163,24 +218,40 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         )
     }
 
-    // Back button destination with template indicator
+    // Navigation back button
     const backButton = isEditing ? (
         <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.survey(id)}>
             Survey
         </LemonButton>
     ) : (
-        <div className="flex items-center gap-2">
-            <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={() => setStep('template')}>
-                Templates
-            </LemonButton>
-            {selectedTemplate && <span className="text-muted text-sm">· {selectedTemplate.templateType}</span>}
-        </div>
+        <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={() => setStep('template')}>
+            Templates
+        </LemonButton>
     )
 
     // Shared header for all main steps
     const header = (
         <div className="space-y-4">
-            {backButton}
+            <div className="space-y-1">
+                {backButton}
+                <div>
+                    <label htmlFor="survey-name" className="text-xs font-medium text-muted">
+                        Survey name
+                    </label>
+                    <EditableField
+                        name="survey-name"
+                        value={survey.name}
+                        onSave={(value) => setSurveyValue('name', value)}
+                        placeholder="Untitled survey"
+                        saveOnBlur
+                        clickToEdit
+                        compactIcon
+                        showEditIconOnHover
+                        className="text-xl font-semibold"
+                        editingIndication="underlined"
+                    />
+                </div>
+            </div>
             <div className="flex justify-center">
                 <WizardStepper currentStep={currentStep} onStepClick={setStep} stepErrors={stepValidationErrors} />
             </div>
@@ -242,20 +313,18 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                         <div className="flex items-center justify-end pt-4 border-t border-border">
                             <div className="flex items-center gap-2">
                                 {currentStep === 'when' && (
-                                    <>
-                                        <LemonButton type="secondary" onClick={() => setStep('appearance')}>
-                                            Customize appearance
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="secondary"
-                                            loading={surveySaving}
-                                            disabled={surveyLaunching}
-                                            onClick={handleSaveClick}
-                                        >
-                                            {isEditing ? 'Save changes' : 'Save as draft'}
-                                        </LemonButton>
-                                    </>
+                                    <LemonButton type="secondary" onClick={() => setStep('appearance')}>
+                                        Customize appearance
+                                    </LemonButton>
                                 )}
+                                <LemonButton
+                                    type="secondary"
+                                    loading={surveySaving}
+                                    disabled={surveyLaunching}
+                                    onClick={handleSaveClick}
+                                >
+                                    {isEditing ? 'Save changes' : 'Save as draft'}
+                                </LemonButton>
                                 {currentStep === 'when' ? (
                                     !isEditing && (
                                         <LemonButton
@@ -331,26 +400,16 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                         disabledReason={previewPageIndex === 0 ? 'First question' : undefined}
                                     />
                                     <span className="text-muted text-xs min-w-[60px] text-center">
-                                        {`${previewPageIndex + 1} / ${previewSurvey.questions.length + (previewSurvey.appearance?.displayThankYouMessage ? 1 : 0)}`}
+                                        {`${previewPageIndex + 1} / ${maxPreviewIndex + 1}`}
                                     </span>
                                     <LemonButton
                                         type="secondary"
                                         size="small"
                                         icon={<IconChevronRight />}
-                                        onClick={() => {
-                                            const maxIndex = previewSurvey.appearance?.displayThankYouMessage
-                                                ? previewSurvey.questions.length
-                                                : previewSurvey.questions.length - 1
-                                            setPreviewPageIndex(Math.min(maxIndex, previewPageIndex + 1))
-                                        }}
-                                        disabledReason={
-                                            previewPageIndex >=
-                                            (previewSurvey.appearance?.displayThankYouMessage
-                                                ? previewSurvey.questions.length
-                                                : previewSurvey.questions.length - 1)
-                                                ? 'Last screen'
-                                                : undefined
+                                        onClick={() =>
+                                            setPreviewPageIndex(Math.min(maxPreviewIndex, previewPageIndex + 1))
                                         }
+                                        disabledReason={previewPageIndex >= maxPreviewIndex ? 'Last screen' : undefined}
                                     />
                                 </div>
                             )}

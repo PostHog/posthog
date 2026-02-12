@@ -115,7 +115,7 @@ class TestCallbacksReceiveCorrectData:
     def test_callback_receives_token_counts(self, anthropic_client: Anthropic) -> None:
         received_data = {}
 
-        async def capture_on_success(self, kwargs, response_obj, start_time, end_time):
+        async def capture_on_success(self, kwargs, response_obj, start_time, end_time, end_user_id):
             standard_logging_object = kwargs.get("standard_logging_object", {})
             received_data["prompt_tokens"] = standard_logging_object.get("prompt_tokens")
             received_data["completion_tokens"] = standard_logging_object.get("completion_tokens")
@@ -143,7 +143,7 @@ class TestCallbacksReceiveCorrectData:
     def test_callback_receives_streaming_token_counts(self, anthropic_client: Anthropic) -> None:
         received_data = {}
 
-        async def capture_on_success(self, kwargs, response_obj, start_time, end_time):
+        async def capture_on_success(self, kwargs, response_obj, start_time, end_time, end_user_id):
             standard_logging_object = kwargs.get("standard_logging_object", {})
             received_data["prompt_tokens"] = standard_logging_object.get("prompt_tokens")
             received_data["completion_tokens"] = standard_logging_object.get("completion_tokens")
@@ -160,3 +160,46 @@ class TestCallbacksReceiveCorrectData:
 
         assert received_data.get("prompt_tokens") is not None
         assert received_data.get("completion_tokens") is not None
+
+
+class TestEndUserIdExtraction:
+    pytestmark = pytest.mark.skipif(not OPENAI_API_KEY, reason="OPENAI_API_KEY not set")
+
+    def test_openai_user_param_extracted_as_end_user(self, openai_client: OpenAI) -> None:
+        """Verify that the 'user' parameter in OpenAI requests is extracted as end_user_id."""
+        received_data: dict[str, object] = {}
+
+        async def capture_on_success(self, kwargs, response_obj, start_time, end_time, end_user_id):
+            received_data["end_user_id"] = end_user_id
+            received_data["user_in_kwargs"] = kwargs.get("user")
+
+        from llm_gateway.callbacks.rate_limiting import RateLimitCallback
+
+        with patch.object(RateLimitCallback, "_on_success", capture_on_success):
+            openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "Say 'test'"}],
+                max_tokens=5,
+                user="test-end-user-123",
+            )
+
+        assert received_data.get("end_user_id") == "test-end-user-123"
+        assert received_data.get("user_in_kwargs") == "test-end-user-123"
+
+    def test_openai_request_without_user_param(self, openai_client: OpenAI) -> None:
+        """Verify that requests without 'user' parameter have no end_user_id."""
+        received_data: dict[str, str | None] = {}
+
+        async def capture_on_success(self, kwargs, response_obj, start_time, end_time, end_user_id):
+            received_data["end_user_id"] = end_user_id
+
+        from llm_gateway.callbacks.rate_limiting import RateLimitCallback
+
+        with patch.object(RateLimitCallback, "_on_success", capture_on_success):
+            openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "Say 'test'"}],
+                max_tokens=5,
+            )
+
+        assert received_data.get("end_user_id") is None

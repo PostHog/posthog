@@ -1,14 +1,9 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getSvelteSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    dedent: any,
-    snippets: any
-): StepDefinition[] => {
-    const JSEventCapture = snippets?.JSEventCapture
+export const getSvelteClientSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
     return [
         {
@@ -70,7 +65,7 @@ export const getSvelteSteps = (
                                           '<ph_project_api_key>',
                                           {
                                             api_host: '<ph_client_api_host>',
-                                            defaults: '2025-11-30'
+                                            defaults: '2026-01-30'
                                           }
                                         )
                                       }
@@ -83,13 +78,20 @@ export const getSvelteSteps = (
                     />
                     <CalloutBox type="fyi" title="SvelteKit layout">
                         <Markdown>
-                            Learn more about [SvelteKit layouts](https://kit.svelte.dev/docs/routing#layout) in the official
-                            documentation.
+                            Learn more about [SvelteKit layouts](https://kit.svelte.dev/docs/routing#layout) in the
+                            official documentation.
                         </Markdown>
                     </CalloutBox>
                 </>
             ),
         },
+    ]
+}
+
+export const getSvelteServerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
+
+    return [
         {
             title: 'Server-side setup',
             badge: 'optional',
@@ -129,7 +131,8 @@ export const getSvelteSteps = (
                         ]}
                     />
                     <Markdown>
-                        Then, initialize the PostHog Node client where you'd like to use it on the server side. For example, in a load function:
+                        Then, initialize the PostHog Node client where you'd like to use it on the server side. For
+                        example, in a load function:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -155,12 +158,24 @@ export const getSvelteSteps = (
                     />
                     <CalloutBox type="fyi" title="Note">
                         <Markdown>
-                            Make sure to always call `posthog.shutdown()` after capturing events from the server-side. PostHog queues events into larger batches, and this call forces all batched events to be flushed immediately.
+                            Make sure to always call `posthog.shutdown()` after capturing events from the server-side.
+                            PostHog queues events into larger batches, and this call forces all batched events to be
+                            flushed immediately.
                         </Markdown>
                     </CalloutBox>
                 </>
             ),
         },
+    ]
+}
+
+export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { snippets } = ctx
+    const JSEventCapture = snippets?.JSEventCapture
+
+    return [
+        ...getSvelteClientSteps(ctx),
+        ...getSvelteServerSteps(ctx),
         {
             title: 'Send events',
             badge: undefined,
@@ -169,17 +184,4 @@ export const getSvelteSteps = (
     ]
 }
 
-export const SvelteInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
-    const steps = getSvelteSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const SvelteInstallation = createInstallation(getSvelteSteps)

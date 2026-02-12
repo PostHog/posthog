@@ -1,16 +1,22 @@
-import { EventHeaders, IncomingEventWithTeam, Team } from '../../types'
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { Message } from 'node-rdkafka'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
+import { EventHeaders, Team } from '../../types'
+import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import {
     createApplyPersonProcessingRestrictionsStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
 } from '../event-preprocessing'
+import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 
 export interface PostTeamPreprocessingSubpipelineInput {
+    message: Message
     headers: EventHeaders
-    eventWithTeam: IncomingEventWithTeam
+    event: PluginEvent
     team: Team
 }
 
@@ -29,4 +35,5 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         .pipe(createValidateEventPropertiesStep())
         .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
         .pipe(createValidateEventUuidStep())
+        .pipe(createDropOldEventsStep())
 }

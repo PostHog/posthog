@@ -1,8 +1,10 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { PersonProfiles } from './_snippets/person-profiles'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getLaravelSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
+export const getLaravelSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
     return [
         {
             title: 'Install the package',
@@ -16,8 +18,8 @@ export const getLaravelSteps = (CodeBlock: any, Markdown: any, dedent: any): Ste
                                 language: 'bash',
                                 file: 'Terminal',
                                 code: dedent`
-                                    composer require posthog/posthog-php
-                                `,
+                                composer require posthog/posthog-php
+                            `,
                             },
                         ]}
                     />
@@ -38,26 +40,26 @@ export const getLaravelSteps = (CodeBlock: any, Markdown: any, dedent: any): Ste
                                 language: 'php',
                                 file: 'app/Providers/AppServiceProvider.php',
                                 code: dedent`
-                                    <?php
+                                <?php
 
-                                    namespace App\\Providers;
+                                namespace App\\Providers;
 
-                                    use Illuminate\\Support\\ServiceProvider;
-                                    use PostHog\\PostHog;
+                                use Illuminate\\Support\\ServiceProvider;
+                                use PostHog\\PostHog;
 
-                                    class AppServiceProvider extends ServiceProvider
+                                class AppServiceProvider extends ServiceProvider
+                                {
+                                    public function boot(): void
                                     {
-                                        public function boot(): void
-                                        {
-                                            PostHog::init(
-                                                '<ph_project_api_key>',
-                                                [
-                                                    'host' => '<ph_client_api_host>'
-                                                ]
-                                            );
-                                        }
+                                        PostHog::init(
+                                            '<ph_project_api_key>',
+                                            [
+                                                'host' => '<ph_client_api_host>'
+                                            ]
+                                        );
                                     }
-                                `,
+                                }
+                            `,
                             },
                         ]}
                     />
@@ -76,32 +78,18 @@ export const getLaravelSteps = (CodeBlock: any, Markdown: any, dedent: any): Ste
                                 language: 'php',
                                 file: 'PHP',
                                 code: dedent`
-                                    PostHog::capture([
-                                        'distinctId' => 'test-user',
-                                        'event' => 'test-event',
-                                    ]);
-                                `,
+                                PostHog::capture([
+                                    'distinctId' => 'test-user',
+                                    'event' => 'test-event',
+                                ]);
+                            `,
                             },
                         ]}
                     />
-                    <PersonProfiles language="php" />
                 </>
             ),
         },
     ]
 }
 
-export const LaravelInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
-    const steps = getLaravelSteps(CodeBlock, Markdown, dedent)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const LaravelInstallation = createInstallation(getLaravelSteps)

@@ -4,19 +4,15 @@ from typing import Literal, cast
 from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
 from hogql_parser import (
-    parse_expr as _parse_expr_cpp,
     parse_expr_json as _parse_expr_json_cpp,
-    parse_full_template_string as _parse_full_template_string_cpp,
     parse_full_template_string_json as _parse_full_template_string_json_cpp,
-    parse_order_expr as _parse_order_expr_cpp,
     parse_order_expr_json as _parse_order_expr_json_cpp,
-    parse_program as _parse_program_cpp,
     parse_program_json as _parse_program_json_cpp,
-    parse_select as _parse_select_cpp,
     parse_select_json as _parse_select_json_cpp,
 )
 from opentelemetry import trace
 from prometheus_client import Histogram
+from structlog import getLogger
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
@@ -31,6 +27,8 @@ from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
 
 tracer = trace.get_tracer(__name__)
+
+logger = getLogger(__name__)
 
 
 def safe_lambda(f):
@@ -60,14 +58,6 @@ RULE_TO_PARSE_FUNCTION: dict[
         ),
         "program": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).program())),
     },
-    "cpp": {
-        "expr": lambda string, start: _parse_expr_cpp(string, is_internal=start is None),
-        "order_expr": lambda string: _parse_order_expr_cpp(string),
-        "select": lambda string: _parse_select_cpp(string),
-        "full_template_string": lambda string: _parse_full_template_string_cpp(string),
-        "program": lambda string: _parse_program_cpp(string),
-    },
-    # Defer imports until the new version of hogql_parser is built and installed.
     "cpp-json": {
         "expr": lambda string, start: deserialize_ast(_parse_expr_json_cpp(string, is_internal=start is None)),
         "order_expr": lambda string: deserialize_ast(_parse_order_expr_json_cpp(string)),
@@ -86,7 +76,7 @@ RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select", "full_template_s
     for rule in ("expr", "order_expr", "select", "full_template_string")
 }
 
-DEFAULT_BACKEND: HogQLParserBackend = "cpp"
+DEFAULT_BACKEND: HogQLParserBackend = "cpp-json"
 
 
 def parse_string_template(
@@ -929,6 +919,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         object = self.visit(ctx.columnExpr())
         property = ast.Constant(value=self.visit(ctx.identifier()))
         return ast.ArrayAccess(array=object, property=property, nullish=True)
+
+    def visitColumnExprTypeCast(self, ctx: HogQLParser.ColumnExprTypeCastContext):
+        return ast.TypeCast(expr=self.visit(ctx.columnExpr()), type_name=self.visit(ctx.identifier()).lower())
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         expr = self.visit(ctx.columnExpr(0))

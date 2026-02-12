@@ -104,6 +104,10 @@ export function LogRow({
         if (selection && selection.toString().length > 0) {
             return
         }
+        // Skip row click if clicking on a link/button (e.g., ViewRecordingButton)
+        if ((e.target as HTMLElement).closest('a, button')) {
+            return
+        }
         if (!e.shiftKey) {
             onClick?.()
         }
@@ -174,7 +178,7 @@ export function LogRow({
                         <AttributeCell
                             key={attributeKey}
                             attributeKey={attributeKey}
-                            value={attrValue != null ? String(attrValue) : '-'}
+                            value={attrValue != null ? String(attrValue) : ''}
                             width={getAttributeColumnWidth(attributeKey, attributeColumnWidths) + RESIZER_HANDLE_WIDTH}
                         />
                     )

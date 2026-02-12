@@ -2,8 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { PipelineEvent } from '../../types'
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
@@ -14,7 +13,7 @@ import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-build
 import { OkResultWithContext } from '../pipelines/filter-ok-batch-pipeline'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
-import { MemoryRateLimiter } from '../utils/overflow-detector'
+import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { PerEventProcessingConfig, PerEventProcessingInput } from './per-event-processing-subpipeline'
 import { createPerEventProcessingSubpipeline } from './per-event-processing-subpipeline'
 import { PostTeamPreprocessingSubpipelineInput } from './post-team-preprocessing-subpipeline'
@@ -27,11 +26,12 @@ export interface JoinedIngestionPipelineConfig {
     personsStore: PersonsStore
     hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    overflowRateLimiter: MemoryRateLimiter
     overflowEnabled: boolean
     overflowTopic: string
     dlqTopic: string
     promiseScheduler: PromiseScheduler
+    overflowRedirectService?: OverflowRedirectService
+    overflowLaneTTLRefreshService?: OverflowRedirectService
 
     // Per-distinct-id config
     perDistinctIdOptions: EventPipelineRunnerOptions & {
@@ -57,7 +57,7 @@ type PreprocessedEventWithGroupStore = PostTeamPreprocessingSubpipelineInput & {
 }
 
 function getTokenAndDistinctId(input: PerEventProcessingInput): string {
-    const token = input.event.token ?? ''
+    const token = input.headers.token ?? ''
     const distinctId = input.event.distinct_id ?? ''
     return `${token}:${distinctId}`
 }
@@ -68,8 +68,8 @@ function mapToPerEventInput<C>(
     const input = element.result.value
     return {
         result: ok({
-            message: input.eventWithTeam.message,
-            event: input.eventWithTeam.event as PipelineEvent,
+            message: input.message,
+            event: input.event,
             team: input.team,
             headers: input.headers,
             groupStoreForBatch: input.groupStoreForBatch,
@@ -88,11 +88,12 @@ export function createJoinedIngestionPipeline<
         personsStore,
         hogTransformer,
         eventIngestionRestrictionManager,
-        overflowRateLimiter,
         overflowEnabled,
         overflowTopic,
         dlqTopic,
         promiseScheduler,
+        overflowRedirectService,
+        overflowLaneTTLRefreshService,
         perDistinctIdOptions,
         teamManager,
         groupTypeManager,
@@ -105,11 +106,12 @@ export function createJoinedIngestionPipeline<
         personsStore,
         hogTransformer,
         eventIngestionRestrictionManager,
-        overflowRateLimiter,
         overflowEnabled,
         overflowTopic,
         dlqTopic,
         promiseScheduler,
+        overflowRedirectService,
+        overflowLaneTTLRefreshService,
     }
 
     const pipelineConfig: PipelineConfig = {

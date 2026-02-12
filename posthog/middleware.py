@@ -24,22 +24,18 @@ from django.utils.cache import add_never_cache_headers
 import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
-from rest_framework import status
 from social_core.exceptions import AuthCanceled, AuthFailed
 from statshog.defaults.django import statsd
 
-from posthog.api.decide import get_decide
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
-from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import generate_random_token
-from posthog.rate_limit import DecideRateThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
@@ -48,10 +44,8 @@ from posthog.utils import _is_valid_ip_address
 from products.notebooks.backend.models import Notebook
 
 from .auth import PersonalAPIKeyAuthentication
-from .utils_cors import cors_response
 
 ALWAYS_ALLOWED_ENDPOINTS = [
-    "decide",
     "static",
     "_health",
     "flags",
@@ -68,7 +62,7 @@ default_cookie_options = {
     "samesite": "Strict",
 }
 
-cookie_api_paths_to_ignore = {"decide", "api", "flags", "scim"}
+cookie_api_paths_to_ignore = {"api", "flags", "scim"}
 
 
 class AllowIPMiddleware:
@@ -248,6 +242,7 @@ class AutoProjectMiddleware:
             if path_parts[0] == "dashboard":
                 dashboard_id = path_parts[1]
                 if dashboard_id.isnumeric():
+                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return Dashboard.objects.filter(deleted=False, id=dashboard_id)
             elif path_parts[0] == "insights":
                 insight_short_id = path_parts[1]
@@ -258,14 +253,17 @@ class AutoProjectMiddleware:
             elif path_parts[0] == "feature_flags":
                 feature_flag_id = path_parts[1]
                 if feature_flag_id.isnumeric():
+                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return FeatureFlag.objects.filter(deleted=False, id=feature_flag_id)
             elif path_parts[0] == "action":
                 action_id = path_parts[1]
                 if action_id.isnumeric():
+                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return Action.objects.filter(deleted=False, id=action_id)
             elif path_parts[0] == "cohorts":
                 cohort_id = path_parts[1]
                 if cohort_id.isnumeric():
+                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return Cohort.objects.filter(deleted=False, id=cohort_id)
         return None
 
@@ -413,36 +411,8 @@ def shortcircuitmiddleware(f):
 class ShortCircuitMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
-        self.decide_throttler = DecideRateThrottle(
-            replenish_rate=settings.DECIDE_BUCKET_REPLENISH_RATE,
-            bucket_capacity=settings.DECIDE_BUCKET_CAPACITY,
-        )
 
     def __call__(self, request: HttpRequest):
-        if request.path == "/decide/" or request.path == "/decide":
-            try:
-                # :KLUDGE: Manually tag ClickHouse queries as CHMiddleware is skipped
-                tag_queries(
-                    kind="request",
-                    id=request.path,
-                    route_id=resolve(request.path).route,
-                    http_referer=request.headers.get("referer"),
-                    http_user_agent=request.headers.get("user-agent"),
-                )
-                if self.decide_throttler.allow_request(request, None):
-                    return get_decide(request)
-                else:
-                    return cors_response(
-                        request,
-                        generate_exception_response(
-                            "decide",
-                            f"Rate limit exceeded ",
-                            code="rate_limit_exceeded",
-                            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                        ),
-                    )
-            finally:
-                reset_query_tags()
         response: HttpResponse = self.get_response(request)
         return response
 
@@ -455,7 +425,7 @@ def per_request_logging_context_middleware(
     see
     https://django-structlog.readthedocs.io/en/latest/getting_started.html#extending-request-log-metadata
     for details. They include e.g. request_id, user_id. In some cases e.g. we
-    add the team_id to the context like the get_events and decide endpoints.
+    add the team_id to the context like the get_events endpoint.
 
     This middleware adds some additional context at the beginning of the
     request. Feel free to add anything that's relevant for the request here.
@@ -889,6 +859,7 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$"),
     # Allow upgrading from read-only to read-write impersonation
     "/admin/impersonation/upgrade/",
 ]

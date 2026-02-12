@@ -1,14 +1,24 @@
-import posthog from 'posthog-js'
+import posthog, { PostHogInterface } from 'posthog-js'
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
-export const SDK_DEFAULTS_DATE = '2025-11-30'
+import { startFramerateTracking } from './framerateTracker'
+
+export const SDK_DEFAULTS_DATE = '2026-01-30'
 
 const shouldDefer = (): boolean => {
     const sessionId = posthog.get_session_id()
     return sampleOnProperty(sessionId, 0.5)
+}
+
+const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
+    return (
+        !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||
+        (!!loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_REACT_FRAMERATE) &&
+            sampleOnProperty(loadedInstance.get_session_id(), 0.1))
+    )
 }
 
 export function loadPostHogJS(): void {
@@ -25,6 +35,7 @@ export function loadPostHogJS(): void {
             bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,
+            disable_product_tours: window.IMPERSONATED_SESSION,
             __preview_deferred_init_extensions: shouldDefer(),
             error_tracking: {
                 __capturePostHogExceptions: true,
@@ -39,6 +50,11 @@ export function loadPostHogJS(): void {
                     loadedInstance.opt_out_capturing()
                 } else {
                     loadedInstance.opt_in_capturing()
+
+                    if (shouldTrackFramerate(loadedInstance)) {
+                        console.info('tracking react framerate')
+                        startFramerateTracking(loadedInstance)
+                    }
 
                     if (loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_MEMORY_USAGE)) {
                         const hasMemory = 'memory' in window.performance
@@ -125,6 +141,11 @@ export function loadPostHogJS(): void {
             __preview_flags_v2: true,
             __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
             __preview_disable_xhr_credentials: true,
+            external_scripts_inject_target: 'head',
+            capture_performance: {
+                //disabling to investigate if this is associated with memory leak in the posthog app
+                web_vitals_attribution: false,
+            },
         })
 
         posthog.onFeatureFlags((_flags, _variants, context) => {

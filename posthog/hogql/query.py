@@ -275,6 +275,7 @@ class HogQLQueryExecutor:
 
         if self.debug and self.error is None:  # If the query errored, explain will fail as well.
             with self.timings.measure("explain"):
+                # nosemgrep: clickhouse-injection-taint - HogQL-compiled SQL, values in context
                 explain_results = sync_execute(
                     f"EXPLAIN {self.clickhouse_sql}",
                     self.clickhouse_context.values,

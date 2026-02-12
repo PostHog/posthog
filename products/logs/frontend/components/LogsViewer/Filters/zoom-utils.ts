@@ -21,6 +21,7 @@ export const zoomDateRange = (
     dateRange: { date_from?: string | null; date_to?: string | null },
     multiplier: number
 ): { date_from?: string | null; date_to?: string | null } => {
+    const now = dayjs()
     // If only date_from is set and is relative we can do a nicer zoom function
     if (dateRange.date_from && !dateRange.date_to) {
         const newDateFrom = zoomDateRelative(dateRange.date_from, multiplier)
@@ -33,11 +34,12 @@ export const zoomDateRange = (
     }
 
     const start = dateRange.date_from
-        ? (dateStringToDayJs(dateRange.date_from) ?? dayjs().subtract(1, 'hour'))
-        : dayjs().subtract(1, 'hour')
-    const end = dateRange.date_to ? (dateStringToDayJs(dateRange.date_to) ?? dayjs()) : dayjs()
+        ? (dateStringToDayJs(dateRange.date_from) ?? now.subtract(1, 'hour'))
+        : now.subtract(1, 'hour')
+    const end = dateRange.date_to ? (dateStringToDayJs(dateRange.date_to) ?? now) : now
 
-    const diffMins = end.diff(start, 'minutes')
+    // Use a minimum of 1 minute when diff is 0 (same from/to timestamps) to allow zooming out
+    const diffMins = Math.max(end.diff(start, 'minutes'), 1)
     const centerDate = start.add(diffMins * 0.5, 'minutes')
 
     const newStart = centerDate.subtract(diffMins * 0.5 * multiplier, 'minutes')
@@ -45,6 +47,6 @@ export const zoomDateRange = (
 
     return {
         date_from: newStart.format('YYYY-MM-DDTHH:mm:ss.SSSZ'),
-        date_to: newEnd.format('YYYY-MM-DDTHH:mm:ss.SSSZ'),
+        date_to: (newEnd.isAfter(now) ? now : newEnd).format('YYYY-MM-DDTHH:mm:ss.SSSZ'),
     }
 }

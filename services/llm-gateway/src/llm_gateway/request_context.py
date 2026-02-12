@@ -4,10 +4,14 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import structlog
+
 if TYPE_CHECKING:
     from llm_gateway.auth.models import AuthenticatedUser
     from llm_gateway.rate_limiting.runner import ThrottleRunner
     from llm_gateway.rate_limiting.throttles import ThrottleContext
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -20,6 +24,7 @@ request_context_var: ContextVar[RequestContext | None] = ContextVar("request_con
 throttle_runner_var: ContextVar[ThrottleRunner | None] = ContextVar("throttle_runner", default=None)
 throttle_context_var: ContextVar[ThrottleContext | None] = ContextVar("throttle_context", default=None)
 auth_user_var: ContextVar[AuthenticatedUser | None] = ContextVar("auth_user", default=None)
+time_to_first_token_var: ContextVar[float | None] = ContextVar("time_to_first_token", default=None)
 
 
 def get_request_context() -> RequestContext | None:
@@ -53,9 +58,19 @@ def set_auth_user(user: AuthenticatedUser) -> None:
     auth_user_var.set(user)
 
 
-async def record_output_tokens(output_tokens: int) -> None:
-    """Record actual output tokens for rate limiting. Call after streaming completes."""
+def get_time_to_first_token() -> float | None:
+    return time_to_first_token_var.get()
+
+
+def set_time_to_first_token(ttft: float) -> None:
+    time_to_first_token_var.set(ttft)
+
+
+async def record_cost(cost: float, end_user_id: str | None = None) -> None:
+    """Record cost for rate limiting. Call after response completes."""
     runner = throttle_runner_var.get()
     context = throttle_context_var.get()
     if runner and context:
-        await runner.record_output_tokens(context, output_tokens)
+        if end_user_id:
+            context.end_user_id = end_user_id
+        await runner.record_cost(context, cost)

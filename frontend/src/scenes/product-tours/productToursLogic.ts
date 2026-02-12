@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { uuid } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -104,7 +105,7 @@ export function getDefaultTourStepButtons(stepIndex: number, totalSteps: number)
     return {
         primary: {
             text: isLastStep ? 'Done' : 'Next',
-            action: isLastStep ? 'dismiss' : 'next_step',
+            action: 'next_step',
         },
         ...(isFirstStep
             ? {}
@@ -221,17 +222,15 @@ export function isBannerAnnouncement(tour: Pick<ProductTour, 'content'>): boolea
     return isAnnouncement(tour) && tour.content?.steps?.[0]?.type === 'banner'
 }
 
-export function isModalAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
-    return isAnnouncement(tour) && tour.content?.steps?.[0]?.type === 'modal'
-}
-
 export interface ProductToursFilters {
     archived: boolean
 }
 
 export const productToursLogic = kea<productToursLogicType>([
     path(['scenes', 'product-tours', 'productToursLogic']),
-    connect(() => ({})),
+    connect(() => ({
+        actions: [eventUsageLogic, ['reportProductTourCreated', 'reportProductTourListViewed']],
+    })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setFilters: (filters: Partial<ProductToursFilters>) => ({ filters }),
@@ -296,6 +295,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     product_type: ProductKey.PRODUCT_TOURS,
                     intent_context: ProductIntentContext.PRODUCT_TOUR_CREATED,
                 })
+                actions.reportProductTourCreated(announcement, 'app')
                 actions.loadProductTours()
                 router.actions.push(urls.productTour(announcement.id, 'edit=true&tab=steps'))
             } catch {
@@ -312,11 +312,15 @@ export const productToursLogic = kea<productToursLogicType>([
                     product_type: ProductKey.PRODUCT_TOURS,
                     intent_context: ProductIntentContext.PRODUCT_TOUR_CREATED,
                 })
+                actions.reportProductTourCreated(banner, 'app')
                 actions.loadProductTours()
                 router.actions.push(urls.productTour(banner.id, 'edit=true&tab=steps'))
             } catch {
                 lemonToast.error('Failed to create banner')
             }
+        },
+        loadProductToursSuccess: () => {
+            actions.reportProductTourListViewed()
         },
     })),
     selectors({

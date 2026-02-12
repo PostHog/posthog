@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -11,7 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { Breadcrumb, OnboardingProduct, OnboardingStepKey, SidePanelTab } from '~/types'
+import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
@@ -34,7 +35,6 @@ export interface OnboardingLogicProps {
 }
 
 const STEP_KEY_TITLE_OVERRIDES: Partial<Record<OnboardingStepKey, string>> = {
-    [OnboardingStepKey.AI_CONSENT]: 'PostHog AI',
     [OnboardingStepKey.LINK_DATA]: 'Import data',
 }
 
@@ -57,19 +57,21 @@ export type OnboardingStepType = OnboardingStepElement
 export const getOnboardingCompleteRedirectUri = (productKey: ProductKey): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            return urls.insightNew()
+            return urls.insightOptions()
         case ProductKey.WEB_ANALYTICS:
             return urls.webAnalytics()
         case ProductKey.SESSION_REPLAY:
             return urls.replay()
         case ProductKey.FEATURE_FLAGS:
-            return urls.featureFlag('new')
+            return urls.featureFlags()
         case ProductKey.SURVEYS:
             return urls.surveyTemplates()
         case ProductKey.ERROR_TRACKING:
             return urls.errorTracking()
         case ProductKey.LLM_ANALYTICS:
             return urls.llmAnalyticsDashboard()
+        case ProductKey.WORKFLOWS:
+            return urls.workflows()
         default:
             return urls.default()
     }
@@ -99,6 +101,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'recordProductIntentOnboardingComplete'],
             sidePanelStateLogic,
             ['openSidePanel'],
+            globalSetupLogic,
+            ['openGlobalSetup'],
         ],
     })),
     actions({
@@ -257,14 +261,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 (stepKey && allOnboardingSteps.length > 0 && !currentOnboardingStep) ||
                 (!stepKey && allOnboardingSteps.length > 0),
         ],
-        isFirstProductOnboarding: [
-            (s) => [s.currentTeam],
-            (currentTeam) => {
-                return !Object.keys(currentTeam?.has_completed_onboarding_for || {}).some(
-                    (key) => currentTeam?.has_completed_onboarding_for?.[key] === true
-                )
-            },
-        ],
         billingProduct: [
             (s) => [s.product, s.productKey, s.billing],
             (_product, productKey, billing) => {
@@ -331,17 +327,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     },
                 })
             }
-
-            if (values.isFirstProductOnboarding && !values.modalMode) {
-                // Because the side panel opening has its own actionToUrl,
-                // we delay opening it to avoid a race condition with the updateCurrentTeamSuccess redirect
-                setTimeout(() => {
-                    actions.openSidePanel(SidePanelTab.Activation)
-                }, 100)
-            }
         },
         skipOnboarding: () => {
+            actions.openGlobalSetup()
             router.actions.push(values.onCompleteOnboardingRedirectUrl)
+        },
+        updateCurrentTeamSuccess: () => {
+            actions.openGlobalSetup()
         },
         setAllOnboardingSteps: () => {
             if (values.isStepKeyInvalid) {
@@ -392,6 +384,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
                 const redirectUrl = values.onCompleteOnboardingRedirectUrl
                 actions.setOnCompleteOnboardingRedirectUrl(null)
+
                 return [redirectUrl]
             }
         },

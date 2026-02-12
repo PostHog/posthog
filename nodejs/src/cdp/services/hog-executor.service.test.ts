@@ -14,7 +14,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { promisifyCallback } from '../../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { EXTEND_OBJECT_KEY } from './hog-executor.service'
+import { EXTEND_OBJECT_KEY, cdpTrackedFetch, shadowFetchContext } from './hog-executor.service'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -659,6 +659,22 @@ describe('Hog Executor', () => {
                 "Function completed in REPLACEDms. Sync: 0ms. Mem: 0.17kb. Ops: 28. Event: 'http://localhost:8000/events/1'",
             ])
         })
+
+        it('sets execResult when VM returns an object synchronously', async () => {
+            // This tests a simple return statement without any async functions
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_return_object,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const res = await executor.execute(createExampleInvocation(fn))
+            expect(res.finished).toBe(true)
+            expect(res.execResult).toEqual({
+                status: 'pending',
+                priority: 'high',
+                ticket_number: 42,
+            })
+        })
     })
 
     describe('posthogCaptue', () => {
@@ -685,7 +701,7 @@ describe('Hog Executor', () => {
             `)
         })
 
-        it('ignores events that have already used their postHogCapture', async () => {
+        it('allows events that have already used their postHogCapture a maximum of 10 times', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.posthog_capture,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
@@ -696,7 +712,38 @@ describe('Hog Executor', () => {
                 groups: {},
                 event: {
                     properties: {
-                        $hog_function_execution_count: 1,
+                        $hog_function_execution_count: 9,
+                    },
+                },
+            } as any)
+            const result = await executor.execute(createExampleInvocation(fn, globals))
+            expect(result?.capturedPostHogEvents).toMatchInlineSnapshot(`
+                [
+                  {
+                    "distinct_id": "distinct_id",
+                    "event": "test (copy)",
+                    "properties": {
+                      "$hog_function_execution_count": 10,
+                    },
+                    "team_id": 1,
+                    "timestamp": "2025-01-01T00:00:00.000Z",
+                  },
+                ]
+            `)
+        })
+
+        it('ignores events that have already used their postHogCapture 10 times', async () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.posthog_capture,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const globals = createHogExecutionGlobals({
+                groups: {},
+                event: {
+                    properties: {
+                        $hog_function_execution_count: 10,
                     },
                 },
             } as any)
@@ -704,10 +751,132 @@ describe('Hog Executor', () => {
             expect(result?.capturedPostHogEvents).toEqual([])
             expect(cleanLogs(result?.logs.map((log) => log.message) ?? [])).toMatchInlineSnapshot(`
                 [
-                  "postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.",
+                  "postHogCapture was called from an event that already executed this function 10 times previously. To prevent unbounded infinite loops, the event was not captured.",
                   "Function completed in REPLACEDms. Sync: 0ms. Mem: 0.1kb. Ops: 15. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
+        })
+    })
+
+    describe('postHogGetTicket and postHogUpdateTicket', () => {
+        const mockExecHogForAsyncFunction = (asyncFunctionName: string, asyncFunctionArgs: any[]) => {
+            const hogExecModule = require('../utils/hog-exec')
+            jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
+                execResult: {
+                    finished: false,
+                    asyncFunctionName,
+                    asyncFunctionArgs,
+                    state: { syncDuration: 1, maxMemUsed: 100, ops: 10, stack: [] },
+                },
+                error: undefined,
+                durationMs: 1,
+                waitedForThreadRelief: false,
+            })
+        }
+
+        // Provide pre-built inputs so buildInputsWithGlobals is skipped
+        const createTicketInvocation = () =>
+            createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                }),
+                { inputs: {} }
+            )
+
+        it('postHogGetTicket queues internal fetch with correct params', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                api_token: 'test-api-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: 'test-ticket-123' }])
+
+            const result = await executor.execute(createTicketInvocation())
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: `${hub.SITE_URL}/api/conversations/external/ticket/test-ticket-123`,
+                method: 'GET',
+                headers: { Authorization: 'Bearer test-api-token' },
+            })
+        })
+
+        it('postHogUpdateTicket queues internal fetch with correct params', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                api_token: 'test-api-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateTicket', [
+                { ticket_id: 'test-ticket-456', updates: { status: 'resolved', priority: 'high' } },
+            ])
+
+            const result = await executor.execute(createTicketInvocation())
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: `${hub.SITE_URL}/api/conversations/external/ticket/test-ticket-456`,
+                method: 'PATCH',
+                body: JSON.stringify({ status: 'resolved', priority: 'high' }),
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: 'Bearer test-api-token',
+                },
+            })
+        })
+
+        it('postHogGetTicket errors when ticket_id is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                api_token: 'test-api-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetTicket', [{}])
+
+            const result = await executor.execute(createTicketInvocation())
+            expect(result.error).toContain("missing 'ticket_id'")
+        })
+
+        it('postHogUpdateTicket errors when ticket_id is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                api_token: 'test-api-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateTicket', [{ updates: { status: 'resolved' } }])
+
+            const result = await executor.execute(createTicketInvocation())
+            expect(result.error).toContain("missing 'ticket_id'")
+        })
+
+        it('postHogGetTicket errors when team is not found', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(null)
+
+            mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: 'test-ticket-123' }])
+
+            const result = await executor.execute(createTicketInvocation())
+            expect(result.error).toContain('Team 1 not found')
+        })
+    })
+
+    describe('fetch does not allow internal flag', () => {
+        it('regular fetch call does not pass through internal flag', async () => {
+            const invocation = createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+            )
+
+            const result = await executor.execute(invocation)
+
+            // The fetch case handler only picks url/method/body/headers — internal is never passed
+            expect(result.invocation.queueParameters).toBeDefined()
+            expect((result.invocation.queueParameters as any).type).toBe('fetch')
+            expect((result.invocation.queueParameters as any).internal).toBeUndefined()
         })
     })
 
@@ -1171,6 +1340,72 @@ describe('Hog Executor', () => {
                   },
                 ]
             `)
+        })
+    })
+
+    describe('shadowFetchContext', () => {
+        beforeEach(() => {
+            jest.mocked(fetch).mockClear()
+        })
+
+        it('returns no-op response when inside shadow context', async () => {
+            const result = await shadowFetchContext.run(true, () =>
+                cdpTrackedFetch({
+                    url: 'http://should-not-be-called.example.com/test',
+                    fetchParams: { method: 'GET' },
+                    templateId: 'test-template',
+                })
+            )
+
+            expect(result.fetchError).toBeNull()
+            expect(result.fetchResponse?.status).toBe(200)
+            expect(result.fetchDuration).toBe(0)
+            expect(fetch).not.toHaveBeenCalled()
+        })
+
+        it('makes real HTTP request when outside shadow context', async () => {
+            jest.mocked(fetch).mockResolvedValueOnce({
+                status: 200,
+                headers: {},
+            } as any)
+
+            const result = await cdpTrackedFetch({
+                url: 'http://example.com/test',
+                fetchParams: { method: 'GET' },
+                templateId: 'test-template',
+            })
+
+            expect(fetch).toHaveBeenCalledWith('http://example.com/test', { method: 'GET' })
+            expect(result.fetchResponse?.status).toBe(200)
+        })
+
+        it('isolates shadow context from concurrent non-shadow fetches', async () => {
+            jest.mocked(fetch).mockResolvedValue({
+                status: 200,
+                headers: {},
+            } as any)
+
+            const [shadowResult, normalResult] = await Promise.all([
+                shadowFetchContext.run(true, () =>
+                    cdpTrackedFetch({
+                        url: 'http://shadow.example.com/test',
+                        fetchParams: { method: 'GET' },
+                        templateId: 'shadow-template',
+                    })
+                ),
+                cdpTrackedFetch({
+                    url: 'http://normal.example.com/test',
+                    fetchParams: { method: 'GET' },
+                    templateId: 'normal-template',
+                }),
+            ])
+
+            expect(shadowResult.fetchDuration).toBe(0)
+            expect(shadowResult.fetchResponse?.status).toBe(200)
+
+            expect(fetch).toHaveBeenCalledTimes(1)
+            expect(fetch).toHaveBeenCalledWith('http://normal.example.com/test', { method: 'GET' })
+            expect(normalResult.fetchResponse?.status).toBe(200)
         })
     })
 })

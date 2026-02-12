@@ -32,25 +32,9 @@ import {
 } from '@posthog/shared-onboarding/feature-flags'
 import { JSEventCapture, NodeEventCapture, PythonEventCapture } from '@posthog/shared-onboarding/product-analytics'
 
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
-import { AdvertiseMobileReplay } from '../session-replay/SessionReplaySDKInstructions'
-
-// Helper to create wrapped instruction components without recreating snippets on every render
-function withOnboardingDocsWrapper(
-    Installation: React.ComponentType<any>,
-    snippets?: Record<string, React.ComponentType<any>>
-): () => JSX.Element {
-    return function WrappedInstallation() {
-        return (
-            <OnboardingDocsContentWrapper snippets={snippets}>
-                <Installation />
-            </OnboardingDocsContentWrapper>
-        )
-    }
-}
+import { withMobileReplay, withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 // Snippet configurations (defined once, not recreated on render)
 // These include both event capture (from product-analytics) and flag snippets
@@ -93,63 +77,36 @@ const SERVER_SDK_SNIPPETS = {
     OverridePropertiesSnippet,
 }
 
-// Helper to create components with Installation + FlagImplementationSteps
-function withFlagImplementation(
-    Installation: React.ComponentType<any>,
-    _sdkKey: SDKKey,
-    snippets?: Record<string, React.ComponentType<any>>
-): () => JSX.Element {
-    return function WrappedInstallation() {
-        return (
-            <OnboardingDocsContentWrapper snippets={snippets}>
-                <Installation />
-            </OnboardingDocsContentWrapper>
-        )
-    }
-}
-
-// Helper to create components with Installation + FlagImplementationSteps + AdvertiseMobileReplay
-function withFlagImplementationAndReplay(
-    Installation: React.ComponentType<any>,
-    sdkKey: SDKKey,
-    snippets?: Record<string, React.ComponentType<any>>
-): () => JSX.Element {
-    return function WrappedInstallation() {
-        return (
-            <OnboardingDocsContentWrapper snippets={snippets}>
-                <Installation />
-                <AdvertiseMobileReplay context="flags-onboarding" sdkKey={sdkKey} />
-            </OnboardingDocsContentWrapper>
-        )
-    }
-}
-
-// Helper to create components with Installation + FlagImplementationStepsSSR (for SSR frameworks)
-// Note: SSR frameworks now use feature-flags Installation components that already include flag steps
-function withFlagImplementationSSR(
-    Installation: React.ComponentType<any>,
-    _clientSDKKey: SDKKey,
-    _serverSDKKey: SDKKey,
-    snippets?: Record<string, React.ComponentType<any>>
-): () => JSX.Element {
-    return function WrappedInstallation() {
-        return (
-            <OnboardingDocsContentWrapper snippets={snippets}>
-                <Installation />
-            </OnboardingDocsContentWrapper>
-        )
-    }
-}
-
 // Wrappers for SDKs that use Installation components from shared-onboarding
-const FeatureFlagsJSWebInstructionsWrapper = withOnboardingDocsWrapper(JSWebInstallation, JS_WEB_SNIPPETS)
-const FeatureFlagsReactInstructionsWrapper = withOnboardingDocsWrapper(ReactInstallation, REACT_SNIPPETS)
-const FeatureFlagsNodeInstructionsWrapper = withOnboardingDocsWrapper(NodeJSInstallation, NODE_SNIPPETS)
-const FeatureFlagsPythonInstructionsWrapper = withOnboardingDocsWrapper(PythonInstallation, PYTHON_SNIPPETS)
-const FeatureFlagsPHPInstructionsWrapper = withOnboardingDocsWrapper(PHPInstallation, SERVER_SDK_SNIPPETS)
-const FeatureFlagsRubyInstructionsWrapper = withOnboardingDocsWrapper(RubyInstallation, SERVER_SDK_SNIPPETS)
-const FeatureFlagsGoInstructionsWrapper = withOnboardingDocsWrapper(GoInstallation, SERVER_SDK_SNIPPETS)
-const FeatureFlagsAPIInstructionsWrapper = withOnboardingDocsWrapper(APIInstallation)
+const FeatureFlagsJSWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: JSWebInstallation,
+    snippets: JS_WEB_SNIPPETS,
+})
+const FeatureFlagsReactInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactInstallation,
+    snippets: REACT_SNIPPETS,
+})
+const FeatureFlagsNodeInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: NodeJSInstallation,
+    snippets: NODE_SNIPPETS,
+})
+const FeatureFlagsPythonInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: PythonInstallation,
+    snippets: PYTHON_SNIPPETS,
+})
+const FeatureFlagsPHPInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: PHPInstallation,
+    snippets: SERVER_SDK_SNIPPETS,
+})
+const FeatureFlagsRubyInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RubyInstallation,
+    snippets: SERVER_SDK_SNIPPETS,
+})
+const FeatureFlagsGoInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: GoInstallation,
+    snippets: SERVER_SDK_SNIPPETS,
+})
+const FeatureFlagsAPIInstructionsWrapper = withOnboardingDocsWrapper({ Installation: APIInstallation })
 
 // Snippet configuration for flag implementation (used by FlagImplementationSteps)
 const FLAG_IMPLEMENTATION_SNIPPETS = {
@@ -199,102 +156,87 @@ const SSR_FRAMEWORK_SNIPPETS = {
     MultivariateFlagSnippet,
 }
 
-// Wrappers for SDKs using product-analytics Installation components with FlagImplementationSteps
-// Match the snippets used in ProductAnalyticsSDKInstructions.tsx for the same Installation components
-const FeatureFlagsAngularInstructionsWrapper = withFlagImplementation(
-    AngularInstallation,
-    SDKKey.JS_WEB,
-    ANGULAR_WITH_EVENTS_SNIPPETS
-)
-const FeatureFlagsAstroInstructionsWrapper = withFlagImplementation(
-    AstroInstallation,
-    SDKKey.JS_WEB,
-    JS_WEB_WITH_EVENTS_SNIPPETS
-)
-const FeatureFlagsBubbleInstructionsWrapper = withFlagImplementation(
-    BubbleInstallation,
-    SDKKey.JS_WEB,
-    JS_WEB_WITH_EVENTS_SNIPPETS
-)
-const FeatureFlagsFramerInstructionsWrapper = withFlagImplementation(
-    FramerInstallation,
-    SDKKey.JS_WEB,
-    JS_WEB_WITH_EVENTS_SNIPPETS
-)
-const FeatureFlagsVueInstructionsWrapper = withFlagImplementation(
-    VueInstallation,
-    SDKKey.JS_WEB,
-    JS_WEB_WITH_EVENTS_SNIPPETS
-)
-const FeatureFlagsWebflowInstructionsWrapper = withFlagImplementation(
-    WebflowInstallation,
-    SDKKey.JS_WEB,
-    JS_WEB_WITH_EVENTS_SNIPPETS
-)
+// Wrappers for SDKs using product-analytics Installation components
+const FeatureFlagsAngularInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AngularInstallation,
+    snippets: ANGULAR_WITH_EVENTS_SNIPPETS,
+})
+const FeatureFlagsAstroInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AstroInstallation,
+    snippets: JS_WEB_WITH_EVENTS_SNIPPETS,
+})
+const FeatureFlagsBubbleInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: BubbleInstallation,
+    snippets: JS_WEB_WITH_EVENTS_SNIPPETS,
+})
+const FeatureFlagsFramerInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: FramerInstallation,
+    snippets: JS_WEB_WITH_EVENTS_SNIPPETS,
+})
+const FeatureFlagsVueInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: VueInstallation,
+    snippets: JS_WEB_WITH_EVENTS_SNIPPETS,
+})
+const FeatureFlagsWebflowInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: WebflowInstallation,
+    snippets: JS_WEB_WITH_EVENTS_SNIPPETS,
+})
 
-// Python frameworks - Django uses PYTHON_SNIPPETS in product-analytics
-const FeatureFlagsDjangoInstructionsWrapper = withFlagImplementation(
-    DjangoInstallation,
-    SDKKey.PYTHON,
-    PYTHON_WITH_EVENTS_SNIPPETS
-)
+// Python frameworks
+const FeatureFlagsDjangoInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: DjangoInstallation,
+    snippets: PYTHON_WITH_EVENTS_SNIPPETS,
+})
 
-// PHP frameworks - Laravel doesn't use event capture snippets in product-analytics
-const FeatureFlagsLaravelInstructionsWrapper = withFlagImplementation(
-    LaravelInstallation,
-    SDKKey.PHP,
-    FLAG_IMPLEMENTATION_SNIPPETS
-)
+// PHP frameworks
+const FeatureFlagsLaravelInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: LaravelInstallation,
+    snippets: FLAG_IMPLEMENTATION_SNIPPETS,
+})
 
 // Wrappers for mobile SDKs with AdvertiseMobileReplay
-const FeatureFlagsAndroidInstructionsWrapper = withFlagImplementationAndReplay(
-    AndroidInstallation,
-    SDKKey.ANDROID,
-    FLAG_IMPLEMENTATION_SNIPPETS
-)
-const FeatureFlagsIOSInstructionsWrapper = withFlagImplementationAndReplay(
-    IOSInstallation,
-    SDKKey.IOS,
-    FLAG_IMPLEMENTATION_SNIPPETS
-)
-const FeatureFlagsFlutterInstructionsWrapper = withFlagImplementationAndReplay(
-    FlutterInstallation,
-    SDKKey.FLUTTER,
-    FLAG_IMPLEMENTATION_SNIPPETS
-)
-const FeatureFlagsRNInstructionsWrapper = withFlagImplementationAndReplay(
-    ReactNativeInstallation,
-    SDKKey.REACT_NATIVE,
-    FLAG_IMPLEMENTATION_SNIPPETS
-)
+const FeatureFlagsAndroidInstructionsWrapper = withMobileReplay({
+    Installation: AndroidInstallation,
+    sdkKey: SDKKey.ANDROID,
+    onboardingContext: 'flags-onboarding',
+    snippets: FLAG_IMPLEMENTATION_SNIPPETS,
+})
+const FeatureFlagsIOSInstructionsWrapper = withMobileReplay({
+    Installation: IOSInstallation,
+    sdkKey: SDKKey.IOS,
+    onboardingContext: 'flags-onboarding',
+    snippets: FLAG_IMPLEMENTATION_SNIPPETS,
+})
+const FeatureFlagsFlutterInstructionsWrapper = withMobileReplay({
+    Installation: FlutterInstallation,
+    sdkKey: SDKKey.FLUTTER,
+    onboardingContext: 'flags-onboarding',
+    snippets: FLAG_IMPLEMENTATION_SNIPPETS,
+})
+const FeatureFlagsRNInstructionsWrapper = withMobileReplay({
+    Installation: ReactNativeInstallation,
+    sdkKey: SDKKey.REACT_NATIVE,
+    onboardingContext: 'flags-onboarding',
+    snippets: FLAG_IMPLEMENTATION_SNIPPETS,
+})
 
 // Wrappers for SSR frameworks
-// These use feature-flags Installation components that include product-analytics steps,
-// so they need both flag snippets AND event capture snippets
-const FeatureFlagsNextJSInstructionsWrapper = withFlagImplementationSSR(
-    NextJSInstallation,
-    SDKKey.REACT,
-    SDKKey.NODE_JS,
-    SSR_FRAMEWORK_SNIPPETS
-)
-const FeatureFlagsSvelteInstructionsWrapper = withFlagImplementationSSR(
-    SvelteInstallation,
-    SDKKey.JS_WEB,
-    SDKKey.NODE_JS,
-    SSR_FRAMEWORK_SNIPPETS
-)
-const FeatureFlagsRemixJSInstructionsWrapper = withFlagImplementationSSR(
-    RemixInstallation,
-    SDKKey.JS_WEB,
-    SDKKey.NODE_JS,
-    SSR_FRAMEWORK_SNIPPETS
-)
-const FeatureFlagsNuxtJSInstructionsWrapper = withFlagImplementationSSR(
-    NuxtInstallation,
-    SDKKey.REACT,
-    SDKKey.NODE_JS,
-    SSR_FRAMEWORK_SNIPPETS
-)
+const FeatureFlagsNextJSInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: NextJSInstallation,
+    snippets: SSR_FRAMEWORK_SNIPPETS,
+})
+const FeatureFlagsSvelteInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: SvelteInstallation,
+    snippets: SSR_FRAMEWORK_SNIPPETS,
+})
+const FeatureFlagsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RemixInstallation,
+    snippets: SSR_FRAMEWORK_SNIPPETS,
+})
+const FeatureFlagsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: NuxtInstallation,
+    snippets: SSR_FRAMEWORK_SNIPPETS,
+})
 
 export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: FeatureFlagsJSWebInstructionsWrapper,

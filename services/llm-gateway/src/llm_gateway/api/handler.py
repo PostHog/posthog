@@ -13,15 +13,20 @@ from llm_gateway.config import get_settings
 from llm_gateway.metrics.prometheus import (
     ACTIVE_STREAMS,
     CONCURRENT_REQUESTS,
+    LLM_TIME_TO_FIRST_TOKEN,
     PROVIDER_ERRORS,
-    PROVIDER_LATENCY,
     REQUEST_COUNT,
     REQUEST_LATENCY,
     STREAMING_CLIENT_DISCONNECT,
-    TIME_TO_FIRST_CHUNK,
 )
 from llm_gateway.observability import capture_exception
-from llm_gateway.request_context import RequestContext, get_request_id, set_auth_user, set_request_context
+from llm_gateway.request_context import (
+    RequestContext,
+    get_request_id,
+    set_auth_user,
+    set_request_context,
+    set_time_to_first_token,
+)
 from llm_gateway.streaming.sse import format_sse_stream
 
 logger = structlog.get_logger(__name__)
@@ -36,6 +41,7 @@ class ProviderConfig:
 ANTHROPIC_CONFIG = ProviderConfig(name="anthropic", endpoint_name="anthropic_messages")
 OPENAI_CONFIG = ProviderConfig(name="openai", endpoint_name="chat_completions")
 OPENAI_RESPONSES_CONFIG = ProviderConfig(name="openai", endpoint_name="responses")
+OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio_transcriptions")
 
 
 async def handle_llm_request(
@@ -137,12 +143,10 @@ async def _handle_streaming_request(
                 if not first_chunk_received:
                     first_chunk_received = True
                     time_to_first = time.monotonic() - provider_start
-                    PROVIDER_LATENCY.labels(provider=provider_config.name, model=model, product=product).observe(
+                    LLM_TIME_TO_FIRST_TOKEN.labels(provider=provider_config.name, model=model, product=product).observe(
                         time_to_first
                     )
-                    TIME_TO_FIRST_CHUNK.labels(provider=provider_config.name, model=model, product=product).observe(
-                        time_to_first
-                    )
+                    set_time_to_first_token(time_to_first)
                 yield chunk
 
         except asyncio.CancelledError:
@@ -192,13 +196,8 @@ async def _handle_non_streaming_request(
     timeout: float,
     product: str = "llm_gateway",
 ) -> dict[str, Any]:
-    provider_start = time.monotonic()
-
     try:
         response = await asyncio.wait_for(llm_call(**request_data), timeout=timeout)
-        PROVIDER_LATENCY.labels(provider=provider_config.name, model=model, product=product).observe(
-            time.monotonic() - provider_start
-        )
         response_dict = response.model_dump() if hasattr(response, "model_dump") else response
 
         REQUEST_COUNT.labels(

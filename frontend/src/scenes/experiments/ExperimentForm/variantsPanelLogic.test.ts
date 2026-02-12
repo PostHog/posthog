@@ -133,17 +133,6 @@ describe('variantsPanelLogic', () => {
                     mode: 'link',
                 })
         })
-
-        it('resets dirty flag when switching modes', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setFeatureFlagKeyDirty()
-                logic.actions.setMode('link')
-            })
-                .toDispatchActions(['setFeatureFlagKeyDirty', 'setMode'])
-                .toMatchValues({
-                    featureFlagKeyDirty: false,
-                })
-        })
     })
 
     describe('feature flag key validation', () => {

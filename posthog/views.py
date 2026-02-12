@@ -19,11 +19,12 @@ from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonR
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.clickjacking import xframe_options_exempt
-from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods
 
 import structlog
 
+from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
@@ -37,6 +38,7 @@ from posthog.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.models.personal_api_key import find_personal_api_key
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
 from posthog.redis import get_client
@@ -88,7 +90,7 @@ def login_required(view):
                 del search_params["next"]
                 response["Location"] = urlunparse(parsed_url._replace(query=urlencode(search_params)))
 
-        return response
+        return apply_auth_brand_cookie(request, response)
 
     return handler
 
@@ -196,6 +198,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "object_storage": is_cloud() or is_object_storage_available(),
         "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
     }
+    auth_brand = normalize_auth_brand(request.COOKIES.get(AUTH_BRAND_COOKIE))
+    if auth_brand:
+        response["auth_brand"] = auth_brand
 
     if settings.DEBUG or settings.E2E_TESTING:
         response["is_debug"] = True
@@ -434,6 +439,14 @@ def api_key_search_view(request: HttpRequest):
         except Team.DoesNotExist:
             pass
 
+    oauth_access_token_object = None
+    if query is not None and query.startswith("pha_"):
+        oauth_access_token_object = find_oauth_access_token(query)
+
+    oauth_refresh_token_object = None
+    if query is not None and query.startswith("phr_"):
+        oauth_refresh_token_object = find_oauth_refresh_token(query)
+
     context = {
         **admin_site.each_context(request),
         **{
@@ -443,13 +456,16 @@ def api_key_search_view(request: HttpRequest):
             "personal_api_key_hash_mode": personal_api_key_hash_mode,
             "team_object": team_object,
             "team_object_key_type": team_object_key_type,
+            "oauth_access_token_object": oauth_access_token_object,
+            "oauth_refresh_token_object": oauth_refresh_token_object,
         },
     }
 
     return render(request, template_name="api_key_search/values.html", context=context, status=200)
 
 
-@require_http_methods(["GET"])
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
 def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     """Render the preferences page for a given recipient token"""
     response = validate_messaging_preferences_token(token)
@@ -466,31 +482,59 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     if not team_id or not identifier:
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
-    try:
-        recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
-    except MessageRecipientPreference.DoesNotExist:
-        # A first-time preferences page visitor will not have a recipient in Postgres yet.
-        recipient = None
+    recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
+    categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
+
+    is_one_click_unsubscribe = (
+        request.GET.get("one_click_unsubscribe") == "1" or request.POST.get("one_click_unsubscribe") == "1"
+    )
+    if is_one_click_unsubscribe:
+        # If one-click unsubscribe, set all preferences to opted out
+        preferences_dict = {str(cat.id): PreferenceStatus.OPTED_OUT.value for cat in categories}
+
+        # Also set the "$all" preference
+        preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
+
+        recipient.preferences = preferences_dict
+        recipient.save(update_fields=["preferences"])
+
+        if request.method == "POST":
+            return HttpResponse(status=200)
 
     # Only fetch active categories and their preferences
-    categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
     preferences = recipient.get_all_preferences() if recipient else {}
+
+    categories_templating = [
+        {
+            "id": cat.id,
+            "name": cat.name,
+            "description": cat.public_description,
+            "status": preferences.get(str(cat.id), PreferenceStatus.NO_PREFERENCE),
+        }
+        for cat in categories
+    ]
 
     context = {
         "recipient": recipient,
         "categories": [
+            *categories_templating,
             {
-                "id": cat.id,
-                "name": cat.name,
-                "description": cat.public_description,
-                "status": preferences.get(str(cat.id), PreferenceStatus.NO_PREFERENCE),
-            }
-            for cat in categories
+                "id": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+                "name": "All marketing communications",
+                "description": "Unsubscribing here overrides individual preferences.",
+                "status": preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus.NO_PREFERENCE),
+            },
         ],
         "token": token,
     }
 
-    return render(request, "message_preferences/preferences.html", context)
+    return render(
+        request,
+        "message_preferences/one_click_unsubscribe_success.html"
+        if is_one_click_unsubscribe
+        else "message_preferences/preferences.html",
+        context,
+    )
 
 
 @csrf_protect

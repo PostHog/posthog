@@ -33,7 +33,9 @@ import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionData } fro
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionBlockMetadata } from './session-block-metadata'
 import { SessionConsoleLogStore } from './session-console-log-store'
+import { SessionFilter } from './session-filter'
 import { SessionMetadataStore } from './session-metadata-store'
+import { SessionTracker } from './session-tracker'
 
 const enum EventType {
     FullSnapshot = 2,
@@ -48,6 +50,8 @@ describe('session recording integration', () => {
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
+    let mockSessionTracker: jest.Mocked<SessionTracker>
+    let mockSessionFilter: jest.Mocked<SessionFilter>
     let batchBuffer: Uint8Array
     let currentOffset: number
 
@@ -93,7 +97,23 @@ describe('session recording integration', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
-        recorder = new SessionBatchRecorder(mockOffsetManager, mockStorage, mockMetadataStore, mockConsoleLogStore)
+        mockSessionTracker = {
+            trackSession: jest.fn().mockResolvedValue(false),
+        } as unknown as jest.Mocked<SessionTracker>
+
+        mockSessionFilter = {
+            isBlocked: jest.fn().mockResolvedValue(false),
+            handleNewSession: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionFilter>
+
+        recorder = new SessionBatchRecorder(
+            mockOffsetManager,
+            mockStorage,
+            mockMetadataStore,
+            mockConsoleLogStore,
+            mockSessionTracker,
+            mockSessionFilter
+        )
     })
 
     const createMessage = (

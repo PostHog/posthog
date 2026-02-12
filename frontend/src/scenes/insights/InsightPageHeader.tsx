@@ -6,7 +6,7 @@ import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash } fro
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
-import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
 import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
@@ -98,20 +98,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insight,
         insightChanged,
         insightSaving,
+        isSavingTags,
         hasDashboardItemId,
         insightLoading,
         derivedName,
     } = useValues(insightLogic(insightLogicProps))
     const { setInsightMetadata, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } = useActions(
         insightLogic(insightLogicProps)
-    )
-
-    // insightAlertsLogic
-    const { loadAlerts } = useActions(
-        insightAlertsLogic({
-            insightLogicProps,
-            insightId: insight.id as number,
-        })
     )
 
     // insightDataLogic
@@ -125,11 +118,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         hogQLVariables,
         insightQuery,
         insightData,
+        generatedInsightNameLoading,
     } = useValues(insightDataLogic(insightProps))
-    const { toggleQueryEditorPanel, toggleDebugPanel, cancelChanges } = useActions(insightDataLogic(insightProps))
+    const { toggleQueryEditorPanel, toggleDebugPanel, cancelChanges, generateInsightName } = useActions(
+        insightDataLogic(insightProps)
+    )
     const { createStaticCohort } = useActions(exportsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
+    const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
 
     // endpointLogic
     const { openCreateFromInsightModal } = useActions(endpointLogic({ tabId: insightProps.tabId || '' }))
@@ -218,7 +215,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             insightShortId={insight.short_id as InsightShortId}
                             insightId={insight.id}
                             onEditSuccess={() => {
-                                loadAlerts()
                                 push(urls.insightAlerts(insight.short_id as InsightShortId))
                             }}
                             insightLogicProps={insightLogicProps}
@@ -253,6 +249,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             tagsAvailable={allExistingTags}
                             dataAttrKey={RESOURCE_TYPE}
                             canEdit={canEditInsight}
+                            loading={isSavingTags}
                         />
 
                         <SceneFile dataAttrKey={RESOURCE_TYPE} />
@@ -402,7 +399,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             !isHogQLQuery(query) &&
                             !(isDataVisualizationNode(query) && isHogQLQuery(query.source)) && (
                                 <Link
-                                    to={urls.sqlEditor(hogQL)}
+                                    to={urls.sqlEditor({ query: hogQL })}
                                     buttonProps={{
                                         'data-attr': `${RESOURCE_TYPE}-edit-sql`,
                                         menuItem: true,
@@ -548,6 +545,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 onDescriptionChange={(description) => {
                     setInsightMetadata({ description })
                 }}
+                onGenerateName={canAccessAutoname && insightQuery ? generateInsightName : undefined}
+                isGeneratingName={canAccessAutoname && generatedInsightNameLoading}
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
@@ -584,7 +583,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         onClick={() => {
                                             if (isDataVisualizationNode(query) && insight.short_id) {
                                                 router.actions.push(
-                                                    urls.sqlEditor(undefined, undefined, insight.short_id)
+                                                    urls.sqlEditor({ insightShortId: insight.short_id })
                                                 )
                                             } else if (insight.short_id) {
                                                 const editUrl = dashboardId

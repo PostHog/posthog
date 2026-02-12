@@ -4,6 +4,21 @@ import { Scene } from 'scenes/sceneTypes'
 
 import type { appShortcutLogicType } from './appShortcutLogicType'
 
+const DISABLED_SHORTCUTS_KEY = 'posthog-disabled-shortcuts'
+
+function loadDisabledShortcuts(): string[] {
+    try {
+        const stored = localStorage.getItem(DISABLED_SHORTCUTS_KEY)
+        return stored ? JSON.parse(stored) : []
+    } catch {
+        return []
+    }
+}
+
+function saveDisabledShortcuts(names: string[]): void {
+    localStorage.setItem(DISABLED_SHORTCUTS_KEY, JSON.stringify(names))
+}
+
 interface AppShortcutBase {
     name: string
     keybind: string[][]
@@ -49,7 +64,13 @@ function triggerShortcut(shortcut: AppShortcutType): void {
     }
 }
 
-function isEditableElement(target: EventTarget | null): boolean {
+function isEditableElement(event: KeyboardEvent): boolean {
+    // Use composedPath to get the actual target element, even through shadow DOM boundaries
+    // This is necessary because event.target gets retargeted to the shadow host when events
+    // bubble up from inside a shadow DOM (e.g., surveys product inputs)
+    const path = event.composedPath()
+    const target = path[0] as HTMLElement | null
+
     if (!target || !(target instanceof HTMLElement)) {
         return false
     }
@@ -69,6 +90,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
         registerAppShortcut: (appShortcut: AppShortcutType) => ({ appShortcut }),
         unregisterAppShortcut: (name: string) => ({ name }),
         setAppShortcutMenuOpen: (open: boolean) => ({ open }),
+        toggleShortcutDisabled: (name: string) => ({ name }),
     }),
     reducers({
         registeredAppShortcuts: [
@@ -86,6 +108,16 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
             false,
             {
                 setAppShortcutMenuOpen: (_, { open }) => open,
+            },
+        ],
+        disabledShortcutNames: [
+            loadDisabledShortcuts() as string[],
+            {
+                toggleShortcutDisabled: (state, { name }) => {
+                    const next = state.includes(name) ? state.filter((n) => n !== name) : [...state, name]
+                    saveDisabledShortcuts(next)
+                    return next
+                },
             },
         ],
     }),
@@ -134,7 +166,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                     )
                 )
 
-                if (matchingShortcut) {
+                if (matchingShortcut && !values.disabledShortcutNames.includes(matchingShortcut.name)) {
                     event.preventDefault()
                     event.stopPropagation()
                     triggerShortcut(matchingShortcut)
@@ -143,7 +175,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
             }
 
             // Handle sequence shortcuts (no modifier keys, not in editable elements)
-            if (isEditableElement(event.target) || event.altKey) {
+            if (isEditableElement(event) || event.altKey) {
                 return
             }
 
@@ -159,7 +191,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 shortcut.keybind.some((keybind) => isSingleKeyKeybind(keybind) && keybind[0] === key)
             )
 
-            if (singleKeyMatch) {
+            if (singleKeyMatch && !values.disabledShortcutNames.includes(singleKeyMatch.name)) {
                 event.preventDefault()
                 event.stopPropagation()
                 cache.sequenceKeys = []
@@ -201,10 +233,12 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
 
                 if (cache.sequenceKeys.length === sequenceKeys.length) {
                     // Sequence complete
-                    event.preventDefault()
                     cache.sequenceKeys = []
                     cache.sequenceShortcut = null
-                    triggerShortcut(matchingShortcut)
+                    if (!values.disabledShortcutNames.includes(matchingShortcut.name)) {
+                        event.preventDefault()
+                        triggerShortcut(matchingShortcut)
+                    }
                 } else {
                     // Partial match - keep tracking
                     cache.sequenceShortcut = matchingShortcut

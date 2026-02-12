@@ -10,9 +10,11 @@ from django.conf import settings
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from prometheus_client import Counter
 from requests import HTTPError
 from rest_framework import request, response, serializers, viewsets
@@ -52,7 +54,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import PersonDistinctId
-from posthog.models.person.util import delete_person
+from posthog.models.person.util import delete_person, get_persons_by_distinct_ids
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -72,6 +74,9 @@ from posthog.tasks.split_person import split_person
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
+
+logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/webhook-formatter.ts
@@ -169,8 +174,9 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "properties",
             "created_at",
             "uuid",
+            "last_seen_at",
         ]
-        read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid")
+        read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid", "last_seen_at")
 
     def get_name(self, person: Person) -> str:
         team = self.context["get_team"]()
@@ -189,6 +195,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
                 "properties": instance.properties,
                 "created_at": None,
                 "uuid": instance.uuid,
+                "last_seen_at": None,
             }
 
 
@@ -502,24 +509,32 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        key = request.GET.get("key")
-        value = request.GET.get("value")
-        flattened = []
-        if key and not key.startswith("$virt"):
-            result = self._get_person_property_values_for_key(key, value)
+        with tracer.start_as_current_span("person_api_property_values") as span:
+            key = request.GET.get("key")
+            value = request.GET.get("value")
 
-            for value, count in result:
-                try:
-                    # Try loading as json for dicts or arrays
-                    flattened.append(
-                        {
-                            "name": convert_property_value(json.loads(value)),
-                            "count": count,
-                        }
-                    )
-                except json.decoder.JSONDecodeError:
-                    flattened.append({"name": convert_property_value(value), "count": count})
-        return response.Response(flattened)
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("property_key", key or "")
+            span.set_attribute("has_value_filter", value is not None)
+
+            flattened = []
+            if key and not key.startswith("$virt"):
+                result = self._get_person_property_values_for_key(key, value)
+
+                for value, count in result:
+                    try:
+                        # Try loading as json for dicts or arrays
+                        flattened.append(
+                            {
+                                "name": convert_property_value(json.loads(value)),
+                                "count": count,
+                            }
+                        )
+                    except json.decoder.JSONDecodeError:
+                        flattened.append({"name": convert_property_value(value), "count": count})
+
+            span.set_attribute("result_count", len(flattened))
+            return response.Response(flattened)
 
     @timed("get_person_property_values_for_key_timer")
     def _get_person_property_values_for_key(self, key, value):
@@ -648,6 +663,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # HTTP error - if applicable, thrown after retires are exhausted
         except HTTPError as he:
+            logger.warning(
+                "delete_person_property.capture_http_error",
+                team_id=self.team_id,
+                person_uuid=str(person.uuid),
+                property_key=request.data.get("$unset"),
+                status_code=he.response.status_code,
+            )
             return response.Response(
                 {
                     "success": False,
@@ -658,10 +680,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # catches event payload errors (CaptureInternalError) and misc. (timeout etc.)
         except Exception:
+            logger.exception(
+                "delete_person_property.capture_error",
+                team_id=self.team_id,
+                person_uuid=str(person.uuid),
+                property_key=request.data.get("$unset"),
+            )
             return response.Response(
                 {
                     "success": False,
-                    "detail": f"Unable to delete property",
+                    "detail": "Unable to delete property",
                 },
                 status=400,
             )
@@ -696,6 +724,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person = get_pk_or_uuid(self.get_queryset(), request.GET["person_id"]).get()
         cohort_ids = get_all_cohort_ids_by_person_uuid(person.uuid, team.pk)
 
+        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from team-scoped ClickHouse query)
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
 
         return response.Response({"results": CohortMinimalSerializer(cohorts, many=True).data})
@@ -989,6 +1018,34 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reset_deleted_person_distinct_ids(self.team_id, distinct_id)
 
         return response.Response(status=202)
+
+    @action(methods=["POST"], detail=False, url_path="batch_by_distinct_ids")
+    def batch_by_distinct_ids(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        distinct_ids = request.data.get("distinct_ids", [])
+
+        if not isinstance(distinct_ids, list) or len(distinct_ids) == 0:
+            return response.Response({"results": {}})
+
+        MAX_BATCH_SIZE = 200
+        distinct_ids = distinct_ids[:MAX_BATCH_SIZE]
+
+        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids).prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by("id"),
+                to_attr="distinct_ids_cache",
+            )
+        )
+
+        results: dict[str, Any] = {}
+        for person in persons:
+            person_data = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
+
+            for did in getattr(person, "distinct_ids_cache", []):
+                if did.distinct_id in distinct_ids:
+                    results[did.distinct_id] = person_data
+
+        return response.Response({"results": results})
 
     def _queue_event_deletion(self, persons: builtins.list[Person]) -> None:
         """Helper to queue deletion of all events for a person."""

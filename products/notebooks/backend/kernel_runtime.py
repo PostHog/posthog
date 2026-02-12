@@ -15,7 +15,11 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.models import User
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.models import Team, User
 from posthog.redis import get_client
 
 from products.notebooks.backend.models import KernelRuntime, Notebook
@@ -66,6 +70,62 @@ class KernelExecutionResult:
                 "sandbox_id": self.kernel_runtime.sandbox_id,
             },
         }
+
+
+@dataclass
+class _NotebookBridgeParser:
+    marker: str
+    buffer: str = ""
+
+    def feed(self, text: str) -> tuple[str, list[str]]:
+        self.buffer += text
+        output_parts: list[str] = []
+        payloads: list[str] = []
+        while True:
+            newline_index = self.buffer.find("\n")
+            if newline_index == -1:
+                break
+
+            line = self.buffer[: newline_index + 1]
+            self.buffer = self.buffer[newline_index + 1 :]
+            line_content = line[:-1]
+
+            if not line_content.startswith(self.marker):
+                output_parts.append(line)
+                continue
+
+            size_start = len(self.marker)
+            size_end = size_start
+            while size_end < len(line_content) and line_content[size_end].isdigit():
+                size_end += 1
+
+            if size_end == size_start or size_end >= len(line_content):
+                output_parts.append(line)
+                continue
+
+            if line_content[size_end] != " ":
+                output_parts.append(line)
+                continue
+
+            size = int(line_content[size_start:size_end])
+            payload_start = size_end + 1
+            payload_end = payload_start + size
+            if payload_end != len(line_content):
+                output_parts.append(line)
+                continue
+
+            payloads.append(line_content[payload_start:payload_end])
+
+        if self.buffer and not self.buffer.startswith(self.marker) and not self.marker.startswith(self.buffer):
+            output_parts.append(self.buffer)
+            self.buffer = ""
+
+        return "".join(output_parts), payloads
+
+    def flush(self) -> str:
+        remaining = self.buffer
+        self.buffer = ""
+        return remaining
 
 
 @dataclass
@@ -133,6 +193,23 @@ class KernelRuntimeSession:
             timeout=timeout,
         )
 
+    def execute_stream(
+        self,
+        code: str,
+        *,
+        capture_variables: bool = True,
+        variable_names: list[str] | None = None,
+        timeout: float | None = None,
+    ):
+        return self.service.execute_stream(
+            self.notebook,
+            self.user,
+            code,
+            capture_variables=capture_variables,
+            variable_names=variable_names,
+            timeout=timeout,
+        )
+
     def dataframe_page(
         self,
         variable_name: str,
@@ -169,6 +246,7 @@ def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
 
 class KernelRuntimeService:
     _TYPE_EXPRESSION_PREFIX = "__type__"
+    _HOGQL_QUERY_EXPRESSION_PREFIX = "__hogql_query__"
     _MODAL_REQUIRED_ENV_VARS = ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET")
     _SERVICE_LOCK_TIMEOUT_SECONDS = 30.0
     _HANDLE_LOCK_TIMEOUT_SECONDS = 60.0
@@ -242,12 +320,6 @@ class KernelRuntimeService:
         timeout: float | None = None,
     ) -> KernelExecutionResult:
         valid_variable_names = [name for name in (variable_names or []) if name.isidentifier()]
-        user_expressions: dict[str, str] | None = None
-        if capture_variables and valid_variable_names:
-            user_expressions = {}
-            for name in valid_variable_names:
-                user_expressions[name] = name
-                user_expressions[f"{self._TYPE_EXPRESSION_PREFIX}{name}"] = f"type({name}).__name__"
         handle = self._ensure_handle(notebook, user)
 
         lock_timeout = (timeout or self._execution_timeout) + self._EXECUTION_LOCK_TIMEOUT_BUFFER_SECONDS
@@ -265,6 +337,40 @@ class KernelRuntimeService:
                 )
 
             raise RuntimeError("Unsupported notebook kernel backend.")
+
+    def execute_stream(
+        self,
+        notebook: Notebook,
+        user: User | None,
+        code: str,
+        *,
+        capture_variables: bool = True,
+        variable_names: list[str] | None = None,
+        timeout: float | None = None,
+    ):
+        valid_variable_names = [name for name in (variable_names or []) if name.isidentifier()]
+        handle = self._ensure_handle(notebook, user)
+        lock_timeout = (timeout or self._execution_timeout) + self._EXECUTION_LOCK_TIMEOUT_BUFFER_SECONDS
+
+        def _stream():
+            with self._acquire_lock(handle.lock_name, timeout=lock_timeout):
+                current_handle = handle
+                if not self._is_handle_alive(current_handle):
+                    current_handle = self._reset_handle(notebook, user, current_handle)
+
+                if current_handle.backend in (KernelRuntime.Backend.MODAL, KernelRuntime.Backend.DOCKER):
+                    yield from self._execute_in_sandbox_stream(
+                        current_handle,
+                        code,
+                        capture_variables=capture_variables,
+                        variable_names=valid_variable_names,
+                        timeout=timeout,
+                    )
+                    return
+
+                raise RuntimeError("Unsupported notebook kernel backend.")
+
+        return _stream()
 
     def shutdown_all(self) -> None:
         with self._acquire_lock(self._service_lock_name, timeout=self._SERVICE_LOCK_TIMEOUT_SECONDS):
@@ -291,6 +397,9 @@ class KernelRuntimeService:
 
         parsed: dict[str, Any] = {}
         type_results: dict[str, str] = {}
+        type_errors: dict[str, dict[str, Any]] = {}
+        query_results: dict[str, str] = {}
+        query_errors: dict[str, dict[str, Any]] = {}
         for name, payload in user_expressions.items():
             if not isinstance(payload, dict):
                 continue
@@ -302,6 +411,29 @@ class KernelRuntimeService:
                     type_name = self._normalize_type_name(self._extract_user_expression_text(payload))
                     if type_name:
                         type_results[variable_name] = type_name
+                elif payload.get("status") == "error":
+                    type_errors[variable_name] = {
+                        "status": "error",
+                        "ename": payload.get("ename"),
+                        "evalue": payload.get("evalue"),
+                        "traceback": payload.get("traceback", []),
+                    }
+                continue
+            if name.startswith(self._HOGQL_QUERY_EXPRESSION_PREFIX):
+                variable_name = name[len(self._HOGQL_QUERY_EXPRESSION_PREFIX) :]
+                if not variable_name:
+                    continue
+                if payload.get("status") == "ok":
+                    query_value = self._normalize_user_expression_string(self._extract_user_expression_text(payload))
+                    if query_value:
+                        query_results[variable_name] = query_value
+                elif payload.get("status") == "error":
+                    query_errors[variable_name] = {
+                        "status": "error",
+                        "ename": payload.get("ename"),
+                        "evalue": payload.get("evalue"),
+                        "traceback": payload.get("traceback", []),
+                    }
                 continue
             status = payload.get("status")
             if status == "ok":
@@ -319,7 +451,142 @@ class KernelRuntimeService:
             type_name = type_results.get(name)
             if type_name and payload.get("status") == "ok":
                 payload["type"] = type_name
+            query_value = query_results.get(name)
+            if query_value and payload.get("status") == "ok":
+                payload["hogql_query"] = query_value
+        for name, error_payload in type_errors.items():
+            if name not in parsed:
+                parsed[name] = error_payload
+        for name, type_name in type_results.items():
+            if name not in parsed:
+                entry: dict[str, Any] = {"status": "ok", "type": type_name}
+                query_value = query_results.get(name)
+                if query_value:
+                    entry["hogql_query"] = query_value
+                parsed[name] = entry
+        for name, error_payload in query_errors.items():
+            if name not in parsed:
+                parsed[name] = error_payload
         return parsed or None
+
+    def _notebook_bridge_marker(self, handle: _KernelHandle) -> str:
+        sandbox_id = handle.sandbox_id or "unknown"
+        return f"__NOTEBOOK_BRIDGE_{sandbox_id}__"
+
+    def _strip_notebook_bridge_messages(self, text: str, marker: str) -> str:
+        parser = _NotebookBridgeParser(marker=marker)
+        filtered, _ = parser.feed(text)
+        return filtered + parser.flush()
+
+    def _parse_hogql_placeholders_payload(self, payload: Any) -> dict[str, ast.Expr] | None:
+        if not isinstance(payload, dict):
+            return None
+        placeholders: dict[str, ast.Expr] = {}
+        for name, entry in payload.items():
+            if not isinstance(name, str) or not isinstance(entry, dict):
+                continue
+            placeholder_type = entry.get("type")
+            if placeholder_type == "hogql_query":
+                query = entry.get("query")
+                if isinstance(query, str) and query.strip():
+                    placeholders[name] = parse_select(query)
+            elif placeholder_type == "constant":
+                if "value" in entry:
+                    placeholders[name] = ast.Constant(value=entry.get("value"))
+        return placeholders or None
+
+    def _handle_notebook_bridge_payload(self, payload_json: str, handle: _KernelHandle) -> None:
+        try:
+            payload = json.loads(payload_json)
+        except json.JSONDecodeError:
+            logger.warning(
+                "notebook_bridge_payload_invalid",
+                payload=payload_json[:200],
+                sandbox_id=handle.sandbox_id,
+            )
+            return
+
+        call = payload.get("call") or "hogql_execute"
+        query = payload.get("query")
+        response_path = payload.get("response_path")
+        placeholders_payload = payload.get("placeholders")
+        if (
+            not isinstance(call, str)
+            or not isinstance(query, str)
+            or not isinstance(response_path, str)
+            or not response_path
+        ):
+            logger.warning(
+                "notebook_bridge_payload_missing_fields",
+                payload=payload,
+                sandbox_id=handle.sandbox_id,
+            )
+            return
+
+        if not handle.sandbox_id:
+            logger.warning(
+                "notebook_bridge_missing_sandbox",
+                sandbox_id=handle.sandbox_id,
+                team_id=handle.runtime.team_id,
+            )
+            return
+
+        try:
+            team = Team.objects.get(id=handle.runtime.team_id)
+        except Team.DoesNotExist:
+            logger.warning(
+                "notebook_bridge_team_missing",
+                team_id=handle.runtime.team_id,
+                sandbox_id=handle.sandbox_id,
+            )
+            return
+
+        if call != "hogql_execute":
+            logger.warning(
+                "notebook_bridge_unsupported_call",
+                call=call,
+                sandbox_id=handle.sandbox_id,
+                team_id=handle.runtime.team_id,
+            )
+            response_payload = {"error": f"Unsupported notebook bridge call: {call}"}
+        else:
+            try:
+                placeholders = self._parse_hogql_placeholders_payload(placeholders_payload)
+                response = execute_hogql_query(query=query, team=team, placeholders=placeholders)
+                if hasattr(response, "model_dump"):
+                    response_payload = response.model_dump(exclude_none=True)
+                else:
+                    response_payload = response.dict(exclude_none=True)
+                if "clickhouse" in response_payload:
+                    del response_payload["clickhouse"]
+                if "hogql" in response_payload:
+                    del response_payload["hogql"]
+                if "timings" in response_payload:
+                    del response_payload["timings"]
+                if "modifiers" in response_payload:
+                    del response_payload["modifiers"]
+            except Exception as err:
+                logger.exception(
+                    "notebook_bridge_query_failed",
+                    sandbox_id=handle.sandbox_id,
+                    team_id=handle.runtime.team_id,
+                )
+                response_payload = {"error": str(err)}
+
+        response_json = json.dumps(response_payload, ensure_ascii=False, default=str)
+        response_bytes = response_json.encode("utf-8")
+        response_blob = f"{len(response_bytes)}\n".encode() + response_bytes
+
+        sandbox_class = self._get_sandbox_class(handle.backend)
+        sandbox = sandbox_class.get_by_id(handle.sandbox_id)
+        result = sandbox.write_file(response_path, response_blob)
+        if result.exit_code != 0:
+            logger.warning(
+                "notebook_bridge_response_write_failed",
+                stdout=result.stdout,
+                stderr=result.stderr,
+                sandbox_id=handle.sandbox_id,
+            )
 
     def _extract_user_expression_text(self, payload: dict[str, Any]) -> str | None:
         data = payload.get("data")
@@ -340,6 +607,30 @@ class KernelRuntimeService:
         ):
             stripped = stripped[1:-1]
         return stripped or None
+
+    def _normalize_user_expression_string(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        stripped = value.strip()
+        if stripped in {"None", "null"}:
+            return None
+        if len(stripped) >= 2 and (
+            (stripped.startswith("'") and stripped.endswith("'"))
+            or (stripped.startswith('"') and stripped.endswith('"'))
+        ):
+            stripped = stripped[1:-1]
+        return stripped or None
+
+    def _build_user_expressions(self, variable_names: list[str]) -> dict[str, str] | None:
+        if not variable_names:
+            return None
+        expressions: dict[str, str] = {}
+        for name in variable_names:
+            expressions[f"{self._TYPE_EXPRESSION_PREFIX}{name}"] = f"type({name}).__name__"
+            expressions[f"{self._HOGQL_QUERY_EXPRESSION_PREFIX}{name}"] = (
+                f"{name}._query if type({name}).__name__ == 'HogQLLazyFrame' else None"
+            )
+        return expressions
 
     def _register_cleanup_hooks(self) -> None:
         def _cleanup(*_: Any) -> None:
@@ -549,7 +840,7 @@ class KernelRuntimeService:
     def _bootstrap_kernel(
         self, sandbox: SandboxProtocol, connection_file: str, notebook: Notebook, user: User | None
     ) -> None:
-        code = self._build_kernel_bootstrap_code(notebook, user)
+        code = self._build_kernel_bootstrap_code(notebook, user, sandbox.id)
         if not code:
             return
         payload = {
@@ -590,10 +881,14 @@ class KernelRuntimeService:
                 notebook_short_id=notebook.short_id,
             )
 
-    def _build_kernel_bootstrap_code(self, notebook: Notebook, user: User | None) -> str:
+    def _build_kernel_bootstrap_code(self, notebook: Notebook, user: User | None, sandbox_id: str | None) -> str:
         return (
             "import duckdb\n"
             "import json\n"
+            "import os\n"
+            "import re\n"
+            "import tempfile\n"
+            "import time\n"
             "from typing import Any, Sequence\n"
             "\n"
             "_duckdb_connection = duckdb.connect(database=':memory:')\n"
@@ -638,6 +933,192 @@ class KernelRuntimeService:
             "        'rows': rows,\n"
             "        'row_count': total_rows,\n"
             "    }\n"
+            "\n"
+            f"_NOTEBOOK_BRIDGE_PREFIX = '__NOTEBOOK_BRIDGE_{sandbox_id or 'unknown'}__'\n"
+            "\n"
+            "def _notebook_bridge_write(payload: dict[str, Any]) -> None:\n"
+            "    payload_bytes = json.dumps(payload, ensure_ascii=True).encode('utf-8')\n"
+            "    header = f\"{_NOTEBOOK_BRIDGE_PREFIX}{len(payload_bytes)} \".encode('utf-8')\n"
+            '    data = header + payload_bytes + b"\\n"\n'
+            "    offset = 0\n"
+            "    while offset < len(data):\n"
+            "        written = os.write(1, data[offset:])\n"
+            "        if written <= 0:\n"
+            "            raise RuntimeError('Failed to write HogQL request')\n"
+            "        offset += written\n"
+            "\n"
+            '_HOGQL_PLACEHOLDER_PATTERN = re.compile(r"\\{([A-Za-z_][\\w$]*)\\}")\n'
+            "\n"
+            "def _find_hogql_placeholders(query: str) -> list[str]:\n"
+            "    if not query:\n"
+            "        return []\n"
+            "\n"
+            "    # Strip SQL comments before finding placeholders\n"
+            "    # First, remove multi-line comments\n"
+            '    while "/*" in query and "*/" in query:\n'
+            '        start = query.find("/*")\n'
+            '        end = query.find("*/", start) + 2\n'
+            "        query = query[:start] + ' ' + query[end:]\n"
+            "\n"
+            "    # Then remove single-line comments\n"
+            "    lines = query.split('\\n')\n"
+            "    cleaned_lines = []\n"
+            "    for line in lines:\n"
+            "        cleaned_lines.append(line.split('--')[0])\n"
+            "    query = '\\n'.join(cleaned_lines)\n"
+            "\n"
+            "    # Find placeholders in the cleaned query\n"
+            "    seen = set()\n"
+            "    names = []\n"
+            "    for match in _HOGQL_PLACEHOLDER_PATTERN.finditer(query):\n"
+            "        name = match.group(1)\n"
+            "        if name and name not in seen:\n"
+            "            seen.add(name)\n"
+            "            names.append(name)\n"
+            "    return names\n"
+            "\n"
+            "def _hogql_execute_raw(\n"
+            "    query: str, *, timeout: float | None = 30.0, placeholders: dict[str, Any] | None = None\n"
+            ") -> Any:\n"
+            "    if not isinstance(query, str):\n"
+            "        raise ValueError('query must be a string')\n"
+            "    fd, response_path = tempfile.mkstemp(prefix='hogql_response_', suffix='.json')\n"
+            "    os.close(fd)\n"
+            "    os.unlink(response_path)\n"
+            "    payload = {'call': 'hogql_execute', 'query': query, 'response_path': response_path}\n"
+            "    if placeholders:\n"
+            "        payload['placeholders'] = placeholders\n"
+            "    _notebook_bridge_write(payload)\n"
+            "    start_time = time.monotonic()\n"
+            "    while not os.path.exists(response_path):\n"
+            "        if timeout is not None and time.monotonic() - start_time > timeout:\n"
+            "            raise TimeoutError('Timed out waiting for HogQL response')\n"
+            "        time.sleep(0.1)\n"
+            "    expected_length: int | None = None\n"
+            "    data = b''\n"
+            "    with open(response_path, 'rb') as response_file:\n"
+            "        header = response_file.readline()\n"
+            "        if not header:\n"
+            "            raise RuntimeError('Empty HogQL response')\n"
+            "        try:\n"
+            "            expected_length = int(header.strip() or b'0')\n"
+            "        except ValueError:\n"
+            "            raise RuntimeError('Invalid HogQL response length')\n"
+            "        while expected_length is not None and len(data) < expected_length:\n"
+            "            chunk = response_file.read(expected_length - len(data))\n"
+            "            if chunk:\n"
+            "                data += chunk\n"
+            "                continue\n"
+            "            if timeout is not None and time.monotonic() - start_time > timeout:\n"
+            "                raise TimeoutError('Timed out reading HogQL response')\n"
+            "            time.sleep(0.1)\n"
+            "    try:\n"
+            "        os.unlink(response_path)\n"
+            "    except Exception:\n"
+            "        pass\n"
+            "    if expected_length is None or len(data) != expected_length:\n"
+            "        raise RuntimeError('Incomplete HogQL response')\n"
+            "    text = data.decode('utf-8')\n"
+            "    try:\n"
+            "        return json.loads(text)\n"
+            "    except Exception:\n"
+            "        return text\n"
+            "\n"
+            "class HogQLLazyFrame:\n"
+            "    def __init__(\n"
+            "        self, query: str, *, timeout: float | None = 30.0, placeholders: list[str] | None = None\n"
+            "    ) -> None:\n"
+            "        if not isinstance(query, str):\n"
+            "            raise ValueError('query must be a string')\n"
+            "        self._query = query\n"
+            "        self._timeout = timeout\n"
+            "        self._placeholders = placeholders or []\n"
+            "        self._response: dict[str, Any] | str | None = None\n"
+            "        self._dataframe: Any | None = None\n"
+            "\n"
+            "    def _get_response(self) -> dict[str, Any] | str:\n"
+            "        if self._response is None:\n"
+            "            placeholders = _resolve_hogql_placeholders(self._placeholders) if self._placeholders else None\n"
+            "            self._response = _hogql_execute_raw(self._query, timeout=self._timeout, placeholders=placeholders)\n"
+            "        return self._response\n"
+            "\n"
+            "    def to_json(self) -> dict[str, Any] | str:\n"
+            "        return self._get_response()\n"
+            "\n"
+            "    def to_df(self) -> Any:\n"
+            "        if self._dataframe is None:\n"
+            "            import pandas as pd\n"
+            "\n"
+            "            response = self._get_response()\n"
+            "            if isinstance(response, dict) and response.get('error'):\n"
+            "                raise RuntimeError(response['error'])\n"
+            "            if not isinstance(response, dict):\n"
+            "                raise RuntimeError('Unexpected HogQL response type')\n"
+            "            results = response.get('results') or []\n"
+            "            columns = response.get('columns') or []\n"
+            "            self._dataframe = pd.DataFrame(results, columns=columns)\n"
+            "        return self._dataframe\n"
+            "\n"
+            "    def to_pandas(self) -> Any:\n"
+            "        return self.to_df()\n"
+            "\n"
+            "    def __dataframe__(self, *args: Any, **kwargs: Any) -> Any:\n"
+            "        return self.to_df().__dataframe__(*args, **kwargs)\n"
+            "\n"
+            "    def __getattr__(self, name: str) -> Any:\n"
+            "        return getattr(self.to_df(), name)\n"
+            "\n"
+            "    def __getitem__(self, item: Any) -> Any:\n"
+            "        return self.to_df().__getitem__(item)\n"
+            "\n"
+            "    def __setitem__(self, key: Any, value: Any) -> None:\n"
+            "        self.to_df().__setitem__(key, value)\n"
+            "\n"
+            "    def __repr__(self) -> str:\n"
+            '        return f"HogQLLazyFrame(query={self._query!r})"\n'
+            "\n"
+            "    def __str__(self) -> str:\n"
+            "        return str(self.to_df())\n"
+            "\n"
+            "    def _repr_html_(self) -> str:\n"
+            "        return self.to_df()._repr_html_()\n"
+            "\n"
+            "    def _repr_markdown_(self) -> str:\n"
+            "        return self.to_df()._repr_markdown_()\n"
+            "\n"
+            "    def _repr_pretty_(self, printer: Any, cycle: bool) -> None:\n"
+            "        return self.to_df()._repr_pretty_(printer, cycle)\n"
+            "\n"
+            "    def _repr_mimebundle_(self, include: Any = None, exclude: Any = None) -> dict[str, Any]:\n"
+            "        return self.to_df()._repr_mimebundle_(include=include, exclude=exclude)\n"
+            "\n"
+            "    def _ipython_display_(self) -> None:\n"
+            "        return self.to_df()._ipython_display_()\n"
+            "\n"
+            "def _serialize_hogql_placeholder(value: Any) -> dict[str, Any]:\n"
+            "    if isinstance(value, HogQLLazyFrame):\n"
+            "        return {'type': 'hogql_query', 'query': value._query}\n"
+            "    if isinstance(value, (str, int, float, bool)) or value is None:\n"
+            "        return {'type': 'constant', 'value': value}\n"
+            "    if isinstance(value, (list, tuple)):\n"
+            "        return {'type': 'constant', 'value': list(value)}\n"
+            "    if isinstance(value, dict):\n"
+            "        return {'type': 'constant', 'value': value}\n"
+            "    raise ValueError(f'Unsupported HogQL placeholder type: {type(value).__name__}')\n"
+            "\n"
+            "def _resolve_hogql_placeholders(names: list[str]) -> dict[str, Any]:\n"
+            "    placeholders: dict[str, Any] = {}\n"
+            "    for name in names:\n"
+            "        if name not in globals():\n"
+            "            raise KeyError(f\"HogQL placeholder '{name}' is not defined.\")\n"
+            "        placeholders[name] = _serialize_hogql_placeholder(globals()[name])\n"
+            "    return placeholders\n"
+            "\n"
+            "def hogql_execute(\n"
+            "    query: str, *, timeout: float | None = 30.0, placeholders: Sequence[str] | None = None\n"
+            ") -> HogQLLazyFrame:\n"
+            "    placeholder_list = _find_hogql_placeholders(query) if placeholders is None else list(placeholders)\n"
+            "    return HogQLLazyFrame(query, timeout=timeout, placeholders=placeholder_list)\n"
         )
 
     def _reuse_kernel_handle_for_backend(
@@ -694,7 +1175,7 @@ class KernelRuntimeService:
         payload["action"] = action
         encoded_payload = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
         return (
-            "python3 - <<'EOF_KERNEL_CMD_EXEC'\n"
+            "python3 -u - <<'EOF_KERNEL_CMD_EXEC'\n"
             "import base64\n"
             "import json\n"
             "import os\n"
@@ -711,6 +1192,7 @@ class KernelRuntimeService:
             "timeout = payload.get('timeout', 30)\n"
             "code = payload.get('code')\n"
             "user_expressions = payload.get('user_expressions')\n"
+            "stream = bool(payload.get('stream', False))\n"
             "\n"
             "start_time = time.monotonic()\n"
             "while not os.path.exists(connection_file):\n"
@@ -748,7 +1230,11 @@ class KernelRuntimeService:
             "                break\n"
             "            if msg_type == 'stream':\n"
             "                destination = stdout if content.get('name') == 'stdout' else stderr\n"
-            "                destination.append(content.get('text', ''))\n"
+            "                text = content.get('text', '')\n"
+            "                destination.append(text)\n"
+            "                if stream:\n"
+            "                    print(json.dumps({'type': 'stream', 'name': content.get('name'), 'text': text}), "
+            "flush=True)\n"
             "                continue\n"
             "            if msg_type in ('execute_result', 'display_data'):\n"
             "                data = content.get('data') or {}\n"
@@ -792,12 +1278,17 @@ class KernelRuntimeService:
             "            'traceback': traceback_lines,\n"
             "            'user_expressions': user_expressions_result,\n"
             "        }\n"
+            "        if stream:\n"
+            "            payload_out['type'] = 'result'\n"
             "        print(json.dumps(payload_out))\n"
             "except Empty:\n"
-            "    print(json.dumps({'status': 'timeout', 'stdout': '', 'stderr': '', 'result': None, "
-            "'media': [], 'execution_count': None, 'error_name': None, 'traceback': [], 'user_expressions': None}))\n"
+            "    payload_out = {'status': 'timeout', 'stdout': '', 'stderr': '', 'result': None, "
+            "'media': [], 'execution_count': None, 'error_name': None, 'traceback': [], 'user_expressions': None}\n"
+            "    if stream:\n"
+            "        payload_out['type'] = 'result'\n"
+            "    print(json.dumps(payload_out))\n"
             "except Exception as err:\n"
-            "    print(json.dumps({\n"
+            "    payload_out = {\n"
             "        'status': 'error',\n"
             "        'stdout': '',\n"
             "        'stderr': str(err),\n"
@@ -807,7 +1298,10 @@ class KernelRuntimeService:
             "        'error_name': err.__class__.__name__,\n"
             "        'traceback': traceback.format_exception(type(err), err, err.__traceback__),\n"
             "        'user_expressions': None,\n"
-            "    }))\n"
+            "    }\n"
+            "    if stream:\n"
+            "        payload_out['type'] = 'result'\n"
+            "    print(json.dumps(payload_out))\n"
             "    sys.exit(1)\n"
             "finally:\n"
             "    if client:\n"
@@ -838,35 +1332,45 @@ class KernelRuntimeService:
             raise RuntimeError("Sandbox not available for kernel execution.")
 
         timeout_seconds = int(timeout or self._execution_timeout)
-        user_expressions: dict[str, str] | None = None
-        if capture_variables and variable_names:
-            user_expressions = {name: name for name in variable_names}
-            user_expressions.update(
-                {f"{self._TYPE_EXPRESSION_PREFIX}{name}": f"type({name}).__name__" for name in variable_names}
-            )
+        user_expressions = self._build_user_expressions(variable_names) if capture_variables else None
 
         payload = {
             "connection_file": handle.runtime.connection_file,
             "timeout": timeout_seconds,
             "code": code,
             "user_expressions": user_expressions,
+            "stream": True,
         }
         command = self._build_kernel_command(payload, action="execute")
         sandbox_class = self._get_sandbox_class(handle.backend)
         sandbox = sandbox_class.get_by_id(handle.sandbox_id)
         started_at = timezone.now()
-        result = sandbox.execute(command, timeout_seconds=timeout_seconds)
+        stream = sandbox.execute_stream(command, timeout_seconds=timeout_seconds)
+
+        payload_out: dict[str, Any] | None = None
+        marker = self._notebook_bridge_marker(handle)
+        bridge_parser = _NotebookBridgeParser(marker=marker)
+
+        for line in stream.iter_stdout():
+            event = self._parse_kernel_stream_line(line, handle=handle, bridge_parser=bridge_parser)
+            if event and event["type"] == "result":
+                payload_out = event["data"]
+
+        result = stream.wait()
         if result.exit_code != 0:
             raise RuntimeError(f"Kernel execution failed: {result.stdout} {result.stderr}")
 
-        lines = result.stdout.strip().splitlines()
-        if not lines:
-            raise RuntimeError("Kernel execution returned no output.")
+        if payload_out is None:
+            output_lines = [line for line in result.stdout.splitlines() if line.strip()]
+            if output_lines:
+                try:
+                    payload_out = json.loads(output_lines[-1])
+                except json.JSONDecodeError as err:
+                    raise RuntimeError("Kernel execution returned no output.") from err
+            else:
+                raise RuntimeError("Kernel execution returned no output.")
 
-        try:
-            payload_out = json.loads(lines[-1])
-        except json.JSONDecodeError as err:
-            raise RuntimeError(f"Failed to parse kernel execution output: {result.stdout}") from err
+        payload_out["stdout"] = self._strip_notebook_bridge_messages(payload_out.get("stdout", ""), marker)
 
         status = payload_out.get("status", "error")
         execution_count = payload_out.get("execution_count")
@@ -894,6 +1398,125 @@ class KernelRuntimeService:
             completed_at=timezone.now(),
             kernel_runtime=handle.runtime,
         )
+
+    def _execute_in_sandbox_stream(
+        self,
+        handle: _KernelHandle,
+        code: str,
+        *,
+        capture_variables: bool,
+        variable_names: list[str],
+        timeout: float | None,
+    ):
+        if not handle.sandbox_id:
+            raise RuntimeError("Sandbox not available for kernel execution.")
+
+        timeout_seconds = int(timeout or self._execution_timeout)
+        user_expressions = self._build_user_expressions(variable_names) if capture_variables else None
+
+        payload = {
+            "connection_file": handle.runtime.connection_file,
+            "timeout": timeout_seconds,
+            "code": code,
+            "user_expressions": user_expressions,
+            "stream": True,
+        }
+        command = self._build_kernel_command(payload, action="execute")
+        sandbox_class = self._get_sandbox_class(handle.backend)
+        sandbox = sandbox_class.get_by_id(handle.sandbox_id)
+        started_at = timezone.now()
+        stream = sandbox.execute_stream(command, timeout_seconds=timeout_seconds)
+
+        payload_out: dict[str, Any] | None = None
+        marker = self._notebook_bridge_marker(handle)
+        bridge_parser = _NotebookBridgeParser(marker=marker)
+
+        for line in stream.iter_stdout():
+            event = self._parse_kernel_stream_line(line, handle=handle, bridge_parser=bridge_parser)
+            if not event:
+                continue
+            if event["type"] == "result":
+                payload_out = event["data"]
+                continue
+            if event["text"]:
+                yield event
+
+        remaining_text = bridge_parser.flush()
+        if remaining_text:
+            yield {"type": "stdout", "text": remaining_text}
+
+        result = stream.wait()
+        if result.exit_code != 0:
+            raise RuntimeError(f"Kernel execution failed: {result.stdout} {result.stderr}")
+
+        if payload_out is None:
+            output_lines = [line for line in result.stdout.splitlines() if line.strip()]
+            if output_lines:
+                try:
+                    payload_out = json.loads(output_lines[-1])
+                except json.JSONDecodeError as err:
+                    raise RuntimeError("Kernel execution returned no output.") from err
+            else:
+                raise RuntimeError("Kernel execution returned no output.")
+
+        payload_out["stdout"] = self._strip_notebook_bridge_messages(payload_out.get("stdout", ""), marker)
+        status = payload_out.get("status", "error")
+        execution_count = payload_out.get("execution_count")
+        error_name = payload_out.get("error_name")
+        traceback = payload_out.get("traceback", [])
+        variables = None
+        if user_expressions is not None:
+            variables = self._parse_user_expressions(payload_out.get("user_expressions"))
+
+        handle.execution_count = execution_count or handle.execution_count
+        handle.last_activity_at = timezone.now()
+        self._touch_runtime(handle, status_override=KernelRuntime.Status.RUNNING)
+
+        execution_result = KernelExecutionResult(
+            status=status,
+            stdout=payload_out.get("stdout", ""),
+            stderr=payload_out.get("stderr", ""),
+            result=payload_out.get("result"),
+            media=payload_out.get("media", []) or [],
+            execution_count=execution_count,
+            error_name=error_name,
+            traceback=traceback,
+            variables=variables,
+            started_at=started_at,
+            completed_at=timezone.now(),
+            kernel_runtime=handle.runtime,
+        )
+
+        yield {"type": "result", "data": execution_result.as_dict()}
+
+    def _parse_kernel_stream_line(
+        self,
+        line: str,
+        *,
+        handle: _KernelHandle,
+        bridge_parser: _NotebookBridgeParser,
+    ) -> dict[str, Any] | None:
+        trimmed = line.strip()
+        if not trimmed:
+            return None
+        try:
+            chunk = json.loads(trimmed)
+        except json.JSONDecodeError:
+            return None
+        if chunk.get("type") == "stream":
+            stream_name = chunk.get("name")
+            text = chunk.get("text", "")
+            if stream_name == "stdout":
+                filtered_text, payloads = bridge_parser.feed(text)
+                for payload_json in payloads:
+                    self._handle_notebook_bridge_payload(payload_json, handle)
+                return {"type": "stdout", "text": filtered_text}
+            if stream_name == "stderr":
+                return {"type": "stderr", "text": text}
+            return None
+        if chunk.get("type") == "result":
+            return {"type": "result", "data": chunk}
+        return None
 
     def dataframe_page(
         self,

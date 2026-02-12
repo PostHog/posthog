@@ -1,8 +1,20 @@
 import json
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings
+
+
+class ProductCostLimit(BaseModel):
+    limit_usd: float
+    window_seconds: int
+
+
+DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
+    "llm_gateway": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
+    "wizard": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
+    "twig": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
+}
 
 
 class Settings(BaseSettings):
@@ -42,6 +54,37 @@ class Settings(BaseSettings):
     auth_cache_ttl: int = 900  # 15 minutes
 
     team_rate_limit_multipliers: dict[int, int] = {}
+
+    product_cost_limits: dict[str, ProductCostLimit] = DEFAULT_PRODUCT_COST_LIMITS
+
+    default_user_cost_limit_usd: float = 500.0
+    default_user_cost_window_seconds: int = 3600
+    user_cost_limits_disabled: bool = False
+
+    default_fallback_cost_usd: float = 0.01
+
+    @field_validator("product_cost_limits", mode="before")
+    @classmethod
+    def parse_product_cost_limits(cls, v: str | dict | None) -> dict[str, ProductCostLimit]:
+        if v is None or v == "":
+            return DEFAULT_PRODUCT_COST_LIMITS
+        if isinstance(v, dict):
+            result = {}
+            for product, config in v.items():
+                if isinstance(config, ProductCostLimit):
+                    result[product] = config
+                elif isinstance(config, dict):
+                    result[product] = ProductCostLimit(**config)
+                else:
+                    raise ValueError(f"Invalid config for product {product}")
+            return result
+        try:
+            parsed = json.loads(v)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in product_cost_limits: {e}") from e
+        if not isinstance(parsed, dict):
+            raise ValueError("product_cost_limits must be a JSON object")
+        return {product: ProductCostLimit(**config) for product, config in parsed.items()}
 
     @field_validator("team_rate_limit_multipliers", mode="before")
     @classmethod

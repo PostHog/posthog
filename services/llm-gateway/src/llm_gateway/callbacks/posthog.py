@@ -1,10 +1,41 @@
+import ast
 from typing import Any
 from uuid import uuid4
 
 import posthoganalytics
+import structlog
 
 from llm_gateway.callbacks.base import InstrumentedCallback
-from llm_gateway.request_context import get_auth_user
+from llm_gateway.request_context import get_auth_user, get_product, get_time_to_first_token
+
+logger = structlog.get_logger(__name__)
+
+
+def _replace_binary_content(data: Any) -> Any:
+    """
+    Replace binary content with metadata before storing in PostHog.
+    Handles both raw bytes/tuples and their stringified repr() forms.
+    """
+    match data:
+        case None | int() | float() | bool():
+            return data
+        case str() if "b'\\x" in data or 'b"\\x' in data:
+            try:
+                return _replace_binary_content(ast.literal_eval(data))
+            except (ValueError, SyntaxError):
+                return data
+        case str():
+            return data
+        case bytes():
+            return {"type": "binary", "size_bytes": len(data)}
+        case tuple():
+            return tuple(_replace_binary_content(item) for item in data)
+        case list():
+            return [_replace_binary_content(item) for item in data]
+        case dict():
+            return {k: _replace_binary_content(v) for k, v in data.items()}
+        case _:
+            return data
 
 
 class PostHogCallback(InstrumentedCallback):
@@ -19,24 +50,42 @@ class PostHogCallback(InstrumentedCallback):
         posthoganalytics.api_key = api_key
         posthoganalytics.host = host
 
-    async def _on_success(self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float) -> None:
+    async def _on_success(
+        self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
+    ) -> None:
         standard_logging_object = kwargs.get("standard_logging_object", {})
         metadata = self._extract_metadata(kwargs)
         auth_user = get_auth_user()
+        product = get_product()
 
-        trace_id = metadata.get("user_id") or str(uuid4())
-        distinct_id = auth_user.distinct_id if auth_user else str(uuid4())
-        team_id = str(auth_user.team_id) if auth_user and auth_user.team_id else None
+        trace_id = (
+            metadata.get("user_id") or str(uuid4())
+        )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
+        distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+        team_id = auth_user.team_id if auth_user and auth_user.team_id else None
+
+        logger.debug(
+            "PostHog callback _on_success",
+            end_user_id=end_user_id,
+            distinct_id=distinct_id,
+            team_id=team_id,
+            product=product,
+            model=standard_logging_object.get("model", ""),
+        )
+
+        is_streaming = standard_logging_object.get("stream", False)
 
         properties: dict[str, Any] = {
             "$ai_model": standard_logging_object.get("model", ""),
             "$ai_provider": standard_logging_object.get("custom_llm_provider", ""),
-            "$ai_input": standard_logging_object.get("messages"),
+            "$ai_input": _replace_binary_content(standard_logging_object.get("messages")),
             "$ai_input_tokens": standard_logging_object.get("prompt_tokens", 0),
             "$ai_output_tokens": standard_logging_object.get("completion_tokens", 0),
             "$ai_latency": standard_logging_object.get("response_time", 0.0),
+            "$ai_stream": is_streaming,
             "$ai_trace_id": trace_id,
             "$ai_span_id": str(uuid4()),
+            "ai_product": product,
         }
 
         if team_id:
@@ -50,6 +99,11 @@ class PostHogCallback(InstrumentedCallback):
         if response:
             properties["$ai_output_choices"] = response
 
+        # Add time to first token for streaming requests
+        time_to_first_token = get_time_to_first_token()
+        if time_to_first_token is not None:
+            properties["$ai_time_to_first_token"] = time_to_first_token
+
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,
             "event": "$ai_generation",
@@ -58,16 +112,37 @@ class PostHogCallback(InstrumentedCallback):
         if team_id:
             capture_kwargs["groups"] = {"project": team_id}
 
+        logger.debug(
+            "PostHog capturing event",
+            distinct_id=distinct_id,
+            posthog_event="$ai_generation",
+            properties=properties,
+            groups=capture_kwargs.get("groups"),
+        )
         posthoganalytics.capture(**capture_kwargs)
+        posthoganalytics.flush()
 
-    async def _on_failure(self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float) -> None:
+    async def _on_failure(
+        self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
+    ) -> None:
         standard_logging_object = kwargs.get("standard_logging_object", {})
         metadata = self._extract_metadata(kwargs)
         auth_user = get_auth_user()
+        product = get_product()
 
-        trace_id = metadata.get("user_id") or str(uuid4())
-        distinct_id = auth_user.distinct_id if auth_user else str(uuid4())
-        team_id = str(auth_user.team_id) if auth_user and auth_user.team_id else None
+        trace_id = (
+            metadata.get("user_id") or str(uuid4())
+        )  # anthropic stores user_id in metadata, but it actually refers to the trace_id rather than the user for claude code.
+        distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+        team_id = auth_user.team_id if auth_user and auth_user.team_id else None
+
+        logger.debug(
+            "PostHog callback _on_failure",
+            end_user_id=end_user_id,
+            distinct_id=distinct_id,
+            team_id=team_id,
+            product=product,
+        )
 
         properties: dict[str, Any] = {
             "$ai_model": standard_logging_object.get("model", ""),
@@ -75,6 +150,7 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_trace_id": trace_id,
             "$ai_is_error": True,
             "$ai_error": standard_logging_object.get("error_str", ""),
+            "ai_product": product,
         }
 
         if team_id:
@@ -88,7 +164,15 @@ class PostHogCallback(InstrumentedCallback):
         if team_id:
             capture_kwargs["groups"] = {"project": team_id}
 
+        logger.debug(
+            "PostHog capturing error event",
+            distinct_id=distinct_id,
+            posthog_event="$ai_generation",
+            properties=properties,
+            groups=capture_kwargs.get("groups"),
+        )
         posthoganalytics.capture(**capture_kwargs)
+        posthoganalytics.flush()
 
     def _extract_metadata(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         litellm_params = kwargs.get("litellm_params", {}) or {}

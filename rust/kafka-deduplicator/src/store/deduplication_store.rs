@@ -3,16 +3,14 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use common_types::RawEvent;
-use rocksdb::{ColumnFamilyDescriptor, Options, SliceTransform, WriteBatch};
+use rocksdb::{ColumnFamilyDescriptor, Options, SliceTransform};
 use tracing::info;
 
 use crate::metrics::MetricsHelper;
-use crate::rocksdb::dedup_metadata::EventSimilarity;
 use crate::rocksdb::store::{block_based_table_factory, RocksDbStore};
 
-use super::keys::{TimestampKey, UuidIndexKey, UuidKey};
-use super::metadata::{TimestampMetadata, UuidMetadata};
+use super::keys::TimestampKey;
+use crate::pipelines::ingestion_events::TimestampMetadata;
 
 #[derive(Debug, Clone)]
 pub struct DeduplicationStoreConfig {
@@ -28,13 +26,6 @@ pub struct TimestampBatchEntry<'a> {
     pub value: &'a [u8],
 }
 
-/// Entry for batch writing UUID records (with timestamp for index)
-pub struct UuidBatchEntry<'a> {
-    pub key: &'a [u8],
-    pub value: &'a [u8],
-    pub timestamp: u64,
-}
-
 #[derive(Debug, Clone)]
 pub struct DeduplicationStore {
     store: Arc<RocksDbStore>,
@@ -42,98 +33,9 @@ pub struct DeduplicationStore {
     partition: i32,
 }
 
-#[derive(strum_macros::Display, Debug, Copy, Clone, PartialEq)]
-pub enum DeduplicationResultReason {
-    OnlyUuidDifferent,
-    OnlyTimestampDifferent,
-    SameEvent,
-}
-
-#[derive(strum_macros::Display, Debug, Copy, Clone, PartialEq)]
-pub enum DeduplicationType {
-    Timestamp,
-    UUID,
-}
-
-#[derive(strum_macros::Display, Debug)]
-pub enum DeduplicationResult {
-    ConfirmedDuplicate(
-        DeduplicationType,
-        DeduplicationResultReason,
-        EventSimilarity,
-        RawEvent, // Original event from metadata
-    ), // The reason why it's a confirmed duplicate
-    PotentialDuplicate(DeduplicationType, EventSimilarity, RawEvent), // Original event
-    New,
-    Skipped,
-}
-
-impl PartialEq for DeduplicationResult {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (
-                DeduplicationResult::ConfirmedDuplicate(
-                    deduplication_type,
-                    deduplication_reason,
-                    _,
-                    _,
-                ),
-                DeduplicationResult::ConfirmedDuplicate(
-                    other_deduplication_type,
-                    other_deduplication_reason,
-                    _,
-                    _,
-                ),
-            ) => {
-                deduplication_type == other_deduplication_type
-                    && deduplication_reason == other_deduplication_reason
-            }
-            (
-                DeduplicationResult::PotentialDuplicate(deduplication_type, _, _),
-                DeduplicationResult::PotentialDuplicate(other_deduplication_type, _, _),
-            ) => deduplication_type == other_deduplication_type,
-            (DeduplicationResult::New, DeduplicationResult::New) => true,
-            (DeduplicationResult::Skipped, DeduplicationResult::Skipped) => true,
-            _ => false,
-        }
-    }
-}
-
-impl DeduplicationResult {
-    pub fn is_duplicate(&self) -> bool {
-        matches!(self, DeduplicationResult::ConfirmedDuplicate(_, _, _, _))
-    }
-
-    pub fn get_similarity(&self) -> Option<&EventSimilarity> {
-        match self {
-            DeduplicationResult::ConfirmedDuplicate(_, _, similarity, _) => Some(similarity),
-            DeduplicationResult::PotentialDuplicate(_, similarity, _) => Some(similarity),
-            _ => None,
-        }
-    }
-
-    pub fn get_original_event(&self) -> Option<&RawEvent> {
-        match self {
-            DeduplicationResult::ConfirmedDuplicate(_, _, _, original) => Some(original),
-            DeduplicationResult::PotentialDuplicate(_, _, original) => Some(original),
-            _ => None,
-        }
-    }
-
-    pub fn take_original_event(self) -> Option<RawEvent> {
-        match self {
-            DeduplicationResult::ConfirmedDuplicate(_, _, _, original) => Some(original),
-            DeduplicationResult::PotentialDuplicate(_, _, original) => Some(original),
-            _ => None,
-        }
-    }
-}
-
 impl DeduplicationStore {
-    // Column families for different tracking patterns
+    // Column family for timestamp-based deduplication
     const TIMESTAMP_CF: &'static str = "timestamp_records";
-    const UUID_CF: &'static str = "uuid_records";
-    const UUID_TIMESTAMP_INDEX_CF: &'static str = "uuid_timestamp_index"; // For cleanup
 
     pub fn new(config: DeduplicationStoreConfig, topic: String, partition: i32) -> Result<Self> {
         // Create metrics helper for the RocksDB store
@@ -141,7 +43,6 @@ impl DeduplicationStore {
             .with_label("service", "kafka-deduplicator");
 
         let cf_descriptors = Self::get_cf_descriptors();
-        // Create all three column families
         let store = RocksDbStore::new(&config.path, cf_descriptors, metrics)?;
 
         Ok(Self {
@@ -164,28 +65,7 @@ impl DeduplicationStore {
         // LZ4 is ~2x faster than Snappy for both compression and decompression
         ts_cf_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
 
-        // ----- CF: UuidIndexKey ([ts][uuid_key] => same 8-byte prefix)
-        let mut uuid_timestamp_index_cf_opts = Options::default();
-        uuid_timestamp_index_cf_opts.set_block_based_table_factory(&block_opts);
-        uuid_timestamp_index_cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(8));
-        uuid_timestamp_index_cf_opts.set_write_buffer_size(8 * 1024 * 1024);
-        uuid_timestamp_index_cf_opts.set_max_write_buffer_number(3);
-        uuid_timestamp_index_cf_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
-
-        // ----- CF: UuidKey (point-gets; no prefix extractor)
-        let mut uuid_cf_opts = Options::default();
-        uuid_cf_opts.set_block_based_table_factory(&block_opts);
-        uuid_cf_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
-
-        let cf_descriptors = vec![
-            ColumnFamilyDescriptor::new(Self::TIMESTAMP_CF, ts_cf_opts),
-            ColumnFamilyDescriptor::new(Self::UUID_CF, uuid_cf_opts),
-            ColumnFamilyDescriptor::new(
-                Self::UUID_TIMESTAMP_INDEX_CF,
-                uuid_timestamp_index_cf_opts,
-            ),
-        ];
-        cf_descriptors
+        vec![ColumnFamilyDescriptor::new(Self::TIMESTAMP_CF, ts_cf_opts)]
     }
 
     // Storage operations for each column family
@@ -215,44 +95,6 @@ impl DeduplicationStore {
         let value = bincode::serde::encode_to_vec(metadata, bincode::config::standard())
             .context("Failed to serialize timestamp metadata")?;
         self.store.put(Self::TIMESTAMP_CF, &key_bytes, &value)
-    }
-
-    /// Get a UUID record from the store
-    pub fn get_uuid_record(&self, key: &UuidKey) -> Result<Option<UuidMetadata>> {
-        let key_bytes: Vec<u8> = key.into();
-        match self.store.get(Self::UUID_CF, &key_bytes)? {
-            Some(bytes) => {
-                let metadata =
-                    bincode::serde::decode_from_slice(&bytes, bincode::config::standard())
-                        .map(|(m, _)| m)
-                        .context("Failed to deserialize UUID metadata")?;
-                Ok(Some(metadata))
-            }
-            None => Ok(None),
-        }
-    }
-
-    /// Put a UUID record in the store and automatically create the timestamp index
-    pub fn put_uuid_record(
-        &self,
-        key: &UuidKey,
-        metadata: &UuidMetadata,
-        timestamp: u64,
-    ) -> Result<()> {
-        let key_bytes: Vec<u8> = key.into();
-        let value = bincode::serde::encode_to_vec(metadata, bincode::config::standard())
-            .context("Failed to serialize UUID metadata")?;
-
-        // Store the UUID record
-        self.store.put(Self::UUID_CF, &key_bytes, &value)?;
-
-        // Automatically create the timestamp index for cleanup
-        let index_key = UuidIndexKey::new(timestamp, key_bytes.clone());
-        let index_key_bytes: Vec<u8> = index_key.into();
-        self.store
-            .put(Self::UUID_TIMESTAMP_INDEX_CF, &index_key_bytes, &key_bytes)?;
-
-        Ok(())
     }
 
     /// Get non-duplicated keys based on timestamp pattern (for batch processing)
@@ -285,35 +127,10 @@ impl DeduplicationStore {
         self.store.multi_get(Self::TIMESTAMP_CF, keys)
     }
 
-    /// Batch get UUID records
-    pub fn multi_get_uuid_records(&self, keys: Vec<&[u8]>) -> Result<Vec<Option<Vec<u8>>>> {
-        self.store.multi_get(Self::UUID_CF, keys)
-    }
-
     /// Batch put timestamp records
     pub fn put_timestamp_records_batch(&self, entries: Vec<TimestampBatchEntry>) -> Result<()> {
         let raw_entries: Vec<(&[u8], &[u8])> = entries.iter().map(|e| (e.key, e.value)).collect();
         self.store.put_batch(Self::TIMESTAMP_CF, raw_entries)
-    }
-
-    /// Batch put UUID records (with timestamp index)
-    pub fn put_uuid_records_batch(&self, entries: Vec<UuidBatchEntry>) -> Result<()> {
-        let mut batch = WriteBatch::default();
-        let uuid_cf = self.store.get_cf_handle(Self::UUID_CF)?;
-        let index_cf = self.store.get_cf_handle(Self::UUID_TIMESTAMP_INDEX_CF)?;
-
-        for entry in entries {
-            // Add UUID record
-            batch.put_cf(&uuid_cf, entry.key, entry.value);
-
-            // Add timestamp index
-            let index_key = super::keys::UuidIndexKey::new(entry.timestamp, entry.key.to_vec());
-            let index_key_bytes: Vec<u8> = index_key.into();
-            batch.put_cf(&index_cf, &index_key_bytes, entry.key);
-        }
-
-        self.store.db.write(batch)?;
-        Ok(())
     }
 
     pub fn cleanup_old_entries(&self) -> Result<u64> {
@@ -405,56 +222,6 @@ impl DeduplicationStore {
             last_key_bytes.as_ref(),
         )?;
 
-        // Collect UUID keys to delete first (minimize iterator lifetime)
-        let index_cf = self.store.get_cf_handle(Self::UUID_TIMESTAMP_INDEX_CF)?;
-        let mut uuid_keys_to_delete = Vec::new();
-
-        {
-            // Scope the iterator to release lock quickly
-            let mut index_iter = self
-                .store
-                .db
-                .iterator_cf(&index_cf, rocksdb::IteratorMode::Start);
-
-            while let Some(Ok((index_key, uuid_key_bytes))) = index_iter.next() {
-                // Check if this key is within our cleanup range
-                if let Some(timestamp) = UuidIndexKey::parse_timestamp(&index_key) {
-                    if timestamp >= cleanup_timestamp {
-                        break; // We've reached keys that shouldn't be deleted
-                    }
-                    // Collect UUID key for batch deletion
-                    uuid_keys_to_delete.push(uuid_key_bytes.to_vec());
-                }
-            }
-        } // Iterator dropped here, releasing read lock
-
-        // Now delete UUID keys in batches
-        let deleted_count = uuid_keys_to_delete.len();
-        if !uuid_keys_to_delete.is_empty() {
-            const BATCH_SIZE: usize = 1000;
-            for chunk in uuid_keys_to_delete.chunks(BATCH_SIZE) {
-                let mut batch = rocksdb::WriteBatch::default();
-                for key in chunk {
-                    batch.delete_cf(&self.store.get_cf_handle(Self::UUID_CF)?, key);
-                }
-                self.store.db.write(batch)?;
-            }
-        }
-
-        info!(
-            "Store {}:{} - UUID cleanup: deleted {} records",
-            self.topic, self.partition, deleted_count
-        );
-
-        // Now delete the index entries themselves using range delete (this is efficient as it's timestamp-prefixed)
-        let index_start = UuidIndexKey::range_start();
-        let index_end = UuidIndexKey::range_end(cleanup_timestamp);
-        self.store.delete_range(
-            Self::UUID_TIMESTAMP_INDEX_CF,
-            index_start.as_ref(),
-            index_end.as_ref(),
-        )?;
-
         // Spawn compaction on a background thread to avoid blocking cleanup.
         // RocksDB's compact_range is synchronous and can block for extended periods.
         // delete_range creates tombstones but doesn't immediately free disk space -
@@ -474,13 +241,6 @@ impl DeduplicationStore {
                 Some(first_key_bytes.as_ref()),
                 Some(last_key_bytes.as_ref()),
             );
-            store.compact_range(
-                Self::UUID_TIMESTAMP_INDEX_CF,
-                Some(index_start.as_ref()),
-                Some(index_end.as_ref()),
-            );
-            // UUID_CF doesn't have range-based keys, so compact the full range
-            store.compact_range(Self::UUID_CF, None::<&[u8]>, None::<&[u8]>);
 
             info!(
                 "Store {}:{} - Background compaction completed in {:?}",
@@ -520,13 +280,7 @@ impl DeduplicationStore {
 
     /// Get current SST file names for tracking incremental checkpoint changes
     pub fn get_sst_file_names(&self) -> Result<Vec<String>> {
-        // Get SST files from both column families
-        let mut sst_files = self.store.get_sst_file_names(Self::TIMESTAMP_CF)?;
-        let uuid_sst_files = self.store.get_sst_file_names(Self::UUID_CF)?;
-        sst_files.extend(uuid_sst_files);
-        sst_files.sort();
-        sst_files.dedup();
-        Ok(sst_files)
+        self.store.get_sst_file_names(Self::TIMESTAMP_CF)
     }
 
     /// Get the topic this store is responsible for
@@ -539,12 +293,9 @@ impl DeduplicationStore {
         self.partition
     }
 
-    /// Get the total size of all column families in this store
+    /// Get the total size of the store
     pub fn get_total_size(&self) -> Result<u64> {
-        let timestamp_size = self.store.get_db_size(Self::TIMESTAMP_CF)?;
-        let uuid_size = self.store.get_db_size(Self::UUID_CF)?;
-        let index_size = self.store.get_db_size(Self::UUID_TIMESTAMP_INDEX_CF)?;
-        Ok(timestamp_size + uuid_size + index_size)
+        self.store.get_db_size(Self::TIMESTAMP_CF)
     }
 
     /// Get the age of the oldest data in seconds (current time - oldest timestamp)
@@ -578,11 +329,7 @@ impl DeduplicationStore {
 
     /// Update metrics for this store (including database size)
     pub fn update_metrics(&self) -> Result<()> {
-        self.store.update_db_metrics(Self::TIMESTAMP_CF)?;
-        self.store.update_db_metrics(Self::UUID_CF)?;
-        self.store
-            .update_db_metrics(Self::UUID_TIMESTAMP_INDEX_CF)?;
-        Ok(())
+        self.store.update_db_metrics(Self::TIMESTAMP_CF)
     }
 
     /// Create a checkpoint and return metadata about the checkpoint
@@ -686,38 +433,6 @@ mod tests {
         if let Some(uuid) = event.uuid {
             assert!(retrieved_metadata.seen_uuids.contains(&uuid.to_string()));
         }
-    }
-
-    #[test]
-    fn test_uuid_record_storage() {
-        let (store, _temp_dir) = create_test_store();
-
-        // Create a test key and metadata
-        let event = create_test_raw_event();
-        let key = UuidKey::from(&event);
-        let metadata = UuidMetadata::new(&event);
-        let timestamp = 1234567890;
-
-        // Should not exist initially
-        assert!(store.get_uuid_record(&key).unwrap().is_none());
-
-        // Store the metadata
-        store.put_uuid_record(&key, &metadata, timestamp).unwrap();
-
-        // Should exist now
-        let retrieved = store.get_uuid_record(&key).unwrap();
-        assert!(retrieved.is_some());
-
-        // Verify the metadata was stored correctly
-        let retrieved_metadata = retrieved.unwrap();
-        assert_eq!(retrieved_metadata.duplicate_count, 0);
-        // Verify the original event was stored correctly by converting back
-        let stored_event = retrieved_metadata.get_original_event().unwrap();
-        assert_eq!(stored_event.event, event.event);
-        assert_eq!(stored_event.uuid, event.uuid);
-        assert_eq!(stored_event.distinct_id, event.distinct_id);
-        assert_eq!(stored_event.token, event.token);
-        assert_eq!(retrieved_metadata.seen_timestamps.len(), 1);
     }
 
     #[test]

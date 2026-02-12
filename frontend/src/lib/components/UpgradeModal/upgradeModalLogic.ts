@@ -1,8 +1,10 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
@@ -23,7 +25,16 @@ export type GuardAvailableFeatureFn = (
 export const upgradeModalLogic = kea<upgradeModalLogicType>([
     path(['lib', 'components', 'UpgradeModal', 'upgradeModalLogic']),
     connect(() => ({
-        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature']],
+        values: [
+            preflightLogic,
+            ['preflight'],
+            featureFlagLogic,
+            ['featureFlags'],
+            billingLogic,
+            ['billing'],
+            userLogic,
+            ['hasAvailableFeature', 'availableFeature'],
+        ],
     })),
     actions({
         showUpgradeModal: (featureKey: AvailableFeature, currentUsage?: number, isGrandfathered?: boolean) => ({
@@ -57,6 +68,29 @@ export const upgradeModalLogic = kea<upgradeModalLogicType>([
         ],
     }),
     selectors(({ actions }) => ({
+        projectLimit: [
+            (s) => [s.availableFeature],
+            (availableFeature) => availableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS)?.limit ?? 6,
+        ],
+        shouldShowPlatformAddonMessage: [
+            (s) => [s.upgradeModalFeatureKey, s.billing, s.featureFlags],
+            (upgradeModalFeatureKey, billing, featureFlags) => {
+                if (upgradeModalFeatureKey !== AvailableFeature.ORGANIZATIONS_PROJECTS) {
+                    return false
+                }
+
+                const platformAndSupportProduct = billing?.products?.find(
+                    (product) => product.type === 'platform_and_support'
+                )
+                const hasPlatformAddon = platformAndSupportProduct?.addons?.some((addon) => addon.subscribed) ?? false
+
+                return (
+                    billing?.subscription_level === 'paid' &&
+                    !hasPlatformAddon &&
+                    featureFlags[FEATURE_FLAGS.PROJECT_UPGRADE_MODAL_REDESIGN] === 'test-simplified-modal'
+                )
+            },
+        ],
         guardAvailableFeature: [
             (s) => [s.preflight, s.hasAvailableFeature],
             (preflight, hasAvailableFeature): GuardAvailableFeatureFn => {

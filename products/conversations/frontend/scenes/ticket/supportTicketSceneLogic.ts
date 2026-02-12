@@ -1,14 +1,87 @@
 import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from '~/lib/api'
-import type { CommentType } from '~/types'
+import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import type { CommentType, PersonType } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import type { TicketAssignee } from '../../components/Assignee'
+import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import type { ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+
+function createEventsQuery(personId: string, sessionId?: string, ticketCreatedAt?: string): DataTableNode {
+    // Show events around ticket creation time (5 min before/after) or last 24h if no timestamp
+    const after = ticketCreatedAt ? new Date(new Date(ticketCreatedAt).getTime() - 5 * 60 * 1000).toISOString() : '-24h'
+    const before = ticketCreatedAt
+        ? new Date(new Date(ticketCreatedAt).getTime() + 5 * 60 * 1000).toISOString()
+        : undefined
+
+    return {
+        kind: NodeKind.DataTableNode,
+        full: false,
+        showEventsFilter: false,
+        hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: defaultDataTableColumns(NodeKind.EventsQuery),
+            personId: personId,
+            after,
+            before,
+            // Filter by session_id if available (shows events from the exact session)
+            ...(sessionId && {
+                properties: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$session_id',
+                        value: sessionId,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            }),
+        },
+    }
+}
+
+function createExceptionsQuery(sessionId?: string, ticketCreatedAt?: string): DataTableNode {
+    // Show exceptions from the session or around ticket creation time
+    const after = ticketCreatedAt ? new Date(new Date(ticketCreatedAt).getTime() - 5 * 60 * 1000).toISOString() : '-24h'
+    const before = ticketCreatedAt
+        ? new Date(new Date(ticketCreatedAt).getTime() + 5 * 60 * 1000).toISOString()
+        : undefined
+
+    return {
+        kind: NodeKind.DataTableNode,
+        full: false,
+        showEventFilter: false,
+        hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: defaultDataTableColumns(NodeKind.EventsQuery),
+            event: '$exception',
+            after,
+            before,
+            // Filter by session_id if available
+            ...(sessionId && {
+                properties: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$session_id',
+                        value: sessionId,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            }),
+        },
+    }
+}
 
 export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'ticket', 'supportTicketSceneLogic']),
@@ -29,13 +102,90 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setOlderMessagesLoading: (loading: boolean) => ({ loading }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
 
-        sendMessage: (content: string, onSuccess?: () => void) => ({ content, onSuccess }),
+        sendMessage: (
+            content: string,
+            richContent: Record<string, unknown> | null,
+            isPrivate: boolean,
+            onSuccess?: () => void
+        ) => ({
+            content,
+            richContent,
+            isPrivate,
+            onSuccess,
+        }),
         setMessageSending: (sending: boolean) => ({ sending }),
 
         setStatus: (status: TicketStatus) => ({ status }),
         setPriority: (priority: TicketPriority) => ({ priority }),
-        setAssignedTo: (assignedTo: number | string) => ({ assignedTo }),
+        setAssignee: (assignee: TicketAssignee) => ({ assignee }),
+
+        // Session context actions
+        loadPerson: true,
+        loadPreviousTickets: true,
     }),
+    loaders(({ values, props }) => ({
+        person: [
+            null as PersonType | null,
+            {
+                loadPerson: async (): Promise<PersonType | null> => {
+                    const ticket = values.ticket
+                    if (!ticket?.distinct_id) {
+                        return null
+                    }
+
+                    try {
+                        // First try to load by distinct_id
+                        const response = await api.persons.list({ distinct_id: ticket.distinct_id })
+                        if (response.results.length > 0) {
+                            return response.results[0]
+                        }
+
+                        // If not found, return null
+                        return null
+                    } catch (error) {
+                        console.error('Failed to load person:', error)
+                        return null
+                    }
+                },
+            },
+        ],
+        previousTickets: [
+            [] as Ticket[],
+            {
+                loadPreviousTickets: async (): Promise<Ticket[]> => {
+                    const person = values.person
+                    const currentTicketId = props.id
+
+                    if (!person?.distinct_ids || person.distinct_ids.length === 0) {
+                        return []
+                    }
+
+                    try {
+                        // Load all tickets for any of this person's distinct_ids (in parallel)
+                        const responses = await Promise.all(
+                            person.distinct_ids.map((distinctId: string) =>
+                                api.conversationsTickets.list({ distinct_id: distinctId })
+                            )
+                        )
+                        const allTickets = responses.flatMap((r) => r.results || [])
+
+                        // Deduplicate by ID and exclude current ticket
+                        const uniqueTickets = Array.from(
+                            new Map(allTickets.map((ticket) => [ticket.id, ticket])).values()
+                        ).filter((ticket) => ticket.id !== currentTicketId)
+
+                        // Sort by created_at descending (most recent first)
+                        return uniqueTickets.sort(
+                            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                        )
+                    } catch (error) {
+                        console.error('Failed to load previous tickets:', error)
+                        return []
+                    }
+                },
+            },
+        ],
+    })),
     reducers({
         ticket: [
             null as Ticket | null,
@@ -65,11 +215,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setTicket: (_, { ticket }) => ticket?.priority || null,
             },
         ],
-        assignedTo: [
-            null as number | string | null,
+        assignee: [
+            null as TicketAssignee,
             {
-                setAssignedTo: (_, { assignedTo }) => assignedTo,
-                setTicket: (_, { ticket }) => ticket?.assigned_to || null,
+                setAssignee: (_, { assignee }) => assignee,
+                setTicket: (_, { ticket }) => ticket?.assignee || null,
             },
         ],
         messages: [
@@ -111,30 +261,69 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     selectors({
+        chatPanelWidth: [
+            () => [],
+            () =>
+                (desiredSize: number | null): number => {
+                    const minWidth = 400
+                    const defaultWidth = 600
+                    if (desiredSize === null) {
+                        return defaultWidth
+                    }
+                    return desiredSize < minWidth ? minWidth : desiredSize
+                },
+        ],
         chatMessages: [
             (s) => [s.messages, s.ticket],
             (messages: CommentType[], ticket: Ticket | null): ChatMessage[] =>
                 messages.map((message) => {
                     const authorType = message.item_context?.author_type || 'customer'
-                    let displayName = 'Customer'
+                    let displayName = 'Anonymous user'
                     if (message.created_by) {
                         displayName =
                             [message.created_by.first_name, message.created_by.last_name].filter(Boolean).join(' ') ||
                             message.created_by.email ||
                             'Support'
-                    } else if (authorType === 'customer' && ticket?.anonymous_traits) {
-                        displayName = ticket.anonymous_traits.name || ticket.anonymous_traits.email || 'Customer'
+                    } else if (authorType === 'customer') {
+                        // Try person properties first (from ticket.person), then ticket traits
+                        displayName =
+                            ticket?.person?.properties?.name ||
+                            ticket?.person?.properties?.email ||
+                            ticket?.anonymous_traits?.name ||
+                            ticket?.anonymous_traits?.email ||
+                            'Anonymous user'
                     }
 
                     return {
                         id: message.id,
                         content: message.content || '',
+                        richContent: message.rich_content,
                         authorType: authorType === 'support' ? 'human' : authorType,
                         authorName: displayName,
                         createdBy: message.created_by,
                         createdAt: message.created_at,
+                        isPrivate: message.item_context?.is_private || false,
                     }
                 }),
+        ],
+        eventsQuery: [
+            (s) => [s.ticket],
+            (ticket: Ticket | null): DataTableNode | null => {
+                // Use person from ticket (no extra API call needed)
+                if (!ticket?.person?.id) {
+                    return null
+                }
+                return createEventsQuery(ticket.person.id, ticket.session_id, ticket.created_at)
+            },
+        ],
+        exceptionsQuery: [
+            (s) => [s.ticket],
+            (ticket: Ticket | null): DataTableNode | null => {
+                if (!ticket) {
+                    return null
+                }
+                return createExceptionsQuery(ticket.session_id, ticket.created_at)
+            },
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
@@ -148,19 +337,29 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(ticket)
                 actions.loadMessages()
 
-                // Clear any existing interval
-                if (cache.pollingInterval) {
-                    clearInterval(cache.pollingInterval)
-                }
+                // Load session context data
+                actions.loadPerson()
 
-                // Start new polling interval
-                cache.pollingInterval = setInterval(() => {
-                    actions.loadMessages()
-                }, MESSAGE_POLL_INTERVAL)
-            } catch {
+                // Refresh the unread count since viewing a ticket marks it as read
+                supportTicketCounterLogic.findMounted()?.actions.refreshCount()
+
+                // Start message polling using disposables pattern
+                cache.disposables.dispose('messagePolling')
+                cache.disposables.add(() => {
+                    const intervalId = setInterval(() => {
+                        actions.loadMessages()
+                    }, MESSAGE_POLL_INTERVAL)
+                    return () => clearInterval(intervalId)
+                }, 'messagePolling')
+            } catch (error) {
+                console.error('Failed to load ticket:', error)
                 lemonToast.error('Failed to load ticket')
                 actions.setTicketLoading(false)
             }
+        },
+        loadPersonSuccess: async () => {
+            // Load previous tickets after person is loaded
+            actions.loadPreviousTickets()
         },
         updateTicket: async () => {
             if (props.id === 'new') {
@@ -170,7 +369,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const data: Partial<{
                     status: string
                     priority: string
-                    assigned_to: number | null
+                    assignee: TicketAssignee
                 }> = {}
 
                 if (values.status) {
@@ -179,12 +378,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (values.priority) {
                     data.priority = values.priority
                 }
-                data.assigned_to =
-                    values.assignedTo === 'All users' || !values.assignedTo
-                        ? null
-                        : typeof values.assignedTo === 'string'
-                          ? parseInt(values.assignedTo, 10)
-                          : values.assignedTo
+                data.assignee = values.assignee
 
                 const ticket = await api.conversationsTickets.update(props.id.toString(), data)
                 actions.setTicket(ticket)
@@ -237,7 +431,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setOlderMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content, onSuccess }) => {
+        sendMessage: async ({ content, richContent, isPrivate, onSuccess }) => {
             if (props.id === 'new') {
                 actions.setMessageSending(false)
                 return
@@ -246,16 +440,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 await api.comments.create(
                     {
                         content,
+                        rich_content: richContent,
                         scope: 'conversations_ticket',
                         item_id: props.id.toString(),
                         item_context: {
                             author_type: 'support',
-                            is_private: false,
+                            is_private: isPrivate,
                         },
                     },
                     {}
                 )
-                lemonToast.success('Message sent')
+                lemonToast.success(isPrivate ? 'Private message sent' : 'Message sent')
                 actions.setMessageSending(false)
                 onSuccess?.()
                 setTimeout(() => {
@@ -273,8 +468,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         }
     }),
     beforeUnmount(({ cache }) => {
-        if (cache.pollingInterval) {
-            clearInterval(cache.pollingInterval)
-        }
+        cache.disposables.disposeAll()
     }),
 ])

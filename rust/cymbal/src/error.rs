@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use aws_sdk_s3::primitives::ByteStreamError;
 use common_geoip::GeoIpError;
 use common_kafka::kafka_producer::KafkaProduceError;
@@ -23,7 +25,7 @@ pub enum ResolveError {
 #[derive(Debug)]
 pub struct PipelineFailure {
     pub index: usize,
-    pub error: UnhandledError,
+    pub error: Arc<UnhandledError>,
 }
 
 // The result of running the pipeline against a single message. Generally,
@@ -235,6 +237,15 @@ impl From<aws_sdk_s3::Error> for UnhandledError {
 
 impl From<(usize, UnhandledError)> for PipelineFailure {
     fn from((index, error): (usize, UnhandledError)) -> Self {
+        PipelineFailure {
+            index,
+            error: Arc::new(error),
+        }
+    }
+}
+
+impl From<(usize, Arc<UnhandledError>)> for PipelineFailure {
+    fn from((index, error): (usize, Arc<UnhandledError>)) -> Self {
         PipelineFailure { index, error }
     }
 }

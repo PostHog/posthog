@@ -234,7 +234,11 @@ def get_insight_analysis(
             {"role": "user", "content": prompt},
         ]
 
-        content, _, _ = hit_openai(messages, f"team/{team.id}/analysis")
+        content, _, _ = hit_openai(
+            messages,
+            f"team/{team.id}/analysis",
+            posthog_properties={"ai_product": "product-analytics", "ai_feature": "insight-ai-analysis"},
+        )
         return content
 
     except Exception:
@@ -279,7 +283,11 @@ def get_ai_suggestions(
             {"role": "user", "content": prompt},
         ]
 
-        content, _, _ = hit_openai(messages, f"team/{team.id}/suggestions")
+        content, _, _ = hit_openai(
+            messages,
+            f"team/{team.id}/suggestions",
+            posthog_properties={"ai_product": "product-analytics", "ai_feature": "insight-ai-suggestions"},
+        )
 
         # Parse JSON from content
         cleaned_content = content.strip()
@@ -310,3 +318,56 @@ def get_ai_suggestions(
     except Exception:
         logger.exception("ai_suggestions_failed")
         return []
+
+
+def generate_insight_name(query: InsightVizNode, team: Team) -> str:
+    """Generate a concise, descriptive name for an insight based on its query configuration."""
+    try:
+        query_json = query.model_dump_json(exclude_none=True)
+        query_kind = query.source.kind if query.source else "Unknown"
+
+        prompt = (
+            "Generate a short, descriptive name for this PostHog insight based on its query configuration. "
+            "The name should be concise (2-6 words), descriptive, and follow these patterns:\n\n"
+            "Examples:\n"
+            "- 'Weekly active users' (for a trends query counting unique users by week)\n"
+            "- 'Signup to purchase funnel' (for a funnel from signup to purchase events)\n"
+            "- 'User retention by week' (for a retention query)\n"
+            "- 'Feature adoption by country' (for trends with country breakdown)\n"
+            "- 'Daily pageviews trend' (for pageview trends by day)\n\n"
+            "Rules:\n"
+            "- Use sentence case (only first word capitalized)\n"
+            "- No quotes or special characters\n"
+            "- Focus on what the insight measures, not how\n"
+            "- Include breakdown dimension if present (e.g., 'by browser', 'by country')\n"
+            "- Return ONLY the name, nothing else\n\n"
+            f"Query type: {query_kind}\n"
+            f"Query configuration: {query_json}"
+        )
+
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a helpful assistant that generates concise insight names. Return only the name, nothing else.",
+            },
+            {"role": "user", "content": prompt},
+        ]
+
+        content, _, _ = hit_openai(
+            messages,
+            f"team/{team.id}/generate-insight-name",
+            posthog_properties={"ai_product": "product-analytics", "ai_feature": "insight-ai-name-generation"},
+        )
+
+        name = content.strip().strip('"').strip("'")
+        if name and name[0].islower():
+            name = name[0].upper() + name[1:]
+        if len(name) > 100:
+            name = name[:97] + "..."
+
+        return name
+
+    except Exception:
+        # TODO: Fallback to <event> <math> & <event> <math> naming
+        logger.exception("ai_name_generation_failed")
+        return ""

@@ -447,20 +447,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert property_definition.is_numerical
         assert response.json()["property_type"] == "Numeric"
 
-    @patch("posthog.models.Organization.is_feature_available", return_value=False)
-    def test_update_property_definition_cannot_set_verified_without_entitlement(self, mock_is_feature_available):
-        """Test that enterprise-only fields require license"""
-        property_definition = PropertyDefinition.objects.create(
-            team=self.team, name="test_property", property_type="String"
-        )
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.pk}/property_definitions/{property_definition.id}",
-            {"verified": True},  # This should be blocked since it's enterprise-only
-        )
-
-        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
-
     @patch("posthog.settings.EE_AVAILABLE", True)
     @patch("posthog.models.Organization.is_feature_available", return_value=True)
     def test_update_property_definition_with_taxonomy_entitlement(self, *mocks):
