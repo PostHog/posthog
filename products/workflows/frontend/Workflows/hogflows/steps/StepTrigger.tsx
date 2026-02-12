@@ -42,7 +42,7 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/Tes
 import { PropertyFilterType } from '~/types'
 
 // Side-effect imports: register product-specific trigger types
-import 'products/conversations/frontend/workflows/triggers'
+import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters } from '../filters/HogFlowFilters'

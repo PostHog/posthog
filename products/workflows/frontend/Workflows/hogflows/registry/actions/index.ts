@@ -1,1 +1,1 @@
-import 'conversations'
+import './conversations'
