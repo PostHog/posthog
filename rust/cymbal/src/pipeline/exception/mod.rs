@@ -24,7 +24,7 @@ use crate::{
     types::RawErrProps,
 };
 
-const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
+pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
 
 pub async fn do_exception_handling(
     mut events: Vec<PipelineResult>,
@@ -209,6 +209,8 @@ mod test {
             group3_created_at: None,
             group4_created_at: None,
             person_mode: common_types::PersonMode::Full,
+            captured_at: None,
+            historical_migration: None,
         }
     }
 

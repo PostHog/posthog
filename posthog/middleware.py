@@ -242,6 +242,7 @@ class AutoProjectMiddleware:
             if path_parts[0] == "dashboard":
                 dashboard_id = path_parts[1]
                 if dashboard_id.isnumeric():
+                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return Dashboard.objects.filter(deleted=False, id=dashboard_id)
             elif path_parts[0] == "insights":
                 insight_short_id = path_parts[1]
@@ -252,14 +253,17 @@ class AutoProjectMiddleware:
             elif path_parts[0] == "feature_flags":
                 feature_flag_id = path_parts[1]
                 if feature_flag_id.isnumeric():
+                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return FeatureFlag.objects.filter(deleted=False, id=feature_flag_id)
             elif path_parts[0] == "action":
                 action_id = path_parts[1]
                 if action_id.isnumeric():
+                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return Action.objects.filter(deleted=False, id=action_id)
             elif path_parts[0] == "cohorts":
                 cohort_id = path_parts[1]
                 if cohort_id.isnumeric():
+                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return Cohort.objects.filter(deleted=False, id=cohort_id)
         return None
 

@@ -15644,6 +15644,7 @@
                 "workflows",
                 "notebook",
                 "action",
+                "activity",
                 "comment",
                 "annotation",
                 "event",
@@ -16435,6 +16436,10 @@
                     },
                     "description": "Customizations for the appearance of result datasets.",
                     "type": "object"
+                },
+                "showTrendLines": {
+                    "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
+                    "type": "boolean"
                 },
                 "showValuesOnSeries": {
                     "default": false,
@@ -30495,6 +30500,9 @@
         "SourceFieldInputConfig": {
             "additionalProperties": false,
             "properties": {
+                "caption": {
+                    "type": "string"
+                },
                 "label": {
                     "type": "string"
                 },

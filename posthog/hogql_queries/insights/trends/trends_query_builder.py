@@ -28,7 +28,7 @@ from posthog.hogql_queries.insights.trends.breakdown import (
     Breakdown,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import is_groups_math
+from posthog.hogql_queries.insights.trends.utils import group_node_to_expr, is_groups_math
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
@@ -893,7 +893,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return self._get_action_expr(self.series)
 
         if isinstance(self.series, GroupNode):
-            return self._get_group_expr(self.series)
+            return group_node_to_expr(self.series, self.team)
 
         return None
 
@@ -912,49 +912,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         except Action.DoesNotExist:
             # If an action doesn't exist, we want to return no events
             return parse_expr("1 = 2")
-
-    def _get_group_expr(self, series: GroupNode) -> ast.Expr | None:
-        group_filters: list[ast.Expr] = []
-        for node in series.nodes:
-            if isinstance(node, EventsNode):
-                event_expr = self._get_event_expr(node)
-                if event_expr is None:
-                    continue
-
-                # Add property filters if present
-                if node.properties is not None and node.properties != []:
-                    properties_expr = property_to_expr(node.properties, self.team)
-                    combined_expr: ast.Expr = ast.And(exprs=[event_expr, properties_expr])
-                    group_filters.append(combined_expr)
-                else:
-                    group_filters.append(event_expr)
-
-            if isinstance(node, ActionsNode):
-                action_expr = self._get_action_expr(node)
-                if action_expr is None:
-                    continue
-
-                # Add property filters if present
-                if node.properties is not None and node.properties != []:
-                    properties_expr = property_to_expr(node.properties, self.team)
-                    combined_expr = ast.And(exprs=[action_expr, properties_expr])
-                    group_filters.append(combined_expr)
-                else:
-                    group_filters.append(action_expr)
-
-        if len(group_filters) == 0:
-            return None
-
-        if len(group_filters) == 1:
-            return group_filters[0]
-
-        if series.operator == "OR":
-            return ast.Or(exprs=group_filters)
-
-        # if series.operator == "AND":
-        #     return ast.And(exprs=group_filters)
-
-        return None
 
     def _sample_value(self) -> ast.RatioExpr:
         if self.query.samplingFactor is None:

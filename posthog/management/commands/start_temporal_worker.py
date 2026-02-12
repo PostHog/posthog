@@ -126,6 +126,10 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
+from products.signals.backend.temporal import (
+    ACTIVITIES as SIGNALS_ACTIVITIES,
+    WORKFLOWS as SIGNALS_WORKFLOWS,
+)
 from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,

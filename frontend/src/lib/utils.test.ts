@@ -2,7 +2,7 @@ import tk from 'timekeeper'
 
 import { dayjs } from 'lib/dayjs'
 
-import { ElementType, EventType, PropertyOperator, PropertyType, TimeUnitType } from '~/types'
+import { ElementType, EventType, PropertyType, TimeUnitType } from '~/types'
 
 import {
     areDatesValidForInterval,
@@ -38,7 +38,6 @@ import {
     is12HoursOrLess,
     isExternalLink,
     isLessThan2Days,
-    isOperatorMulti,
     isURL,
     median,
     midEllipsis,
@@ -270,6 +269,69 @@ describe('lib/utils', () => {
                 expect(dateFilterToText('-1d', null, 'default')).toEqual('Last 1 day')
                 expect(dateFilterToText('-1dStart', '-1dEnd', 'default')).toEqual('Yesterday')
                 expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Last month')
+            })
+
+            // The frontend DateFilter emits YYYY-MM-DD (without allowTimePrecision) or
+            // YYYY-MM-DDTHH:mm:ss (with allowTimePrecision, used by recordings).
+            // The AI agent (filter_session_recordings) emits YYYY-MM-DDTHH:mm:ss.SSS.
+            // All cross-combinations must display correctly.
+
+            it('handles ISO datetime without milliseconds (frontend DateFilter format)', () => {
+                // Both dates as YYYY-MM-DDTHH:mm:ss
+                expect(dateFilterToText('2026-02-01T00:00:00', '2026-02-04T23:59:59', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // Non-midnight times
+                expect(dateFilterToText('2026-02-01T14:30:00', '2026-02-04T18:45:00', 'default')).toEqual(
+                    'February 1, 14:30 - February 4, 18:45'
+                )
+            })
+
+            it('handles ISO datetime with milliseconds (AI agent format)', () => {
+                // Both dates as YYYY-MM-DDTHH:mm:ss.SSS
+                expect(dateFilterToText('2026-02-01T00:00:00.000', '2026-02-04T23:59:59.999', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+            })
+
+            it('handles mixed datetime formats (frontend × AI agent)', () => {
+                // YYYY-MM-DDTHH:mm:ss from + YYYY-MM-DDTHH:mm:ss.SSS to
+                expect(dateFilterToText('2026-02-01T00:00:00', '2026-02-04T23:59:59.999', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // YYYY-MM-DDTHH:mm:ss.SSS from + YYYY-MM-DDTHH:mm:ss to
+                expect(dateFilterToText('2026-02-01T00:00:00.000', '2026-02-04T23:59:59', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+            })
+
+            it('handles plain date + datetime (either direction)', () => {
+                // YYYY-MM-DD from + YYYY-MM-DDTHH:mm:ss to
+                expect(dateFilterToText('2026-02-01', '2026-02-04T23:59:59', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // YYYY-MM-DD from + YYYY-MM-DDTHH:mm:ss.SSS to
+                expect(dateFilterToText('2026-02-01', '2026-02-04T23:59:59.999', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // YYYY-MM-DDTHH:mm:ss from + YYYY-MM-DD to (both resolve to midnight → times omitted)
+                expect(dateFilterToText('2026-02-01T00:00:00', '2026-02-04', 'default')).toEqual(
+                    'February 1 - February 4'
+                )
+                // YYYY-MM-DDTHH:mm:ss.SSS from + YYYY-MM-DD to (both resolve to midnight → times omitted)
+                expect(dateFilterToText('2026-02-01T00:00:00.000', '2026-02-04', 'default')).toEqual(
+                    'February 1 - February 4'
+                )
+                // Non-midnight datetime from + YYYY-MM-DD to
+                expect(dateFilterToText('2026-02-01T14:30:00', '2026-02-04', 'default')).toEqual(
+                    'February 1, 14:30 - February 4, 00:00'
+                )
+            })
+
+            it('handles same-day datetime range', () => {
+                expect(dateFilterToText('2026-02-01T09:00:00', '2026-02-01T17:00:00', 'default')).toEqual(
+                    'February 1, 09:00 - 17:00'
+                )
             })
 
             it('can have overridden date options', () => {
@@ -1504,23 +1566,6 @@ describe('lib/utils', () => {
                 'test-error'
             )
             expect(shouldRetry).toHaveBeenCalledWith(testError)
-        })
-    })
-
-    describe('isOperatorMulti', () => {
-        it('returns true for operators that support multiple values', () => {
-            expect(isOperatorMulti(PropertyOperator.Exact)).toBe(true)
-            expect(isOperatorMulti(PropertyOperator.IsNot)).toBe(true)
-            expect(isOperatorMulti(PropertyOperator.IContains)).toBe(true)
-            expect(isOperatorMulti(PropertyOperator.NotIContains)).toBe(true)
-        })
-
-        it('returns false for operators that do not support multiple values', () => {
-            expect(isOperatorMulti(PropertyOperator.GreaterThan)).toBe(false)
-            expect(isOperatorMulti(PropertyOperator.LessThan)).toBe(false)
-            expect(isOperatorMulti(PropertyOperator.IsSet)).toBe(false)
-            expect(isOperatorMulti(PropertyOperator.IsNotSet)).toBe(false)
-            expect(isOperatorMulti(PropertyOperator.Regex)).toBe(false)
         })
     })
 })

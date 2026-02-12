@@ -52,17 +52,17 @@ pub async fn handle_batch(
     offsets: &[Offset], // Used purely for debugging
     context: Arc<AppContext>,
 ) -> Result<Vec<PipelineResult>, PipelineFailure> {
-    let log_err = |err: PipelineFailure| {
-        let (index, err) = (err.index, err.error);
-        let offset = &offsets[index];
-        error!("Error handling event: {:?}; offset: {:?}", err, offset);
-        err
+    let log_err = |err: &PipelineFailure| {
+        error!(
+            "Error handling event: {:?}; offset: {:?}",
+            err.error, offsets[err.index]
+        );
     };
 
     let billing_limits_time = common_metrics::timing_guard(BILLING_LIMITS_TIME, &[]);
     let buffer = apply_billing_limits(buffer, &context)
         .await
-        .map_err(log_err)
+        .inspect_err(log_err)
         .unwrap();
     billing_limits_time.label("outcome", "success").fin();
 
@@ -73,12 +73,14 @@ pub async fn handle_batch(
     let team_lookup_time = common_metrics::timing_guard(TEAM_LOOKUP_TIME, &[]);
     let teams_lut = do_team_lookups(context.clone(), &buffer)
         .await
-        .map_err(log_err)
+        .inspect_err(log_err)
         .unwrap();
     team_lookup_time.label("outcome", "success").fin();
 
     let prepare_time = common_metrics::timing_guard(PREPARE_EVENTS_TIME, &[]);
-    let buffer = prepare_events(buffer, teams_lut).map_err(log_err).unwrap();
+    let buffer = prepare_events(buffer, teams_lut)
+        .inspect_err(log_err)
+        .unwrap();
     prepare_time.label("outcome", "success").fin();
     assert_eq!(start_count, buffer.len());
 
@@ -104,7 +106,7 @@ pub async fn handle_batch(
     let exception_time = common_metrics::timing_guard(EXCEPTION_PROCESSING_TIME, &[]);
     let buffer = do_exception_handling(buffer, context.clone())
         .await
-        .map_err(log_err)
+        .inspect_err(log_err)
         .unwrap();
     exception_time.label("outcome", "success").fin();
     assert_eq!(start_count, buffer.len());
@@ -112,7 +114,7 @@ pub async fn handle_batch(
     let person_time = common_metrics::timing_guard(PERSON_PROCESSING_TIME, &[]);
     let buffer = add_person_properties(buffer, context.clone())
         .await
-        .map_err(log_err)
+        .inspect_err(log_err)
         .unwrap();
     person_time.label("outcome", "success").fin();
     assert_eq!(start_count, buffer.len());
@@ -198,6 +200,8 @@ mod test {
             group3_created_at: None,
             group4_created_at: None,
             person_mode: PersonMode::Propertyless,
+            captured_at: None,
+            historical_migration: None,
         };
 
         let ts = parse_datetime_assuming_utc(&event.timestamp).unwrap();
@@ -235,6 +239,8 @@ mod test {
             group3_created_at: None,
             group4_created_at: None,
             person_mode: PersonMode::Propertyless,
+            captured_at: None,
+            historical_migration: None,
         };
 
         let buffer = vec![Ok(event)];

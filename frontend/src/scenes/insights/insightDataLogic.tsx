@@ -1,6 +1,9 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -66,7 +69,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setInsight'],
+            ['setInsight', 'setInsightMetadata'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
@@ -100,6 +103,30 @@ export const insightDataLogic = kea<insightDataLogicType>([
             },
         ],
     }),
+
+    loaders(({ values }) => ({
+        generatedInsightName: [
+            null as string | null,
+            {
+                generateInsightName: async () => {
+                    const insightQuery = values.insightQuery
+                    if (!insightQuery) {
+                        return null
+                    }
+                    try {
+                        const response = await api.insights.generateName({
+                            kind: NodeKind.InsightVizNode,
+                            source: insightQuery,
+                        })
+                        return response.name
+                    } catch (e) {
+                        lemonToast.error('Failed to generate name')
+                        throw e
+                    }
+                },
+            },
+        ],
+    })),
 
     selectors({
         query: [
@@ -216,6 +243,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        generateInsightNameSuccess: ({ generatedInsightName }) => {
+            if (generatedInsightName) {
+                actions.setInsightMetadata({ name: generatedInsightName })
+            }
+        },
         setInsight: ({ insight: { query, result }, options: { overrideQuery } }) => {
             // we don't want to override the query for example when updating the insight's name
             if (!overrideQuery) {
