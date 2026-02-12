@@ -16,7 +16,10 @@ use common_types::InternallyCapturedEvent;
 use rdkafka::types::RDKafkaErrorCode;
 use tracing::{error, info};
 
-use crate::{context::AppContext, job::config::KafkaEmitterConfig};
+use crate::{
+    context::AppContext, job::config::KafkaEmitterConfig,
+    person_processing_filter::PersonProcessingFilter,
+};
 
 use super::{Emitter, Transaction};
 
@@ -24,6 +27,7 @@ pub struct KafkaEmitter {
     producer: TransactionalProducer,
     topic: String,
     send_rate: u64, // Messages sent per second
+    person_processing_filter: PersonProcessingFilter,
 }
 
 pub struct KafkaEmitterTransaction<'a> {
@@ -32,6 +36,7 @@ pub struct KafkaEmitterTransaction<'a> {
     send_rate: u64,
     start: Instant,
     count: AtomicUsize,
+    person_processing_filter: &'a PersonProcessingFilter,
 }
 
 impl KafkaEmitter {
@@ -50,6 +55,7 @@ impl KafkaEmitter {
             producer,
             topic: emitter_config.topic,
             send_rate: emitter_config.send_rate,
+            person_processing_filter: context.person_processing_filter.clone(),
         })
     }
 }
@@ -64,6 +70,7 @@ impl Emitter for KafkaEmitter {
             topic: &self.topic,
             send_rate: self.send_rate,
             count: AtomicUsize::new(0),
+            person_processing_filter: &self.person_processing_filter,
         }))
     }
 }
@@ -75,8 +82,28 @@ impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
             .inner
             .send_keyed_iter_to_kafka_with_headers(
                 self.topic,
-                |e| Some(e.inner.key()),
-                |e| Some(e.inner.to_headers().into()),
+                |e| {
+                    // If person processing should be disabled, send without a key
+                    if self
+                        .person_processing_filter
+                        .should_disable_person_processing(&e.inner.token, &e.inner.distinct_id)
+                    {
+                        None
+                    } else {
+                        Some(e.inner.key())
+                    }
+                },
+                |e| {
+                    let mut headers = e.inner.to_headers();
+                    // Set force_disable_person_processing header if needed
+                    if self
+                        .person_processing_filter
+                        .should_disable_person_processing(&e.inner.token, &e.inner.distinct_id)
+                    {
+                        headers.set_force_disable_person_processing(true);
+                    }
+                    Some(headers.into())
+                },
                 data.iter(),
             )
             .await
