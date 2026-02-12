@@ -360,7 +360,8 @@ def generate_insight_name(query: InsightVizNode, team: Team) -> str:
         )
 
         name = content.strip().strip('"').strip("'")
-        name = name.capitalize() if name else name
+        if name and name[0].islower():
+            name = name[0].upper() + name[1:]
         if len(name) > 100:
             name = name[:97] + "..."
 
