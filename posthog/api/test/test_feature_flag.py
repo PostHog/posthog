@@ -4193,8 +4193,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(non_string_payload.status_code, status.HTTP_201_CREATED)
         # Object payloads should be normalized to JSON strings
         stored_payload = non_string_payload.json()["filters"]["payloads"]["true"]
-        self.assertEqual(stored_payload, '{"key": "value"}')
         self.assertIsInstance(stored_payload, str)
+        self.assertEqual(json.loads(stored_payload), {"key": "value"})
 
         # Other valid JSON types (number, boolean, null, array) should be accepted
         number_payload = self._create_flag_with_properties(
