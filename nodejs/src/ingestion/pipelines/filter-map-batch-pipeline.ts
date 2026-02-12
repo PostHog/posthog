@@ -86,7 +86,11 @@ export class FilterMapBatchPipeline<
             return nonOkResults
         }
 
-        // No non-OK results, get from subpipeline
+        // No OK results were fed to subpipeline, return empty batch
+        if (okResults.length === 0) {
+            return []
+        }
+
         return this.subPipeline.next()
     }
 }

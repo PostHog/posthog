@@ -208,6 +208,72 @@ describe('FilterMapBatchPipeline', () => {
             expect(await pipeline.next()).toBeNull()
         })
 
+        it('should propagate mapping function exceptions', async () => {
+            const previousPipeline = createNewBatchPipeline<string>().build()
+            const subPipeline = createNewBatchPipeline<string>().build()
+            const error = new Error('mapping failed')
+            const throwingMapping: FilterMapMappingFunction<
+                string,
+                string,
+                { message: Message },
+                { message: Message }
+            > = () => {
+                throw error
+            }
+
+            const pipeline = new FilterMapBatchPipeline(previousPipeline, throwingMapping, subPipeline)
+            pipeline.feed([createContext(ok('hello'), context1)])
+
+            await expect(pipeline.next()).rejects.toThrow('mapping failed')
+        })
+
+        it('should return empty array for empty batch from previous pipeline', async () => {
+            const subPipeline = createNewBatchPipeline<string>().build()
+
+            const previousPipeline = {
+                feed: jest.fn(),
+                next: jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce(null),
+            }
+
+            const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
+            pipeline.feed([])
+
+            // Empty batch should return [] (a valid empty batch), not null (end of stream)
+            const result = await pipeline.next()
+            expect(result).toEqual([])
+
+            // After the empty batch, next call gets null from previous → returns null
+            const result2 = await pipeline.next()
+            expect(result2).toBeNull()
+        })
+
+        it('should process elements after multiple empty batches from previous pipeline', async () => {
+            const subPipeline = createNewBatchPipeline<string>().build()
+
+            const previousPipeline = {
+                feed: jest.fn(),
+                next: jest
+                    .fn()
+                    .mockResolvedValueOnce([])
+                    .mockResolvedValueOnce([])
+                    .mockResolvedValueOnce([])
+                    .mockResolvedValueOnce([createContext(ok('hello'), context1)])
+                    .mockResolvedValueOnce(null),
+            }
+
+            const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
+            pipeline.feed([])
+
+            expect(await pipeline.next()).toEqual([])
+            expect(await pipeline.next()).toEqual([])
+            expect(await pipeline.next()).toEqual([])
+
+            const result = await pipeline.next()
+            expect(result).toEqual([{ result: ok('hello'), context: expect.objectContaining({ message: message1 }) }])
+
+            expect(await pipeline.next()).toBeNull()
+        })
+
         it('should drain subpipeline before fetching from previous pipeline', async () => {
             const previousPipeline = createNewBatchPipeline<string>().build()
             const subPipelineFeed = jest.fn()
