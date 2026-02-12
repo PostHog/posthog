@@ -353,12 +353,8 @@ export const commentsLogic = kea<commentsLogicType>([
         disabledReasonFor: [
             (s) => [s.user],
             (user) => {
-                return (comment: CommentType): string | null => {
-                    if (comment.created_by?.uuid === user?.uuid) {
-                        return null
-                    }
-                    return "You can only delete your own comments"
-                }
+                return (comment: CommentType): string | null =>
+                    comment.created_by?.uuid === user?.uuid ? null : "You can only delete your own comments"
             },
         ],
     }),
