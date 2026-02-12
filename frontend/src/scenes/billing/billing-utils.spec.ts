@@ -482,7 +482,7 @@ describe('buildUsageLimitExceededMessage', () => {
         const result = buildUsageLimitExceededMessage([{ name: 'PostHog AI', subscribed: true }])
         expect(result.title).toEqual('Usage limit exceeded')
         expect(result.message).toEqual(
-            'You have exceeded the usage limit for PostHog AI. Please increase your billing to continue using PostHog AI.'
+            'You have exceeded the usage limit for PostHog AI. Please increase your billing limit or PostHog AI will be unavailable.'
         )
     })
 

@@ -644,15 +644,6 @@ export function buildUsageLimitExceededMessage(products: Array<{ name: string; s
     const productNames = products.map((p) => p.name)
     const allSubscribed = products.every((p) => p.subscribed === true)
 
-    // Special case for single PostHog AI product
-    if (products.length === 1 && products[0].name === 'PostHog AI') {
-        return {
-            title: 'Usage limit exceeded',
-            message:
-                'You have exceeded the usage limit for PostHog AI. Please increase your billing to continue using PostHog AI.',
-        }
-    }
-
     // Build consequence message, deduplicating common consequences
     const consequences = [...new Set(products.map((p) => getUsageLimitConsequence(p.name)))]
 
