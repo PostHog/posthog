@@ -794,6 +794,11 @@ class FeatureFlagSerializer(
                     json.loads(value)
                 except json.JSONDecodeError:
                     raise serializers.ValidationError("Payload value is not valid JSON")
+            else:
+                try:
+                    json.dumps(value)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError("Payload value is not valid JSON")
 
         if filters.get("multivariate"):
             if not all(key in variants for key in payloads):

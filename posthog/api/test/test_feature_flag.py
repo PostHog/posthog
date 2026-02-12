@@ -4196,6 +4196,23 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(stored_payload, '{"key": "value"}')
         self.assertIsInstance(stored_payload, str)
 
+        # Other valid JSON types (number, boolean, null, array) should be accepted
+        number_payload = self._create_flag_with_properties(
+            "number-payload-flag",
+            [{"key": "key", "value": "value", "type": "person"}],
+            payloads={"true": 42},
+            expected_status=status.HTTP_201_CREATED,
+        )
+        self.assertEqual(number_payload.status_code, status.HTTP_201_CREATED)
+
+        boolean_payload = self._create_flag_with_properties(
+            "boolean-payload-flag",
+            [{"key": "key", "value": "value", "type": "person"}],
+            payloads={"true": True},
+            expected_status=status.HTTP_201_CREATED,
+        )
+        self.assertEqual(boolean_payload.status_code, status.HTTP_201_CREATED)
+
     def test_creating_feature_flag_with_behavioral_cohort(self):
         cohort_valid_for_ff = Cohort.objects.create(
             team=self.team,
