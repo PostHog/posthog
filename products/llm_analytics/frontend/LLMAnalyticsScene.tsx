@@ -137,7 +137,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
         () => ({
             date_from: externalFilters?.date_from ?? null,
             date_to: externalFilters?.date_to ?? null,
-            properties: (externalFilters?.properties as unknown) ?? null,
+            properties: externalFilters?.properties ?? null,
         }),
         [externalFilters]
     )
