@@ -27,7 +27,7 @@ class IntegrationAdmin(admin.ModelAdmin):
         (
             "Config",
             {
-                "fields": ["config", "sensitive_config", "errors"],
+                "fields": ["config", "errors"],
             },
         ),
     ]
@@ -59,7 +59,7 @@ class OrganizationIntegrationAdmin(admin.ModelAdmin):
         (
             "Config",
             {
-                "fields": ["config", "sensitive_config"],
+                "fields": ["config"],
             },
         ),
     ]
