@@ -463,6 +463,7 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["linked_flag"]["id"] == notebooks_flag.id
         assert FeatureFlag.objects.filter(id=response_data["targeting_flag"]["id"]).exists()
+        targeting_flag_key = response_data["targeting_flag"]["key"]
 
         created_survey1 = response.json()["id"]
 
@@ -501,16 +502,23 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(21):
+        # +2 queries for internal flag IDs lookup (survey + product tour)
+        with self.assertNumQueries(22):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
 
-            self.assertEqual(result["count"], 2)
+            # Count includes: notebooks flag, flag_0, and the targeting_flag from survey 1
+            # (targeting_flag is user-visible, internal_targeting_flag is hidden)
+            self.assertEqual(result["count"], 3)
 
-            self.assertEqual(
+            self.assertCountEqual(
                 [(res["key"], sorted([survey["id"] for survey in res["surveys"]])) for res in result["results"]],
-                [("flag_0", []), (ff_key, sorted([created_survey1, created_survey2]))],
+                [
+                    ("flag_0", []),
+                    (ff_key, sorted([created_survey1, created_survey2])),
+                    (targeting_flag_key, []),
+                ],
             )
 
     def test_updating_survey_with_invalid_iteration_count_is_rejected(self):

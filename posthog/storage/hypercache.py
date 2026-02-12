@@ -65,11 +65,11 @@ CACHE_SYNC_SIZE_HISTOGRAM = Histogram(
     buckets=(
         10_000,  # 10KB - small caches
         100_000,  # 100KB - medium caches
-        256_000,  # 256KB - half of per-flag limit
-        512_000,  # 512KB - per-flag limit (MAX_FEATURE_FLAG_FILTER_SIZE_BYTES)
-        1_000_000,  # 1MB - approaching total limit
-        1_500_000,  # 1.5MB - total filter limit (MAX_FEATURE_FLAG_TOTAL_FILTERS_BYTES)
-        3_000_000,  # 3MB - 2x limit (for overhead/outliers)
+        256_000,  # 256KB
+        512_000,  # 512KB
+        1_000_000,  # 1MB
+        1_500_000,  # 1.5MB
+        3_000_000,  # 3MB
         5_000_000,  # 5MB - safety bucket
         float("inf"),
     ),
