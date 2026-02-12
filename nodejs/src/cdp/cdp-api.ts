@@ -577,9 +577,17 @@ export class CdpApi {
                     // TODO: Better validation here before we directly use the result
                     const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
                     if (typeof httpResponse.body === 'string') {
+                        if (httpResponse.isBase64Encoded) {
+                            const buffer = Buffer.from(httpResponse.body, 'base64')
+                            return res
+                                .status(httpResponse.status)
+                                .type(httpResponse.contentType ?? 'application/octet-stream')
+                                .send(buffer)
+                        }
+
                         return res
                             .status(httpResponse.status)
-                            .set('Content-Type', httpResponse.contentType ?? 'text/plain')
+                            .type(httpResponse.contentType ?? 'text/plain')
                             .send(httpResponse.body)
                     } else if (typeof httpResponse.body === 'object') {
                         return res.status(httpResponse.status).json(httpResponse.body)
