@@ -12,31 +12,36 @@ BATCH_SIZE = 500
 def normalize_payloads_to_strings(apps, schema_editor):
     FeatureFlag = apps.get_model("posthog", "FeatureFlag")
 
-    flags_with_payloads = FeatureFlag.objects.raw("""
-        SELECT f.*
-        FROM posthog_featureflag f,
-             jsonb_each(f.filters->'payloads') AS kv(key, value)
-        WHERE f.filters->'payloads' IS NOT NULL
-          AND f.filters->'payloads' != '{}'::jsonb
-          AND jsonb_typeof(kv.value) = 'object'
-        GROUP BY f.id
-    """)
+    total_updated = 0
+    while True:
+        flags_with_payloads = list(
+            FeatureFlag.objects.raw(f"""
+            SELECT f.*
+            FROM posthog_featureflag f,
+                 jsonb_each(f.filters->'payloads') AS kv(key, value)
+            WHERE f.filters->'payloads' IS NOT NULL
+              AND f.filters->'payloads' != '{{}}'::jsonb
+              AND jsonb_typeof(kv.value) = 'object'
+            GROUP BY f.id
+            LIMIT {BATCH_SIZE}
+        """)
+        )
 
-    to_update = []
-    for flag in flags_with_payloads:
-        payloads = flag.filters.get("payloads", {})
-        changed = False
-        for key, value in payloads.items():
-            if isinstance(value, dict):
-                payloads[key] = json.dumps(value)
-                changed = True
-        if changed:
+        if not flags_with_payloads:
+            break
+
+        for flag in flags_with_payloads:
+            payloads = flag.filters.get("payloads", {})
+            for key, value in payloads.items():
+                if isinstance(value, dict):
+                    payloads[key] = json.dumps(value)
             flag.filters["payloads"] = payloads
-            to_update.append(flag)
 
-    if to_update:
-        FeatureFlag.objects.bulk_update(to_update, ["filters"], batch_size=BATCH_SIZE)
-        logger.info("normalized_feature_flag_payloads", count=len(to_update))
+        FeatureFlag.objects.bulk_update(flags_with_payloads, ["filters"], batch_size=BATCH_SIZE)
+        total_updated += len(flags_with_payloads)
+
+    if total_updated:
+        logger.info("normalized_feature_flag_payloads", count=total_updated)
 
 
 class Migration(migrations.Migration):
