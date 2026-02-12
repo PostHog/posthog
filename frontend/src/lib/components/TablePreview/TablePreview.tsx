@@ -1,3 +1,5 @@
+import { useLayoutEffect, useRef } from 'react'
+
 import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
@@ -10,6 +12,8 @@ export interface TablePreviewProps {
     selectedKey?: string | null
 }
 
+const SELECTED_COLUMN_CLASS = 'TablePreview__selected-column'
+
 export function TablePreview({
     table,
     emptyMessage,
@@ -17,6 +21,22 @@ export function TablePreview({
     loading = false,
     selectedKey = null,
 }: TablePreviewProps): JSX.Element {
+    const containerRef = useRef<HTMLDivElement>(null)
+    const tableName = table?.name
+
+    useLayoutEffect(() => {
+        if (!selectedKey || !tableName) {
+            return
+        }
+
+        const frameId = requestAnimationFrame(() => {
+            const selectedColumn = containerRef.current?.querySelector<HTMLElement>(`.${SELECTED_COLUMN_CLASS}`)
+            selectedColumn?.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' })
+        })
+
+        return () => cancelAnimationFrame(frameId)
+    }, [selectedKey, tableName])
+
     const columns: LemonTableColumns<Record<string, any>> = table
         ? Object.values(table.fields)
               .filter((column) => column.type !== 'view')
@@ -26,7 +46,7 @@ export function TablePreview({
                       key: column.name,
                       dataIndex: column.name,
                       className: isSelectedKey
-                          ? 'bg-warning-highlight border-l-2 border-r-2 border-warning'
+                          ? `bg-warning-highlight border-l-2 border-r-2 border-warning ${SELECTED_COLUMN_CLASS}`
                           : undefined,
                       width: 120,
                       title: (
@@ -47,7 +67,7 @@ export function TablePreview({
         : []
 
     return (
-        <div className="flex-1 min-w-0">
+        <div ref={containerRef} className="flex-1 min-w-0">
             <div className="mt-2 border-t border-border rounded overflow-hidden h-64">
                 {table ? (
                     <LemonTable
