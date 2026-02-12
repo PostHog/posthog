@@ -142,22 +142,20 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     }
                 }
 
-                const createPendingNotifications = async (alertId: string): Promise<boolean> => {
-                    // Use props.alert?.id (not alertId) to match the logic instance where notifications were queued.
-                    // For new alerts this is undefined (key 'new'), for existing alerts it matches the edit key.
-                    const notifLogic = alertNotificationLogic({ alertId: props.alert?.id })
-                    if (notifLogic.values.pendingNotifications.length === 0) {
-                        return true
+                // Keyed by the original alert ID to match the instance where notifications were queued during editing
+                const notifLogic = alertNotificationLogic({ alertId: props.alert?.id })
+
+                const flushPendingNotifications = async (savedAlertId: string): Promise<void> => {
+                    if (notifLogic.values.pendingNotifications.length > 0) {
+                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId, alert.name)
                     }
-                    await notifLogic.asyncActions.createPendingHogFunctions(alertId, alert.name)
-                    return notifLogic.values.pendingNotifications.length === 0
                 }
 
                 try {
                     if (alert.id === undefined) {
                         const updatedAlert: AlertType = await api.alerts.create(payload)
 
-                        await createPendingNotifications(updatedAlert.id)
+                        await flushPendingNotifications(updatedAlert.id)
                         lemonToast.success(`Alert created.`)
                         upsertToParent(updatedAlert)
                         props.onEditSuccess(updatedAlert.id)
@@ -167,7 +165,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                     const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
 
-                    await createPendingNotifications(updatedAlert.id)
+                    await flushPendingNotifications(updatedAlert.id)
                     lemonToast.success(`Alert saved.`)
                     upsertToParent(updatedAlert)
                     props.onEditSuccess(updatedAlert.id)
