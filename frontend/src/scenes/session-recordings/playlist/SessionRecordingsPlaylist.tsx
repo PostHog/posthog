@@ -83,7 +83,7 @@ function HorizontalLayout({
                     <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
                 )}
             </div>
-            <PlayerWrapper {...props} className="h-full flex-1 shrink min-w-0" />
+            <PlayerWrapper {...props} className="h-full flex-1 shrink" />
         </>
     )
 }
