@@ -1,0 +1,47 @@
+{
+    "execute-sql": {
+        "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the posthog-query-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Call posthog:read-data-warehouse-schema to discover available tables, views, columns, and their types. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```",
+        "category": "SQL",
+        "feature": "sql",
+        "summary": "Execute an SQL query.",
+        "title": "Execute SQL query",
+        "required_scopes": ["query:read", "insight:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "read-data-schema": {
+        "description": "Use this tool to explore the user's data schema. The user implements PostHog SDKs to collect events, properties, and property values. They are used by users to create insights with visualizations, SQL queries, watch session recordings, filter data, target particular users or groups by traits or behavior, etc. Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else. Events or properties starting from \"$\" are system properties automatically captured by SDKs. Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.",
+        "category": "Data schema",
+        "feature": "data-schema",
+        "summary": "Explore the user's events, actions, properties, and property values.",
+        "title": "Read data schema",
+        "required_scopes": ["event_definition:read", "property_definition:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "read-data-warehouse-schema": {
+        "description": "Use this tool to retrieve the core data warehouse schemas for PostHog tables (events, groups, persons, sessions) and the available data warehouse tables, views, and system tables. Use this to understand the data model before writing HogQL queries.",
+        "category": "Data schema",
+        "feature": "data-schema",
+        "summary": "Read core data warehouse schemas and table lists.",
+        "title": "Read data warehouse schema",
+        "required_scopes": ["warehouse_table:read", "warehouse_view:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    }
+}

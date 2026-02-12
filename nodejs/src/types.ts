@@ -60,6 +60,7 @@ export enum PluginServerMode {
     ingestion_logs = 'ingestion-logs',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
     cdp_cyclotron_shadow_worker = 'cdp-cyclotron-shadow-worker',
+    recording_api = 'recording-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -317,6 +318,13 @@ export type LogsIngestionConsumerConfig = {
     LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
 }
 
+export type SessionRecordingApiConfig = {
+    SESSION_RECORDING_API_REDIS_HOST: string
+    SESSION_RECORDING_API_REDIS_PORT: number
+    SESSION_RECORDING_KMS_ENDPOINT: string | undefined
+    SESSION_RECORDING_DYNAMODB_ENDPOINT: string | undefined
+}
+
 export type SessionRecordingConfig = {
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -373,7 +381,8 @@ export interface PluginsServerConfig
     extends CdpConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
-        SessionRecordingConfig {
+        SessionRecordingConfig,
+        SessionRecordingApiConfig {
     CONTINUOUS_PROFILING_ENABLED: boolean
     PYROSCOPE_SERVER_ADDRESS: string
     PYROSCOPE_APPLICATION_NAME: string
@@ -558,6 +567,7 @@ export interface PluginServerCapabilities {
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
     cdpCyclotronShadowWorker?: boolean
+    recordingApi?: boolean
 }
 
 export type TeamId = Team['id']
@@ -852,19 +862,20 @@ export interface BasePerson {
     uuid: string
     properties_last_updated_at: PropertiesLastUpdatedAt
     properties_last_operation: PropertiesLastOperation | null
-    last_seen_at: string | null
 }
 
 /** Raw Person row from database. */
 export interface RawPerson extends BasePerson {
     created_at: string
     version: string | null
+    last_seen_at: string | null
 }
 
 /** Usable Person model. */
 export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
+    last_seen_at: DateTime | null
 }
 
 /** Mutable fields that can be updated on a Person via updatePerson. */
@@ -875,6 +886,7 @@ export interface PersonUpdateFields {
     is_identified: boolean
     created_at: DateTime
     version?: number // Optional: allows forcing a specific version
+    last_seen_at?: DateTime | null
 }
 
 /** Person model exposed outside of person-specific DB logic. */
@@ -900,6 +912,7 @@ export interface ClickHousePerson {
     is_deleted: number
     timestamp: string
     version: number
+    last_seen_at: string | null
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4

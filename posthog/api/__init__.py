@@ -323,6 +323,13 @@ environments_router.register(
     ["team_id"],
 )
 
+environments_router.register(
+    r"customer_journeys",
+    customer_analytics.CustomerJourneyViewSet,
+    "environment_customer_journeys",
+    ["team_id"],
+)
+
 projects_router.register(
     r"data_management",
     DataManagementViewSet,
