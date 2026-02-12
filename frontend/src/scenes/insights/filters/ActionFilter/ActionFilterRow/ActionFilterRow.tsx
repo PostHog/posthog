@@ -575,16 +575,28 @@ export function ActionFilterRow({
                                             <div className="flex-auto overflow-hidden">
                                                 <TaxonomicStringPopover
                                                     groupType={
-                                                        mathPropertyType ||
-                                                        TaxonomicFilterGroupType.NumericalEventProperties
+                                                        math === PropertyMathType.CountUnique
+                                                            ? TaxonomicFilterGroupType.EventProperties
+                                                            : mathPropertyType ||
+                                                              TaxonomicFilterGroupType.NumericalEventProperties
                                                     }
-                                                    groupTypes={[
-                                                        TaxonomicFilterGroupType.DataWarehouseProperties,
-                                                        TaxonomicFilterGroupType.NumericalEventProperties,
-                                                        TaxonomicFilterGroupType.SessionProperties,
-                                                        TaxonomicFilterGroupType.PersonProperties,
-                                                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                                                    ]}
+                                                    groupTypes={
+                                                        math === PropertyMathType.CountUnique
+                                                            ? [
+                                                                  TaxonomicFilterGroupType.DataWarehouseProperties,
+                                                                  TaxonomicFilterGroupType.EventProperties,
+                                                                  TaxonomicFilterGroupType.SessionProperties,
+                                                                  TaxonomicFilterGroupType.PersonProperties,
+                                                                  TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                                              ]
+                                                            : [
+                                                                  TaxonomicFilterGroupType.DataWarehouseProperties,
+                                                                  TaxonomicFilterGroupType.NumericalEventProperties,
+                                                                  TaxonomicFilterGroupType.SessionProperties,
+                                                                  TaxonomicFilterGroupType.PersonProperties,
+                                                                  TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                                              ]
+                                                    }
                                                     schemaColumns={
                                                         filter.type == TaxonomicFilterGroupType.DataWarehouse &&
                                                         filter.name
@@ -599,7 +611,11 @@ export function ActionFilterRow({
                                                     }
                                                     eventNames={name ? [name] : []}
                                                     data-attr="math-property-select"
-                                                    showNumericalPropsOnly={showNumericalPropsOnly}
+                                                    showNumericalPropsOnly={
+                                                        math === PropertyMathType.CountUnique
+                                                            ? false
+                                                            : showNumericalPropsOnly
+                                                    }
                                                     renderValue={(currentValue) => (
                                                         <Tooltip
                                                             title={

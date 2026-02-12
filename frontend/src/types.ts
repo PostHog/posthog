@@ -4592,6 +4592,7 @@ export enum PropertyMathType {
     P90 = 'p90',
     P95 = 'p95',
     P99 = 'p99',
+    CountUnique = 'count_unique',
 }
 
 export enum CountPerActorMathType {
@@ -4622,6 +4623,7 @@ export enum ExperimentMetricMathType {
     UniqueUsers = 'dau',
     UniqueGroup = 'unique_group',
     HogQL = 'hogql',
+    CountUnique = 'count_unique',
 }
 
 export enum ExperimentMetricGoal {

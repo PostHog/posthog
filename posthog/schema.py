@@ -1524,6 +1524,7 @@ class ExperimentMetricMathType(StrEnum):
     DAU = "dau"
     UNIQUE_GROUP = "unique_group"
     HOGQL = "hogql"
+    COUNT_UNIQUE = "count_unique"
 
 
 class ExperimentMetricOutlierHandling(BaseModel):
@@ -3009,6 +3010,7 @@ class PropertyMathType(StrEnum):
     P90 = "p90"
     P95 = "p95"
     P99 = "p99"
+    COUNT_UNIQUE = "count_unique"
 
 
 class PropertyOperator(StrEnum):

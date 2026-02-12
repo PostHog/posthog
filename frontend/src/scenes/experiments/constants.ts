@@ -25,6 +25,7 @@ export const LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES = [
     BaseMathType.FirstTimeForUser,
     GroupMathType.UniqueGroup,
     PropertyMathType.Sum,
+    PropertyMathType.CountUnique,
     HogQLMathType.HogQL,
 ] as const
 

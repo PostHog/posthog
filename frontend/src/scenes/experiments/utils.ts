@@ -675,6 +675,7 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
                 ExperimentMetricMathType.Max,
                 ExperimentMetricMathType.UniqueSessions,
                 ExperimentMetricMathType.HogQL,
+                ExperimentMetricMathType.CountUnique,
             ]
         case ExperimentMetricType.RATIO:
             return [
@@ -686,6 +687,7 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
                 ExperimentMetricMathType.Avg,
                 ExperimentMetricMathType.Min,
                 ExperimentMetricMathType.Max,
+                ExperimentMetricMathType.CountUnique,
             ]
         default:
             return [ExperimentMetricMathType.TotalCount]
