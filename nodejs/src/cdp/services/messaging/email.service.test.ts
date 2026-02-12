@@ -6,21 +6,10 @@ import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
-import * as posthog from '~/utils/posthog'
 
 import { Hub, Team } from '../../../types'
 import { EmailService } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
-
-jest.mock('~/utils/posthog', () => {
-    const actual = jest.requireActual('~/utils/posthog')
-    return {
-        ...actual,
-        isFeatureFlagEnabled: jest.fn(),
-    }
-})
-
-const mockIsFeatureFlagEnabled = posthog.isFeatureFlagEnabled as jest.Mock
 
 const createEmailParams = (
     params: Partial<CyclotronInvocationQueueParametersEmailType> = {}
@@ -45,8 +34,6 @@ describe('EmailService', () => {
         team = await getFirstTeam(hub)
         service = new EmailService(hub)
         mockFetch.mockClear()
-        mockIsFeatureFlagEnabled.mockReset()
-        mockIsFeatureFlagEnabled.mockResolvedValue(false)
     })
     afterEach(async () => {
         await closeHub(hub)
