@@ -260,20 +260,22 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                     )}
                 </div>
 
-                <div className="border rounded overflow-hidden">
-                    <div className="flex items-center justify-between px-3 py-2 bg-surface-primary border-b font-semibold">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-muted">
-                            {isBannerMode ? 'Banner settings' : 'Step settings'}
-                        </span>
+                {selectedStep.type !== 'survey' && (
+                    <div className="border rounded overflow-hidden">
+                        <div className="flex items-center justify-between px-3 py-2 bg-surface-primary border-b font-semibold">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+                                {isBannerMode ? 'Banner settings' : 'Step settings'}
+                            </span>
+                        </div>
+                        <div className="py-3 px-4">
+                            {isBannerMode ? (
+                                <BannerSettingsPanel tourId={tourId} />
+                            ) : (
+                                productTour && <StepSettings tourId={tourId} />
+                            )}
+                        </div>
                     </div>
-                    <div className="py-3 px-4">
-                        {isBannerMode ? (
-                            <BannerSettingsPanel tourId={tourId} />
-                        ) : (
-                            productTour && <StepSettings tourId={tourId} />
-                        )}
-                    </div>
-                </div>
+                )}
             </div>
 
             {/* Settings panel */}

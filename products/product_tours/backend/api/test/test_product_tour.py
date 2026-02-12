@@ -840,6 +840,36 @@ class TestProductTourLaunchValidation(APIBaseTest):
         if error_substring:
             assert error_substring in str(response.json())
 
+    @parameterized.expand(
+        [
+            (
+                "auto_targeting_without_inference_data",
+                {"elementTargeting": "auto"},
+                400,
+                "requires an element to be selected",
+            ),
+            (
+                "manual_targeting_without_selector",
+                {"elementTargeting": "manual"},
+                400,
+                "is missing an element selector",
+            ),
+        ]
+    )
+    def test_create_launched_with_element_targeting(self, _description, step, expected_status, error_substring):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Tour",
+                "content": {"steps": [step]},
+                "start_date": timezone.now().isoformat(),
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        assert error_substring in str(response.json())
+
     def test_launch_reports_first_incomplete_step(self):
         tour = self._create_tour(
             [
@@ -865,7 +895,7 @@ class TestProductTourLaunchValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
 
-    def test_already_launched_tour_skips_targeting_validation_on_update(self):
+    def test_already_launched_tour_validates_targeting_on_update(self):
         tour = self._create_tour([{"elementTargeting": "auto"}])
         tour.start_date = timezone.now()
         tour.save(update_fields=["start_date"])
@@ -876,7 +906,8 @@ class TestProductTourLaunchValidation(APIBaseTest):
             format="json",
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "requires an element to be selected" in str(response.json())
 
     def test_launch_validates_content_from_existing_tour_when_not_in_payload(self):
         tour = self._create_tour([{"elementTargeting": "manual"}])
@@ -885,3 +916,56 @@ class TestProductTourLaunchValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "is missing an element selector" in str(response.json())
+
+    def test_patch_content_without_linked_flag_id_uses_instance_value(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tour = ProductTour.objects.create(
+            team=self.team,
+            name="Tour",
+            linked_flag=flag,
+            content={"steps": [], "conditions": {"linkedFlagVariant": "any"}},
+            created_by=self.user,
+        )
+
+        # PATCH with content (preserving linkedFlagVariant) but without linked_flag_id —
+        # mimics the toolbar save flow
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={"content": {"steps": [], "conditions": {"linkedFlagVariant": "any"}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_patch_explicitly_clearing_linked_flag_id_still_validates(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tour = ProductTour.objects.create(
+            team=self.team,
+            name="Tour",
+            linked_flag=flag,
+            content={"steps": [], "conditions": {"linkedFlagVariant": "any"}},
+            created_by=self.user,
+        )
+
+        # Explicitly clearing linked_flag_id while content still references a variant
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={
+                "linked_flag_id": None,
+                "content": {"steps": [], "conditions": {"linkedFlagVariant": "any"}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "linkedFlagVariant can only be used when a linked_flag_id is specified" in str(response.json())

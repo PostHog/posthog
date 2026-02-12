@@ -28,12 +28,16 @@ function ElementEmptyState({ onClick }: { onClick: () => void }): JSX.Element {
     )
 }
 
-function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element {
+function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null {
     const { productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
     const { updateSelectedStep, submitAndOpenToolbar } = useActions(productTourLogic({ id: tourId }))
 
     const steps = productTourForm.content?.steps ?? []
     const step = steps[selectedStepIndex]
+
+    if (!step) {
+        return null
+    }
 
     const hasTarget = hasElementTarget(step)
 
@@ -124,7 +128,6 @@ function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element {
                                             icon={<IconTrash />}
                                             onClick={() =>
                                                 updateSelectedStep({
-                                                    type: 'modal',
                                                     selector: undefined,
                                                     inferenceData: undefined,
                                                     screenshotMediaId: undefined,
@@ -228,7 +231,6 @@ function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element {
                         className=""
                         onClick={() =>
                             updateSelectedStep({
-                                type: 'modal',
                                 selector: undefined,
                                 inferenceData: undefined,
                                 screenshotMediaId: undefined,
@@ -245,7 +247,7 @@ function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element {
     )
 }
 
-export function StepSettings({ tourId }: StepSettingsPanelProps): JSX.Element {
+export function StepSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null {
     const { productTour, productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
     const { updateSelectedStep } = useActions(productTourLogic({ id: tourId }))
 
@@ -253,6 +255,10 @@ export function StepSettings({ tourId }: StepSettingsPanelProps): JSX.Element {
 
     const steps = productTourForm.content?.steps ?? []
     const step = steps[selectedStepIndex]
+
+    if (!step) {
+        return null
+    }
 
     return (
         <div className="flex flex-col gap-4">
