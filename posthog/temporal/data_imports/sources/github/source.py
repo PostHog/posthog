@@ -58,7 +58,7 @@ class GithubSource(SimpleSource[GithubSourceConfig]):
                                         SourceFieldOauthConfig(
                                             name="github_integration_id",
                                             label="GitHub account",
-                                            required=True,
+                                            required=False,
                                             kind="github",
                                         ),
                                     ],
@@ -74,7 +74,7 @@ class GithubSource(SimpleSource[GithubSourceConfig]):
                                             name="personal_access_token",
                                             label="Personal access token",
                                             type=SourceFieldInputConfigType.PASSWORD,
-                                            required=True,
+                                            required=False,
                                             placeholder="github_pat_...",
                                         ),
                                     ],

@@ -38,9 +38,9 @@ class BigQueryUseCustomRegionConfig(config.Config):
 
 @config.config
 class GithubAuthTypeConfig(config.Config):
-    personal_access_token: str
-    github_integration_id: int = config.value(converter=config.str_to_int)
+    github_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
     selection: Literal["oauth", "pat"] = "oauth"
+    personal_access_token: str | None = None
 
 
 @config.config
