@@ -17,6 +17,7 @@ from posthog.schema import (
     StartHandling,
 )
 
+from posthog.hogql_queries.experiments.breakdown_injector import BREAKDOWN_NULL_STRING_LABEL
 from posthog.hogql_queries.experiments.utils import (
     aggregate_variants_across_breakdowns,
     get_variant_result,
@@ -408,8 +409,6 @@ class TestGetVariantResult:
 
     def test_breakdown_with_posthog_null_label(self):
         """Test that the special PostHog NULL label is preserved."""
-        from posthog.hogql_queries.experiments.experiment_query_builder import BREAKDOWN_NULL_STRING_LABEL
-
         metric = ExperimentMeanMetric(
             source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
             breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),

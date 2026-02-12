@@ -1,7 +1,6 @@
 import logging
 from typing import cast
 
-from django.db import IntegrityError
 from django.db.models import QuerySet
 
 from rest_framework import exceptions, status, viewsets
@@ -16,8 +15,13 @@ from posthog.approvals.models import ApprovalPolicy, ChangeRequest
 from posthog.approvals.permissions import CanApprove, CanCancel
 from posthog.approvals.serializers import ApprovalPolicySerializer, ChangeRequestSerializer
 from posthog.approvals.services import ChangeRequestService
+from posthog.constants import AvailableFeature
 from posthog.models import User
-from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
+from posthog.permissions import (
+    OrganizationAdminWritePermissions,
+    OrganizationMemberPermissions,
+    PremiumFeaturePermission,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +29,9 @@ logger = logging.getLogger(__name__)
 class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "INTERNAL"
     queryset = ChangeRequest.objects.all().order_by("-created_at")
-    permission_classes = [OrganizationMemberPermissions]
+    permission_classes = [OrganizationMemberPermissions, PremiumFeaturePermission]
     serializer_class = ChangeRequestSerializer
+    premium_feature = AvailableFeature.APPROVALS
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         filters = self.request.query_params
@@ -154,7 +159,8 @@ class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ApprovalPolicy.objects.all().order_by("-created_at")
     serializer_class = ApprovalPolicySerializer
-    permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions]
+    permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions, PremiumFeaturePermission]
+    premium_feature = AvailableFeature.APPROVALS
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         filters = self.request.query_params
@@ -172,15 +178,22 @@ class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.save(
             created_by=self.request.user,
             organization=self.organization,
-            team=self.team if hasattr(self, "team") else None,
+            team=self.team,
         )
 
     def create(self, request: Request, *args, **kwargs) -> Response:
-        try:
-            return super().create(request, *args, **kwargs)
-        except IntegrityError as e:
-            if "posthog_approvalpolicy_organization_id_team_id" in str(e):
-                raise exceptions.ValidationError(
-                    "A policy for this action already exists. You can edit the existing policy instead."
-                )
-            raise
+        action_key = request.data.get("action_key")
+
+        if (
+            action_key
+            and ApprovalPolicy.objects.filter(
+                action_key=action_key,
+                organization=self.organization,
+                team=self.team,
+            ).exists()
+        ):
+            raise exceptions.ValidationError(
+                "A policy for this action already exists. You can edit the existing policy instead."
+            )
+
+        return super().create(request, *args, **kwargs)

@@ -2,15 +2,14 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { DateRange, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar'
-import { LogsFilterBar as LogsFilterBarV2 } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
+import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
@@ -18,7 +17,6 @@ import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
-import { LogsSelectionToolbar } from './LogsSelectionToolbar'
 import { LogsSparkline, LogsSparklineData } from './LogsViewerSparkline'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
 import { logsViewerLogic } from './logsViewerLogic'
@@ -43,6 +41,7 @@ export interface LogsViewerProps {
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
     onExpandTimeRange?: () => void
+    maxExportableLogs: number
 }
 
 export function LogsViewer({
@@ -62,26 +61,30 @@ export function LogsViewer({
     sparklineBreakdownBy,
     onSparklineBreakdownByChange,
     onExpandTimeRange,
+    maxExportableLogs,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerConfigLogic} props={{ id: tabId }}>
-            <BindLogic logic={logDetailsModalLogic} props={{ tabId }}>
-                <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
-                    <LogsViewerContent
-                        loading={loading}
-                        totalLogsCount={totalLogsCount}
-                        hasMoreLogsToLoad={hasMoreLogsToLoad}
-                        orderBy={orderBy}
-                        onChangeOrderBy={onChangeOrderBy}
-                        onRefresh={onRefresh}
-                        onLoadMore={onLoadMore}
-                        sparklineData={sparklineData}
-                        sparklineLoading={sparklineLoading}
-                        onDateRangeChange={onDateRangeChange}
-                        sparklineBreakdownBy={sparklineBreakdownBy}
-                        onSparklineBreakdownByChange={onSparklineBreakdownByChange}
-                        onExpandTimeRange={onExpandTimeRange}
-                    />
+        <BindLogic logic={logsViewerFiltersLogic} props={{ id: tabId }}>
+            <BindLogic logic={logsViewerConfigLogic} props={{ id: tabId }}>
+                <BindLogic logic={logDetailsModalLogic} props={{ tabId }}>
+                    <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
+                        <LogsViewerContent
+                            loading={loading}
+                            totalLogsCount={totalLogsCount}
+                            hasMoreLogsToLoad={hasMoreLogsToLoad}
+                            orderBy={orderBy}
+                            onChangeOrderBy={onChangeOrderBy}
+                            onRefresh={onRefresh}
+                            onLoadMore={onLoadMore}
+                            sparklineData={sparklineData}
+                            sparklineLoading={sparklineLoading}
+                            onDateRangeChange={onDateRangeChange}
+                            sparklineBreakdownBy={sparklineBreakdownBy}
+                            onSparklineBreakdownByChange={onSparklineBreakdownByChange}
+                            onExpandTimeRange={onExpandTimeRange}
+                            maxExportableLogs={maxExportableLogs}
+                        />
+                    </BindLogic>
                 </BindLogic>
             </BindLogic>
         </BindLogic>
@@ -102,6 +105,7 @@ interface LogsViewerContentProps {
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
     onExpandTimeRange?: () => void
+    maxExportableLogs: number
 }
 
 function LogsViewerContent({
@@ -118,8 +122,8 @@ function LogsViewerContent({
     sparklineBreakdownBy,
     onSparklineBreakdownByChange,
     onExpandTimeRange,
+    maxExportableLogs,
 }: LogsViewerContentProps): JSX.Element {
-    const newLogsFilterBar = useFeatureFlag('NEW_LOGS_FILTER_BAR')
     const {
         tabId,
         wrapBody,
@@ -313,7 +317,7 @@ function LogsViewerContent({
 
     return (
         <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
-            {newLogsFilterBar ? <LogsFilterBarV2 /> : <LogsFilterBar />}
+            <LogsFilterBar />
             <LogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
@@ -327,8 +331,8 @@ function LogsViewerContent({
                 totalLogsCount={totalLogsCount}
                 orderBy={orderBy}
                 onChangeOrderBy={(newOrderBy) => onChangeOrderBy(newOrderBy, 'toolbar')}
+                maxExportableLogs={maxExportableLogs}
             />
-            <LogsSelectionToolbar />
             {pinnedLogsArray.length > 0 && (
                 <VirtualizedLogsList
                     dataSource={pinnedLogsArray}

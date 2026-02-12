@@ -1,0 +1,1053 @@
+{
+    "frontend/src/exporter/stories/ExporterFunnels.stories.tsx": {
+        "chromium": 27.8,
+        "webkit": 3.6
+    },
+    "frontend/src/exporter/stories/ExporterOther.stories.tsx": {
+        "chromium": 27.5,
+        "webkit": 4.8
+    },
+    "frontend/src/exporter/stories/ExporterTrends.stories.tsx": {
+        "chromium": 28.0,
+        "webkit": 3.9
+    },
+    "frontend/src/layout/ErrorProjectUnavailable.stories.tsx": {
+        "chromium": 11.9,
+        "webkit": 2.7
+    },
+    "frontend/src/layout/FeaturePreviews/FeaturePreviews.stories.tsx": {
+        "chromium": 9.9,
+        "webkit": 2.6
+    },
+    "frontend/src/layout/navigation-3000/components/KeyboardShortcut.stories.tsx": {
+        "chromium": 8.7,
+        "webkit": 2.7
+    },
+    "frontend/src/layout/navigation-3000/sidepanel/SidePanel.stories.tsx": {
+        "chromium": 53.5,
+        "webkit": 5.5
+    },
+    "frontend/src/layout/panel-layout/PinnedFolder/EditCustomProductsModal.stories.tsx": {
+        "chromium": 2.5,
+        "webkit": 2.4
+    },
+    "frontend/src/layout/panel-layout/ProjectTree/ProjectTree.stories.tsx": {
+        "chromium": 13.2,
+        "webkit": 3.5
+    },
+    "frontend/src/lib/components/ActivityLog/ActivityLog.stories.tsx": {
+        "chromium": 29.4,
+        "webkit": 3.1
+    },
+    "frontend/src/lib/components/ActivityLog/SentenceList.stories.tsx": {
+        "chromium": 14.1,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/components/BaseCurrency/CurrencyDropdown.stories.tsx": {
+        "chromium": 6.3,
+        "webkit": 2.6
+    },
+    "frontend/src/lib/components/Cards/InsightCard/InsightCard.stories.tsx": {
+        "chromium": 40.5,
+        "webkit": 5.6
+    },
+    "frontend/src/lib/components/Cards/InsightCard/InsightDetails.stories.tsx": {
+        "chromium": 47.7,
+        "webkit": 4.5
+    },
+    "frontend/src/lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay.stories.tsx": {
+        "chromium": 48.6,
+        "webkit": 4.0
+    },
+    "frontend/src/lib/components/Cards/TextCard/TextCard.stories.tsx": {
+        "chromium": 11.8,
+        "webkit": 2.9
+    },
+    "frontend/src/lib/components/CodeSnippet/CodeSnippet.stories.tsx": {
+        "chromium": 26.7,
+        "webkit": 3.1
+    },
+    "frontend/src/lib/components/CompactList/CompactList.stories.tsx": {
+        "chromium": 6.5,
+        "webkit": 2.6
+    },
+    "frontend/src/lib/components/CopyToClipboardInline.stories.tsx": {
+        "chromium": 22.7,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/components/EditableField/EditableField.stories.tsx": {
+        "chromium": 9.0,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/components/EmojiPicker/EmojiPickerPopover.stories.tsx": {
+        "chromium": 8.9,
+        "webkit": 2.5
+    },
+    "frontend/src/lib/components/EmptyMessage/EmptyMessage.stories.tsx": {
+        "chromium": 6.3,
+        "webkit": 2.5
+    },
+    "frontend/src/lib/components/Errors/ErrorDisplay.stories.tsx": {
+        "chromium": 26.4,
+        "webkit": 3.1
+    },
+    "frontend/src/lib/components/EventSelect/EventSelect.stories.tsx": {
+        "chromium": 5.8,
+        "webkit": 2.4
+    },
+    "frontend/src/lib/components/HTMLElementsDisplay/HTMLElementsDisplay.stories.tsx": {
+        "chromium": 34.8,
+        "webkit": 3.3
+    },
+    "frontend/src/lib/components/HedgehogBuddy/HedgehogBuddy.stories.tsx": {
+        "chromium": 2.4,
+        "webkit": 2.5
+    },
+    "frontend/src/lib/components/HogQLEditor/HogQLEditor.stories.tsx": {
+        "chromium": 12.4,
+        "webkit": 2.9
+    },
+    "frontend/src/lib/components/Hogfetti/Hogfetti.stories.tsx": {
+        "chromium": 5.9,
+        "webkit": 2.4
+    },
+    "frontend/src/lib/components/Map/Map.stories.tsx": {
+        "chromium": 2.6,
+        "webkit": 2.2
+    },
+    "frontend/src/lib/components/MonacoDiffEditor.stories.tsx": {
+        "chromium": 2.6,
+        "webkit": 2.5
+    },
+    "frontend/src/lib/components/NotFound/NotFound.stories.tsx": {
+        "chromium": 6.3,
+        "webkit": 2.5
+    },
+    "frontend/src/lib/components/ObjectTags/ObjectTags.stories.tsx": {
+        "chromium": 8.9,
+        "webkit": 2.4
+    },
+    "frontend/src/lib/components/PathCleanFilters/PathCleanFilters.stories.tsx": {
+        "chromium": 11.9,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/components/PathCleanFilters/PathCleaningRulesDebugger.stories.tsx": {
+        "chromium": 5.8,
+        "webkit": 2.4
+    },
+    "frontend/src/lib/components/PayGateMini/PayGateMini.stories.tsx": {
+        "chromium": 36.1,
+        "webkit": 3.2
+    },
+    "frontend/src/lib/components/ProductIntroduction/ProductIntroduction.stories.tsx": {
+        "chromium": 15.1,
+        "webkit": 2.6
+    },
+    "frontend/src/lib/components/ProductSetup/ProductSetupPopover.stories.tsx": {
+        "chromium": 7.2,
+        "webkit": 2.5
+    },
+    "frontend/src/lib/components/PropertiesTable/PropertiesTable.stories.tsx": {
+        "chromium": 15.1,
+        "webkit": 3.0
+    },
+    "frontend/src/lib/components/PropertiesTimeline/PropertiesTimeline.stories.tsx": {
+        "chromium": 12.1,
+        "webkit": 2.6
+    },
+    "frontend/src/lib/components/PropertyFilters/PropertyFilters.stories.tsx": {
+        "chromium": 9.4,
+        "webkit": 3.0
+    },
+    "frontend/src/lib/components/PropertyFilters/components/OperatorValueSelect.stories.tsx": {
+        "chromium": 26.2,
+        "webkit": 3.1
+    },
+    "frontend/src/lib/components/PropertyFilters/components/PropertyFilterButton.stories.tsx": {
+        "chromium": 9.4,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/components/PropertyIcon/PropertyIcon.stories.tsx": {
+        "chromium": 6.0,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/components/PropertyKeyInfo.stories.tsx": {
+        "chromium": 5.9,
+        "webkit": 2.3
+    },
+    "frontend/src/lib/components/PropertySelect/PropertySelect.stories.tsx": {
+        "chromium": 9.1,
+        "webkit": 2.6
+    },
+    "frontend/src/lib/components/ScrollableShadows/ScrollableShadows.stories.tsx": {
+        "chromium": 8.8,
+        "webkit": 2.6
+    },
+    "frontend/src/lib/components/SearchAutocomplete/SearchAutocomplete.stories.tsx": {
+        "chromium": 5.8,
+        "webkit": 2.4
+    },
+    "frontend/src/lib/components/Sharing/SharingModal.stories.tsx": {
+        "chromium": 28.0,
+        "webkit": 3.5
+    },
+    "frontend/src/lib/components/Sparkline.stories.tsx": {
+        "chromium": 8.8,
+        "webkit": 2.5
+    },
+    "frontend/src/lib/components/Subscriptions/SubscriptionsModal.stories.tsx": {
+        "chromium": 23.8,
+        "webkit": 3.3
+    },
+    "frontend/src/lib/components/TZLabel/TZLabel.stories.tsx": {
+        "chromium": 19.8,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/components/TaxonomicFilter/TaxonomicFilter.stories.tsx": {
+        "chromium": 30.5,
+        "webkit": 3.6
+    },
+    "frontend/src/lib/components/TaxonomicPopover/TaxonomicPopover.stories.tsx": {
+        "chromium": 8.8,
+        "webkit": 2.4
+    },
+    "frontend/src/lib/components/UniversalFilters/UniversalFilters.stories.tsx": {
+        "chromium": 6.0,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/components/VerticalNestedDND/VerticalNestedDND.stories.tsx": {
+        "chromium": 6.2,
+        "webkit": 2.5
+    },
+    "frontend/src/lib/components/ViewRecordingButton/ViewRecordingButton.stories.tsx": {
+        "chromium": 8.8,
+        "webkit": 2.6
+    },
+    "frontend/src/lib/components/hedgehogs.stories.tsx": {
+        "chromium": 2.6,
+        "webkit": 2.4
+    },
+    "frontend/src/lib/lemon-ui/ClampedText/ClampedText.stories.tsx": {
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/LemonBadge/LemonBadge.stories.tsx": {
+        "chromium": 17.0,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/LemonBadge/LemonBadgeNumber.stories.tsx": {
+        "chromium": 11.6,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/lemon-ui/LemonBanner/LemonBanner.stories.tsx": {
+        "chromium": 31.3,
+        "webkit": 3.0
+    },
+    "frontend/src/lib/lemon-ui/LemonButton/LemonButton.stories.tsx": {
+        "chromium": 71.7,
+        "webkit": 4.2
+    },
+    "frontend/src/lib/lemon-ui/LemonCalendar/LemonCalendar.stories.tsx": {
+        "chromium": 40.6,
+        "webkit": 3.1
+    },
+    "frontend/src/lib/lemon-ui/LemonCalendar/LemonCalendarSelect.stories.tsx": {
+        "chromium": 33.7,
+        "webkit": 3.3
+    },
+    "frontend/src/lib/lemon-ui/LemonCalendar/LemonCalendarSelectInput.stories.tsx": {
+        "chromium": 11.4,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/LemonCalendarRange/LemonCalendarRange.stories.tsx": {
+        "chromium": 6.6,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/lemon-ui/LemonCalendarRange/LemonCalendarRangeInline.stories.tsx": {
+        "chromium": 6.1,
+        "webkit": 2.6
+    },
+    "frontend/src/lib/lemon-ui/LemonCard/LemonCard.stories.tsx": {
+        "chromium": 14.1,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/lemon-ui/LemonCheckbox/LemonCheckbox.stories.tsx": {
+        "chromium": 20.0,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/LemonCollapse/LemonCollapse.stories.tsx": {
+        "chromium": 17.0,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/LemonColor/LemonColorButton.stories.tsx": {
+        "chromium": 23.2,
+        "webkit": 3.4
+    },
+    "frontend/src/lib/lemon-ui/LemonColor/LemonColorGlyph.stories.tsx": {
+        "chromium": 18.0,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/LemonColor/LemonColorList.stories.tsx": {
+        "chromium": 12.4,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/lemon-ui/LemonColor/LemonColorPicker.stories.tsx": {
+        "chromium": 14.7,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/LemonDialog/LemonDialog.stories.tsx": {
+        "chromium": 14.7,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/LemonDivider/LemonDivider.stories.tsx": {
+        "chromium": 17.0,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/lemon-ui/LemonField/LemonField.stories.tsx": {
+        "chromium": 9.7,
+        "webkit": 2.6
+    },
+    "frontend/src/lib/lemon-ui/LemonFileInput/LemonFileInput.stories.tsx": {
+        "chromium": 17.1,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/LemonInputSelect/LemonInputSelect.stories.tsx": {
+        "chromium": 59.7,
+        "webkit": 3.7
+    },
+    "frontend/src/lib/lemon-ui/LemonLabel/LemonLabel.stories.tsx": {
+        "webkit": 2.6
+    },
+    "frontend/src/lib/lemon-ui/LemonMarkdown/LemonMarkdown.stories.tsx": {
+        "chromium": 23.9,
+        "webkit": 3.3
+    },
+    "frontend/src/lib/lemon-ui/LemonMenu/LemonMenu.stories.tsx": {
+        "chromium": 11.3,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/LemonModal/LemonModal.stories.tsx": {
+        "chromium": 14.5,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/lemon-ui/LemonProgress/LemonProgress.stories.tsx": {
+        "chromium": 6.0,
+        "webkit": 2.4
+    },
+    "frontend/src/lib/lemon-ui/LemonProgressCircle/LemonProgressCircle.stories.tsx": {
+        "chromium": 12.1,
+        "webkit": 2.6
+    },
+    "frontend/src/lib/lemon-ui/LemonRadio/LemonRadio.stories.tsx": {
+        "chromium": 11.6,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/lemon-ui/LemonRichContent/LemonRichContentEditor.stories.tsx": {
+        "chromium": 6.0,
+        "webkit": 2.4
+    },
+    "frontend/src/lib/lemon-ui/LemonRow/LemonRow.stories.tsx": {
+        "chromium": 47.4,
+        "webkit": 3.2
+    },
+    "frontend/src/lib/lemon-ui/LemonSegmentedButton/LemonSegmentedButton.stories.tsx": {
+        "chromium": 11.9,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/LemonSegmentedButton/LemonSegmentedDropdown.stories.tsx": {
+        "chromium": 17.3,
+        "webkit": 2.9
+    },
+    "frontend/src/lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect.stories.tsx": {
+        "chromium": 11.6,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/lemon-ui/LemonSelect/LemonSearchableSelect.stories.tsx": {
+        "chromium": 9.0,
+        "webkit": 2.9
+    },
+    "frontend/src/lib/lemon-ui/LemonSelect/LemonSelect.stories.tsx": {
+        "chromium": 28.4,
+        "webkit": 3.2
+    },
+    "frontend/src/lib/lemon-ui/LemonSkeleton/LemonSkeleton.stories.tsx": {
+        "chromium": 14.5,
+        "webkit": 3.0
+    },
+    "frontend/src/lib/lemon-ui/LemonSlider/LemonSlider.stories.tsx": {
+        "webkit": 2.5
+    },
+    "frontend/src/lib/lemon-ui/LemonSnack/LemonSnack.stories.tsx": {
+        "chromium": 14.7,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/lemon-ui/LemonSwitch/LemonSwitch.stories.tsx": {
+        "chromium": 25.4,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/LemonTable/LemonTable.stories.tsx": {
+        "chromium": 62.5,
+        "webkit": 4.1
+    },
+    "frontend/src/lib/lemon-ui/LemonTabs/LemonTabs.stories.tsx": {
+        "chromium": 11.5,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/lemon-ui/LemonTag/LemonTag.stories.tsx": {
+        "chromium": 8.7,
+        "webkit": 2.5
+    },
+    "frontend/src/lib/lemon-ui/LemonTextArea/LemonTextArea.stories.tsx": {
+        "chromium": 17.2,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown.stories.tsx": {
+        "chromium": 12.1,
+        "webkit": 2.5
+    },
+    "frontend/src/lib/lemon-ui/LemonToast/LemonToast.stories.tsx": {
+        "chromium": 14.7,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/lemon-ui/LemonTree/LemonTree.stories.tsx": {
+        "chromium": 6.6,
+        "webkit": 3.0
+    },
+    "frontend/src/lib/lemon-ui/LemonWidget/LemonWidget.stories.tsx": {
+        "chromium": 14.2,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/lemon-ui/Lettermark/Lettermark.stories.tsx": {
+        "chromium": 25.2,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/Link/Link.stories.tsx": {
+        "chromium": 11.3,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/lemon-ui/PaginationControl/PaginationControl.stories.tsx": {
+        "chromium": 8.6,
+        "webkit": 2.5
+    },
+    "frontend/src/lib/lemon-ui/Popover/Popover.stories.tsx": {
+        "chromium": 2.5,
+        "webkit": 2.4
+    },
+    "frontend/src/lib/lemon-ui/ProfilePicture/ProfileBubbles.stories.tsx": {
+        "chromium": 19.6,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/Spinner/Spinner.stories.tsx": {
+        "chromium": 20.8
+    },
+    "frontend/src/lib/lemon-ui/Splotch/Splotch.stories.tsx": {
+        "chromium": 5.7,
+        "webkit": 2.4
+    },
+    "frontend/src/lib/lemon-ui/UploadedLogo/UploadedLogo.stories.tsx": {
+        "chromium": 19.7,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/lemon-ui/colors.stories.tsx": {
+        "chromium": 17.9,
+        "webkit": 2.9
+    },
+    "frontend/src/lib/lemon-ui/icons/icons3000.stories.tsx": {
+        "chromium": 2.7,
+        "webkit": 2.3
+    },
+    "frontend/src/lib/lemon-ui/icons/stories/Icons1.stories.tsx": {
+        "chromium": 29.7,
+        "webkit": 3.2
+    },
+    "frontend/src/lib/lemon-ui/icons/stories/Icons2.stories.tsx": {
+        "chromium": 28.7,
+        "webkit": 2.9
+    },
+    "frontend/src/lib/lemon-ui/icons/stories/Icons3.stories.tsx": {
+        "chromium": 40.7,
+        "webkit": 3.7
+    },
+    "frontend/src/lib/ui/Button/ButtonPrimitives.stories.tsx": {
+        "chromium": 9.0,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/ui/Colors/Colors.stories.tsx": {
+        "chromium": 14.9,
+        "webkit": 3.3
+    },
+    "frontend/src/lib/ui/Combobox/Combobox.stories.tsx": {
+        "chromium": 9.1,
+        "webkit": 2.9
+    },
+    "frontend/src/lib/ui/ContextMenu/ContextMenu.stories.tsx": {
+        "chromium": 6.2,
+        "webkit": 2.7
+    },
+    "frontend/src/lib/ui/DropdownMenu/DropdownMenu.stories.tsx": {
+        "chromium": 5.9,
+        "webkit": 2.8
+    },
+    "frontend/src/lib/ui/ListBox/ListBox.stories.tsx": {
+        "chromium": 9.2,
+        "webkit": 2.6
+    },
+    "frontend/src/lib/ui/SelectPrimitive/SelectPrimitive.stories.tsx": {
+        "chromium": 5.8,
+        "webkit": 2.4
+    },
+    "frontend/src/lib/ui/TabsPrimitive/TabsPrimitive.stories.tsx": {
+        "chromium": 6.2,
+        "webkit": 2.5
+    },
+    "frontend/src/lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton.stories.tsx": {
+        "chromium": 6.0,
+        "webkit": 2.5
+    },
+    "frontend/src/lib/utils/AutocapturePreviewImage.stories.tsx": {
+        "chromium": 39.1,
+        "webkit": 3.4
+    },
+    "frontend/src/queries/nodes/DataNode/DataNode.stories.tsx": {
+        "chromium": 2.5,
+        "webkit": 2.6
+    },
+    "frontend/src/queries/nodes/DataTable/DataTable.stories.tsx": {
+        "chromium": 2.5,
+        "webkit": 2.5
+    },
+    "frontend/src/queries/nodes/InsightViz/EditorFilters.stories.tsx": {
+        "chromium": 12.3,
+        "webkit": 2.6
+    },
+    "frontend/src/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect.stories.tsx": {
+        "chromium": 5.8,
+        "webkit": 2.4
+    },
+    "frontend/src/queries/nodes/WebVitals/WebVitals.stories.tsx": {
+        "chromium": 7.1,
+        "webkit": 2.8
+    },
+    "frontend/src/queries/nodes/WebVitals/WebVitalsPathBreakdown.stories.tsx": {
+        "chromium": 6.4,
+        "webkit": 2.5
+    },
+    "frontend/src/scenes/PreflightCheck/PreflightCheck.stories.tsx": {
+        "chromium": 6.5,
+        "webkit": 2.5
+    },
+    "frontend/src/scenes/Unsubscribe/Unsubscribe.stories.tsx": {
+        "chromium": 6.8,
+        "webkit": 2.7
+    },
+    "frontend/src/scenes/activity/explore/Events.stories.tsx": {
+        "chromium": 8.0,
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/annotations/Annotations.stories.tsx": {
+        "chromium": 10.1,
+        "webkit": 2.5
+    },
+    "frontend/src/scenes/authentication/InviteSignup.stories.tsx": {
+        "chromium": 39.3,
+        "webkit": 2.9
+    },
+    "frontend/src/scenes/authentication/Login.stories.tsx": {
+        "chromium": 30.1,
+        "webkit": 3.2
+    },
+    "frontend/src/scenes/authentication/PasswordReset.stories.tsx": {
+        "chromium": 19.5,
+        "webkit": 2.8
+    },
+    "frontend/src/scenes/authentication/PasswordResetComplete.stories.tsx": {
+        "chromium": 9.9,
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/authentication/signup/Signup.stories.tsx": {
+        "chromium": 14.7,
+        "webkit": 3.0
+    },
+    "frontend/src/scenes/authentication/signup/verify-email/VerifyEmail.stories.tsx": {
+        "chromium": 18.4,
+        "webkit": 2.7
+    },
+    "frontend/src/scenes/billing/Billing.stories.tsx": {
+        "chromium": 32.3,
+        "webkit": 3.5
+    },
+    "frontend/src/scenes/billing/BillingProduct.stories.tsx": {
+        "chromium": 19.4,
+        "webkit": 3.3
+    },
+    "frontend/src/scenes/cohorts/AddPersonToCohortModal.stories.tsx": {
+        "chromium": 12.6,
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder.stories.tsx": {
+        "chromium": 6.0,
+        "webkit": 2.4
+    },
+    "frontend/src/scenes/cohorts/CohortFilters/CohortNumberField.stories.tsx": {
+        "chromium": 6.1,
+        "webkit": 2.5
+    },
+    "frontend/src/scenes/cohorts/CohortFilters/CohortPersonPropertiesValuesField.stories.tsx": {
+        "chromium": 6.0,
+        "webkit": 2.5
+    },
+    "frontend/src/scenes/cohorts/CohortFilters/CohortSelectorField.stories.tsx": {
+        "chromium": 22.9,
+        "webkit": 3.0
+    },
+    "frontend/src/scenes/cohorts/CohortFilters/CohortTaxonomicField.stories.tsx": {
+        "chromium": 8.8,
+        "webkit": 2.9
+    },
+    "frontend/src/scenes/cohorts/CohortFilters/CohortTextField.stories.tsx": {
+        "chromium": 5.8,
+        "webkit": 2.8
+    },
+    "frontend/src/scenes/cohorts/Cohorts.stories.tsx": {
+        "chromium": 31.5,
+        "webkit": 3.9
+    },
+    "frontend/src/scenes/dashboard/DashboardInsightCardLegend.stories.tsx": {
+        "chromium": 2.7,
+        "webkit": 2.4
+    },
+    "frontend/src/scenes/dashboard/DashboardTemplateEditor.stories.tsx": {
+        "chromium": 10.1,
+        "webkit": 2.9
+    },
+    "frontend/src/scenes/dashboard/Dashboards.stories.tsx": {
+        "chromium": 73.8,
+        "webkit": 4.6
+    },
+    "frontend/src/scenes/data-management/comments/Comments.stories.tsx": {
+        "chromium": 10.0,
+        "webkit": 2.4
+    },
+    "frontend/src/scenes/data-management/ingestion-warnings/IngestionWarningsView.stories.tsx": {
+        "chromium": 7.8,
+        "webkit": 2.8
+    },
+    "frontend/src/scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetsScene.stories.tsx": {
+        "chromium": 7.1,
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/data-warehouse/settings/source/Schemas.stories.tsx": {
+        "chromium": 6.9,
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/experiments/stories/DraftExperiment.stories.tsx": {
+        "chromium": 8.7,
+        "webkit": 2.5
+    },
+    "frontend/src/scenes/experiments/stories/ExperimentAsymmetricIntervals.stories.tsx": {
+        "chromium": 10.6,
+        "webkit": 2.9
+    },
+    "frontend/src/scenes/experiments/stories/ExperimentFrequentistFiveVariants.stories.tsx": {
+        "chromium": 11.7,
+        "webkit": 3.5
+    },
+    "frontend/src/scenes/experiments/stories/ExperimentFrequentistTwoVariants.stories.tsx": {
+        "chromium": 11.0,
+        "webkit": 3.3
+    },
+    "frontend/src/scenes/experiments/stories/ExperimentWithFunnelMetric.stories.tsx": {
+        "chromium": 10.7,
+        "webkit": 3.1
+    },
+    "frontend/src/scenes/experiments/stories/ExperimentWithLegacyFunnelsQuery.stories.tsx": {
+        "chromium": 11.2,
+        "webkit": 3.3
+    },
+    "frontend/src/scenes/experiments/stories/ExperimentWithLegacyTrendsQuery.stories.tsx": {
+        "chromium": 11.1,
+        "webkit": 3.5
+    },
+    "frontend/src/scenes/experiments/stories/ExperimentWithMeanMetric.stories.tsx": {
+        "chromium": 9.9,
+        "webkit": 3.6
+    },
+    "frontend/src/scenes/experiments/stories/ExperimentWithMultipleMetrics.stories.tsx": {
+        "chromium": 11.1,
+        "webkit": 3.3
+    },
+    "frontend/src/scenes/experiments/stories/ExperimentWithMultipleMetricsReordered.stories.tsx": {
+        "chromium": 10.7,
+        "webkit": 3.3
+    },
+    "frontend/src/scenes/experiments/stories/ExperimentWithRatioMetric.stories.tsx": {
+        "chromium": 10.9,
+        "webkit": 3.6
+    },
+    "frontend/src/scenes/experiments/stories/Experiments.stories.tsx": {
+        "chromium": 9.4,
+        "webkit": 2.4
+    },
+    "frontend/src/scenes/feature-flags/FeatureFlagCodeInstructions.stories.tsx": {
+        "chromium": 23.4,
+        "webkit": 3.1
+    },
+    "frontend/src/scenes/feature-flags/FeatureFlags.stories.tsx": {
+        "chromium": 43.2,
+        "webkit": 3.2
+    },
+    "frontend/src/scenes/feature-flags/NewFeatureFlagMenu.stories.tsx": {
+        "chromium": 6.4,
+        "webkit": 2.5
+    },
+    "frontend/src/scenes/funnels/FunnelTooltip.stories.tsx": {
+        "chromium": 8.9,
+        "webkit": 2.9
+    },
+    "frontend/src/scenes/groups/Groups.stories.tsx": {
+        "chromium": 7.7,
+        "webkit": 2.5
+    },
+    "frontend/src/scenes/heatmaps/scenes/heatmap/HeatmapNewScene.stories.tsx": {
+        "chromium": 8.3,
+        "webkit": 2.5
+    },
+    "frontend/src/scenes/heatmaps/scenes/heatmap/HeatmapScene.stories.tsx": {
+        "chromium": 21.6,
+        "webkit": 2.7
+    },
+    "frontend/src/scenes/heatmaps/scenes/heatmaps/HeatmapsScene.stories.tsx": {
+        "chromium": 7.3,
+        "webkit": 2.7
+    },
+    "frontend/src/scenes/insights/EmptyStates/EmptyStates.stories.tsx": {
+        "chromium": 52.2,
+        "webkit": 4.0
+    },
+    "frontend/src/scenes/insights/EmptyStates/LoadingMessages.stories.tsx": {
+        "chromium": 6.2,
+        "webkit": 2.7
+    },
+    "frontend/src/scenes/insights/Funnels.stories.tsx": {
+        "chromium": 86.0,
+        "webkit": 4.1
+    },
+    "frontend/src/scenes/insights/InsightOptions/InsightOptions.stories.tsx": {
+        "chromium": 8.8,
+        "webkit": 2.5
+    },
+    "frontend/src/scenes/insights/InsightTooltip/InsightTooltip.stories.tsx": {
+        "chromium": 2.8,
+        "webkit": 2.4
+    },
+    "frontend/src/scenes/insights/Lifecycle.stories.tsx": {
+        "chromium": 15.7,
+        "webkit": 2.9
+    },
+    "frontend/src/scenes/insights/Retention.stories.tsx": {
+        "chromium": 17.7,
+        "webkit": 2.8
+    },
+    "frontend/src/scenes/insights/UserPaths.stories.tsx": {
+        "chromium": 10.4,
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/insights/filters/ActionFilter/ActionFilter.stories.tsx": {
+        "chromium": 21.1,
+        "webkit": 3.7
+    },
+    "frontend/src/scenes/insights/filters/BreakdownFilter/BreakdownTag.stories.tsx": {
+        "chromium": 6.4,
+        "webkit": 2.5
+    },
+    "frontend/src/scenes/insights/stories/TrendsLine.stories.tsx": {
+        "chromium": 101.0,
+        "webkit": 6.1
+    },
+    "frontend/src/scenes/insights/stories/TrendsPie.stories.tsx": {
+        "chromium": 59.3,
+        "webkit": 4.5
+    },
+    "frontend/src/scenes/insights/stories/TrendsValue.stories.tsx": {
+        "chromium": 97.9,
+        "webkit": 5.2
+    },
+    "frontend/src/scenes/insights/views/BoldNumber/Textfit.stories.tsx": {
+        "chromium": 6.2,
+        "webkit": 2.8
+    },
+    "frontend/src/scenes/insights/views/Funnels/FunnelCorrelationTable.stories.tsx": {
+        "chromium": 6.5,
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/insights/views/Funnels/FunnelPropertyCorrelationTable.stories.tsx": {
+        "chromium": 6.7,
+        "webkit": 2.7
+    },
+    "frontend/src/scenes/insights/views/InsightsTable/InsightsTable.stories.tsx": {
+        "chromium": 19.3,
+        "webkit": 3.3
+    },
+    "frontend/src/scenes/max/Max.stories.tsx": {
+        "chromium": 176.6,
+        "webkit": 13.5
+    },
+    "frontend/src/scenes/notebooks/Notebook/Notebook.stories.tsx": {
+        "chromium": 49.1,
+        "webkit": 4.6
+    },
+    "frontend/src/scenes/notebooks/NotebookSelectButton/NotebookSelectButton.stories.tsx": {
+        "chromium": 20.7,
+        "webkit": 3.2
+    },
+    "frontend/src/scenes/oauth/OAuthAuthorize.stories.tsx": {
+        "chromium": 11.8,
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/onboarding/Onboarding.stories.tsx": {
+        "chromium": 57.5,
+        "webkit": 5.1
+    },
+    "frontend/src/scenes/onboarding/productSelection/ProductSelection.stories.tsx": {
+        "chromium": 14.7,
+        "webkit": 2.7
+    },
+    "frontend/src/scenes/persons-management/Persons.stories.tsx": {
+        "chromium": 12.6,
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/persons/PersonScene.stories.tsx": {
+        "chromium": 16.8,
+        "webkit": 2.8
+    },
+    "frontend/src/scenes/project-homepage/ProjectHomepage.stories.tsx": {
+        "chromium": 15.8,
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/saved-insights/SavedInsights.stories.tsx": {
+        "chromium": 12.4,
+        "webkit": 2.7
+    },
+    "frontend/src/scenes/session-recordings/SessionsRecordings-activity-modal.stories.tsx": {
+        "chromium": 8.3,
+        "webkit": 2.4
+    },
+    "frontend/src/scenes/session-recordings/SessionsRecordings-group-scene.stories.tsx": {
+        "chromium": 19.3,
+        "webkit": 3.2
+    },
+    "frontend/src/scenes/session-recordings/SessionsRecordings-person-scene.stories.tsx": {
+        "chromium": 13.1,
+        "webkit": 3.4
+    },
+    "frontend/src/scenes/session-recordings/SessionsRecordings-player-failure.stories.tsx": {
+        "chromium": 8.1,
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/session-recordings/SessionsRecordings-player-success.stories.tsx": {
+        "chromium": 47.1,
+        "webkit": 5.0
+    },
+    "frontend/src/scenes/session-recordings/SessionsRecordings-playlist-listing.stories.tsx": {
+        "chromium": 8.3,
+        "webkit": 2.8
+    },
+    "frontend/src/scenes/session-recordings/apm/playerInspector/ItemPerformanceEvent.stories.tsx": {
+        "chromium": 15.1,
+        "webkit": 3.2
+    },
+    "frontend/src/scenes/session-recordings/components/RecordingsRow.stories.tsx": {
+        "chromium": 6.1,
+        "webkit": 2.5
+    },
+    "frontend/src/scenes/session-recordings/player/commenting/PlayerCommentModal.stories.tsx": {
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/session-recordings/player/controller/PlayerController.stories.tsx": {
+        "chromium": 25.0,
+        "webkit": 3.3
+    },
+    "frontend/src/scenes/session-recordings/player/inspector/PlayerInspector.stories.tsx": {
+        "chromium": 6.8,
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/session-recordings/player/inspector/components/ItemAppState.stories.tsx": {
+        "chromium": 12.4,
+        "webkit": 2.9
+    },
+    "frontend/src/scenes/session-recordings/player/inspector/components/ItemComment.stories.tsx": {
+        "chromium": 9.3,
+        "webkit": 2.7
+    },
+    "frontend/src/scenes/session-recordings/player/inspector/components/ItemConsoleLog.stories.tsx": {
+        "chromium": 6.4,
+        "webkit": 2.7
+    },
+    "frontend/src/scenes/session-recordings/player/inspector/components/ItemEvent.stories.tsx": {
+        "chromium": 35.2,
+        "webkit": 4.4
+    },
+    "frontend/src/scenes/session-recordings/player/inspector/components/ItemSessionChange.stories.tsx": {
+        "chromium": 8.8,
+        "webkit": 2.7
+    },
+    "frontend/src/scenes/session-recordings/player/inspector/components/NavigationItem.stories.tsx": {
+        "chromium": 40.3,
+        "webkit": 3.5
+    },
+    "frontend/src/scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming.stories.tsx": {
+        "chromium": 6.0,
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/session-recordings/player/share/PlayerShareDialog.stories.tsx": {
+        "chromium": 22.2,
+        "webkit": 3.0
+    },
+    "frontend/src/scenes/session-recordings/player/sidebar/PlayerSidebarOverviewOtherWatchers.stories.tsx": {
+        "chromium": 15.5,
+        "webkit": 2.8
+    },
+    "frontend/src/scenes/session-recordings/player/sidebar/PlayerSidebarOverviewTab.stories.tsx": {
+        "chromium": 17.0,
+        "webkit": 3.2
+    },
+    "frontend/src/scenes/session-recordings/playlist/SessionRecordingPreview.stories.tsx": {
+        "chromium": 22.4,
+        "webkit": 2.7
+    },
+    "frontend/src/scenes/session-recordings/playlist/SessionRecordingsPlaylistScene.stories.tsx": {
+        "chromium": 2.6,
+        "webkit": 2.3
+    },
+    "frontend/src/scenes/settings/environment/SlackIntegration.stories.tsx": {
+        "chromium": 12.2,
+        "webkit": 2.9
+    },
+    "frontend/src/scenes/settings/organization/Invites.stories.tsx": {
+        "chromium": 20.7,
+        "webkit": 3.3
+    },
+    "frontend/src/scenes/settings/organization/VerifiedDomains/SSOSelect.stories.tsx": {
+        "chromium": 5.9,
+        "webkit": 2.5
+    },
+    "frontend/src/scenes/settings/stories/SettingsEnvironment.stories.tsx": {
+        "chromium": 84.1,
+        "webkit": 6.7
+    },
+    "frontend/src/scenes/settings/stories/SettingsOrganization.stories.tsx": {
+        "chromium": 39.8,
+        "webkit": 4.3
+    },
+    "frontend/src/scenes/settings/stories/SettingsProject.stories.tsx": {
+        "chromium": 49.4,
+        "webkit": 4.9
+    },
+    "frontend/src/scenes/settings/stories/SettingsUser.stories.tsx": {
+        "chromium": 27.5,
+        "webkit": 3.9
+    },
+    "frontend/src/scenes/surveys/Surveys.stories.tsx": {
+        "chromium": 55.8,
+        "webkit": 5.5
+    },
+    "frontend/src/scenes/toolbar-launch/ToolbarLaunch.stories.tsx": {
+        "chromium": 16.8,
+        "webkit": 3.4
+    },
+    "frontend/src/scenes/trends/persons-modal/PersonsModal.stories.tsx": {
+        "chromium": 17.1,
+        "webkit": 2.7
+    },
+    "frontend/src/scenes/web-analytics/CalendarHeatMap/CalendarHeatMap.stories.tsx": {
+        "chromium": 22.2,
+        "webkit": 2.8
+    },
+    "frontend/src/scenes/web-analytics/SessionAttributionExplorer/sessionAttributionExplorer.stories.tsx": {
+        "chromium": 7.4,
+        "webkit": 2.6
+    },
+    "frontend/src/scenes/web-analytics/WebAnalyticsDashboard.stories.tsx": {
+        "chromium": 10.9,
+        "webkit": 2.5
+    },
+    "frontend/src/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/CellActionsMenu.stories.tsx": {
+        "chromium": 23.3,
+        "webkit": 3.6
+    },
+    "frontend/src/scenes/web-analytics/tiles/WebAnalyticsTile.stories.tsx": {
+        "chromium": 21.4,
+        "webkit": 3.3
+    },
+    "frontend/src/toolbar/Toolbar.stories.tsx": {
+        "chromium": 72.4,
+        "webkit": 2.4
+    },
+    "products/actions/frontend/pages/Action.stories.tsx": {
+        "chromium": 26.4,
+        "webkit": 3.4
+    },
+    "products/early_access_features/frontend/EarlyAccessFeatures.stories.tsx": {
+        "chromium": 17.0,
+        "webkit": 3.3
+    },
+    "products/error_tracking/frontend/ErrorTracking.stories.tsx": {
+        "chromium": 12.2,
+        "webkit": 2.6
+    },
+    "products/error_tracking/frontend/components/Assignee/AssigneeDisplay.stories.tsx": {
+        "chromium": 14.3,
+        "webkit": 2.9
+    },
+    "products/error_tracking/frontend/components/ContextDisplay/ContextDisplay.stories.tsx": {
+        "chromium": 13.6,
+        "webkit": 2.8
+    },
+    "products/error_tracking/frontend/components/ExceptionCard/ExceptionCard.stories.tsx": {
+        "chromium": 15.2,
+        "webkit": 3.1
+    },
+    "products/error_tracking/frontend/components/ExceptionCard/Tabs/StackTraceTab/StackTraceDisplay.stories.tsx": {
+        "chromium": 37.9,
+        "webkit": 4.2
+    },
+    "products/error_tracking/frontend/components/SparklineChart/SparklineChart.stories.tsx": {
+        "chromium": 17.7,
+        "webkit": 2.8
+    },
+    "products/links/frontend/LinksScene.stories.tsx": {
+        "chromium": 16.3,
+        "webkit": 3.0
+    },
+    "products/llm_analytics/frontend/ConversationDisplay/ConversationDisplay.stories.tsx": {
+        "chromium": 18.5,
+        "webkit": 3.5
+    },
+    "products/llm_analytics/frontend/LLMAnalyticsTraceScene.stories.tsx": {
+        "chromium": 18.4,
+        "webkit": 3.1
+    },
+    "products/logs/frontend/LogsScene.stories.tsx": {
+        "chromium": 3.1,
+        "webkit": 2.3
+    },
+    "products/revenue_analytics/frontend/Onboarding/Onboarding.stories.tsx": {
+        "chromium": 14.0,
+        "webkit": 2.9
+    },
+    "products/revenue_analytics/frontend/RevenueAnalyticsScene.stories.tsx": {
+        "chromium": 19.4,
+        "webkit": 3.2
+    },
+    "products/revenue_analytics/frontend/nodes/modals/MRRBreakdownModal.stories.tsx": {
+        "chromium": 7.1,
+        "webkit": 2.4
+    },
+    "products/revenue_analytics/frontend/settings/EventConfigurationModal.stories.tsx": {
+        "chromium": 6.6,
+        "webkit": 2.6
+    },
+    "products/revenue_analytics/frontend/settings/RevenueAnalyticsSettings.stories.tsx": {
+        "chromium": 10.2,
+        "webkit": 2.4
+    }
+}

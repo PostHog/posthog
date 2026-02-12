@@ -130,6 +130,27 @@ const createKafkaMessage = (event: PipelineEvent, timestamp: number = DateTime.n
         token: event.token,
         data: JSON.stringify(event),
     }
+
+    // Build headers to match what the Rust capture service sends
+    // timestamp: milliseconds since epoch as string (already normalized with clock skew correction)
+    // now: ISO timestamp string of when the event was received by capture
+    const headers: { [key: string]: Buffer }[] = []
+    if (event.token) {
+        headers.push({ token: Buffer.from(event.token) })
+    }
+    if (event.distinct_id) {
+        headers.push({ distinct_id: Buffer.from(event.distinct_id) })
+    }
+    if (event.timestamp) {
+        // The timestamp header is in milliseconds since epoch, as a string
+        const timestampMs = DateTime.fromISO(event.timestamp).toMillis()
+        headers.push({ timestamp: Buffer.from(timestampMs.toString()) })
+    }
+    if (event.now) {
+        // The now header is an ISO timestamp string
+        headers.push({ now: Buffer.from(event.now) })
+    }
+
     return {
         key: `${event.token}:${event.distinct_id}`,
         value: Buffer.from(JSON.stringify(captureEvent)),
@@ -138,6 +159,7 @@ const createKafkaMessage = (event: PipelineEvent, timestamp: number = DateTime.n
         offset: offsetIncrementer++,
         timestamp: timestamp + offsetIncrementer,
         partition: 1,
+        headers,
     }
 }
 
@@ -667,6 +689,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                         utm_source: 'facebook',
                         $geoip_city_name: 'San Francisco',
                     })
+                    // last_seen_at should be set
+                    expect(person!.last_seen_at).toBeDefined()
+                    expect(person!.last_seen_at!.minute).toBe(0)
+                    expect(person!.last_seen_at!.second).toBe(0)
                 })
             }
         )
@@ -727,6 +753,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                         utm_source: 'twitter',
                         $geoip_country_code: 'US',
                     })
+                    // last_seen_at should be set to hour-rounded timestamp
+                    expect(person!.last_seen_at).toBeDefined()
+                    expect(person!.last_seen_at!.minute).toBe(0)
+                    expect(person!.last_seen_at!.second).toBe(0)
                 })
             }
         )

@@ -10,13 +10,14 @@ describe('TeamService', () => {
         const mockPostgres = {} as jest.Mocked<PostgresRouter>
         teamService = new TeamService(mockPostgres)
 
-        fetchSpy = jest.spyOn(teamService as any, 'fetchTeamTokensWithRecordings').mockResolvedValue([
-            {
+        fetchSpy = jest.spyOn(teamService as any, 'fetchTeamTokensWithRecordings').mockResolvedValue({
+            tokenMap: {
                 'valid-token': { teamId: 1, consoleLogIngestionEnabled: true },
                 'valid-token-2': { teamId: 2, consoleLogIngestionEnabled: false },
             },
-            {},
-        ])
+            retentionMap: { 1: '30d', 2: '1y' },
+            encryptionMap: { 1: true, 2: false },
+        })
     })
 
     afterEach(() => {
@@ -38,12 +39,13 @@ describe('TeamService', () => {
         })
 
         it('should return null if teamId is missing', async () => {
-            fetchSpy.mockResolvedValue([
-                {
+            fetchSpy.mockResolvedValue({
+                tokenMap: {
                     token: { teamId: null as any, consoleLogIngestionEnabled: true },
                 },
-                {},
-            ])
+                retentionMap: { 1: '30d', 2: '1y' },
+                encryptionMap: { 1: true, 2: false },
+            })
             const team = await teamService.getTeamByToken('token')
             expect(team).toBeNull()
         })
@@ -98,12 +100,13 @@ describe('TeamService', () => {
             expect(team1?.consoleLogIngestionEnabled).toBe(true)
 
             // Update mock data and capture the promise
-            const mockFetchPromise = Promise.resolve([
-                {
+            const mockFetchPromise = Promise.resolve({
+                tokenMap: {
                     'valid-token': { teamId: 1, consoleLogIngestionEnabled: false },
                 },
-                {},
-            ])
+                retentionMap: { 1: '30d', 2: '1y' },
+                encryptionMap: { 1: true, 2: false },
+            })
             fetchSpy.mockReturnValue(mockFetchPromise)
 
             // Advance time to trigger refresh
@@ -124,12 +127,13 @@ describe('TeamService', () => {
             expect(team1?.teamId).toBe(1)
 
             // Update mock data to remove the team
-            const mockFetchPromise = Promise.resolve([
-                {
+            const mockFetchPromise = Promise.resolve({
+                tokenMap: {
                     'valid-token-2': { teamId: 2, consoleLogIngestionEnabled: false }, // Remove valid-token
                 },
-                {},
-            ])
+                retentionMap: { 2: '1y' },
+                encryptionMap: { 2: false },
+            })
             fetchSpy.mockReturnValue(mockFetchPromise)
 
             // Advance time to trigger refresh
@@ -142,6 +146,42 @@ describe('TeamService', () => {
 
             const team2 = await teamService.getTeamByToken('valid-token')
             expect(team2).toBeNull()
+        })
+    })
+
+    describe('getRetentionPeriodByTeamId', () => {
+        it('should return retention period for known team', async () => {
+            const retention = await teamService.getRetentionPeriodByTeamId(1)
+            expect(retention).toBe('30d')
+        })
+
+        it('should return different retention periods per team', async () => {
+            const retention1 = await teamService.getRetentionPeriodByTeamId(1)
+            const retention2 = await teamService.getRetentionPeriodByTeamId(2)
+            expect(retention1).toBe('30d')
+            expect(retention2).toBe('1y')
+        })
+
+        it('should return null for unknown team', async () => {
+            const retention = await teamService.getRetentionPeriodByTeamId(999)
+            expect(retention).toBeNull()
+        })
+    })
+
+    describe('getEncryptionEnabledByTeamId', () => {
+        it('should return true for team with encryption enabled', async () => {
+            const enabled = await teamService.getEncryptionEnabledByTeamId(1)
+            expect(enabled).toBe(true)
+        })
+
+        it('should return false for team with encryption disabled', async () => {
+            const enabled = await teamService.getEncryptionEnabledByTeamId(2)
+            expect(enabled).toBe(false)
+        })
+
+        it('should return false for unknown team', async () => {
+            const enabled = await teamService.getEncryptionEnabledByTeamId(999)
+            expect(enabled).toBe(false)
         })
     })
 })

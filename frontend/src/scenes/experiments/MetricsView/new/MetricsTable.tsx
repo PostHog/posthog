@@ -18,6 +18,7 @@ interface MetricsTableProps {
     metrics: ExperimentMetric[]
     results: NewExperimentQueryResponse[]
     errors: any[]
+    metricIndexes: number[]
     isSecondary: boolean
     getInsightType: (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
     showDetailsModal?: boolean
@@ -27,6 +28,7 @@ export function MetricsTable({
     metrics,
     results,
     errors,
+    metricIndexes,
     isSecondary,
     getInsightType,
     showDetailsModal = true,
@@ -95,6 +97,7 @@ export function MetricsTable({
                     {metrics.map((metric, index) => {
                         const result = results[index]
                         const error = errors[index]
+                        const metricIndex = metricIndexes[index]
 
                         const isLoading = !result && !error && !!experiment.start_date
 
@@ -105,6 +108,7 @@ export function MetricsTable({
                                 result={result}
                                 experiment={experiment}
                                 metricType={getInsightType(metric)}
+                                metricIndex={metricIndex}
                                 displayOrder={index}
                                 axisRange={axisRange}
                                 isSecondary={isSecondary}
@@ -131,7 +135,19 @@ export function MetricsTable({
                                         return
                                     }
 
-                                    removeMetricBreakdown(metric.uuid, index)
+                                    /**
+                                     * we pass the breakdown just for instrumentation purposes
+                                     */
+                                    const breakdown = metric.breakdownFilter?.breakdowns?.[index]
+
+                                    /**
+                                     * throw an error if the breakdown is not found
+                                     */
+                                    if (!breakdown) {
+                                        throw new Error('Breakdown not found')
+                                    }
+
+                                    removeMetricBreakdown(metric.uuid, index, breakdown)
                                 }}
                                 error={error}
                                 isLoading={isLoading}

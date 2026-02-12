@@ -42,8 +42,10 @@ def team_enterprise_api_test_factory():
         def test_non_admin_cannot_create_team(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
+            project_id = self.project.id
+            self.team.delete()
             count = Team.objects.count()
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
+            response = self.client.post(f"/api/projects/{project_id}/environments/", {"name": "Test"})
             self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
             self.assertEqual(Team.objects.count(), count)
             self.assertEqual(
@@ -52,11 +54,18 @@ def team_enterprise_api_test_factory():
             )
 
         def test_cannot_create_team_with_primary_dashboard_id(self):
-            dashboard_x = Dashboard.objects.create(team=self.team, name="Test")
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
+            # Create a second project with its team to hold the dashboard
+            _, other_team = Project.objects.create_with_team(
+                organization=self.organization, initiating_user=self.user, name="Other"
+            )
+            dashboard_x = Dashboard.objects.create(team=other_team, name="Test")
+            # Delete the original team to make room for creating a new one
+            project_id = self.project.id
+            self.team.delete()
             response = self.client.post(
-                "/api/projects/@current/environments/", {"name": "Test", "primary_dashboard": dashboard_x.id}
+                f"/api/projects/{project_id}/environments/", {"name": "Test", "primary_dashboard": dashboard_x.id}
             )
             self.assertEqual(response.status_code, HTTP_400_BAD_REQUEST, response.json())
             self.assertEqual(
@@ -230,28 +239,35 @@ def team_enterprise_api_test_factory():
             self.assertEqual(self.not_found_response(), response_data)
 
         @freeze_time("2022-02-08")
-        def test_team_creation_is_in_activity_log(self):
+        def test_team_update_is_in_activity_log(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
-            team_name = str(uuid.uuid4())
-            response = self.client.post("/api/projects/@current/environments/", {"name": team_name, "is_demo": False})
-            self.assertEqual(response.status_code, 201, response.json())
+            new_name = str(uuid.uuid4())
+            response = self.client.patch(f"/api/environments/{self.team.id}/", {"name": new_name})
+            self.assertEqual(response.status_code, 200, response.json())
 
-            team_id = response.json()["id"]
             self._assert_activity_log(
                 [
                     {
-                        "activity": "created",
+                        "activity": "updated",
                         "created_at": "2022-02-08T00:00:00Z",
                         "detail": {
-                            "changes": None,
-                            "name": team_name,
+                            "changes": [
+                                {
+                                    "action": "changed",
+                                    "after": new_name,
+                                    "before": "Default project",
+                                    "field": "name",
+                                    "type": "Team",
+                                }
+                            ],
+                            "name": new_name,
                             "short_id": None,
                             "trigger": None,
                             "type": None,
                         },
-                        "item_id": str(team_id),
+                        "item_id": str(self.team.id),
                         "scope": "Team",
                         "user": {
                             "email": "user1@posthog.com",
@@ -259,29 +275,17 @@ def team_enterprise_api_test_factory():
                         },
                     },
                 ],
-                team_id=team_id,
+                team_id=self.team.id,
             )
 
-        def test_team_is_cached_on_create_and_update(self):
+        def test_team_is_cached_on_update(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test", "is_demo": False})
-            self.assertEqual(response.status_code, 201, response.json())
-            self.assertEqual(response.json()["name"], "Test")
-
-            token = response.json()["api_token"]
-            team_id = response.json()["id"]
-
-            cached_team = get_team_in_cache(token)
-
-            assert cached_team is not None
-            self.assertEqual(cached_team.name, "Test")
-            self.assertEqual(cached_team.uuid, response.json()["uuid"])
-            self.assertEqual(cached_team.id, response.json()["id"])
+            token = self.team.api_token
 
             response = self.client.patch(
-                f"/api/environments/{team_id}/",
+                f"/api/environments/{self.team.id}/",
                 {"timezone": "Europe/Istanbul", "session_recording_opt_in": True},
             )
             self.assertEqual(response.status_code, 200)
@@ -289,15 +293,15 @@ def team_enterprise_api_test_factory():
             cached_team = get_team_in_cache(token)
             assert cached_team is not None
 
-            self.assertEqual(cached_team.name, "Test")
-            self.assertEqual(cached_team.uuid, response.json()["uuid"])
+            self.assertEqual(cached_team.name, self.team.name)
+            self.assertEqual(cached_team.uuid, str(self.team.uuid))
             self.assertEqual(cached_team.session_recording_opt_in, True)
 
             # only things in CachedTeamSerializer are cached!
             self.assertEqual(cached_team.timezone, "UTC")
 
             # reset token should update cache as well
-            response = self.client.patch(f"/api/environments/{team_id}/reset_token/")
+            response = self.client.patch(f"/api/environments/{self.team.id}/reset_token/")
             response_data = response.json()
 
             cached_team = get_team_in_cache(token)
@@ -305,7 +309,7 @@ def team_enterprise_api_test_factory():
 
             cached_team = get_team_in_cache(response_data["api_token"])
             assert cached_team is not None
-            self.assertEqual(cached_team.name, "Test")
+            self.assertEqual(cached_team.name, self.team.name)
             self.assertEqual(cached_team.uuid, response.json()["uuid"])
             self.assertEqual(cached_team.session_recording_opt_in, True)
 
@@ -313,26 +317,6 @@ def team_enterprise_api_test_factory():
 
 
 class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
-    def test_create_team(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.assertEqual(Team.objects.count(), 1)
-        self.assertEqual(Project.objects.count(), 1)
-        response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 2)
-        self.assertEqual(Project.objects.count(), 1)  # Created under the same project, not a new one!
-        response_data = response.json()
-        self.assertLessEqual(
-            {
-                "name": "Test",
-                "access_control": False,
-                "effective_membership_level": OrganizationMembership.Level.ADMIN,
-            }.items(),
-            response_data.items(),
-        )
-        self.assertEqual(self.organization.teams.count(), 2)
-
     def test_cannot_create_team_not_under_project(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -359,9 +343,11 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
         self.assertEqual(response.json(), self.not_found_response("Project not found."))
 
     def test_cannot_create_team_in_project_without_org_access(self):
+        project_id = self.project.id
+        self.team.delete()
         self.organization_membership.delete()
 
-        response = self.client.post(f"/api/projects/{self.project.id}/environments/", {"name": "Test"})
+        response = self.client.post(f"/api/projects/{project_id}/environments/", {"name": "Test"})
 
         self.assertEqual(response.status_code, 404, response.json())
         self.assertEqual(

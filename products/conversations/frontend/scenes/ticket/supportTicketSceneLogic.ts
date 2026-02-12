@@ -102,8 +102,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setOlderMessagesLoading: (loading: boolean) => ({ loading }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
 
-        sendMessage: (content: string, isPrivate: boolean, onSuccess?: () => void) => ({
+        sendMessage: (
+            content: string,
+            richContent: Record<string, unknown> | null,
+            isPrivate: boolean,
+            onSuccess?: () => void
+        ) => ({
             content,
+            richContent,
             isPrivate,
             onSuccess,
         }),
@@ -272,19 +278,26 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             (messages: CommentType[], ticket: Ticket | null): ChatMessage[] =>
                 messages.map((message) => {
                     const authorType = message.item_context?.author_type || 'customer'
-                    let displayName = 'Customer'
+                    let displayName = 'Anonymous user'
                     if (message.created_by) {
                         displayName =
                             [message.created_by.first_name, message.created_by.last_name].filter(Boolean).join(' ') ||
                             message.created_by.email ||
                             'Support'
-                    } else if (authorType === 'customer' && ticket?.anonymous_traits) {
-                        displayName = ticket.anonymous_traits.name || ticket.anonymous_traits.email || 'Customer'
+                    } else if (authorType === 'customer') {
+                        // Try person properties first (from ticket.person), then ticket traits
+                        displayName =
+                            ticket?.person?.properties?.name ||
+                            ticket?.person?.properties?.email ||
+                            ticket?.anonymous_traits?.name ||
+                            ticket?.anonymous_traits?.email ||
+                            'Anonymous user'
                     }
 
                     return {
                         id: message.id,
                         content: message.content || '',
+                        richContent: message.rich_content,
                         authorType: authorType === 'support' ? 'human' : authorType,
                         authorName: displayName,
                         createdBy: message.created_by,
@@ -294,12 +307,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }),
         ],
         eventsQuery: [
-            (s) => [s.person, s.ticket],
-            (person: PersonType | null, ticket: Ticket | null): DataTableNode | null => {
-                if (!person?.id) {
+            (s) => [s.ticket],
+            (ticket: Ticket | null): DataTableNode | null => {
+                // Use person from ticket (no extra API call needed)
+                if (!ticket?.person?.id) {
                     return null
                 }
-                return createEventsQuery(person.id, ticket?.session_id, ticket?.created_at)
+                return createEventsQuery(ticket.person.id, ticket.session_id, ticket.created_at)
             },
         ],
         exceptionsQuery: [
@@ -417,7 +431,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setOlderMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content, isPrivate, onSuccess }) => {
+        sendMessage: async ({ content, richContent, isPrivate, onSuccess }) => {
             if (props.id === 'new') {
                 actions.setMessageSending(false)
                 return
@@ -426,6 +440,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 await api.comments.create(
                     {
                         content,
+                        rich_content: richContent,
                         scope: 'conversations_ticket',
                         item_id: props.id.toString(),
                         item_context: {

@@ -21,9 +21,7 @@ import { Params } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
-    DateRange,
     LogMessage,
-    LogSeverityLevel,
     LogsQuery,
     LogsSparklineBreakdownBy,
     ProductIntentContext,
@@ -39,17 +37,19 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import {
+    DEFAULT_DATE_RANGE,
+    DEFAULT_SERVICE_NAMES,
+    DEFAULT_SEVERITY_LEVELS,
+    isValidSeverityLevel,
+    logsViewerFiltersLogic,
+} from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
+
 import { zoomDateRange } from './components/LogsViewer/Filters/zoom-utils'
 import type { logsSceneLogicType } from './logsSceneLogicType'
-import { LogsFilters, LogsFiltersHistoryEntry, LogsOrderBy, ParsedLogMessage } from './types'
+import { LogsFiltersHistoryEntry, LogsOrderBy, ParsedLogMessage } from './types'
 
-const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
-const VALID_SEVERITY_LEVELS: readonly LogSeverityLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
-const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
-
-const isValidSeverityLevel = (level: string): level is LogSeverityLevel =>
-    VALID_SEVERITY_LEVELS.includes(level as LogSeverityLevel)
-const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_LOGS_PAGE_SIZE: number = 250
 const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
@@ -76,19 +76,25 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
     props({} as LogsLogicProps),
     path(['products', 'logs', 'frontend', 'logsSceneLogic']),
     tabAwareScene(),
-    connect(() => ({
-        actions: [teamLogic, ['addProductIntent']],
+    connect((props: LogsLogicProps) => ({
+        actions: [
+            teamLogic,
+            ['addProductIntent'],
+            logsViewerFiltersLogic({ id: props.tabId }),
+            ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm', 'setSeverityLevels', 'setServiceNames'],
+        ],
+        values: [logsViewerFiltersLogic({ id: props.tabId }), ['filters', 'utcDateRange']],
     })),
     tabAwareUrlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
-            const filtersFromUrl: Partial<LogsFilters> = {}
+            const filtersFromUrl: Partial<LogsViewerFilters> = {}
             let hasFilterChanges = false
 
             if (params.dateRange) {
                 try {
                     const dateRange =
                         typeof params.dateRange === 'string' ? JSON.parse(params.dateRange) : params.dateRange
-                    if (!equal(dateRange, values.dateRange)) {
+                    if (!equal(dateRange, values.filters.dateRange)) {
                         filtersFromUrl.dateRange = dateRange
                         hasFilterChanges = true
                     }
@@ -96,34 +102,50 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                     // Ignore malformed dateRange JSON in URL
                 }
             }
-            if (params.filterGroup && !equal(params.filterGroup, values.filterGroup)) {
-                filtersFromUrl.filterGroup = params.filterGroup
+            if (params.filterGroup) {
+                if (!equal(params.filterGroup, values.filters.filterGroup)) {
+                    filtersFromUrl.filterGroup = params.filterGroup
+                    hasFilterChanges = true
+                }
+            } else if (!equal(DEFAULT_UNIVERSAL_GROUP_FILTER, values.filters.filterGroup)) {
+                filtersFromUrl.filterGroup = DEFAULT_UNIVERSAL_GROUP_FILTER
                 hasFilterChanges = true
             }
-            if (params.searchTerm && !equal(params.searchTerm, values.searchTerm)) {
-                filtersFromUrl.searchTerm = params.searchTerm
+            if (params.searchTerm) {
+                if (!equal(params.searchTerm, values.filters.searchTerm)) {
+                    filtersFromUrl.searchTerm = params.searchTerm
+                    hasFilterChanges = true
+                }
+            } else if (values.filters.searchTerm !== '') {
+                filtersFromUrl.searchTerm = ''
                 hasFilterChanges = true
             }
             if (params.severityLevels) {
                 const parsed = parseTagsFilter(params.severityLevels)
                 if (parsed) {
                     const levels = parsed.filter(isValidSeverityLevel)
-                    if (levels.length > 0 && !equal(levels, values.severityLevels)) {
+                    if (levels.length > 0 && !equal(levels, values.filters.severityLevels)) {
                         filtersFromUrl.severityLevels = levels
                         hasFilterChanges = true
                     }
                 }
+            } else if (!equal(DEFAULT_SEVERITY_LEVELS, values.filters.severityLevels)) {
+                filtersFromUrl.severityLevels = DEFAULT_SEVERITY_LEVELS
+                hasFilterChanges = true
             }
             if (params.serviceNames) {
                 const names = parseTagsFilter(params.serviceNames)
-                if (names && !equal(names, values.serviceNames)) {
+                if (names && !equal(names, values.filters.serviceNames)) {
                     filtersFromUrl.serviceNames = names
                     hasFilterChanges = true
                 }
+            } else if (!equal(DEFAULT_SERVICE_NAMES, values.filters.serviceNames)) {
+                filtersFromUrl.serviceNames = DEFAULT_SERVICE_NAMES
+                hasFilterChanges = true
             }
 
             if (hasFilterChanges) {
-                actions.setFiltersFromUrl(filtersFromUrl)
+                actions.setFilters(filtersFromUrl, false)
             }
 
             // Non-filter params handled separately
@@ -149,11 +171,11 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             },
         ] => {
             return syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'searchTerm', values.searchTerm, '')
-                updateSearchParams(params, 'filterGroup', values.filterGroup, DEFAULT_UNIVERSAL_GROUP_FILTER)
-                updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
-                updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
-                updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
+                updateSearchParams(params, 'searchTerm', values.filters.searchTerm, '')
+                updateSearchParams(params, 'filterGroup', values.filters.filterGroup, DEFAULT_UNIVERSAL_GROUP_FILTER)
+                updateSearchParams(params, 'dateRange', values.filters.dateRange, DEFAULT_DATE_RANGE)
+                updateSearchParams(params, 'severityLevels', values.filters.severityLevels, DEFAULT_SEVERITY_LEVELS)
+                updateSearchParams(params, 'serviceNames', values.filters.serviceNames, DEFAULT_SERVICE_NAMES)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
                 actions.runQuery()
                 return params
@@ -196,22 +218,12 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         setLiveTailAbortController: (liveTailAbortController: AbortController | null) => ({
             liveTailAbortController,
         }),
-        setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setOrderBy: (orderBy: LogsOrderBy, source: 'header' | 'toolbar' = 'toolbar') => ({ orderBy, source }),
-        setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
-        setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
-        setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
-        setFilters: (filters: Partial<LogsFilters>, pushToHistory: boolean = true) => ({ filters, pushToHistory }),
-        setFiltersFromUrl: (filters: Partial<LogsFilters>) => ({ filters }),
-        pushToFilterHistory: (filters: LogsFilters) => ({ filters }),
+        pushToFilterHistory: (filters: LogsViewerFilters) => ({ filters }),
         restoreFiltersFromHistory: (index: number) => ({ index }),
         clearFilterHistory: true,
         setLiveLogsCheckpoint: (liveLogsCheckpoint: string | null) => ({ liveLogsCheckpoint }),
 
-        setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
-            filterGroup,
-            openFilterOnInsert,
-        }),
         toggleAttributeBreakdown: (key: string) => ({ key }),
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
         zoomDateRange: (multiplier: number) => ({ multiplier }),
@@ -239,6 +251,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
         addLogsToSparkline: (logs: LogMessage[]) => logs,
         setSparklineBreakdownBy: (sparklineBreakdownBy: LogsSparklineBreakdownBy) => ({ sparklineBreakdownBy }),
+        setMaxExportableLogs: (maxExportableLogs: number) => ({ maxExportableLogs }),
     }),
 
     reducers({
@@ -263,53 +276,10 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 fetchLogsSuccess: () => null,
             },
         ],
-        dateRange: [
-            DEFAULT_DATE_RANGE as DateRange,
-            {
-                setDateRange: (_, { dateRange }) => dateRange,
-                setFilters: (state, { filters }) => filters.dateRange ?? state,
-                setFiltersFromUrl: (state, { filters }) => filters.dateRange ?? state,
-            },
-        ],
         orderBy: [
             DEFAULT_ORDER_BY,
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
-            },
-        ],
-        searchTerm: [
-            '' as LogsQuery['searchTerm'],
-            {
-                setSearchTerm: (_, { searchTerm }) => searchTerm,
-                setFilters: (state, { filters }) => filters.searchTerm ?? state,
-                setFiltersFromUrl: (state, { filters }) => filters.searchTerm ?? state,
-            },
-        ],
-        severityLevels: [
-            DEFAULT_SEVERITY_LEVELS,
-            {
-                setSeverityLevels: (_, { severityLevels }) => severityLevels,
-                setFilters: (state, { filters }) => filters.severityLevels ?? state,
-                setFiltersFromUrl: (state, { filters }) => filters.severityLevels ?? state,
-            },
-        ],
-        serviceNames: [
-            DEFAULT_SERVICE_NAMES,
-            {
-                setServiceNames: (_, { serviceNames }) => serviceNames,
-                setFilters: (state, { filters }) => filters.serviceNames ?? state,
-                setFiltersFromUrl: (state, { filters }) => filters.serviceNames ?? state,
-            },
-        ],
-        filterGroup: [
-            DEFAULT_UNIVERSAL_GROUP_FILTER,
-            {
-                setFilterGroup: (_, { filterGroup }) =>
-                    filterGroup && filterGroup.values ? filterGroup : DEFAULT_UNIVERSAL_GROUP_FILTER,
-                setFilters: (state, { filters }) =>
-                    filters.filterGroup && filters.filterGroup.values ? filters.filterGroup : state,
-                setFiltersFromUrl: (state, { filters }) =>
-                    filters.filterGroup && filters.filterGroup.values ? filters.filterGroup : state,
             },
         ],
         liveLogsCheckpoint: [
@@ -372,12 +342,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 fetchSparklineFailure: () => true,
             },
         ],
-        openFilterOnInsert: [
-            false as boolean,
-            {
-                setFilterGroup: (_, { openFilterOnInsert }) => openFilterOnInsert,
-            },
-        ],
         expandedAttributeBreaksdowns: [
             [] as string[],
             {
@@ -433,6 +397,12 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 setSparklineBreakdownBy: (_, { sparklineBreakdownBy }) => sparklineBreakdownBy,
             },
         ],
+        maxExportableLogs: [
+            10_000 as number,
+            {
+                setMaxExportableLogs: (_, { maxExportableLogs }) => maxExportableLogs,
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
@@ -451,16 +421,17 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                             limit: values.initialLogsLimit ?? DEFAULT_LOGS_PAGE_SIZE,
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
-                            searchTerm: values.searchTerm,
-                            filterGroup: values.filterGroup as PropertyGroupFilter,
-                            severityLevels: values.severityLevels,
-                            serviceNames: values.serviceNames,
+                            searchTerm: values.filters.searchTerm,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            severityLevels: values.filters.severityLevels,
+                            serviceNames: values.filters.serviceNames,
                         },
                         signal,
                     })
                     actions.setLogsAbortController(null)
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
+                    actions.setMaxExportableLogs(response.maxExportableLogs)
                     return response.results
                 },
                 fetchNextLogsPage: async ({ limit }, breakpoint) => {
@@ -478,10 +449,10 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                             limit: limit ?? DEFAULT_LOGS_PAGE_SIZE,
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
-                            searchTerm: values.searchTerm,
-                            filterGroup: values.filterGroup as PropertyGroupFilter,
-                            severityLevels: values.severityLevels,
-                            serviceNames: values.serviceNames,
+                            searchTerm: values.filters.searchTerm,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            severityLevels: values.filters.severityLevels,
+                            serviceNames: values.filters.serviceNames,
                             after: values.nextCursor,
                         },
                         signal,
@@ -506,10 +477,10 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                         query: {
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
-                            searchTerm: values.searchTerm,
-                            filterGroup: values.filterGroup as PropertyGroupFilter,
-                            severityLevels: values.severityLevels,
-                            serviceNames: values.serviceNames,
+                            searchTerm: values.filters.searchTerm,
+                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            severityLevels: values.filters.severityLevels,
+                            serviceNames: values.filters.serviceNames,
                             sparklineBreakdownBy: values.sparklineBreakdownBy,
                         },
                         signal,
@@ -524,31 +495,15 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
 
     selectors({
         tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
-        filters: [
-            (s) => [s.dateRange, s.searchTerm, s.severityLevels, s.serviceNames, s.filterGroup],
-            (
-                dateRange: LogsFilters['dateRange'],
-                searchTerm: LogsFilters['searchTerm'],
-                severityLevels: LogsFilters['severityLevels'],
-                serviceNames: LogsFilters['serviceNames'],
-                filterGroup: LogsFilters['filterGroup']
-            ): LogsFilters => ({
-                dateRange,
-                searchTerm,
-                severityLevels,
-                serviceNames,
-                filterGroup,
-            }),
-        ],
         hasFilterHistory: [
             (s) => [s.filterHistory],
             (filterHistory: LogsFiltersHistoryEntry[]) => filterHistory.length > 0,
         ],
         liveTailDisabledReason: [
-            (s) => [s.orderBy, s.dateRange, s.logsLoading, s.liveTailExpired],
+            (s) => [s.orderBy, s.filters, s.logsLoading, s.liveTailExpired],
             (
                 orderBy: LogsQuery['orderBy'],
-                dateRange: DateRange,
+                filters: LogsViewerFilters,
                 logsLoading: boolean,
                 liveTailExpired: boolean
             ): string | undefined => {
@@ -556,7 +511,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                     return 'Live tail only works with "Latest" ordering'
                 }
 
-                if (dateRange.date_to) {
+                if (filters.dateRange.date_to) {
                     return 'Live tail requires an open-ended time range'
                 }
 
@@ -570,18 +525,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
 
                 return undefined
             },
-        ],
-        utcDateRange: [
-            (s) => [s.dateRange],
-            (dateRange) => ({
-                date_from: dayjs(dateRange.date_from).isValid()
-                    ? dayjs(dateRange.date_from).toISOString()
-                    : dateRange.date_from,
-                date_to: dayjs(dateRange.date_to).isValid()
-                    ? dayjs(dateRange.date_to).toISOString()
-                    : dateRange.date_to,
-                explicitDate: dateRange.explicitDate,
-            }),
         ],
         parsedLogs: [
             (s) => [s.logs],
@@ -773,7 +716,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 return false
             }
 
-            const rootGroup = values.filterGroup?.values?.[0] as UniversalFiltersGroup | undefined
+            const rootGroup = values.filters.filterGroup?.values?.[0] as UniversalFiltersGroup | undefined
             const hasIncompleteFilter =
                 rootGroup?.values?.some((filterValue) => hasIncompleteUniversalFilterValue(filterValue)) ?? false
 
@@ -863,19 +806,16 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             // Track query execution (skip initial page load)
             if (values.hasRunQuery) {
                 posthog.capture('logs query executed', {
-                    has_search_term: !!values.searchTerm,
-                    has_filters: values.filterGroup.values.length > 0,
-                    severity_count: values.severityLevels?.length ?? 0,
-                    service_count: values.serviceNames?.length ?? 0,
+                    has_search_term: !!values.filters.searchTerm,
+                    has_filters: values.filters.filterGroup.values.length > 0,
+                    severity_count: values.filters.severityLevels?.length ?? 0,
+                    service_count: values.filters.serviceNames?.length ?? 0,
                 })
             }
             actions.clearLogs()
             actions.fetchLogs()
             actions.fetchSparkline()
             actions.cancelInProgressLiveTail(null)
-        },
-        setFiltersFromUrl: () => {
-            actions.runQuery()
         },
         restoreFiltersFromHistory: ({ index }) => {
             const entry = values.filterHistory[index]
@@ -925,7 +865,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 direction: multiplier > 1 ? 'out' : 'in',
                 multiplier,
             })
-            const newDateRange = zoomDateRange(values.dateRange, multiplier)
+            const newDateRange = zoomDateRange(values.filters.dateRange, multiplier)
             actions.setDateRange(newDateRange)
         },
         expireLiveTail: async ({}, breakpoint) => {
@@ -946,7 +886,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             operator: string
             propertyType: PropertyFilterType
         }) => {
-            const currentGroup = values.filterGroup.values[0] as UniversalFiltersGroup
+            const currentGroup = values.filters.filterGroup.values[0] as UniversalFiltersGroup
 
             const newGroup: UniversalFiltersGroup = {
                 ...currentGroup,
@@ -961,7 +901,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 ],
             }
 
-            actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, false)
+            actions.setFilterGroup({ ...values.filters.filterGroup, values: [newGroup] }, false)
         },
         pollForNewLogs: async () => {
             if (!values.liveTailRunning || values.orderBy !== 'latest' || document.hidden) {
@@ -980,10 +920,10 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                         limit: DEFAULT_LOGS_PAGE_SIZE,
                         orderBy: values.orderBy,
                         dateRange: values.utcDateRange,
-                        searchTerm: values.searchTerm,
-                        filterGroup: values.filterGroup as PropertyGroupFilter,
-                        severityLevels: values.severityLevels,
-                        serviceNames: values.serviceNames,
+                        searchTerm: values.filters.searchTerm,
+                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        severityLevels: values.filters.severityLevels,
+                        serviceNames: values.filters.serviceNames,
                         liveLogsCheckpoint: values.liveLogsCheckpoint ?? undefined,
                     },
                     signal,

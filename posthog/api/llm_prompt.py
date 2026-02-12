@@ -13,8 +13,11 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.models import User
 from posthog.models.llm_prompt import LLMPrompt
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+
+RESERVED_PROMPT_NAMES = {"new"}
 
 
 class LLMPromptSerializer(serializers.ModelSerializer):
@@ -41,6 +44,12 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         ]
 
     def validate_name(self, value: str) -> str:
+        if value.lower() in RESERVED_PROMPT_NAMES:
+            raise serializers.ValidationError(
+                "'new' is a reserved name and cannot be used.",
+                code="reserved_name",
+            )
+
         if not re.match(r"^[a-zA-Z0-9_-]+$", value):
             raise serializers.ValidationError(
                 "Only letters, numbers, hyphens (-) and underscores (_) are allowed.",
@@ -58,15 +67,20 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             if LLMPrompt.objects.filter(name=name, team=team, deleted=False).exists():
                 raise serializers.ValidationError({"name": "A prompt with this name already exists."}, code="unique")
 
-        # On UPDATE: check if name changed OR if restoring a deleted prompt
+        # On UPDATE: reject name changes (name is immutable after creation)
         else:
-            name_to_check = name if name else self.instance.name
-            is_being_restored = self.instance.deleted and data.get("deleted") is False
-            name_changed = name and self.instance.name != name
+            if name is not None and self.instance.name != name:
+                raise serializers.ValidationError(
+                    {"name": "Prompt name cannot be changed after creation."},
+                    code="immutable",
+                )
 
-            if name_changed or is_being_restored:
+            # Check for name conflicts when restoring a deleted prompt
+            is_being_restored = self.instance.deleted and data.get("deleted") is False
+
+            if is_being_restored:
                 if (
-                    LLMPrompt.objects.filter(name=name_to_check, team=team, deleted=False)
+                    LLMPrompt.objects.filter(name=self.instance.name, team=team, deleted=False)
                     .exclude(id=self.instance.id)
                     .exists()
                 ):
@@ -87,11 +101,11 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         )
 
 
-class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "llm_prompt"
     queryset = LLMPrompt.objects.all()
     serializer_class = LLMPromptSerializer
-    permission_classes = [PostHogFeatureFlagPermission]
+    permission_classes = [PostHogFeatureFlagPermission, AccessControlPermission]
     posthog_feature_flag = "llm-analytics-prompts"
 
     def safely_get_queryset(self, queryset):

@@ -2,11 +2,23 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use chrono::{DateTime, Utc};
 use tracing::info;
 
 use crate::utils::format_store_path;
+
+/// Deterministic 8-hex-char prefix for spreading S3 object keys across internal partitions.
+/// Applied ONLY to checkpoint object file paths, NEVER to metadata.json paths.
+pub fn hash_prefix_for_partition(topic: &str, partition: i32) -> String {
+    let input = format!("{topic}/{partition}");
+    let hash = Sha256::digest(input.as_bytes());
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}",
+        hash[0], hash[1], hash[2], hash[3]
+    )
+}
 
 // filename of metadata tracking file in each remote checkpoint attempt directory
 pub const METADATA_FILENAME: &str = "metadata.json";
@@ -113,13 +125,22 @@ impl CheckpointMetadata {
 
     /// Produce a path under the supplied base directory for the local RocksDB stores that
     /// will host the imported checkpoint files. Example:
-    /// <local_store_base_path>/<topic_name>_<partition_number>/<checkpoint_unix_epoch_millis>
-    pub fn get_store_path(&self, local_store_base_path: &Path) -> PathBuf {
+    /// <local_store_base_path>/<topic_name>_<partition_number>/<timestamp_unix_epoch_millis>
+    ///
+    /// The caller provides the timestamp to use for the local store directory. Production code
+    /// should pass `Utc::now()` so imported checkpoints get the current timestamp (ensuring they
+    /// are "newest" and won't be superseded by accidentally created empty stores). Tests can
+    /// pass controlled timestamps for validation.
+    pub fn get_store_path(
+        &self,
+        local_store_base_path: &Path,
+        timestamp: DateTime<Utc>,
+    ) -> PathBuf {
         format_store_path(
             local_store_base_path,
             &self.topic,
             self.partition,
-            self.attempt_timestamp,
+            timestamp,
         )
     }
 
@@ -141,19 +162,25 @@ pub struct CheckpointInfo {
     pub metadata: CheckpointMetadata,
     /// App-level S3 bucket namespace under which all checkpoint attempts are stored remotely
     pub s3_key_prefix: String,
+    /// Optional hash prefix for object file keys only (never for metadata.json)
+    pub hash_prefix: Option<String>,
 }
 
 impl CheckpointInfo {
-    /// Create new checkpoint info that wraps in the app-level bucket
-    /// namespace under which all checkpoint attempts are stored remotely
-    pub fn new(metadata: CheckpointMetadata, s3_key_prefix: String) -> Self {
+    /// New checkpoint info. hash_prefix: when Some, get_file_key() uses hashed path for object files; get_metadata_key() never does.
+    pub fn new(
+        metadata: CheckpointMetadata,
+        s3_key_prefix: String,
+        hash_prefix: Option<String>,
+    ) -> Self {
         Self {
             metadata,
             s3_key_prefix,
+            hash_prefix,
         }
     }
 
-    /// Get the fully-qualified remote metadata file path for this checkpoint attempt
+    /// Fully-qualified remote path for metadata.json (unhashed; used for list/discovery).
     pub fn get_metadata_key(&self) -> String {
         format!(
             "{}/{}",
@@ -162,17 +189,20 @@ impl CheckpointInfo {
         )
     }
 
-    /// Get fully-qualified remote file path for a specific file
-    /// to be uploaded as part of this checkpoint attempt. the
-    /// relative_file_path is assumed to have been stripped of all
-    /// local path elements common to a checkpoint attempt dir tree
-    ///
-    /// NOTE! Files tracked in metadata.files that were not uploaded
-    /// as part of this attempt already contain their fully-qualified
-    /// remote paths as of time of original upload attempt, and can be
-    /// used directly in import/DR flows.
+    /// Fully-qualified remote path for a file in this attempt (relative_file_path = filename only).
+    /// When hash_prefix is Some, path includes it (object files only; metadata.json never).
+    /// metadata.files entries from prior attempts already have full paths; use as-is for import.
     pub fn get_file_key(&self, relative_file_path: &str) -> String {
-        format!("{}/{}", self.get_remote_attempt_path(), relative_file_path)
+        match &self.hash_prefix {
+            Some(h) => format!(
+                "{}/{}/{}/{}",
+                h,
+                self.s3_key_prefix,
+                self.metadata.get_attempt_path(),
+                relative_file_path
+            ),
+            None => format!("{}/{}", self.get_remote_attempt_path(), relative_file_path),
+        }
     }
 
     // The fully qualified remote base path for this checkpoint attempt
@@ -187,10 +217,9 @@ impl CheckpointInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointFile {
-    /// The fully-qualified remote file path, as of the time of its
-    /// original upload during a checkpoint attempt (latest or previous)
-    /// Example:
-    /// <remote_namespace>/<topic_name>/<partition_number>/<checkpoint_id>/<filename>
+    /// Fully-qualified remote path from original upload (latest or previous attempt).
+    /// Object files: <hash>/<namespace>/<topic>/<partition>/<id>/<filename> (new exports) or unhashed (legacy).
+    /// Importer GETs using this path; metadata.json is always at unhashed path.
     pub remote_filepath: String,
 
     /// SHA256 checksum of the file's contents. Used during checkpoint
@@ -393,7 +422,7 @@ mod tests {
             50,
         );
 
-        let info = CheckpointInfo::new(metadata, bucket_namespace.to_string());
+        let info = CheckpointInfo::new(metadata, bucket_namespace.to_string(), None);
 
         assert_eq!(
             info.get_metadata_key(),
@@ -406,6 +435,63 @@ mod tests {
         assert_eq!(
             info.get_file_key(local_file_relative_path),
             format!("{bucket_namespace}/{topic}/{partition}/{checkpoint_id}/000001.sst")
+        );
+    }
+
+    #[test]
+    fn test_hash_prefix_deterministic() {
+        let h1 = hash_prefix_for_partition("events", 0);
+        let h2 = hash_prefix_for_partition("events", 0);
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_hash_prefix_different_partitions() {
+        let h0 = hash_prefix_for_partition("events", 0);
+        let h1 = hash_prefix_for_partition("events", 1);
+        let h2 = hash_prefix_for_partition("other-topic", 0);
+        assert_ne!(h0, h1);
+        assert_ne!(h0, h2);
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_hash_prefix_format() {
+        let h = hash_prefix_for_partition("t", 0);
+        assert_eq!(h.len(), 8);
+        assert!(h.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_checkpoint_info_with_hash_prefix() {
+        let attempt_timestamp = Utc::now();
+        let bucket_namespace = "checkpoints";
+        let topic = "events";
+        let partition = 3;
+        let checkpoint_id = CheckpointMetadata::generate_id(attempt_timestamp);
+        let metadata = CheckpointMetadata::new(
+            topic.to_string(),
+            partition,
+            attempt_timestamp,
+            1234567890,
+            100,
+            50,
+        );
+        let hash = hash_prefix_for_partition(topic, partition);
+        let info = CheckpointInfo::new(metadata, bucket_namespace.to_string(), Some(hash.clone()));
+
+        let meta_key = info.get_metadata_key();
+        assert!(!meta_key.contains(&hash));
+        assert_eq!(
+            meta_key,
+            format!("{bucket_namespace}/{topic}/{partition}/{checkpoint_id}/{METADATA_FILENAME}")
+        );
+
+        let file_key = info.get_file_key("000001.sst");
+        assert!(file_key.contains(&hash));
+        assert_eq!(
+            file_key,
+            format!("{hash}/{bucket_namespace}/{topic}/{partition}/{checkpoint_id}/000001.sst")
         );
     }
 
@@ -459,7 +545,8 @@ mod tests {
         );
 
         let base_path = Path::new("/data/stores");
-        let store_path = metadata.get_store_path(base_path);
+        // Pass explicit timestamp - production code uses Utc::now(), tests can control the timestamp
+        let store_path = metadata.get_store_path(base_path, attempt_timestamp);
 
         // Store path should be <base>/<topic>_<partition>/<timestamp_millis>
         let expected = base_path
@@ -469,7 +556,7 @@ mod tests {
 
         // Works with different base paths
         let tmp_base = Path::new("/tmp/deduplication-store");
-        let tmp_store_path = metadata.get_store_path(tmp_base);
+        let tmp_store_path = metadata.get_store_path(tmp_base, attempt_timestamp);
         let tmp_expected = tmp_base
             .join(format!("{topic}_{partition}"))
             .join(timestamp_millis.to_string());
@@ -493,7 +580,8 @@ mod tests {
         );
 
         let base_path = Path::new("/data/stores");
-        let store_path = metadata.get_store_path(base_path);
+        // Pass explicit timestamp - production code uses Utc::now(), tests can control the timestamp
+        let store_path = metadata.get_store_path(base_path, attempt_timestamp);
 
         // Slashes in topic should be replaced with underscores for filesystem safety
         let expected = base_path

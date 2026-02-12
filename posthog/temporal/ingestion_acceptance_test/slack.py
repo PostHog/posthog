@@ -14,16 +14,22 @@ logger = structlog.get_logger(__name__)
 def send_slack_notification(config: Config, result: TestSuiteResult) -> bool:
     """Send test results to Slack via incoming webhook.
 
+    Only sends notifications when there are failures or errors. Successful runs
+    are not reported to avoid noise.
+
     Args:
         config: Configuration containing the Slack webhook URL.
         result: The test suite result to report.
 
     Returns:
-        True if notification was sent successfully, False otherwise.
-        Returns True if Slack is not configured (no-op).
+        True if notification was sent successfully or skipped, False on send failure.
     """
     if not config.slack_webhook_url:
         logger.debug("Slack webhook URL not configured, skipping notification")
+        return True
+
+    if result.success:
+        logger.debug("All tests passed, skipping Slack notification")
         return True
 
     blocks = _build_slack_blocks(config, result)
@@ -48,46 +54,62 @@ def _build_slack_blocks(config: Config, result: TestSuiteResult) -> list[dict[st
     blocks: list[dict[str, Any]] = [
         _build_header_block(result),
         _build_summary_block(result),
-        _build_context_block(config, result),
         {"type": "divider"},
     ]
     blocks.extend(_build_failed_tests_blocks(result))
-    blocks.extend(_build_passed_tests_blocks(result))
+    blocks.append({"type": "divider"})
+    blocks.append(_build_context_block(config, result))
     return blocks
 
 
 def _build_header_block(result: TestSuiteResult) -> dict[str, Any]:
-    status_emoji = ":white_check_mark:" if result.success else ":x:"
-    status_text = "Passed" if result.success else "Failed"
+    # Only called when there are failures (send_slack_notification returns early on success)
+    _ = result  # Unused but kept for API consistency
     return {
-        "type": "header",
+        "type": "section",
         "text": {
-            "type": "plain_text",
-            "text": f"{status_emoji} Ingestion Acceptance Tests: {status_text}",
-            "emoji": True,
+            "type": "mrkdwn",
+            "text": ":bomb: *Unsuccessful run for Ingestion Acceptance Tests*",
         },
     }
 
 
 def _build_summary_block(result: TestSuiteResult) -> dict[str, Any]:
-    return {
-        "type": "section",
-        "fields": [
-            {"type": "mrkdwn", "text": f"*Total:*\n{result.total_count}"},
-            {"type": "mrkdwn", "text": f"*Passed:*\n:white_check_mark: {result.passed_count}"},
-            {"type": "mrkdwn", "text": f"*Failed:*\n:x: {result.failed_count}"},
-            {"type": "mrkdwn", "text": f"*Errors:*\n:boom: {result.error_count}"},
-        ],
-    }
+    parts = [f":white_check_mark: Passed: {result.passed_count}"]
 
+    if result.failed_count > 0:
+        parts.append(f":red_circle: *Failed*: {result.failed_count}")
+    else:
+        parts.append(f":red_circle: Failed: {result.failed_count}")
 
-def _build_context_block(config: Config, result: TestSuiteResult) -> dict[str, Any]:
+    if result.error_count > 0:
+        parts.append(f":boom: *Error*: {result.error_count}")
+    else:
+        parts.append(f":boom: Error: {result.error_count}")
+
     return {
         "type": "context",
         "elements": [
             {
                 "type": "mrkdwn",
-                "text": f":globe_with_meridians: *Environment:* {config.api_host} | :file_folder: *Project:* {config.project_id} | :clock1: *Duration:* {result.total_duration_seconds:.2f}s",
+                "text": "        ".join(parts),
+            },
+        ],
+    }
+
+
+def _build_context_block(config: Config, result: TestSuiteResult) -> dict[str, Any]:
+    text = (
+        f":globe_with_meridians: Env: {config.api_host} | "
+        f":file_folder: Project: {config.project_id} | "
+        f":hourglass: Duration: {result.total_duration_seconds:.2f}s"
+    )
+    return {
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": text,
             },
         ],
     }
@@ -98,41 +120,23 @@ def _build_failed_tests_blocks(result: TestSuiteResult) -> list[dict[str, Any]]:
     if not failed_tests:
         return []
 
-    blocks: list[dict[str, Any]] = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": "*:rotating_light: Failed Tests:*"}}
-    ]
-
+    blocks: list[dict[str, Any]] = []
     for test_result in failed_tests:
-        emoji = ":x:" if test_result.status == "failed" else ":boom:"
+        emoji = ":red_circle:" if test_result.status == "failed" else ":boom:"
         error_text = test_result.error_message or "No error message"
         if len(error_text) > 200:
             error_text = error_text[:200] + "..."
 
         blocks.append(
             {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"{emoji} *{test_result.test_name}*\n`{test_result.test_file}`\n```{error_text}```",
-                },
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"{emoji} *{test_result.test_name}*\n{error_text}",
+                    },
+                ],
             }
         )
 
     return blocks
-
-
-def _build_passed_tests_blocks(result: TestSuiteResult) -> list[dict[str, Any]]:
-    passed_tests = [r for r in result.results if r.status == "passed"]
-    if not passed_tests:
-        return []
-
-    passed_names = ", ".join([f"`{t.test_name}`" for t in passed_tests])
-    return [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*:white_check_mark: Passed:* {passed_names}",
-            },
-        }
-    ]
