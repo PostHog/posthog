@@ -357,7 +357,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                         />
                                                     ) : (
                                                         <div className="flex items-center h-10 px-2">
-                                                            {variant.rollout_percentage}%
+                                                            {formatPercentage(variant.rollout_percentage)}
                                                         </div>
                                                     )}
                                                     {!disabled && variants.length > 2 && index > 0 && (
