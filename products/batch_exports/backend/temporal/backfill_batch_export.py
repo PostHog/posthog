@@ -198,7 +198,12 @@ async def _get_backfill_info_for_events(
 
     # ClickHouse returns 1970-01-01 00:00:00 when there's no data
     # Make timezone-aware (UTC) for comparison with input datetimes
-    min_timestamp = dt.datetime.fromisoformat(min_timestamp_str).replace(tzinfo=dt.UTC)
+    min_timestamp = dt.datetime.fromisoformat(min_timestamp_str)
+    if min_timestamp.tzinfo is None:
+        min_timestamp = min_timestamp.replace(tzinfo=dt.UTC)
+    else:
+        min_timestamp = min_timestamp.astimezone(dt.UTC)
+
     if min_timestamp.year == 1970:
         return None, 0
 
