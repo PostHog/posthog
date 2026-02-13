@@ -563,14 +563,14 @@ export class HogFlowExecutorService {
             }
         }
 
-        // Check that total variables are below 1kb
+        // Check that total variables are below 5KB
         const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
-        if (resultSize > 1024) {
+        if (resultSize > 5120) {
             const keyNames = allStoredKeys.join(', ')
             this.log(
                 result,
-                'warn',
-                `Total variable size after updating '${keyNames}' is larger than 1KB, these results will not be stored and won't be available in subsequent actions.`
+                'error',
+                `Total variable size after updating '${keyNames}' exceeds 5KB limit. Use result_path to store only the fields you need.`
             )
             // Clean up all variables we just set
             for (const outputVar of outputVars) {
@@ -587,7 +587,9 @@ export class HogFlowExecutorService {
                     delete result.invocation.state.variables[outputVar.key]
                 }
             }
-            return
+            throw new Error(
+                `Total variable size after updating '${keyNames}' exceeds 5KB limit. Use result_path to store only the fields you need.`
+            )
         }
 
         const details = allStoredKeys
