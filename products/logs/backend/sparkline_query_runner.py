@@ -83,7 +83,12 @@ class SparklineQueryRunner(LogsQueryRunner):
         """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
-                "time_field": ast.Field(chain=["timestamp"]),
+                # The sparkline projection is aggregated over "toStartOfMinute(timestamp)"
+                # so if we use `timestamp` we don't use the projection (even if we're calling toStartOfInterval on it)
+                # explicitly use toStartOfMinute(timestamp) as the time field unless we're using a sub-minute interval
+                "time_field": ast.Call(name="toStartOfMinute", args=[ast.Field(chain=["timestamp"])])
+                if self.query_date_range.interval_name != "second"
+                else ast.Field(chain=["timestamp"]),
                 "where": self.where(),
                 "breakdown_field": ast.Field(
                     chain=[BREAKDOWN_DB_FIELD[self.query.sparklineBreakdownBy or DEFAULT_BREAKDOWN]]
