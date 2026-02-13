@@ -58,7 +58,6 @@ export function createPerEventProcessingSubpipeline<TInput extends PerEventProce
                             options,
                             teamManager,
                             groupTypeManager,
-                            hogTransformer,
                             personsStore,
                             kafkaProducer,
                         })
