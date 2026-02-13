@@ -150,12 +150,24 @@ class TestHealthIssueAPI(APIBaseTest):
         self.assertTrue(response.json()["dismissed"])
         self.assertEqual(response.json()["status"], "resolved")
 
-    def test_patch_read_only_field_returns_400(self):
+    @parameterized.expand(
+        [
+            ("id", "00000000-0000-0000-0000-000000000000"),
+            ("kind", "other_kind"),
+            ("severity", "critical"),
+            ("status", "resolved"),
+            ("payload", {"sdk_version": "2.0.0"}),
+            ("created_at", "20256-01-01T00:00:00Z"),
+            ("updated_at", "2026-01-01T00:00:00Z"),
+            ("resolved_at", "2026-01-01T00:00:00Z"),
+        ]
+    )
+    def test_patch_read_only_field_returns_400(self, field, value):
         issue = self._create_issue()
 
-        response = self.client.patch(self._url(f"/{issue.id}"), {"status": "resolved"}, content_type="application/json")
+        response = self.client.patch(self._url(f"/{issue.id}"), {field: value}, content_type="application/json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "status")
+        self.assertIn(field, response.json()["attr"])
 
     def test_resolve_sets_resolved_at(self):
         issue = self._create_issue()
