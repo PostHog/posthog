@@ -296,7 +296,10 @@ export function SourceFormComponent({
                             validationError =
                                 'Prefix must contain only letters, numbers, and underscores, and start with a letter or underscore'
                         } else if (value && !cleaned) {
-                            validationError = 'Prefix cannot consist of only underscores'
+                            validationError =
+                                value.trim().length === 0
+                                    ? 'Prefix cannot be empty whitespace'
+                                    : 'Prefix cannot consist of only underscores'
                         }
 
                         const displayValue = value ? value.trim().replace(/^_+|_+$/g, '') : ''
