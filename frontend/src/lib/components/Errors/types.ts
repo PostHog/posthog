@@ -36,7 +36,7 @@ export type ErrorTrackingRuntime =
 
 export interface ErrorTrackingRawStackTrace {
     type: 'raw'
-    frames: any[] // TODO: type more concretely if we end up needing this (right now we show the $cymbal_errors instead)
+    frames: ErrorTrackingRawStackFrame[]
 }
 
 export interface ErrorTrackingResolvedStackTrace {
@@ -61,6 +61,19 @@ export type ErrorTrackingStackFrameContext = {
     after: ErrorTrackingStackFrameContextLine[]
 }
 export type ErrorTrackingStackFrameContextLine = { number: number; line: string }
+
+export interface ErrorTrackingRawStackFrame {
+    filename?: string
+    function?: string
+    lineno?: number
+    colno?: number
+    abs_path?: string
+    in_app?: boolean
+    module?: string
+    package?: string
+    platform?: string
+    instruction_addr?: string
+}
 
 export interface ErrorTrackingStackFrame {
     raw_id: string
