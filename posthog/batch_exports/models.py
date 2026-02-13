@@ -427,6 +427,9 @@ class BatchExportBackfill(UUIDTModel):
         if start_at is None:
             return 1
 
+        if self.total_records_count == 0:
+            return 0
+
         end_at = self.end_at
         # if the backfill has no end_at then it means it's backfilling everything up to the 'present' (whatever that
         # is defined as depends on whether the backfill is still running or not)
