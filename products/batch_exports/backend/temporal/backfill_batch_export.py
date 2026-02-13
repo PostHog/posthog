@@ -560,6 +560,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
         update_inputs = UpdateBatchExportBackfillInputs(
             id=backfill_id, status=BatchExportBackfill.Status.COMPLETED, finished=True
         )
+        completed_early = False
 
         try:
             # Step 2: Get backfill info (validation + estimation)
@@ -607,6 +608,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
 
             # Step 4: Early exit if no data to backfill
             if should_complete_early:
+                completed_early = True
                 return
 
             start_at = backfill_info.adjusted_start_at
@@ -669,14 +671,15 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             raise
 
         finally:
-            await temporalio.workflow.execute_activity(
-                update_batch_export_backfill_activity,
-                update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=temporalio.common.RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
+            if not completed_early:
+                await temporalio.workflow.execute_activity(
+                    update_batch_export_backfill_activity,
+                    update_inputs,
+                    start_to_close_timeout=dt.timedelta(minutes=5),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_interval=dt.timedelta(seconds=60),
+                        maximum_attempts=0,
+                        non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                    ),
+                )
