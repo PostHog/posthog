@@ -8,8 +8,9 @@ import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
+import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
@@ -40,6 +41,7 @@ export interface JoinedIngestionPipelineConfig {
     hub: PreprocessingHub
     kafkaProducer: KafkaProducerWrapper
     personsStore: PersonsStore
+    groupStore: BatchWritingGroupStore
     hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
@@ -61,16 +63,13 @@ export interface JoinedIngestionPipelineConfig {
 
 export interface JoinedIngestionPipelineInput {
     message: Message
-    groupStoreForBatch: GroupStoreForBatch
 }
 
 export interface JoinedIngestionPipelineContext {
     message: Message
 }
 
-type PreprocessingOutput = PostTeamPreprocessingSubpipelineInput & {
-    groupStoreForBatch: GroupStoreForBatch
-}
+type PreprocessingOutput = PostTeamPreprocessingSubpipelineInput
 
 function addTeamToContext<T extends { team: Team }, C>(
     element: OkResultWithContext<T, C>
@@ -100,7 +99,6 @@ function mapToPerEventInput<C>(
             event: input.event,
             team: input.team,
             headers: input.headers,
-            groupStoreForBatch: input.groupStoreForBatch,
         }),
         context: element.context,
     }
@@ -114,6 +112,7 @@ export function createJoinedIngestionPipeline<
         hub,
         kafkaProducer,
         personsStore,
+        groupStore,
         hogTransformer,
         eventIngestionRestrictionManager,
         overflowEnabled,
@@ -153,6 +152,7 @@ export function createJoinedIngestionPipeline<
         groupTypeManager,
         hogTransformer,
         personsStore,
+        groupStore,
         kafkaProducer,
         groupId,
     }
@@ -183,6 +183,15 @@ export function createJoinedIngestionPipeline<
                                                 createPerDistinctIdPipeline(event, perEventConfig)
                                             )
                                         )
+                                )
+                                .gather()
+                                // Flush person and group stores after all events processed
+                                .pipeBatch(
+                                    createFlushBatchStoresStep({
+                                        personsStore,
+                                        groupStore,
+                                        kafkaProducer,
+                                    })
                                 )
                         )
                         .handleIngestionWarnings(kafkaProducer)

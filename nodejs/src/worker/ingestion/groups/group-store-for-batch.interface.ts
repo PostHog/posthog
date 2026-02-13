@@ -16,6 +16,12 @@ export interface GroupStoreForBatch extends BatchWritingStore {
      */
     reportBatch(): void
 
+    /**
+     * Resets the batch store state, clearing all caches and metrics.
+     * Should be called after flush() to prepare for the next batch.
+     */
+    reset(): void
+
     upsertGroup(
         teamId: TeamId,
         projectId: ProjectId,

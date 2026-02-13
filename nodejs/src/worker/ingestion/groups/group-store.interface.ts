@@ -1,8 +1,35 @@
-import { GroupStoreForBatch } from './group-store-for-batch.interface'
+import { DateTime } from 'luxon'
 
-export interface GroupStore {
+import { Properties } from '@posthog/plugin-scaffold'
+
+import { GroupTypeIndex, ProjectId, TeamId } from '../../../types'
+import { BatchWritingStore } from '../stores/batch-writing-store'
+
+export interface CacheMetrics {
+    cacheHits: number
+    cacheMisses: number
+}
+
+export interface GroupStore extends BatchWritingStore {
     /**
-     * Returns an instance of GroupStoreForBatch for handling group operations in batch
+     * Reports metrics about group operations in batch
      */
-    forBatch(): GroupStoreForBatch
+    reportBatch(): void
+
+    /**
+     * Resets the batch store state, clearing all caches and metrics.
+     * Should be called after flush() to prepare for the next batch.
+     */
+    reset(): void
+
+    upsertGroup(
+        teamId: TeamId,
+        projectId: ProjectId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        properties: Properties,
+        timestamp: DateTime
+    ): Promise<void>
+
+    getCacheMetrics(): CacheMetrics
 }

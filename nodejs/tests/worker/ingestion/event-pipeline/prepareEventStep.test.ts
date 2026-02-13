@@ -7,7 +7,7 @@ import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { createEvent } from '../../../../src/worker/ingestion/create-event'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
-import { BatchWritingGroupStoreForBatch } from '../../../../src/worker/ingestion/groups/batch-writing-group-store'
+import { BatchWritingGroupStore } from '../../../../src/worker/ingestion/groups/batch-writing-group-store'
 import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { resetTestDatabase } from '../../../helpers/sql'
@@ -59,7 +59,7 @@ const teamTwo: Team = {
 describe('prepareEventStep()', () => {
     let hub: Hub
     let eventsProcessor: EventsProcessor
-    let groupStoreForBatch: BatchWritingGroupStoreForBatch
+    let groupStoreForBatch: BatchWritingGroupStore
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -92,11 +92,11 @@ describe('prepareEventStep()', () => {
             hub.groupTypeManager,
             hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP
         )
-        groupStoreForBatch = new BatchWritingGroupStoreForBatch(
-            hub.kafkaProducer,
-            hub.groupRepository,
-            hub.clickhouseGroupRepository
-        )
+        groupStoreForBatch = new BatchWritingGroupStore({
+            kafkaProducer: hub.kafkaProducer,
+            groupRepository: hub.groupRepository,
+            clickhouseGroupRepository: hub.clickhouseGroupRepository,
+        })
     })
 
     afterEach(async () => {

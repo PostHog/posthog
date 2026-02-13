@@ -27,7 +27,6 @@ describe('handleClientIngestionWarningStep', () => {
         event: baseEvent,
         team,
         headers: createTestEventHeaders(),
-        groupStoreForBatch: {} as any,
         processPerson: true,
         forceDisablePersonProcessing: false,
     }

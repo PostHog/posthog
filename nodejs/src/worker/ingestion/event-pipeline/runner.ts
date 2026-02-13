@@ -12,7 +12,7 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { TeamManager } from '../../../utils/team-manager'
 import { GroupTypeManager } from '../group-type-manager'
-import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
+import { BatchWritingGroupStore } from '../groups/batch-writing-group-store'
 import { MergeMode, PersonMergeLimitExceededError, determineMergeMode } from '../persons/person-merge-types'
 import { PersonsStore } from '../persons/persons-store'
 import { EventsProcessor } from '../process-event'
@@ -79,7 +79,7 @@ export class EventPipelineRunner {
         groupTypeManager: GroupTypeManager,
         private originalEvent: PipelineEvent,
         private personsStore: PersonsStore,
-        private groupStoreForBatch: GroupStoreForBatch,
+        private groupStore: BatchWritingGroupStore,
         private headers?: EventHeaders
     ) {
         this.eventsProcessor = new EventsProcessor(
@@ -113,7 +113,7 @@ export class EventPipelineRunner {
 
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
-            [this.kafkaProducer, this.eventsProcessor, this.groupStoreForBatch, normalizedEvent, processPerson, team],
+            [this.kafkaProducer, this.eventsProcessor, this.groupStore, normalizedEvent, processPerson, team],
             team.id,
             true,
             kafkaAcks,
@@ -231,7 +231,7 @@ export class EventPipelineRunner {
 
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
-            [this.kafkaProducer, this.eventsProcessor, this.groupStoreForBatch, postPersonEvent, processPerson, team],
+            [this.kafkaProducer, this.eventsProcessor, this.groupStore, postPersonEvent, processPerson, team],
             team.id,
             true,
             kafkaAcks,

@@ -107,7 +107,6 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
             "cacheMisses": 0,
           },
         },
-        "kafkaProducer": {},
         "options": {
           "maxConcurrentUpdates": 10,
           "maxOptimisticUpdateRetries": 5,
