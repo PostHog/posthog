@@ -22,7 +22,6 @@ import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 import temporalio.exceptions
-from deltalake import DeltaTable
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio.workflow import ParentClosePolicy
@@ -457,7 +456,7 @@ async def materialize_model(
     saved_query: DataWarehouseSavedQuery,
     job: DataModelingJob,
     logger: FilteringBoundLogger,
-) -> tuple[str, DeltaTable, uuid.UUID]:
+):
     """Materialize a given model by running its query and piping the results into a delta table.
 
     Arguments:
@@ -560,9 +559,6 @@ async def materialize_model(
 
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
 
-        if delta_table is None:
-            error_message = "Query returned no results. Check that the query returns data before materializing."
-            raise NonRetryableException(f"Query for model {model_label} failed: {error_message}")
     except ObjectDoesNotExist:
         raise
     except Exception as e:
@@ -627,19 +623,6 @@ async def materialize_model(
             await mark_job_as_failed(job, error_message, logger)
             await logger.ainfo("Paused temporal schedule for query: saved_query_id=%s", saved_query.id)
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
-        elif "query returned no results" in error_message.lower():
-            await logger.awarning(
-                "Query returned no results: saved_query_id=%s saved_query_name=%s", saved_query.id, saved_query.name
-            )
-            # succeed the job but leave the error on the saved_query and the job and raise for temporal
-            saved_query.latest_error = str(e)
-            await database_sync_to_async(saved_query.save)()
-            job.error = str(e)
-            job.rows_materialized = 0
-            job.status = DataModelingJob.Status.COMPLETED
-            job.last_run_at = dt.datetime.now(dt.UTC)
-            await database_sync_to_async(job.save)()
-            raise
         else:
             saved_query.latest_error = f"Query failed to materialize: {error_message}"
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
@@ -652,6 +635,16 @@ async def materialize_model(
     data_modeling_job = await database_sync_to_async(DataModelingJob.objects.get)(id=job.id)
     if data_modeling_job.status == DataModelingJob.Status.CANCELLED:
         raise DataModelingCancelledException("Data modeling run was cancelled")
+
+    # early exit for no results
+    if delta_table is None:
+        await database_sync_to_async(job.refresh_from_db)()
+        job.rows_materialized = 0
+        job.status = DataModelingJob.Status.COMPLETED
+        job.last_run_at = dt.datetime.now(dt.UTC)
+        job.error = "Warning: query returned no results"  # we log an error to signify that this isn't an ideal result
+        await database_sync_to_async(job.save)()
+        return
 
     await logger.adebug("Compacting delta table")
     delta_table.optimize.compact()
@@ -695,8 +688,6 @@ async def materialize_model(
     await database_sync_to_async(job.save)()
 
     await logger.adebug("Setting DataModelingJob.Status = COMPLETED")
-
-    return (saved_query.normalized_name, delta_table, job.id)
 
 
 async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: FilteringBoundLogger) -> None:
