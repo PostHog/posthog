@@ -135,6 +135,6 @@ describe('calculateDuplicateLayout', () => {
         const result = calculateDuplicateLayout(layouts, 1)
 
         expect(result.duplicateLayouts.sm).toEqual({ x: 6, y: 0, w: 6, h: 5 })
-        expect(result.duplicateLayouts.xs).toBeUndefined()
+        expect((result.duplicateLayouts as any).xs).toBeUndefined()
     })
 })
