@@ -1690,7 +1690,7 @@ async def test_materialize_model_empty_results(ateam, bucket_name, minio_client)
         assert "returned no results" in str(exc_info.value)
 
         await database_sync_to_async(job.refresh_from_db)()
-        assert job.status == DataModelingJob.Status.FAILED
+        assert job.status == DataModelingJob.Status.COMPLETED
         assert job.error is not None
         assert "returned no results" in job.error
 

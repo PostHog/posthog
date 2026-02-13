@@ -1385,7 +1385,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Otherwise keep existing player visible (last valid frame)
             }
             if (values.currentTimestamp !== undefined) {
-                actions.seekToTimestamp(values.currentTimestamp)
+                // Preserve play intent so playback resumes after segment transitions (e.g. after buffering)
+                const shouldPlay = values.playingState === SessionPlayerState.PLAY
+                actions.seekToTimestamp(values.currentTimestamp, shouldPlay)
             }
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
@@ -1411,8 +1413,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const isBuffering = isBufferingSegment || values.isWaitingForPlayableFullSnapshot
 
             if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
+                // Preserve the playing intent so seekToTimestamp resumes playback
+                const shouldPlay = values.playingState === SessionPlayerState.PLAY
                 actions.endBuffer()
-                actions.seekToTimestamp(values.currentTimestamp)
+                actions.seekToTimestamp(values.currentTimestamp, shouldPlay)
             }
         },
         initializePlayerFromStart: () => {
