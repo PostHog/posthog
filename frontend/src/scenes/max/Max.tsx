@@ -62,7 +62,9 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
                 <SceneTitleSection name={null} resourceType={{ type: 'chat' }} />
                 <div className="flex flex-col items-center justify-center w-full grow">
                     <IconSidePanel className="text-3xl text-muted mb-2" />
-                    <h3 className="text-xl font-bold mb-1">The chat is currently in the sidebar</h3>
+                    <h3 className="text-xl font-bold mb-1">
+                        The chat is currently in the {isRemovingSidePanelFlag ? 'context panel' : 'sidebar'}
+                    </h3>
                     <p className="text-sm text-muted mb-2">You can navigate freely around the app with it, or…</p>
                     <LemonButton
                         type="secondary"
@@ -138,7 +140,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                             <SidebarQuestionInputWithSuggestions />
                         </div>
 
-                        {!isRemovingSidePanelFlag && <HistoryPreview sidePanel={sidePanel} />}
+                        <HistoryPreview sidePanel={sidePanel} />
                     </div>
                 ) : (
                     /** Must be the last child and be a direct descendant of the scrollable element */
@@ -174,20 +176,33 @@ export const MaxInstance = React.memo(function MaxInstance({
             <div className="flex flex-1 min-w-0 overflow-hidden">
                 <div className="flex items-center flex-1 min-w-0">
                     <AnimatedBackButton in={!backButtonDisabled}>
-                        <LemonButton
-                            size="small"
-                            icon={<IconChevronLeft />}
-                            onClick={() => goBack()}
-                            tooltip="Go back"
-                            tooltipPlacement="bottom-end"
-                            disabledReason={backButtonDisabled ? 'You are already at home' : undefined}
-                        />
+                        {isRemovingSidePanelFlag ? (
+                            <ButtonPrimitive
+                                iconOnly
+                                onClick={() => goBack()}
+                                tooltip="Go back"
+                                tooltipPlacement="bottom-end"
+                                className="mr-2"
+                                disabledReasons={backButtonDisabled ? { 'You are already at home': true } : undefined}
+                            >
+                                <IconChevronLeft className="text-tertiary size-3 group-hover:text-primary z-10" />
+                            </ButtonPrimitive>
+                        ) : (
+                            <LemonButton
+                                size="small"
+                                icon={<IconChevronLeft />}
+                                onClick={() => goBack()}
+                                tooltip="Go back"
+                                tooltipPlacement="bottom-end"
+                                disabledReason={backButtonDisabled ? 'You are already at home' : undefined}
+                            />
+                        )}
                     </AnimatedBackButton>
 
                     <Tooltip title={chatTitle || undefined} placement="bottom">
                         <h3
                             className={cn('flex-1 font-semibold mb-0 truncate text-sm ml-1', {
-                                'ml-0': isRemovingSidePanelFlag,
+                                'ml-2': isRemovingSidePanelFlag,
                             })}
                         >
                             {chatTitle || 'PostHog AI'}
