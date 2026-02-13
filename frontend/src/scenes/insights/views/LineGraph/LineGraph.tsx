@@ -392,9 +392,6 @@ export function LineGraph_({
             hoverBackgroundColor: isBackgroundBasedGraphType ? lightenDarkenColor(mainColor, -20) : undefined,
             fill: isArea ? 'origin' : false,
             backgroundColor,
-            // Per Chart.js docs, this improves performance for large sorted datasets
-            normalized: true,
-            // Hide points when there are too many to avoid drawing thousands of circles
             segment: {
                 borderDash: (ctx: ScriptableLineSegmentContext) => {
                     // If chart is line graph, show dotted lines for incomplete data
@@ -597,10 +594,6 @@ export function LineGraph_({
                     includeInvisible: true,
                 },
                 plugins: {
-                    decimation: {
-                        enabled: (datasets[0]?.data?.length || 0) > 100,
-                        algorithm: 'min-max',
-                    },
                     stacked100: { enable: isPercentStackView, precision: 1 },
                     datalabels: {
                         color: 'white',
