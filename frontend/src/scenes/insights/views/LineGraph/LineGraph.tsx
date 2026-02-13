@@ -394,6 +394,7 @@ export function LineGraph_({
             backgroundColor,
             // Per Chart.js docs, this improves performance for large sorted datasets
             normalized: true,
+            // Hide points when there are too many to avoid drawing thousands of circles
             segment: {
                 borderDash: (ctx: ScriptableLineSegmentContext) => {
                     // If chart is line graph, show dotted lines for incomplete data
@@ -421,8 +422,24 @@ export function LineGraph_({
                 },
             },
             borderWidth: isBar ? 0 : 2,
-            pointRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 4 : 0,
-            hitRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 8 : 0,
+            // pointRadius and hitRadius are set above, but might be overridden by spread of dataset below if it has its own settings.
+            // We want our optimization to take precedence if the dataset is large, but respect manual overrides for small datasets.
+            // However, the `...dataset` spread below will override what we set above.
+            // So we need to ensure our optimization logic runs AFTER the spread if we want to enforce it for large datasets,
+            // OR we rely on the fact that `adjustedData` logic is specific to this component's rendering needs.
+            // Let's stick with the spread order but ensure we handle single-point datasets correctly as before.
+            pointRadius:
+                Array.isArray(adjustedData) && adjustedData.length === 1
+                    ? 4
+                    : Array.isArray(adjustedData) && adjustedData.length > 100
+                      ? 0
+                      : undefined,
+            hitRadius:
+                Array.isArray(adjustedData) && adjustedData.length === 1
+                    ? 8
+                    : Array.isArray(adjustedData) && adjustedData.length > 100
+                      ? 0
+                      : undefined,
             order: 1,
             ...(type === GraphType.Histogram ? { barPercentage: 1 } : {}),
             ...dataset,
@@ -581,20 +598,13 @@ export function LineGraph_({
                     line: {
                         tension: 0,
                     },
-                    point: {
-                        radius: (ctx) => ((ctx.chart.data.labels?.length || 0) > 100 ? 0 : 4),
-                        hitRadius: (ctx) => ((ctx.chart.data.labels?.length || 0) > 100 ? 0 : 8),
-                    },
                 },
                 interaction: {
-                    mode: 'nearest',
-                    axis: 'x',
-                    intersect: false,
                     includeInvisible: true,
                 },
                 plugins: {
                     decimation: {
-                        enabled: true,
+                        enabled: datasets[0]?.data?.length > 100,
                         algorithm: 'min-max',
                     },
                     stacked100: { enable: isPercentStackView, precision: 1 },
