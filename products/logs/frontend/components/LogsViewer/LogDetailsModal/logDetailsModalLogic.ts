@@ -10,13 +10,13 @@ import type { logDetailsModalLogicType } from './logDetailsModalLogicType'
 export type LogDetailsTab = 'details' | 'raw' | 'explore-ai' | 'comments' | 'related-errors'
 
 export interface LogDetailsModalProps {
-    tabId: string
+    id: string
 }
 
 export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsViewer', 'LogDetailsModal', 'logDetailsModalLogic']),
     props({} as LogDetailsModalProps),
-    key((props) => props.tabId),
+    key((props) => props.id),
 
     actions({
         openLogDetails: (log: ParsedLogMessage) => ({ log }),

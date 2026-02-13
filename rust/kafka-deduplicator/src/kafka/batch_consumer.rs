@@ -6,6 +6,7 @@ use crate::kafka::batch_message::{Batch, BatchError, KafkaMessage};
 use crate::kafka::metrics_consts::{
     BATCH_CONSUMER_BATCH_COLLECTION_DURATION_MS, BATCH_CONSUMER_BATCH_FILL_RATIO,
     BATCH_CONSUMER_BATCH_SIZE, BATCH_CONSUMER_KAFKA_ERROR, BATCH_CONSUMER_MESSAGES_RECEIVED,
+    BATCH_CONSUMER_SEEK_DURATION_MS, BATCH_CONSUMER_SEEK_ERROR,
 };
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::rebalance_handler::RebalanceHandler;
@@ -53,8 +54,11 @@ pub struct BatchConsumer<T> {
     // in a spawned thread
     shutdown_rx: Receiver<()>,
 
-    // receiver for consumer commands (e.g., resume partitions after checkpoint import)
+    // receiver for consumer commands (e.g., seek partitions after checkpoint import, resume partitions)
     consumer_command_rx: ConsumerCommandReceiver,
+
+    // timeout for seek_partitions after checkpoint import
+    seek_timeout: Duration,
 }
 
 impl<T> BatchConsumer<T>
@@ -72,8 +76,9 @@ where
         batch_size: usize,
         batch_timeout: Duration,
         commit_interval: Duration,
+        seek_timeout: Duration,
     ) -> Result<Self> {
-        // Create channel for consumer commands (e.g., resume partitions after checkpoint import)
+        // Create channel for consumer commands (e.g., seek partitions after checkpoint import, resume partitions)
         let (consumer_command_tx, consumer_command_rx) = mpsc::unbounded_channel();
 
         let consumer_ctx = BatchConsumerContext::new(rebalance_handler, consumer_command_tx);
@@ -99,6 +104,7 @@ where
             offset_tracker,
             shutdown_rx,
             consumer_command_rx,
+            seek_timeout,
         })
     }
 
@@ -121,7 +127,7 @@ where
                     break;
                 }
 
-                // Handle consumer commands (e.g., resume partitions after checkpoint import)
+                // Handle consumer commands (e.g., seek partitions after checkpoint import, resume partitions)
                 Some(command) = self.consumer_command_rx.recv() => {
                     match command {
                         ConsumerCommand::Resume(partitions) => {
@@ -141,6 +147,50 @@ where
                                     partition_count = partition_count,
                                     "Successfully resumed partitions - messages will now be delivered"
                                 );
+                            }
+                        }
+                        ConsumerCommand::SeekPartitions(offsets) => {
+                            let partition_count = offsets.count();
+                            info!(
+                                partition_count = partition_count,
+                                "Received seek_partitions command after checkpoint import"
+                            );
+                            let seek_start = Instant::now();
+                            match consumer.seek_partitions(offsets, self.seek_timeout) {
+                                Ok(result_tpl) => {
+                                    metrics::histogram!(BATCH_CONSUMER_SEEK_DURATION_MS)
+                                        .record(seek_start.elapsed().as_millis() as f64);
+                                    let mut error_count = 0u64;
+                                    for elem in result_tpl.elements() {
+                                        if elem.error().is_err() {
+                                            warn!(
+                                                topic = elem.topic(),
+                                                partition = elem.partition(),
+                                                error = ?elem.error(),
+                                                "Failed to seek partition"
+                                            );
+                                            error_count += 1;
+                                        }
+                                    }
+                                    if error_count > 0 {
+                                        metrics::counter!(BATCH_CONSUMER_SEEK_ERROR)
+                                            .increment(error_count);
+                                    }
+                                    info!(
+                                        partition_count = partition_count,
+                                        error_count = error_count,
+                                        "Batch seek_partitions completed"
+                                    );
+                                }
+                                Err(e) => {
+                                    metrics::counter!(BATCH_CONSUMER_SEEK_ERROR)
+                                        .increment(partition_count as u64);
+                                    error!(
+                                        error = %e,
+                                        partition_count = partition_count,
+                                        "seek_partitions call failed"
+                                    );
+                                }
                             }
                         }
                     }

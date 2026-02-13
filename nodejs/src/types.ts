@@ -376,6 +376,12 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
     /** TTL in milliseconds for the in-memory session filter cache */
     SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
+
+    // Kafka consumer config (overrides hardcoded defaults when set)
+    INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
+    INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: string
+    INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC: string
+    INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC: string
 }
 
 export interface PluginsServerConfig
