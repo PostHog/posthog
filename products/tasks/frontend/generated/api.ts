@@ -9,19 +9,24 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
+    ConnectionTokenResponseApi,
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
     PatchedTaskApi,
     PatchedTaskRunUpdateApi,
+    RepositoryReadinessResponseApi,
     TaskApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
     TaskRunArtifactsUploadRequestApi,
     TaskRunArtifactsUploadResponseApi,
+    TaskRunCreateRequestApi,
     TaskRunDetailApi,
     TasksListParams,
+    TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
+    TasksRunsSessionLogsRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -166,10 +171,17 @@ export const getTasksRunCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/run/`
 }
 
-export const tasksRunCreate = async (projectId: string, id: string, options?: RequestInit): Promise<TaskApi> => {
+export const tasksRunCreate = async (
+    projectId: string,
+    id: string,
+    taskRunCreateRequestApi: TaskRunCreateRequestApi,
+    options?: RequestInit
+): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunCreateRequestApi),
     })
 }
 
@@ -336,6 +348,64 @@ export const tasksRunsArtifactsPresignCreate = async (
 }
 
 /**
+ * Generate a JWT token for direct connection to the sandbox. Valid for 24 hours.
+ * @summary Get sandbox connection token
+ */
+export const getTasksRunsConnectionTokenRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/connection_token/`
+}
+
+export const tasksRunsConnectionTokenRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ConnectionTokenResponseApi> => {
+    return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.
+ * @summary Get filtered task run session logs
+ */
+export const getTasksRunsSessionLogsRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsSessionLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/session_logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/session_logs/`
+}
+
+export const tasksRunsSessionLogsRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsSessionLogsRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsSessionLogsRetrieveUrl(projectId, taskId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Update the output field for a task run (e.g., PR URL, commit SHA, etc.)
  * @summary Set run output
  */
@@ -356,16 +426,35 @@ export const tasksRunsSetOutputPartialUpdate = async (
 }
 
 /**
- * Run the video segment clustering workflow for this team. DEBUG only. Blocks until workflow completes.
- * @summary Run video segment clustering
+ * Get autonomy readiness details for a specific repository in the current project.
+ * @summary Get repository readiness
  */
-export const getTasksClusterVideoSegmentsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tasks/cluster_video_segments/`
+export const getTasksRepositoryReadinessRetrieveUrl = (
+    projectId: string,
+    params: TasksRepositoryReadinessRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/repository_readiness/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/repository_readiness/`
 }
 
-export const tasksClusterVideoSegmentsCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getTasksClusterVideoSegmentsCreateUrl(projectId), {
+export const tasksRepositoryReadinessRetrieve = async (
+    projectId: string,
+    params: TasksRepositoryReadinessRetrieveParams,
+    options?: RequestInit
+): Promise<RepositoryReadinessResponseApi> => {
+    return apiMutator<RepositoryReadinessResponseApi>(getTasksRepositoryReadinessRetrieveUrl(projectId, params), {
         ...options,
-        method: 'POST',
+        method: 'GET',
     })
 }

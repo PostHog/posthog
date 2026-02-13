@@ -445,6 +445,13 @@ export const clustersLogic = kea<clustersLogicType>([
             }
             // Load all trace summaries when a run is loaded for scatter plot tooltips
             if (currentRun) {
+                if (currentRun.clusters.length === 0) {
+                    posthog.capture('llma clusters empty state shown', {
+                        reason: 'no_clusters_in_run',
+                        clustering_level: currentRun.level || values.clusteringLevel,
+                        run_id: currentRun.runId,
+                    })
+                }
                 actions.loadTraceSummariesForRun(currentRun)
                 // Load cluster metrics for displaying averages in cluster cards
                 actions.loadClusterMetricsForRun(currentRun)
@@ -456,6 +463,12 @@ export const clustersLogic = kea<clustersLogicType>([
         },
 
         loadClusteringRunsSuccess: ({ clusteringRuns }) => {
+            if (clusteringRuns.length === 0) {
+                posthog.capture('llma clusters empty state shown', {
+                    reason: 'no_clustering_runs',
+                    clustering_level: values.clusteringLevel,
+                })
+            }
             // Auto-load the first run if available and no run is selected
             if (clusteringRuns.length > 0 && !values.selectedRunId) {
                 actions.loadClusteringRun(clusteringRuns[0].runId)

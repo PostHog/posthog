@@ -196,7 +196,7 @@ def validated_request(
                     # ListSerializer wraps the real serializer - reconstruct with child
                     child_class = type(response_serializer.child)
                     serializer_class = type(response_serializer)
-                    serialized = serializers.ListSerializer(data=data, child=child_class(), context=context)
+                    serialized = serializer_class(data=data, child=child_class(), context=context)
                 elif isinstance(response_serializer, serializers.Serializer):
                     serializer_class = type(response_serializer)
                     serialized = serializer_class(data=data, context=context)

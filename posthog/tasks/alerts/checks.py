@@ -420,7 +420,7 @@ def add_alert_check(
 
     if notify:
         alert.last_notified_at = now
-        targets_notified = {"users": list(alert.subscribed_users.all().values_list("email", flat=True))}
+        targets_notified = {"users": alert.get_subscribed_users_emails()}
 
     alert_check = AlertCheck.objects.create(
         alert_configuration=alert,

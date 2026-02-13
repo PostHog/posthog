@@ -13,6 +13,7 @@ import {
     CalendarHeatmapMathType,
     ChartDisplayCategory,
     ChartDisplayType,
+    CohortPropertyFilter,
     CountPerActorMathType,
     DataWarehouseSyncInterval,
     DataWarehouseViewLink,
@@ -1472,6 +1473,8 @@ export type FunnelsFilter = {
     resultCustomizations?: Record<string, ResultCustomizationByValue>
     /** Goal Lines */
     goalLines?: GoalLine[]
+    /** Display linear regression trend lines on the chart (only for historical trends viz) */
+    showTrendLines?: boolean
     /** @default false */
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
@@ -2050,7 +2053,11 @@ export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryRes
     /** Only fetch sessions that started before this timestamp (default: '+5s') */
     before?: string
 }
-export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
+export type WebAnalyticsPropertyFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | SessionPropertyFilter
+    | CohortPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 export type ActionConversionGoal = {
     actionId: integer
@@ -2877,6 +2884,7 @@ export type FileSystemIconType =
     | 'workflows'
     | 'notebook'
     | 'action'
+    | 'activity'
     | 'comment'
     | 'annotation'
     | 'event'
@@ -2906,6 +2914,7 @@ export type FileSystemIconType =
     | 'toolbar'
     | 'settings'
     | 'health'
+    | 'inbox'
     | 'sdk_doctor'
     | 'pipeline_status'
     | 'llm_evaluations'
@@ -3983,7 +3992,7 @@ export interface LLMTraceEvent {
 export interface LLMTracePerson {
     uuid: string
     created_at: string
-    properties: Record<string, any>
+    properties: Record<string, unknown>
     distinct_id: string
 }
 
@@ -3991,7 +4000,8 @@ export interface LLMTrace {
     id: string
     aiSessionId?: string
     createdAt: string
-    person: LLMTracePerson
+    distinctId: string
+    person?: LLMTracePerson
     totalLatency?: number
     inputTokens?: number
     outputTokens?: number
@@ -4721,6 +4731,7 @@ export interface SourceFieldInputConfig {
     label: string
     required: boolean
     placeholder: string
+    caption?: string
 }
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
@@ -5383,6 +5394,8 @@ export enum ProductIntentContext {
     // Data Pipelines
     DATA_PIPELINE_CREATED = 'data_pipeline_created',
     BATCH_EXPORT_CREATED = 'batch_export_created',
+    BATCH_EXPORT_UPDATED = 'batch_export_updated',
+    BATCH_EXPORT_BACKFILL_CREATED = 'batch_export_backfill_created',
 
     // Notebooks
     NOTEBOOK_CREATED = 'notebook_created',

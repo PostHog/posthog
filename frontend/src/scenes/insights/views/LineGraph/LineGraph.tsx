@@ -49,7 +49,6 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 
 function truncateString(str: string, num: number): string {
@@ -286,13 +285,11 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, isFunnels, breakdownFilter, query, interval, insightData } = useValues(
+    const { timezone, isTrends, isFunnels, breakdownFilter, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex } = useValues(trendsDataLogic(insightProps))
     const { setHoveredDatasetIndex } = useActions(trendsDataLogic(insightProps))
-
-    const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
     const { tooltipId, hideTooltip, getTooltip } = useInsightTooltip()
 
@@ -316,29 +313,6 @@ export function LineGraph_({
             setHoveredDatasetIndex(null)
         }
     }, [isShiftPressed, setHoveredDatasetIndex])
-
-    // Add scrollend event on main element to hide tooltips when scrolling
-    useEffect(() => {
-        if (!hideTooltipOnScroll) {
-            return
-        }
-
-        const handleScrollEnd = (): void => hideTooltip()
-
-        // Scroll events happen on the main element due to overflow-y: scroll
-        // but we need to make sure it exists before adding the event listener,
-        // e.g: it does not exist in the shared pages
-        const main = document.getElementsByTagName('main')[0]
-        if (main) {
-            main.addEventListener('scrollend', handleScrollEnd)
-        }
-
-        return () => {
-            if (main) {
-                main.removeEventListener('scrollend', handleScrollEnd)
-            }
-        }
-    }, [hideTooltipOnScroll, hideTooltip])
 
     // Add event listeners to canvas
     useOnMountEffect(() => {
@@ -380,8 +354,8 @@ export function LineGraph_({
         const themeColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
             : isHorizontal
-              ? dataset.backgroundColor
-              : getTrendsColor(dataset) || '#000000' // Default to black if no color found
+                ? dataset.backgroundColor
+                : getTrendsColor(dataset) || '#000000' // Default to black if no color found
         const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
@@ -458,17 +432,17 @@ export function LineGraph_({
                 type === GraphType.Line && showMultipleYAxes && index > 0 && !dataset.yAxisID
                     ? `y${index}`
                     : dataset.yAxisID
-                      ? dataset.yAxisID
-                      : 'y',
+                        ? dataset.yAxisID
+                        : 'y',
             ...(showTrendLines
                 ? {
-                      trendlineLinear: {
-                          colorMin: mainColor,
-                          colorMax: mainColor,
-                          lineStyle: 'dotted',
-                          width: 2,
-                      },
-                  }
+                    trendlineLinear: {
+                        colorMin: mainColor,
+                        colorMax: mainColor,
+                        lineStyle: 'dotted',
+                        width: 2,
+                    },
+                }
                 : {}),
         }
     }
@@ -724,7 +698,7 @@ export function LineGraph_({
                                     const hasDotted =
                                         processedDatasets.some((d) => d.dotted) &&
                                         dp.dataIndex - processedDatasets?.[dp.datasetIndex]?.data?.length >=
-                                            incompletenessOffsetFromEnd
+                                        incompletenessOffsetFromEnd
                                     return (
                                         dp.datasetIndex >= (hasDotted ? _datasets.length : 0) &&
                                         dp.datasetIndex < (hasDotted ? _datasets.length * 2 : _datasets.length)
@@ -810,8 +784,8 @@ export function LineGraph_({
                                             labelGroupType === 'people'
                                                 ? 'people'
                                                 : labelGroupType === 'none'
-                                                  ? ''
-                                                  : aggregationLabel(labelGroupType).plural
+                                                    ? ''
+                                                    : aggregationLabel(labelGroupType).plural
                                         }
                                     />
                                 )
@@ -840,25 +814,25 @@ export function LineGraph_({
                     },
                     ...(!isBar
                         ? {
-                              crosshair: {
-                                  snap: {
-                                      enabled: true,
-                                  },
-                                  sync: {
-                                      enabled: false,
-                                  },
-                                  zoom: {
-                                      enabled: false,
-                                  },
-                                  line: {
-                                      color: colors.crosshair ?? undefined,
-                                      width: 1,
-                                  },
-                              },
-                          }
+                            crosshair: {
+                                snap: {
+                                    enabled: true,
+                                },
+                                sync: {
+                                    enabled: false,
+                                },
+                                zoom: {
+                                    enabled: false,
+                                },
+                                line: {
+                                    color: colors.crosshair ?? undefined,
+                                    width: 1,
+                                },
+                            },
+                        }
                         : {
-                              crosshair: false,
-                          }),
+                            crosshair: false,
+                        }),
                 },
                 hover: {
                     mode: isBar ? 'point' : 'nearest',
@@ -897,12 +871,12 @@ export function LineGraph_({
                             precision,
                             ...(inSurveyView
                                 ? {
-                                      padding: 10,
-                                      font: {
-                                          size: 14,
-                                          weight: 'bold',
-                                      },
-                                  }
+                                    padding: 10,
+                                    font: {
+                                        size: 14,
+                                        weight: 'bold',
+                                    },
+                                }
                                 : {}),
                         },
                         grid: inSurveyView ? { display: false } : gridOptions,
@@ -943,7 +917,7 @@ export function LineGraph_({
                     },
                     ...generateYaxesForLineGraph(
                         (showMultipleYAxes && new Set(processedDatasets.map((d) => d.yAxisID)).size) ||
-                            processedDatasets.length,
+                        processedDatasets.length,
                         seriesNonZeroMin,
                         goalLinesWithColor,
                         tickOptions,
@@ -998,11 +972,11 @@ export function LineGraph_({
                             autoSkip: !truncateRows ? false : undefined,
                             ...(inSurveyView
                                 ? {
-                                      padding: 10,
-                                      font: {
-                                          size: 14,
-                                      },
-                                  }
+                                    padding: 10,
+                                    font: {
+                                        size: 14,
+                                    },
+                                }
                                 : {}),
                             callback: function _renderYLabel(_, i) {
                                 const d = processedDatasets?.[0]

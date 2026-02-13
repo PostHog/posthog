@@ -208,7 +208,8 @@
               GROUP BY source_label,
                        customer_id,
                        subscription_id
-              ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+              ORDER BY customer_id ASC,
+                       subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_by_customer ON equals(customer_to_group.customer_id, mrr_by_customer.customer_id)
         GROUP BY group_key) AS mrr_agg ON equals(revenue_agg.group_key, mrr_agg.group_key)) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
   WHERE ifNull(equals(groups.key, 'lolol0:xxx'), 0)
@@ -434,7 +435,8 @@
               GROUP BY source_label,
                        customer_id,
                        subscription_id
-              ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+              ORDER BY customer_id ASC,
+                       subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_by_customer ON equals(customer_to_group.customer_id, mrr_by_customer.customer_id)
         GROUP BY group_key) AS mrr_agg ON equals(revenue_agg.group_key, mrr_agg.group_key)) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
   WHERE ifNull(equals(groups.key, 'lolol0:xxx'), 0)
@@ -643,7 +645,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)
      WHERE notEmpty(group_key)
      GROUP BY group_key) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
@@ -853,7 +856,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)
      WHERE notEmpty(group_key)
      GROUP BY group_key) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
@@ -1056,7 +1060,8 @@
               GROUP BY source_label,
                        customer_id,
                        subscription_id
-              ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+              ORDER BY customer_id ASC,
+                       subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_by_customer ON equals(customer_to_group.customer_id, mrr_by_customer.customer_id)
         GROUP BY group_key) AS mrr_agg ON equals(revenue_agg.group_key, mrr_agg.group_key)) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
   WHERE ifNull(equals(groups.key, 'lolol0:xxx'), 0)
@@ -1258,7 +1263,8 @@
               GROUP BY source_label,
                        customer_id,
                        subscription_id
-              ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+              ORDER BY customer_id ASC,
+                       subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_by_customer ON equals(customer_to_group.customer_id, mrr_by_customer.customer_id)
         GROUP BY group_key) AS mrr_agg ON equals(revenue_agg.group_key, mrr_agg.group_key)) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
   WHERE ifNull(equals(groups.key, 'lolol0:xxx'), 0)
@@ -1467,7 +1473,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)
      WHERE notEmpty(group_key)
      GROUP BY group_key) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
@@ -1677,7 +1684,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)
      WHERE notEmpty(group_key)
      GROUP BY group_key) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
@@ -1886,7 +1894,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)
      WHERE notEmpty(group_key)
      GROUP BY group_key) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
@@ -2095,7 +2104,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)
      WHERE notEmpty(group_key)
      GROUP BY group_key) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
@@ -2304,7 +2314,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)
      WHERE notEmpty(group_key)
      GROUP BY group_key) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
@@ -2513,7 +2524,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)
      WHERE notEmpty(group_key)
      GROUP BY group_key) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
@@ -2722,7 +2734,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)
      WHERE notEmpty(group_key)
      GROUP BY group_key) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
@@ -2932,7 +2945,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)
      WHERE notEmpty(group_key)
      GROUP BY group_key) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
@@ -3142,7 +3156,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)
      WHERE notEmpty(group_key)
      GROUP BY group_key) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
@@ -3361,7 +3376,8 @@
               GROUP BY source_label,
                        customer_id,
                        subscription_id
-              ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+              ORDER BY customer_id ASC,
+                       subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_by_customer ON equals(customer_to_group.customer_id, mrr_by_customer.customer_id)
         GROUP BY group_key) AS mrr_agg ON equals(revenue_agg.group_key, mrr_agg.group_key)) AS groups_revenue_analytics
   ORDER BY groups_revenue_analytics.group_key ASC
@@ -3579,7 +3595,8 @@
               GROUP BY source_label,
                        customer_id,
                        subscription_id
-              ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+              ORDER BY customer_id ASC,
+                       subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_by_customer ON equals(customer_to_group.customer_id, mrr_by_customer.customer_id)
         GROUP BY group_key) AS mrr_agg ON equals(revenue_agg.group_key, mrr_agg.group_key)) AS groups_revenue_analytics
   ORDER BY groups_revenue_analytics.group_key ASC
@@ -3780,7 +3797,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)
      WHERE notEmpty(group_key)
      GROUP BY group_key) AS groups_revenue_analytics
@@ -3982,7 +4000,8 @@
            GROUP BY source_label,
                     customer_id,
                     subscription_id
-           ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+           ORDER BY customer_id ASC,
+                    subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
         GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id)
      WHERE notEmpty(group_key)
      GROUP BY group_key) AS groups_revenue_analytics

@@ -375,6 +375,7 @@ class InviteSignupSerializer(serializers.Serializer):
         invite_id = self.context["view"].kwargs.get("invite_id")
 
         try:
+            # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
         except OrganizationInvite.DoesNotExist:
             raise serializers.ValidationError("The provided invite ID is not valid.")
@@ -503,6 +504,7 @@ class InviteSignupViewset(generics.CreateAPIView):
             raise exceptions.ValidationError("Please provide an invite ID to continue.")
 
         try:
+            # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.get(id=invite_id)
         except (OrganizationInvite.DoesNotExist, ValidationError):
             raise serializers.ValidationError("The provided invite ID is not valid.")
@@ -602,6 +604,7 @@ class CompanyNameForm(forms.Form):
 
 
 def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[OrganizationInvite]:
+    # nosemgrep: idor-lookup-without-org (ID from SAML response)
     organization_domain = OrganizationDomain.objects.get(id=organization_domain_id)
     if not organization_domain:
         return None
@@ -616,6 +619,7 @@ def process_social_invite_signup(
     strategy: DjangoStrategy, invite_id: str, email: str, full_name: str, user: Optional[User] = None
 ) -> User:
     try:
+        # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
         invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
             "organization"
         ).get(id=invite_id)

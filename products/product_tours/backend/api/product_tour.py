@@ -43,6 +43,33 @@ logger = logging.getLogger(__name__)
 TOUR_GENERATION_MODEL = "claude-haiku-4-5"
 
 
+def normalize_step(step: dict) -> dict:
+    """Ensure elementTargeting and useManualSelector are consistent.
+
+    Handles both read (legacy → elementTargeting) and write (elementTargeting → useManualSelector).
+    """
+    step = {**step}
+
+    # Derive elementTargeting from legacy fields if missing
+    if "elementTargeting" not in step:
+        if step.get("useManualSelector") is True:
+            step["elementTargeting"] = "manual"
+        elif step.get("inferenceData"):
+            step["elementTargeting"] = "auto"
+        elif step.get("type") == "element":
+            step["elementTargeting"] = "auto"
+            step["type"] = "modal"
+
+    # Derive useManualSelector from elementTargeting for SDK compat
+    targeting = step.get("elementTargeting")
+    if targeting == "manual":
+        step["useManualSelector"] = True
+    elif targeting is not None:
+        step.pop("useManualSelector", None)
+
+    return step
+
+
 class TourStepContent(BaseModel):
     """A single step in the generated tour."""
 
@@ -100,6 +127,14 @@ class ProductTourSerializer(serializers.ModelSerializer):
             "archived",
         ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        content = data.get("content") or {}
+        if "steps" in content:
+            content["steps"] = [normalize_step(s) for s in content["steps"]]
+            data["content"] = content
+        return data
 
     def get_targeting_flag_filters(self, tour: ProductTour) -> dict | None:
         """Return the targeting flag filters, excluding the base exclusion properties."""
@@ -179,6 +214,9 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             steps = value.get("steps") or []
             if len(steps) != 1:
                 raise serializers.ValidationError("Announcements must have exactly 1 step.")
+
+        if "steps" in value:
+            value["steps"] = [normalize_step(s) for s in value["steps"]]
 
         return value
 
@@ -824,7 +862,8 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
         return tour.linked_flag.key if tour.linked_flag else None
 
     def get_steps(self, tour: ProductTour) -> list:
-        return tour.content.get("steps", []) if tour.content else []
+        steps = tour.content.get("steps", []) if tour.content else []
+        return [normalize_step(s) for s in steps]
 
     def get_conditions(self, tour: ProductTour) -> dict | None:
         return tour.content.get("conditions") if tour.content else None

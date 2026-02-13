@@ -27,6 +27,7 @@ export function SessionRecordingsPlaylist({
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
+        onlyPinned: props.type === 'collection',
     }
 
     const { isWindowLessThan } = useWindowSize()
@@ -53,7 +54,6 @@ function HorizontalLayout({
 
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
-
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'playlist-resizer-horizontal',
         containerRef: playlistRef,
@@ -74,14 +74,16 @@ function HorizontalLayout({
                     'w-3': isPlaylistCollapsed,
                 })}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={isPlaylistCollapsed ? {} : { width: desiredSize ?? 320, minWidth: 265, maxWidth: '50%' }}
+                style={
+                    isPlaylistCollapsed ? {} : { width: desiredSize ?? 320, minWidth: 'min-content', maxWidth: '50%' }
+                }
             >
                 <Playlist {...props} />
                 {!isPlaylistCollapsed && (
                     <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
                 )}
             </div>
-            <PlayerWrapper {...props} className="h-full flex-1 shrink min-w-96" />
+            <PlayerWrapper {...props} className="h-full flex-1 shrink" />
         </>
     )
 }

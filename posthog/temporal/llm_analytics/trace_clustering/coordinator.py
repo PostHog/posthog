@@ -41,6 +41,14 @@ with temporalio.workflow.unsafe.imports_passed_through():
 
 logger = structlog.get_logger(__name__)
 
+# Per-team trace filters to scope which traces are included in clustering.
+# team_id=2 (PostHog internal): only cluster posthog_ai traces, excluding
+# summarization LLM calls, playground, and other internal noise.
+# TODO: generalize via FF payload config so any team can define filters without code changes.
+PER_TEAM_TRACE_FILTERS: dict[int, list[dict[str, Any]]] = {
+    2: [{"key": "ai_product", "value": "posthog_ai", "operator": "exact", "type": "event"}],
+}
+
 
 @dataclasses.dataclass
 class TraceClusteringCoordinatorInputs:
@@ -117,6 +125,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             # Start all workflows in batch concurrently
             workflow_handles: list[tuple[int, ChildWorkflowHandle[DailyTraceClusteringWorkflow, ClusteringResult]]] = []
             for team_id in batch:
+                trace_filters = PER_TEAM_TRACE_FILTERS.get(team_id, [])
                 handle = await temporalio.workflow.start_child_workflow(
                     DailyTraceClusteringWorkflow.run,
                     ClusteringWorkflowInputs(
@@ -126,11 +135,12 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                         max_samples=inputs.max_samples,
                         min_k=inputs.min_k,
                         max_k=inputs.max_k,
+                        trace_filters=trace_filters,
                     ),
                     id=f"{child_id_prefix}-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
-                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.TERMINATE,
                 )
                 workflow_handles.append((team_id, handle))
 

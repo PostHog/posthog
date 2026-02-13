@@ -179,6 +179,8 @@ fn transform_event(
         group3_created_at: None,
         group4_created_at: None,
         person_mode,
+        captured_at: None,
+        historical_migration: None,
     };
 
     if timestamp_was_invalid {
