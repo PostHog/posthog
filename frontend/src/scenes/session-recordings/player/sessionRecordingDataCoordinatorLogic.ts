@@ -122,7 +122,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'sessionNotebookCommentsLoading',
                 ],
                 snapLogic,
-                ['snapshotStore', 'storeVersion'],
+                ['snapshotStore', 'storeVersion', 'sourceLoadingStates'],
             ],
         }
     }),

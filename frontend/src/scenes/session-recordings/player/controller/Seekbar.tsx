@@ -13,6 +13,7 @@ import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { SourceLoadingState } from '../snapshot-store/types'
 import { PlayerSeekbarPreview } from './PlayerSeekbarPreview'
 import { PlayerSeekbarTicks } from './PlayerSeekbarTicks'
 import { seekbarLogic } from './seekbarLogic'
@@ -42,6 +43,42 @@ const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
     )
 })
 
+const SeekbarLoadedRegions = React.memo(function SeekbarLoadedRegionsRaw({
+    sourceLoadingStates,
+    start,
+    durationMs,
+}: {
+    sourceLoadingStates: SourceLoadingState[]
+    start: number
+    durationMs: number
+}): JSX.Element | null {
+    if (!sourceLoadingStates.length || !durationMs) {
+        return null
+    }
+
+    return (
+        <div className="PlayerSeekbar__loading-states">
+            {sourceLoadingStates
+                .filter((s) => s.state !== 'loaded')
+                .map((s, i) => {
+                    const left = ((s.startMs - start) / durationMs) * 100
+                    const width = ((s.endMs - s.startMs) / durationMs) * 100
+                    return (
+                        <div
+                            key={i}
+                            className="PlayerSeekbar__unloaded-region"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                left: `${Math.max(0, left)}%`,
+                                width: `${Math.min(width, 100 - Math.max(0, left))}%`,
+                            }}
+                        />
+                    )
+                })}
+        </div>
+    )
+})
+
 function SeekbarSegments(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { segments, durationMs } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
@@ -66,7 +103,9 @@ export function Seekbar(): JSX.Element {
     const { timestampFormat } = useValues(playerSettingsLogic)
 
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(logicProps))
-    const { sessionPlayerData, sessionPlayerMetaData } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
+    const { sessionPlayerData, sessionPlayerMetaData, sourceLoadingStates } = useValues(
+        sessionRecordingDataCoordinatorLogic(logicProps)
+    )
 
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
@@ -100,6 +139,14 @@ export function Seekbar(): JSX.Element {
                     onTouchStart={handleDown}
                 >
                     <SeekbarSegments />
+
+                    {sourceLoadingStates.length > 0 && sessionPlayerData.start ? (
+                        <SeekbarLoadedRegions
+                            sourceLoadingStates={sourceLoadingStates}
+                            start={sessionPlayerData.start.valueOf()}
+                            durationMs={sessionPlayerData.durationMs}
+                        />
+                    ) : null}
 
                     <div
                         className="PlayerSeekbar__currentbar"

@@ -455,6 +455,37 @@ describe('SnapshotStore', () => {
         })
     })
 
+    describe('getSourceStates', () => {
+        it('returns state for each source', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(3))
+            store.markLoaded(1, [makeSnapshot(2000)])
+
+            const states = store.getSourceStates()
+            expect(states).toHaveLength(3)
+            expect(states[0].state).toBe('unloaded')
+            expect(states[1].state).toBe('loaded')
+            expect(states[2].state).toBe('unloaded')
+        })
+
+        it('includes timestamps and reflects eviction', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(3))
+            store.markLoaded(0, [makeSnapshot(1000)])
+            store.markLoaded(1, [makeSnapshot(2000)])
+            store.markLoaded(2, [makeSnapshot(3000)])
+
+            store.evict(2, 2)
+
+            const states = store.getSourceStates()
+            expect(states[0].state).toBe('evicted')
+            expect(states[0].startMs).toBeGreaterThan(0)
+            expect(states[0].endMs).toBeGreaterThan(states[0].startMs)
+            expect(states[1].state).toBe('loaded')
+            expect(states[2].state).toBe('loaded')
+        })
+    })
+
     describe('version tracking', () => {
         it('increments on each mutation', () => {
             const store = new SnapshotStore()

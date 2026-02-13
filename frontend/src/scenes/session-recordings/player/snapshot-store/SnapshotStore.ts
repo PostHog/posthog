@@ -4,7 +4,7 @@ import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import { ViewportResolution } from '../snapshot-processing/patch-meta-event'
 import { processSourceSnapshots } from './processSourceSnapshots'
-import { SourceEntry } from './types'
+import { SourceEntry, SourceLoadingState } from './types'
 
 const MAX_LOADED_SOURCES = 50
 
@@ -240,6 +240,10 @@ export class SnapshotStore {
             }
         }
         return result
+    }
+
+    getSourceStates(): SourceLoadingState[] {
+        return this.entries.map((e) => ({ startMs: e.startMs, endMs: e.endMs, state: e.state }))
     }
 
     private bump(): void {

@@ -22,6 +22,7 @@ import {
 
 import { LoadingScheduler } from './snapshot-store/LoadingScheduler'
 import { SnapshotStore } from './snapshot-store/SnapshotStore'
+import { SourceLoadingState } from './snapshot-store/types'
 import type { snapshotDataLogicType } from './snapshotDataLogicType'
 
 const DEFAULT_V2_POLLING_INTERVAL_MS: number = 10000
@@ -468,6 +469,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             (s) => [s.storeVersion],
             (): SnapshotStore | null => {
                 return cache.store ?? null
+            },
+        ],
+
+        sourceLoadingStates: [
+            (s) => [s.storeVersion],
+            (): SourceLoadingState[] => {
+                return cache.store?.getSourceStates() ?? []
             },
         ],
 

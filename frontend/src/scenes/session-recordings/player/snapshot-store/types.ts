@@ -16,4 +16,10 @@ export interface LoadBatch {
     reason: 'sequential' | 'seek_target' | 'seek_backward' | 'seek_gap_fill' | 'forward_from_seek' | 'backward_to_start'
 }
 
+export interface SourceLoadingState {
+    startMs: number
+    endMs: number
+    state: 'unloaded' | 'loaded' | 'evicted'
+}
+
 export type Mode = { kind: 'sequential' } | { kind: 'seek'; targetTimestamp: number }
