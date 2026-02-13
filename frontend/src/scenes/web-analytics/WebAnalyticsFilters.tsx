@@ -16,6 +16,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import {
     convertPropertyGroupToProperties,
     isEventPersonOrSessionPropertyFilter,
+    isWebAnalyticsPropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -27,7 +28,7 @@ import MaxTool from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { PropertyMathType } from '~/types'
+import { PropertyFilterType, PropertyMathType } from '~/types'
 
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
@@ -424,7 +425,8 @@ function FiltersPopover(): JSX.Element {
         productTab === ProductTab.ANALYTICS &&
         (!preAggregatedEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG])
 
-    const taxonomicGroupTypes = getWebAnalyticsTaxonomicGroupTypes(preAggregatedEnabled ?? false)
+    const cohortFilterEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]
+    const taxonomicGroupTypes = getWebAnalyticsTaxonomicGroupTypes(preAggregatedEnabled ?? false, cohortFilterEnabled)
     const propertyAllowList = preAggregatedEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined
 
     const activeFilterCount = rawWebAnalyticsFilters.length + (conversionGoal ? 1 : 0)
@@ -438,9 +440,7 @@ function FiltersPopover(): JSX.Element {
                         disablePopover
                         propertyAllowList={propertyAllowList}
                         taxonomicGroupTypes={taxonomicGroupTypes}
-                        onChange={(filters) =>
-                            setWebAnalyticsFilters(filters.filter(isEventPersonOrSessionPropertyFilter))
-                        }
+                        onChange={(filters) => setWebAnalyticsFilters(filters.filter(isWebAnalyticsPropertyFilter))}
                         propertyFilters={rawWebAnalyticsFilters}
                         pageKey="web-analytics"
                         eventNames={['$pageview']}
@@ -565,7 +565,9 @@ const IncompatibleFiltersWarning = (): JSX.Element | null => {
         return null
     }
 
-    const filterNames = incompatibleFilters.map((filter) => filter.key).join(', ')
+    const filterNames = incompatibleFilters
+        .map((filter) => (filter.type === PropertyFilterType.Cohort ? 'Cohort' : filter.key))
+        .join(', ')
 
     return (
         <LemonBanner

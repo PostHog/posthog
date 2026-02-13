@@ -144,7 +144,6 @@ pub fn emit_deduplication_result_metrics(
     labels: DeduplicationResultLabels,
 ) {
     let mut counter = MetricsHelper::with_partition(topic, partition)
-        .with_label("service", "kafka-deduplicator")
         .with_label("pipeline", pipeline)
         .counter(DEDUPLICATION_RESULT_COUNTER)
         .with_label("result_type", labels.result_type);

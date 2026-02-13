@@ -154,7 +154,9 @@ export const recordingDisabledReason = (
     recordingStatus: string | undefined,
     hasRecording?: boolean
 ): JSX.Element | string | null => {
-    if (!sessionId) {
+    if (!sessionId && hasRecording === false) {
+        return 'No recording for this event'
+    } else if (!sessionId) {
         return (
             <>
                 No session ID associated with this event.{' '}

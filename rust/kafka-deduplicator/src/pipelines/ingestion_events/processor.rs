@@ -84,8 +84,7 @@ impl DuplicateEventProducerWrapper {
             )
             .await;
 
-        let metrics = MetricsHelper::with_partition(&partition_topic, partition_number)
-            .with_label("service", "kafka-deduplicator");
+        let metrics = MetricsHelper::with_partition(&partition_topic, partition_number);
 
         match delivery_result {
             Ok(_) => {
@@ -273,7 +272,7 @@ impl IngestionEventsBatchProcessor {
                     .to_string();
                 keys.push(key);
             } else if let Err(e) = &parsed_events[idx] {
-                error!("Failed to parse event: {}", e);
+                error!("Failed to parse event: {e:#}");
             }
         }
 
@@ -290,8 +289,7 @@ impl IngestionEventsBatchProcessor {
 
         // Create metrics helper for similarity metrics
         let metrics =
-            MetricsHelper::with_partition(partition.topic(), partition.partition_number())
-                .with_label("service", "kafka-deduplicator");
+            MetricsHelper::with_partition(partition.topic(), partition.partition_number());
 
         // Process results: emit metrics and collect publish futures
         // We batch all Kafka sends and execute them concurrently for better throughput
@@ -363,7 +361,7 @@ impl IngestionEventsBatchProcessor {
                             Some(max_producer_offset.map_or(offset, |current| current.max(offset)));
                     }
                     Err(e) => {
-                        error!("Failed to publish non-duplicate event: {}", e);
+                        error!("Failed to publish non-duplicate event: {e:#}");
                         return Err(e);
                     }
                 }
@@ -436,12 +434,13 @@ impl IngestionEventsBatchProcessor {
             }
             Err((e, _)) => {
                 error!(
-                    "Failed to publish event with key {} to {}: {}",
-                    key, output_topic, e
+                    "Failed to publish event with key {} to {}: {e:#}",
+                    key, output_topic
                 );
-                Err(anyhow::anyhow!(
-                    "Failed to publish event with key '{key}' to topic '{output_topic}': {e}"
-                ))
+                Err(anyhow::Error::from(e).context(format!(
+                    "Failed to publish event with key '{}' to topic '{}'",
+                    key, output_topic
+                )))
             }
         }
     }
