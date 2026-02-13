@@ -1041,6 +1041,7 @@ function FeatureFlagRollout({
         experiment,
         experimentLoading,
         dependentFlags,
+        featureFlagActiveUpdateLoading,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -1142,6 +1143,7 @@ function FeatureFlagRollout({
                                                     toggleFeatureFlagActive(newValue)
                                                 }}
                                                 label={featureFlag.active ? 'Enabled' : 'Disabled'}
+                                                loading={featureFlagActiveUpdateLoading}
                                                 disabledReason={
                                                     !featureFlag.can_edit
                                                         ? "You only have view access to this feature flag. To make changes, contact the flag's creator."

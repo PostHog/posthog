@@ -634,8 +634,8 @@ impl FeatureFlagMatcher {
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
         flags_with_missing_deps: &HashSet<i32>,
     ) -> bool {
-        // Get evaluation stages for the dependency graph
-        let evaluation_stages = match flag_dependency_graph.evaluation_stages() {
+        // Consume the graph to get owned flags in evaluation order
+        let evaluation_stages = match flag_dependency_graph.into_evaluation_stages() {
             Ok(stages) => stages,
             Err(e) => {
                 log_dependency_graph_operation_error("get evaluation stages", &e, self.team_id);
@@ -648,7 +648,7 @@ impl FeatureFlagMatcher {
         for stage in evaluation_stages {
             let (level_evaluated_flags_map, level_errors) = self
                 .evaluate_flags_in_level(
-                    stage.as_slice(),
+                    stage,
                     evaluated_flags_map,
                     person_property_overrides,
                     group_property_overrides,
@@ -731,11 +731,13 @@ impl FeatureFlagMatcher {
     ///
     /// This function is designed to be used as part of a level-based evaluation strategy
     /// (e.g., Kahn's algorithm) for handling flag dependencies.
+    ///
+    /// Dispatches between sequential and parallel evaluation based on flag count.
     #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, fields(team_id = %self.team_id, distinct_id = %self.distinct_id))]
     async fn evaluate_flags_in_level(
         &mut self,
-        flags: &[&FeatureFlag],
+        flags: Vec<FeatureFlag>,
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
         person_property_overrides: &Option<HashMap<String, Value>>,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
@@ -743,113 +745,77 @@ impl FeatureFlagMatcher {
         request_hash_key_override: &Option<String>,
         flags_with_missing_deps: &HashSet<i32>,
     ) -> (HashMap<String, FlagDetails>, bool) {
-        // initialize some state
         let mut errors_while_computing_flags = false;
         let mut level_evaluated_flags_map = HashMap::new();
-        let mut precomputed_property_overrides: HashMap<String, Option<HashMap<String, Value>>> =
-            HashMap::new();
 
-        let flags_to_evaluate = flags
-            .iter()
+        let flags_to_evaluate: Vec<FeatureFlag> = flags
+            .into_iter()
             .filter(|flag| !flag.deleted && !evaluated_flags_map.contains_key(&flag.key))
-            .copied()
-            .collect::<Vec<&FeatureFlag>>();
-
-        // Pre-compute property overrides for all flags upfront
-        // TODO: We can probably do this even earlier, but I'll save that for another PR - @haacked
-        for flag in &flags_to_evaluate {
-            let relevant_property_overrides = match flag.get_group_type_index() {
-                Some(group_type_index) => {
-                    // For group flags, extract the relevant group overrides
-                    match self.group_overrides_to_property_overrides(
-                        group_type_index,
-                        group_property_overrides,
-                    ) {
-                        Ok(overrides) => overrides,
-                        Err(e) => {
-                            warn!(
-                                "Failed to get group type mapping for flag '{}' with group_type_index {}: {:?}. Treating as no overrides.",
-                                flag.key, group_type_index, e
-                            );
-                            None // If we can't get the mapping, treat as no overrides; we'll hit the DB later if needed, but odds are that this is an error on the client side
-                        }
-                    }
-                }
-                None => person_property_overrides.clone(),
-            };
-            precomputed_property_overrides.insert(flag.key.clone(), relevant_property_overrides);
-        }
-
-        // Evaluate flags with cached properties using pre-computed overrides
-        let flag_get_match_timer = timing_guard(FLAG_GET_MATCH_TIME, &[]);
-
-        let flags_map: HashMap<&String, &FeatureFlag> = flags_to_evaluate
-            .iter()
-            .map(|flag| (&flag.key, *flag))
             .collect();
 
-        let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> = self.evaluate_flag_batch(
+        let precomputed_property_overrides = self.precompute_property_overrides(
             &flags_to_evaluate,
-            &precomputed_property_overrides,
-            flags_with_missing_deps,
-            hash_key_overrides,
-            request_hash_key_override,
+            person_property_overrides,
+            group_property_overrides,
         );
 
-        for (flag_key, result) in results {
-            // If flag not found in map, skip it (this shouldn't happen but is safe)
-            let Some(flag) = flags_map.get(&flag_key) else {
-                error!(
-                    "Flag '{}' not found in flags_map during evaluation - this shouldn't happen",
-                    flag_key
-                );
-                continue;
-            };
+        let eval_type = if flags_to_evaluate.len() >= self.parallel_eval_threshold {
+            EvaluationType::Parallel
+        } else {
+            EvaluationType::Sequential
+        };
 
-            match result {
-                Ok(flag_match) => {
-                    // Always store result for dependency resolution
-                    self.flag_evaluation_state
-                        .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
-                    // Only include active flags in the response
-                    if flag.active {
-                        level_evaluated_flags_map
-                            .insert(flag_key, FlagDetails::create(flag, &flag_match));
-                    }
-                }
-                Err(e) => {
-                    errors_while_computing_flags = true;
+        let labels = [("evaluation_type".to_string(), eval_type.to_string())];
+        histogram(FLAG_BATCH_SIZE, &labels, flags_to_evaluate.len() as f64);
+        inc(FLAG_BATCH_EVALUATION_COUNTER, &labels, 1);
+        let _batch_timer = timing_guard(FLAG_BATCH_EVALUATION_TIME, &labels);
 
-                    // Track flag evaluation error in canonical log
-                    with_canonical_log(|log| log.flags_errored += 1);
+        let flag_get_match_timer = timing_guard(FLAG_GET_MATCH_TIME, &[]);
 
-                    // Handle DependencyNotFound errors differently since they indicate a deleted dependency
-                    if let FlagError::DependencyNotFound(dependency_type, dependency_id) = &e {
-                        warn!(
-                            "Feature flag '{}' targeting deleted {} with id {} for distinct_id '{}': {:?}",
-                            flag.key, dependency_type, dependency_id, self.distinct_id, e
-                        );
-                    } else {
-                        error!(
-                            "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
-                            flag.key, self.distinct_id, e
-                        );
-                    }
-
-                    let reason = e.evaluation_error_code();
-                    inc(
-                        FLAG_EVALUATION_ERROR_COUNTER,
-                        &[("reason".to_string(), reason)],
-                        1,
+        match eval_type {
+            EvaluationType::Sequential => {
+                flags_to_evaluate.iter().for_each(|flag| {
+                    let result = self.evaluate_single_flag(
+                        flag,
+                        &precomputed_property_overrides,
+                        flags_with_missing_deps,
+                        hash_key_overrides,
+                        request_hash_key_override,
                     );
-                    // Only include active flags in the response
-                    if flag.active {
-                        level_evaluated_flags_map
-                            .insert(flag_key, FlagDetails::create_error(flag, &e, None));
-                    }
+                    self.process_flag_result(
+                        flag,
+                        &result,
+                        &mut level_evaluated_flags_map,
+                        &mut errors_while_computing_flags,
+                    );
+                });
+            }
+            EvaluationType::Parallel => {
+                let results: Vec<_> = flags_to_evaluate
+                    .par_iter()
+                    .map(|flag| {
+                        let result = self.evaluate_single_flag(
+                            flag,
+                            &precomputed_property_overrides,
+                            flags_with_missing_deps,
+                            hash_key_overrides,
+                            request_hash_key_override,
+                        );
+                        (flag, result)
+                    })
+                    .collect();
+
+                for (flag, result) in &results {
+                    self.process_flag_result(
+                        flag,
+                        result,
+                        &mut level_evaluated_flags_map,
+                        &mut errors_while_computing_flags,
+                    );
                 }
             }
         }
+
         flag_get_match_timer
             .label(
                 "outcome",
@@ -862,6 +828,87 @@ impl FeatureFlagMatcher {
             .fin();
 
         (level_evaluated_flags_map, errors_while_computing_flags)
+    }
+
+    /// Pre-compute property overrides for all flags upfront.
+    // TODO: We can probably do this even earlier, but I'll save that for another PR - @haacked
+    fn precompute_property_overrides(
+        &mut self,
+        flags: &[FeatureFlag],
+        person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
+    ) -> HashMap<String, Option<HashMap<String, Value>>> {
+        let mut overrides = HashMap::new();
+        for flag in flags {
+            let relevant = match flag.get_group_type_index() {
+                Some(group_type_index) => {
+                    match self.group_overrides_to_property_overrides(
+                        group_type_index,
+                        group_property_overrides,
+                    ) {
+                        Ok(o) => o,
+                        Err(e) => {
+                            warn!(
+                                "Failed to get group type mapping for flag '{}' with group_type_index {}: {:?}. Treating as no overrides.",
+                                flag.key, group_type_index, e
+                            );
+                            None
+                        }
+                    }
+                }
+                None => person_property_overrides.clone(),
+            };
+            overrides.insert(flag.key.clone(), relevant);
+        }
+        overrides
+    }
+
+    /// Process a single flag evaluation result: update evaluation state, record metrics, and
+    /// insert into the level map.
+    fn process_flag_result(
+        &mut self,
+        flag: &FeatureFlag,
+        result: &Result<FeatureFlagMatch, FlagError>,
+        level_evaluated_flags_map: &mut HashMap<String, FlagDetails>,
+        errors_while_computing_flags: &mut bool,
+    ) {
+        match result {
+            Ok(flag_match) => {
+                self.flag_evaluation_state
+                    .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
+                if flag.active {
+                    level_evaluated_flags_map
+                        .insert(flag.key.clone(), FlagDetails::create(flag, flag_match));
+                }
+            }
+            Err(e) => {
+                *errors_while_computing_flags = true;
+                with_canonical_log(|log| log.flags_errored += 1);
+
+                if let FlagError::DependencyNotFound(dependency_type, dependency_id) = e {
+                    warn!(
+                        "Feature flag '{}' targeting deleted {} with id {} for distinct_id '{}': {:?}",
+                        flag.key, dependency_type, dependency_id, self.distinct_id, e
+                    );
+                } else {
+                    error!(
+                        "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
+                        flag.key, self.distinct_id, e
+                    );
+                }
+
+                let reason = e.evaluation_error_code();
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), reason)],
+                    1,
+                );
+                if flag.active {
+                    level_evaluated_flags_map
+                        .insert(flag.key.clone(), FlagDetails::create_error(flag, e, None));
+                }
+            }
+        }
     }
 
     /// Convert group overrides to property overrides
@@ -891,48 +938,6 @@ impl FeatureFlagMatcher {
         Ok(None)
     }
 
-    /// Evaluates flags using the appropriate strategy based on flag count.
-    ///
-    /// For small flag counts, uses sequential iteration which is faster due to
-    /// avoiding thread synchronization overhead. For large flag counts, uses
-    /// rayon's parallel iteration for work-stealing parallelism.
-    ///
-    /// The threshold is configurable via the PARALLEL_EVAL_THRESHOLD env var.
-    fn evaluate_flag_batch(
-        &self,
-        flags_to_evaluate: &[&FeatureFlag],
-        precomputed_property_overrides: &HashMap<String, Option<HashMap<String, Value>>>,
-        flags_with_missing_deps: &HashSet<i32>,
-        hash_key_overrides: &Option<HashMap<String, String>>,
-        request_hash_key_override: &Option<String>,
-    ) -> Vec<(String, Result<FeatureFlagMatch, FlagError>)> {
-        let eval_type = if flags_to_evaluate.len() >= self.parallel_eval_threshold {
-            EvaluationType::Parallel
-        } else {
-            EvaluationType::Sequential
-        };
-
-        let labels = [("evaluation_type".to_string(), eval_type.to_string())];
-        histogram(FLAG_BATCH_SIZE, &labels, flags_to_evaluate.len() as f64);
-        inc(FLAG_BATCH_EVALUATION_COUNTER, &labels, 1);
-        let _timer = timing_guard(FLAG_BATCH_EVALUATION_TIME, &labels);
-
-        let eval = |flag: &&FeatureFlag| {
-            self.evaluate_single_flag(
-                flag,
-                precomputed_property_overrides,
-                flags_with_missing_deps,
-                hash_key_overrides,
-                request_hash_key_override,
-            )
-        };
-
-        match eval_type {
-            EvaluationType::Parallel => flags_to_evaluate.par_iter().map(eval).collect(),
-            EvaluationType::Sequential => flags_to_evaluate.iter().map(eval).collect(),
-        }
-    }
-
     fn evaluate_single_flag(
         &self,
         flag: &FeatureFlag,
@@ -940,23 +945,20 @@ impl FeatureFlagMatcher {
         flags_with_missing_deps: &HashSet<i32>,
         hash_key_overrides: &Option<HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
-    ) -> (String, Result<FeatureFlagMatch, FlagError>) {
+    ) -> Result<FeatureFlagMatch, FlagError> {
         if flags_with_missing_deps.contains(&flag.id) {
-            return (flag.key.clone(), Ok(FeatureFlagMatch::missing_dependency()));
+            return Ok(FeatureFlagMatch::missing_dependency());
         }
 
         let property_overrides = precomputed_property_overrides
             .get(&flag.key)
             .and_then(|opt| opt.as_ref());
 
-        (
-            flag.key.clone(),
-            self.get_match(
-                flag,
-                property_overrides,
-                hash_key_overrides.as_ref(),
-                request_hash_key_override,
-            ),
+        self.get_match(
+            flag,
+            property_overrides,
+            hash_key_overrides.as_ref(),
+            request_hash_key_override,
         )
     }
 

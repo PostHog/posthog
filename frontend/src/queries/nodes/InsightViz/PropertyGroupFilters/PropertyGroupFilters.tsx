@@ -53,23 +53,24 @@ export function PropertyGroupFilters({
         ? 'Filter groups cannot be added to insights with a data warehouse series. Please use individual series filters instead.'
         : undefined
     return (
-        <div className="deprecated-space-y-2 PropertyGroupFilters">
+        <div className="deprecated-space-y-2 PropertyGroupFilters @container">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                    <div className="flex flex-1 gap-2 flex-row space-between flex-wrap">
-                        <LemonButton
-                            data-attr={`${pageKey}-add-filter-group-inline`}
-                            type="secondary"
-                            onClick={addFilterGroup}
-                            icon={<IconPlusSmall />}
-                            sideIcon={null}
-                            disabledReason={disabledReason}
-                            className="PropertyGroupFilters__add-filter-group-inline"
-                        >
-                            Add filter group
-                        </LemonButton>
-
-                        <div className="flex-1">
+                    <div className="flex flex-col gap-2 @lg:flex-row @lg:items-center">
+                        <div className="order-2 @lg:order-none">
+                            <LemonButton
+                                data-attr={`${pageKey}-add-filter-group-inline`}
+                                type="secondary"
+                                onClick={addFilterGroup}
+                                icon={<IconPlusSmall />}
+                                sideIcon={null}
+                                disabledReason={disabledReason}
+                                className="PropertyGroupFilters__add-filter-group-inline"
+                            >
+                                Add filter group
+                            </LemonButton>
+                        </div>
+                        <div className="order-1 @lg:order-none @lg:flex-1">
                             <InsightTestAccountFilter
                                 disabledReason={disabledReason}
                                 query={query}

@@ -1716,8 +1716,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     action: RefreshDashboardItemsAction.Refresh,
                     forceRefresh: false,
                 })
-            } else if (mode === null && source === DashboardEventSource.DashboardHeaderSaveDashboard) {
-                // save edit mode changes
+            } else if (
+                mode === null &&
+                (source === DashboardEventSource.DashboardHeaderSaveDashboard ||
+                    source === DashboardEventSource.SceneCommonButtons)
+            ) {
+                // save edit mode changes when exiting via Save button or E key/Edit layout button
                 actions.saveEditModeChanges()
             }
 
