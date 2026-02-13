@@ -23,6 +23,8 @@ pub enum RebalanceEvent {
 pub enum ConsumerCommand {
     /// Resume consumption for the specified partitions (after checkpoint import completes)
     Resume(TopicPartitionList),
+    /// Seek consumer to specific offsets (after checkpoint import, before resume)
+    SeekPartitions(TopicPartitionList),
 }
 
 /// Sender for consumer commands - passed to rebalance handler
