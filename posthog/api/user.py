@@ -937,6 +937,9 @@ def toolbar_oauth_callback(request):
     This page only relays `code/state` (or OAuth error) to the opener window
     via `postMessage`; token exchange stays server-side in toolbar_oauth_exchange.
     """
+    if not settings.TOOLBAR_OAUTH_ENABLED:
+        return HttpResponse(status=404)
+
     payload = {
         "type": "toolbar_oauth_result",
         "code": request.GET.get("code"),
