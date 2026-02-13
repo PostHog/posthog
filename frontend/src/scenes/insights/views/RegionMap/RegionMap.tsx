@@ -22,7 +22,7 @@ import { regionMapLogic } from './regionMapLogic'
 
 const SATURATION_FLOOR = 0.2
 const REGION_MAP_TOOLTIP_OFFSET_PX = 8
-const REGION_MAP_TOPOJSON_URL = `${window.JS_URL || ''}/geo/ne_10m_admin_1_states_provinces.json`
+const REGION_MAP_TOPOJSON_URL = `${window.JS_URL || ''}/static/geo/ne_10m_admin_1_states_provinces.json`
 
 const getSeriesValue = (series: TrendResult | null | undefined): number =>
     series?.aggregated_value ?? series?.count ?? 0
