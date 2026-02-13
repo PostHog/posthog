@@ -40,7 +40,9 @@ export function createInternalApiAuthMiddleware(options: InternalApiAuthOptions)
         }
 
         const providedSecret =
-            req.headers[HEADER_NAME] || req.headers[HEADER_NAME.toLowerCase()] || req.headers[HEADER_NAME.toUpperCase()]
+            req.headers[INTERNAL_SERVICE_CALL_HEADER_NAME] ||
+            req.headers[INTERNAL_SERVICE_CALL_HEADER_NAME.toLowerCase()] ||
+            req.headers[INTERNAL_SERVICE_CALL_HEADER_NAME.toUpperCase()]
 
         if (!providedSecret || typeof providedSecret !== 'string') {
             logger.warn('Internal API request missing authentication header', {
