@@ -84,6 +84,12 @@ def normalize_and_validate_app_url(team: Team, app_url: str) -> str:
     if not parsed.scheme or not parsed.hostname:
         raise ToolbarOAuthError("invalid_app_url", "app_url must include scheme and host", 400)
 
+    if parsed.scheme not in ["http", "https"]:
+        raise ToolbarOAuthError("invalid_app_url", "app_url must use http or https", 400)
+
+    if parsed.scheme == "http" and not is_loopback_host(parsed.hostname):
+        raise ToolbarOAuthError("invalid_app_url", "app_url must use https for non-loopback hosts", 400)
+
     if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         raise ToolbarOAuthError("forbidden_app_url", "Can only redirect to a permitted domain.", 403)
 
