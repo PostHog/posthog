@@ -27,19 +27,12 @@ from rest_framework import status
 from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 
 from posthog.clickhouse.client import sync_execute
-from posthog.errors import (
-    CHQueryErrorCannotScheduleTask,
-    CHQueryErrorTooManySimultaneousQueries,
-)
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
 from posthog.models import Organization, Person, SessionRecording, User
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
-from posthog.session_recordings.models.session_recording_event import (
-    SessionRecordingViewed,
-)
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):

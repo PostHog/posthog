@@ -15,30 +15,18 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog import redis
-from posthog.models import (
-    Organization,
-    PersonalAPIKey,
-    SessionRecording,
-    SessionRecordingPlaylistItem,
-    Team,
-)
+from posthog.models import Organization, PersonalAPIKey, SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
-from posthog.session_recordings.models.session_recording_event import (
-    SessionRecordingViewed,
-)
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
     SessionRecordingPlaylistViewed,
 )
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
-from posthog.session_recordings.session_recording_playlist_api import (
-    PLAYLIST_COUNT_REDIS_PREFIX,
-)
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
