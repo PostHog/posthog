@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from django.db.models import Case, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
 
+import pydantic
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -234,6 +235,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         return exposure_criteria
 
+    VALID_METRIC_KINDS = {"ExperimentMetric", "ExperimentTrendsQuery", "ExperimentFunnelsQuery"}
+
     def _validate_metrics_list(self, metrics: list | None) -> list | None:
         if metrics is None:
             return metrics
@@ -242,12 +245,19 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             raise ValidationError("Metrics must be a list")
 
         for i, metric in enumerate(metrics):
-            if not isinstance(metric, dict) or metric.get("kind") != "ExperimentMetric":
-                continue
-            try:
-                ExperimentMetric.model_validate(metric)
-            except Exception:
-                raise ValidationError(f"Invalid metric at index {i}")
+            if not isinstance(metric, dict):
+                raise ValidationError(f"Invalid metric at index {i}: must be a dict")
+
+            kind = metric.get("kind")
+            if kind not in self.VALID_METRIC_KINDS:
+                raise ValidationError(f"Invalid metric at index {i}: unknown kind '{kind}'")
+
+            # Only ExperimentMetric needs Pydantic validation (legacy kinds are pass-through)
+            if kind == "ExperimentMetric":
+                try:
+                    ExperimentMetric.model_validate(metric)
+                except pydantic.ValidationError as e:
+                    raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
 
         return metrics
 

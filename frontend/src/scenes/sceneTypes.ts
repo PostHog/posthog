@@ -67,6 +67,7 @@ export enum Scene {
     GroupsNew = 'GroupsNew',
     Heatmaps = 'Heatmaps',
     Heatmap = 'Heatmap',
+    Inbox = 'Inbox',
     HeatmapNew = 'HeatmapNew',
     HeatmapRecording = 'HeatmapRecording',
     HogFunction = 'HogFunction',
