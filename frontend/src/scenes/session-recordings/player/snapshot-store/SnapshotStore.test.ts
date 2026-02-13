@@ -303,13 +303,52 @@ describe('SnapshotStore', () => {
                 store.markLoaded(i, [makeSnapshot(1000 + i * 100)])
             }
 
-            // Current position = 2, max = 3 → evict 2 furthest (0 and 4)
+            // Current = 2, max = 3 → evict 2
+            // Past sources (0, 1) evict before future (3, 4)
             store.evict(2, 3)
             expect(store.getEntry(0)?.state).toBe('evicted')
-            expect(store.getEntry(1)?.state).toBe('loaded')
+            expect(store.getEntry(1)?.state).toBe('evicted')
             expect(store.getEntry(2)?.state).toBe('loaded')
             expect(store.getEntry(3)?.state).toBe('loaded')
-            expect(store.getEntry(4)?.state).toBe('evicted')
+            expect(store.getEntry(4)?.state).toBe('loaded')
+        })
+
+        it('evicts all past sources before any future sources', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(7))
+            for (let i = 0; i < 7; i++) {
+                store.markLoaded(i, [makeSnapshot(1000 + i * 100)])
+            }
+
+            // Current = 3, max = 4 → must evict 3
+            // All 3 past sources (0, 1, 2) evicted; all future sources kept
+            store.evict(3, 4)
+            expect(store.getEntry(0)?.state).toBe('evicted')
+            expect(store.getEntry(1)?.state).toBe('evicted')
+            expect(store.getEntry(2)?.state).toBe('evicted')
+            expect(store.getEntry(3)?.state).toBe('loaded')
+            expect(store.getEntry(4)?.state).toBe('loaded')
+            expect(store.getEntry(5)?.state).toBe('loaded')
+            expect(store.getEntry(6)?.state).toBe('loaded')
+        })
+
+        it('evicts furthest future sources once all past sources are gone', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(7))
+            for (let i = 0; i < 7; i++) {
+                store.markLoaded(i, [makeSnapshot(1000 + i * 100)])
+            }
+
+            // Current = 3, max = 2 → must evict 5
+            // Past first (0, 1, 2), then furthest future (6, 5)
+            store.evict(3, 2)
+            expect(store.getEntry(0)?.state).toBe('evicted')
+            expect(store.getEntry(1)?.state).toBe('evicted')
+            expect(store.getEntry(2)?.state).toBe('evicted')
+            expect(store.getEntry(3)?.state).toBe('loaded')
+            expect(store.getEntry(4)?.state).toBe('loaded')
+            expect(store.getEntry(5)?.state).toBe('evicted')
+            expect(store.getEntry(6)?.state).toBe('evicted')
         })
 
         it('never evicts the current source', () => {

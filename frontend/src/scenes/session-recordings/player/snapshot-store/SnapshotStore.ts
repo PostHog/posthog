@@ -205,13 +205,18 @@ export class SnapshotStore {
             protectedIndices.add(nearestFull.sourceIndex)
         }
 
-        // Sort loaded entries by distance from current position (furthest first)
+        // Evict past sources before future sources, furthest first within each group.
+        // Playback moves forward so past data is less likely to be needed again.
         const evictable = loadedEntries
             .filter((e) => !protectedIndices.has(e.index))
             .sort((a, b) => {
-                const distA = Math.abs(a.index - currentSourceIndex)
-                const distB = Math.abs(b.index - currentSourceIndex)
-                return distB - distA
+                const isPastA = a.index < currentSourceIndex
+                const isPastB = b.index < currentSourceIndex
+                if (isPastA !== isPastB) {
+                    return isPastA ? -1 : 1
+                }
+                // Within same group, furthest from current first
+                return Math.abs(b.index - currentSourceIndex) - Math.abs(a.index - currentSourceIndex)
             })
 
         const toEvict = loadedEntries.length - maxLoaded

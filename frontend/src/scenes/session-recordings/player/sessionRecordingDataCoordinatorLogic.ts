@@ -25,6 +25,8 @@ import type { sessionRecordingDataCoordinatorLogicType } from './sessionRecordin
 import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
 import { getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
 import { processAllSnapshots } from './snapshot-processing/process-all-snapshots'
+import { SnapshotStore } from './snapshot-store/SnapshotStore'
+import { snapshotDataLogic } from './snapshotDataLogic'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 export interface SessionRecordingDataCoordinatorLogicProps {
@@ -52,6 +54,11 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         })
         const commentsLogic = sessionRecordingCommentsLogic({
             sessionRecordingId,
+        })
+        const snapLogic = snapshotDataLogic({
+            sessionRecordingId,
+            blobV2PollingDisabled,
+            accessToken,
         })
         return {
             actions: [
@@ -114,6 +121,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'sessionNotebookComments',
                     'sessionNotebookCommentsLoading',
                 ],
+                snapLogic,
+                ['snapshotStore', 'storeVersion'],
             ],
         }
     }),
@@ -199,7 +208,15 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
     })),
     selectors(({ cache }) => ({
-        snapshots: [(s) => [s.processedSnapshots], (processedSnapshots): RecordingSnapshot[] => processedSnapshots],
+        snapshots: [
+            (s) => [s.processedSnapshots, s.snapshotStore, s.storeVersion],
+            (processedSnapshots: RecordingSnapshot[], snapshotStore: SnapshotStore | null): RecordingSnapshot[] => {
+                if (snapshotStore) {
+                    return snapshotStore.getAllLoadedSnapshots()
+                }
+                return processedSnapshots
+            },
+        ],
 
         start: [
             (s) => [s.snapshots, s.sessionPlayerMetaData],
@@ -261,8 +278,11 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         snapshotsByWindowId: [
-            (s) => [s.snapshots],
-            (snapshots) => {
+            (s) => [s.snapshots, s.snapshotStore, s.storeVersion],
+            (snapshots: RecordingSnapshot[], snapshotStore: SnapshotStore | null): Record<number, eventWithTime[]> => {
+                if (snapshotStore) {
+                    return snapshotStore.getSnapshotsByWindowId()
+                }
                 return mapSnapshotsToWindowId(snapshots || [])
             },
         ],
