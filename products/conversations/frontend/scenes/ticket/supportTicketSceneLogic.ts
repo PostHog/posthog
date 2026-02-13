@@ -261,6 +261,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     selectors({
+        hasUnsavedChanges: [
+            (s) => [s.status, s.priority, s.assignee, s.ticket],
+            (status, priority, assignee, ticket): boolean => {
+                if (!ticket) {
+                    return false
+                }
+                return (
+                    status !== ticket.status ||
+                    priority !== ticket.priority ||
+                    JSON.stringify(assignee) !== JSON.stringify(ticket.assignee)
+                )
+            },
+        ],
         chatPanelWidth: [
             () => [],
             () =>

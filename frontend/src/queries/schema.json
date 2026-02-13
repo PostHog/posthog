@@ -15674,6 +15674,7 @@
                 "toolbar",
                 "settings",
                 "health",
+                "inbox",
                 "sdk_doctor",
                 "pipeline_status",
                 "llm_evaluations",
@@ -30500,6 +30501,9 @@
         "SourceFieldInputConfig": {
             "additionalProperties": false,
             "properties": {
+                "caption": {
+                    "type": "string"
+                },
                 "label": {
                     "type": "string"
                 },
@@ -33222,6 +33226,9 @@
                 },
                 {
                     "$ref": "#/definitions/SessionPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/CohortPropertyFilter"
                 }
             ]
         },

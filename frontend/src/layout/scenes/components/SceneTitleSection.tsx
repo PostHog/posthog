@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
+import { IconBrackets, IconEllipsis, IconPencil, IconSidePanel, IconSparkles, IconWrench, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -15,6 +15,7 @@ import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
+import { UseMaxToolOptions, useMaxTool } from 'scenes/max/useMaxTool'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -28,48 +29,94 @@ import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDivider } from './SceneDivider'
 
-export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }): JSX.Element | null {
+export function SceneTitlePanelButton({
+    inPanel = false,
+    maxToolProps,
+    buttonClassName = 'size-[33px]',
+}: {
+    inPanel?: boolean
+    maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+    buttonClassName?: string
+}): JSX.Element | null {
     const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
+    const inactiveMaxToolProps: UseMaxToolOptions = { identifier: 'read_data', active: false }
+    const { openMax, definition } = useMaxTool(
+        maxToolProps && isRemovingSidePanelFlag ? { ...maxToolProps, active: true } : inactiveMaxToolProps
+    )
+
     if (isRemovingSidePanelFlag) {
-        // Open Info tab if scene has panel content, otherwise default to Discussion
-        const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Discussion
+        // Open Info tab if scene has panel content, otherwise default to PostHog AI
+        const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
+
+        if (sidePanelOpen) {
+            return null
+        }
+
         return (
-            <AppShortcut
-                name="OpenSidePanel"
-                keybind={[keyBinds.toggleRightNav]}
-                intent="Open side panel"
-                interaction="click"
-            >
-                {/* Size to mimic lemon button small */}
+            <>
                 <ButtonPrimitive
-                    className="size-[33px] group -mr-[2px]"
+                    className={buttonClassName}
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
-                        if (sidePanelOpen) {
-                            closeSidePanel()
+                        if (openMax) {
+                            openMax()
                         } else {
-                            openSidePanel(defaultTab)
+                            openSidePanel(SidePanelTab.Max)
                         }
                     }}
-                    tooltip={sidePanelOpen ? 'Close side panel' : 'Open side panel'}
+                    tooltip={
+                        definition ? (
+                            <>
+                                Open PostHog AI
+                                <br />
+                                <div className="flex items-center">
+                                    {definition.icon || <IconWrench />}
+                                    <i className="ml-1.5">{definition.name}</i>
+                                </div>
+                            </>
+                        ) : (
+                            'Open PostHog AI'
+                        )
+                    }
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
                     iconOnly
-                    active={sidePanelOpen}
                 >
-                    {sidePanelOpen ? (
-                        <IconX className="text-primary size-3 group-hover:text-primary z-10" />
-                    ) : (
-                        <IconEllipsis className="text-primary group-hover:text-primary z-10" />
-                    )}
+                    <div className="relative">
+                        <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
+                        {maxToolProps && (
+                            <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
+                        )}
+                    </div>
                 </ButtonPrimitive>
-            </AppShortcut>
+
+                {/* Size to mimic lemon button small */}
+                <ButtonPrimitive
+                    className={cn(buttonClassName, 'group -mr-[2px]')}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        openSidePanel(defaultTab)
+                    }}
+                    tooltip={
+                        <>
+                            {sidePanelOpen ? 'Close scene panel' : 'Open scene panel'}{' '}
+                            <RenderKeybind className="relative -top-px" keybind={[keyBinds.toggleRightNav]} />
+                        </>
+                    }
+                    tooltipPlacement="bottom-end"
+                    tooltipCloseDelayMs={0}
+                    iconOnly
+                >
+                    <IconSidePanel className="text-primary group-hover:text-primary z-10" />
+                </ButtonPrimitive>
+            </>
         )
     }
 
@@ -169,6 +216,11 @@ type SceneMainTitleProps = {
      * Whether name generation is currently in progress
      */
     isGeneratingName?: boolean
+    /**
+     * Props for MaxTool registration - when provided behind UX_REMOVE_SIDEPANEL flag,
+     * the AI button in the title section registers the tool with Max
+     */
+    maxToolProps?: Omit<UseMaxToolOptions, 'active'>
 }
 
 export function SceneTitleSection({
@@ -189,6 +241,7 @@ export function SceneTitleSection({
     className,
     onGenerateName,
     isGeneratingName,
+    maxToolProps,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { zenMode } = useValues(navigation3000Logic)
@@ -298,7 +351,7 @@ export function SceneTitleSection({
                             )}
                         >
                             {effectiveActions}
-                            <SceneTitlePanelButton />
+                            <SceneTitlePanelButton maxToolProps={maxToolProps} />
                         </div>
                     )}
                 </div>
