@@ -133,7 +133,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
 
             const variableDefaults =
                 workflow.variables?.reduce(
-                    (acc: Record<string, any>, v: { key: string; default: any }) => {
+                    (acc: Record<string, any>, v: { key: string; default?: any }) => {
                         acc[v.key] = v.default
                         return acc
                     },
