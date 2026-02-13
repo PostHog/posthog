@@ -69,6 +69,7 @@ rules:
                               |Comment
                               |Conversation
                               |CoreMemory
+                              |CustomerJourney
                               |CustomerProfileConfig
                               |Dashboard
                               |DashboardTemplate
@@ -224,6 +225,7 @@ rules:
                         |Comment
                         |Conversation
                         |CoreMemory
+                        |CustomerJourney
                         |CustomerProfileConfig
                         |Dashboard
                         |DashboardTemplate

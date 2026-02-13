@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-02-11 20:08:04 UTC
+// Generated at: 2026-02-12 10:15:28 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -115,7 +115,6 @@ export type CanonicalProvider =
     | 'streamlake-fp16'
     | 'switchpoint'
     | 'together'
-    | 'together-bf16'
     | 'together-fp8'
     | 'together-int4'
     | 'together-turbo'
