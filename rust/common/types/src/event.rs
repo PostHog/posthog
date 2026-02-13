@@ -714,7 +714,7 @@ mod tests {
             .collect();
         assert!(
             dlq_keys.is_empty(),
-            "Expected no dlq-* keys in OwnedHeaders, but found: {dlq_keys:?}"
+            "Expected no dlq_* keys in OwnedHeaders, but found: {dlq_keys:?}"
         );
 
         let recovered: CapturedEventHeaders = owned.into();
