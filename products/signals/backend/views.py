@@ -6,7 +6,7 @@ from django.conf import settings
 from django.db.models import Count
 
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -39,6 +39,7 @@ class EmitSignalSerializer(serializers.Serializer):
 class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
 
+    @extend_schema(exclude=True)
     @action(methods=["POST"], detail=False)
     def emit(self, request: Request, *args, **kwargs):
         if not settings.DEBUG:
@@ -62,12 +63,11 @@ class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({"status": "ok"}, status=status.HTTP_202_ACCEPTED)
 
 
-@extend_schema(tags=["signal-reports"])
+@extend_schema_view(
+    list=extend_schema(exclude=True),
+    retrieve=extend_schema(exclude=True),
+)
 class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    """
-    API for reading signal reports. Reports are auto-generated from video segment clustering.
-    """
-
     serializer_class = SignalReportSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
@@ -89,15 +89,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
 
-    @extend_schema(
-        responses={
-            200: OpenApiResponse(description="Session analysis workflow completed"),
-            403: OpenApiResponse(description="Only available in DEBUG mode"),
-            500: OpenApiResponse(description="Session analysis workflow failed"),
-        },
-        summary="Run session analysis",
-        description="Run the video segment clustering workflow for this team. DEBUG only. Blocks until workflow completes.",
-    )
+    @extend_schema(exclude=True)
     @action(detail=False, methods=["post"], url_path="analyze_sessions", required_scopes=["task:write"])
     def analyze_sessions(self, request, **kwargs):
         if not settings.DEBUG:
@@ -131,14 +123,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-    @extend_schema(
-        responses={
-            200: OpenApiResponse(description="List of artefacts for the report"),
-            404: OpenApiResponse(description="Report not found"),
-        },
-        summary="List report artefacts",
-        description="Get list of artefacts for a signal report.",
-    )
+    @extend_schema(exclude=True)
     @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["signal_report:read"])
     def artefacts(self, request, pk=None, **kwargs):
         report = cast(SignalReport, self.get_object())
