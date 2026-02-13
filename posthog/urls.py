@@ -165,8 +165,8 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
         signed_state, expires_at = build_toolbar_oauth_state(
             ToolbarOAuthState(
                 nonce=new_state_nonce(),
-                user_id=request.user.id,
-                team_id=current_team.id,
+                user_id=cast(int, request.user.pk),
+                team_id=cast(int, current_team.pk),
                 app_url=app_url,
             )
         )
