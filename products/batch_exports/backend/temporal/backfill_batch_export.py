@@ -66,7 +66,6 @@ class GetBackfillInfoOutputs:
 
     adjusted_start_at: str | None
     total_records_count: int | None
-    earliest_backfill_start_at: str | None
     interval_seconds: float
 
 
@@ -143,7 +142,6 @@ def _align_timestamp_to_interval(timestamp: dt.datetime, batch_export: BatchExpo
 
 
 async def _get_backfill_info_for_events(
-    *,
     batch_export: BatchExport,
     start_at: dt.datetime | None,
     end_at: dt.datetime | None,
@@ -152,10 +150,10 @@ async def _get_backfill_info_for_events(
     filters_str: str,
     extra_query_parameters: dict[str, typing.Any],
 ) -> tuple[dt.datetime | None, int]:
-    """Get earliest backfill start and estimated record count for events model.
+    """Get adjusted start time and estimated record count for events model.
 
     Returns:
-        A tuple of (earliest_backfill_start_at, estimated_records_count).
+        A tuple of (adjusted_start_at, estimated_records_count).
         If no data exists, returns (None, 0).
     """
     team_id = batch_export.team_id
@@ -257,7 +255,7 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
     interval_seconds = batch_export.interval_time_delta.total_seconds()
 
     if model == "events":
-        earliest_start, record_count = await _get_backfill_info_for_events(
+        adjusted_start_at, record_count = await _get_backfill_info_for_events(
             batch_export=batch_export,
             start_at=start_at,
             end_at=end_at,
@@ -267,8 +265,7 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
             extra_query_parameters=extra_query_parameters,
         )
 
-        # If no data exists at all, return early with count=0
-        if earliest_start is None:
+        if adjusted_start_at is None:
             logger.info(
                 "No data exists for backfill",
                 team_id=inputs.team_id,
@@ -278,43 +275,21 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
             return GetBackfillInfoOutputs(
                 adjusted_start_at=inputs.start_at,
                 total_records_count=0,
-                earliest_backfill_start_at=None,
                 interval_seconds=interval_seconds,
             )
 
-        earliest_backfill_start_at = earliest_start.astimezone(batch_export.timezone_info).isoformat()
+        adjusted_start_at_str = adjusted_start_at.astimezone(batch_export.timezone_info).isoformat()
 
-        # Adjust start_at if it's before the earliest data
-        adjusted_start_at = inputs.start_at
-        if start_at is not None and start_at < earliest_start:
-            adjusted_start_at = earliest_start.astimezone(batch_export.timezone_info).isoformat()
+        if adjusted_start_at_str != inputs.start_at:
             logger.info(
-                "Adjusting backfill start_at to earliest available data",
-                team_id=inputs.team_id,
-                batch_export_id=inputs.batch_export_id,
-                adjusted_start_at=adjusted_start_at,
-            )
-
-        # If end_at is before earliest data, there's nothing to backfill
-        if end_at is not None and end_at <= earliest_start:
-            logger.info(
-                "Backfill end_at is before earliest data, nothing to backfill",
-                team_id=inputs.team_id,
-                batch_export_id=inputs.batch_export_id,
-                end_at=inputs.end_at,
-                earliest_start=earliest_backfill_start_at,
-            )
-            return GetBackfillInfoOutputs(
-                adjusted_start_at=adjusted_start_at,
-                total_records_count=0,
-                earliest_backfill_start_at=earliest_backfill_start_at,
-                interval_seconds=interval_seconds,
+                "Narrowing backfill start to earliest available data",
+                original_start_at=inputs.start_at,
+                adjusted_start_at=adjusted_start_at_str,
             )
 
         return GetBackfillInfoOutputs(
-            adjusted_start_at=adjusted_start_at,
+            adjusted_start_at=adjusted_start_at_str,
             total_records_count=record_count,
-            earliest_backfill_start_at=earliest_backfill_start_at,
             interval_seconds=interval_seconds,
         )
 
@@ -343,7 +318,6 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
         return GetBackfillInfoOutputs(
             adjusted_start_at=inputs.start_at,
             total_records_count=None,
-            earliest_backfill_start_at=None,
             interval_seconds=interval_seconds,
         )
 
@@ -588,7 +562,6 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
 
         try:
             # Step 2: Get backfill info (validation + estimation)
-            # This may take time for large datasets
             backfill_info = await temporalio.workflow.execute_activity(
                 get_backfill_info,
                 GetBackfillInfoInputs(
