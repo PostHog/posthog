@@ -65,6 +65,7 @@ rules:
                               |BatchExportBackfill
                               |BatchImport
                               |ChangeRequest
+                              |ClusteringConfig
                               |Cohort
                               |Comment
                               |Conversation
@@ -221,6 +222,7 @@ rules:
                         |BatchExportBackfill
                         |BatchImport
                         |ChangeRequest
+                        |ClusteringConfig
                         |Cohort
                         |Comment
                         |Conversation
