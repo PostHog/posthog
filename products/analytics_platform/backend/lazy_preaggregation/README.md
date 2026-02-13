@@ -58,7 +58,6 @@ preagg_result = ensure_preaggregated(
     insert_query="""
         SELECT
             toStartOfHour(timestamp) as time_window_start,
-            now() + INTERVAL 1 DAY as expires_at,
             [] as breakdown_value,
             uniqExactState(person_id) as uniq_exact_state
         FROM events

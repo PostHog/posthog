@@ -802,7 +802,6 @@ class TestBuildManualInsertSQL(BaseTest):
     MANUAL_INSERT_QUERY = """
         SELECT
             toStartOfDay(timestamp) as time_window_start,
-            now() as expires_at,
             [] as breakdown_value,
             uniqExactState(person_id) as uniq_exact_state
         FROM events
@@ -812,14 +811,14 @@ class TestBuildManualInsertSQL(BaseTest):
         GROUP BY time_window_start
     """
 
-    def test_adds_job_id_column(self):
-        """Test that _build_manual_insert_sql adds job_id as second column."""
+    def test_adds_metadata_columns(self):
         job = PreaggregationJob.objects.create(
             team=self.team,
             query_hash="test_hash",
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
         )
 
         sql, values = _build_manual_insert_sql(
@@ -829,21 +828,20 @@ class TestBuildManualInsertSQL(BaseTest):
             table=PreaggregationTable.PREAGGREGATION_RESULTS,
         )
 
-        # Check SQL structure
         assert "INSERT INTO preaggregation_results" in sql
-        assert "job_id" in sql
-        # job_id should be second in the column list (after team_id)
+        # team_id and job_id are prepended, expires_at is appended
         assert sql.index("team_id") < sql.index("job_id")
         assert sql.index("job_id") < sql.index("time_window_start")
+        assert sql.index("time_window_start") < sql.index("expires_at")
 
     def test_substitutes_time_placeholders(self):
-        """Test that _build_manual_insert_sql substitutes time placeholders."""
         job = PreaggregationJob.objects.create(
             team=self.team,
             query_hash="test_hash",
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
         )
 
         sql, values = _build_manual_insert_sql(
@@ -853,24 +851,22 @@ class TestBuildManualInsertSQL(BaseTest):
             table=PreaggregationTable.PREAGGREGATION_RESULTS,
         )
 
-        # Should contain the job's time range values
         assert "2024-01-01" in sql
         assert "2024-01-02" in sql
 
     def test_accepts_custom_placeholders(self):
-        """Test that _build_manual_insert_sql accepts custom placeholders."""
         job = PreaggregationJob.objects.create(
             team=self.team,
             query_hash="test_hash",
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
         )
 
         query_with_custom = """
             SELECT
                 toStartOfDay(timestamp) as time_window_start,
-                now() as expires_at,
                 [] as breakdown_value,
                 uniqExactState(person_id) as uniq_exact_state
             FROM events
@@ -888,7 +884,6 @@ class TestBuildManualInsertSQL(BaseTest):
             base_placeholders={"event_name": ast.Constant(value="$pageleave")},
         )
 
-        # The placeholder value should be in the parameterized values
         assert "$pageleave" in values.values()
 
 
@@ -896,7 +891,6 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
     MANUAL_INSERT_QUERY = """
         SELECT
             toStartOfDay(timestamp) as time_window_start,
-            now() as expires_at,
             [] as breakdown_value,
             uniqExactState(person_id) as uniq_exact_state
         FROM events
@@ -907,7 +901,6 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
     """
 
     def test_creates_job_and_returns_job_ids(self):
-        """Test that ensure_preaggregated creates jobs and returns job IDs."""
         result = ensure_preaggregated(
             team=self.team,
             insert_query=self.MANUAL_INSERT_QUERY,
@@ -924,7 +917,6 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
         assert job.team == self.team
 
     def test_reuses_existing_jobs(self):
-        """Test that ensure_preaggregated reuses existing READY jobs."""
         # First call
         first_result = ensure_preaggregated(
             team=self.team,
@@ -947,7 +939,6 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
         assert second_result.job_ids[0] == first_job_id
 
     def test_creates_jobs_for_missing_ranges(self):
-        """Test that ensure_preaggregated creates jobs only for missing time ranges."""
         # Create job for Jan 1 only
         first_result = ensure_preaggregated(
             team=self.team,
@@ -970,11 +961,9 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
         assert jan1_job_id in second_result.job_ids
 
     def test_accepts_custom_placeholders(self):
-        """Test that ensure_preaggregated accepts custom placeholders."""
         query_with_placeholder = """
             SELECT
                 toStartOfDay(timestamp) as time_window_start,
-                now() as expires_at,
                 [] as breakdown_value,
                 uniqExactState(person_id) as uniq_exact_state
             FROM events

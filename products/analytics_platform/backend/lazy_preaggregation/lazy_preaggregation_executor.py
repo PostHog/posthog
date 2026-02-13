@@ -668,17 +668,13 @@ def ensure_preaggregated(
     The following columns are added automatically:
     - team_id: Added as the first column
     - job_id: Added as the second column
+    - expires_at: Added as the last column (derived from ttl_seconds + safety buffer)
 
     The following placeholders are added automatically per-job:
     - {time_window_min}: Start of the job's time window (datetime)
     - {time_window_max}: End of the job's time window (datetime)
 
     Your query MUST use these placeholders to filter data to the correct time range.
-
-    The query should include (in order after auto-added columns):
-    - time_window_start: The time bucket (e.g., toStartOfDay(timestamp))
-    - expires_at: When the data expires (use a constant or expression)
-    - ... additional columns as needed by the table schema
 
     Args:
         team: The team to create preaggregation for
@@ -700,7 +696,6 @@ def ensure_preaggregated(
             insert_query=\"\"\"
                 SELECT
                     toStartOfDay(timestamp) as time_window_start,
-                    now() + INTERVAL 7 DAY as expires_at,
                     [] as breakdown_value,
                     uniqExactState(person_id) as uniq_exact_state
                 FROM events
@@ -766,7 +761,7 @@ def _build_manual_insert_sql(
     Build INSERT SQL for manual preaggregation.
 
     Parses the query string with time placeholders for the job's time range,
-    then adds team_id and job_id to the SELECT list.
+    then adds team_id, job_id, and expires_at to the SELECT list.
 
     The query should use {time_window_min} and {time_window_max} placeholders
     for time filtering - these are substituted with the job's time range.
@@ -796,6 +791,13 @@ def _build_manual_insert_sql(
         expr=ast.Call(name="toUUID", args=[ast.Constant(value=str(job.id))]),
     )
     query.select.insert(1, job_id_expr)
+
+    # Add expires_at at the end — CH data outlives the PG job by EXPIRY_BUFFER_SECONDS.
+    # Extra day ensures Date-type columns (which truncate to midnight) stay in the future.
+    assert job.expires_at is not None
+    ch_expires_at = job.expires_at + timedelta(seconds=EXPIRY_BUFFER_SECONDS, days=1)
+    expires_at_expr = ast.Alias(alias="expires_at", expr=ast.Constant(value=ch_expires_at))
+    query.select.append(expires_at_expr)
 
     # Print to SQL
     context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True, limit_top_select=False)
