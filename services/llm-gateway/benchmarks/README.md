@@ -46,7 +46,7 @@ python benchmark.py --models gpt-4.1-mini claude-haiku-4-5-20251001
 python benchmark.py --prompt "Explain quantum computing" --max-tokens 500
 
 # Re-print saved results without re-running
-python benchmark.py --report results/benchmark_20260213_143000.json
+python benchmark.py --report results/benchmark_YYYYMMDD_HHMMSS.json
 ```
 
 ## Default models

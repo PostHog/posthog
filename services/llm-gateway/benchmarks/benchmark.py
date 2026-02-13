@@ -10,7 +10,7 @@ Usage:
     python benchmark.py --concurrency 5          # concurrent requests
     python benchmark.py --models gpt-4.1-mini claude-haiku-4-5-20251001
     python benchmark.py --streaming-only         # skip non-streaming
-    python benchmark.py --report results/benchmark_20260213.json
+    python benchmark.py --report results/benchmark_YYYYMMDD.json
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import statistics
 import time
 import uuid
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from anthropic import AsyncAnthropic
@@ -92,6 +92,7 @@ async def bench_openai_stream(
     start = time.perf_counter()
     ttft: float | None = None
     token_count = 0
+    chunk_count = 0
 
     stream = await client.chat.completions.create(
         model=model,
@@ -99,13 +100,19 @@ async def bench_openai_stream(
         max_tokens=max_tokens,
         temperature=0,
         stream=True,
+        stream_options={"include_usage": True},
     )
 
     async for chunk in stream:
         if chunk.choices and chunk.choices[0].delta.content:
             if ttft is None:
                 ttft = (time.perf_counter() - start) * 1000
-            token_count += 1
+            chunk_count += 1
+        if chunk.usage and chunk.usage.completion_tokens:
+            token_count = chunk.usage.completion_tokens
+
+    if token_count == 0:
+        token_count = chunk_count
 
     total_ms = (time.perf_counter() - start) * 1000
     ttft_ms = ttft if ttft is not None else total_ms
@@ -129,7 +136,7 @@ async def bench_anthropic_stream(
 ) -> BenchmarkResult:
     start = time.perf_counter()
     ttft: float | None = None
-    token_count = 0
+    chunk_count = 0
 
     async with client.messages.stream(
         model=model,
@@ -137,10 +144,13 @@ async def bench_anthropic_stream(
         max_tokens=max_tokens,
         temperature=0,
     ) as stream:
-        async for text in stream.text_stream:
+        async for _text in stream.text_stream:
             if ttft is None:
                 ttft = (time.perf_counter() - start) * 1000
-            token_count += 1
+            chunk_count += 1
+        final_message = await stream.get_final_message()
+
+    token_count = final_message.usage.output_tokens if final_message else chunk_count
 
     total_ms = (time.perf_counter() - start) * 1000
     ttft_ms = ttft if ttft is not None else total_ms
@@ -221,32 +231,29 @@ async def bench_anthropic_non_stream(
 def create_clients(
     gateway_url: str,
 ) -> dict[str, AsyncOpenAI | AsyncAnthropic]:
-    gateway_api_key = os.environ.get("GATEWAY_API_KEY", "")
+    gateway_api_key = os.environ.get("GATEWAY_API_KEY")
 
     clients: dict[str, AsyncOpenAI | AsyncAnthropic] = {}
+
+    if not gateway_api_key:
+        print("  Warning: GATEWAY_API_KEY not set, skipping gateway routes")
 
     openai_key = os.environ.get("OPENAI_API_KEY")
     if openai_key:
         clients["openai_direct"] = AsyncOpenAI(api_key=openai_key)
-        # OpenAI SDK base_url replaces .../v1
-        clients["openai_gateway"] = AsyncOpenAI(
-            base_url=f"{gateway_url}/v1", api_key=gateway_api_key
-        )
+        if gateway_api_key:
+            clients["openai_gateway"] = AsyncOpenAI(base_url=f"{gateway_url}/v1", api_key=gateway_api_key)
 
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     if anthropic_key:
         clients["anthropic_direct"] = AsyncAnthropic(api_key=anthropic_key)
-        # Anthropic SDK adds /v1 itself
-        clients["anthropic_gateway"] = AsyncAnthropic(
-            base_url=gateway_url, api_key=gateway_api_key
-        )
+        if gateway_api_key:
+            clients["anthropic_gateway"] = AsyncAnthropic(base_url=gateway_url, api_key=gateway_api_key)
 
     return clients
 
 
-def get_bench_fn(
-    provider: str, mode: str, client: AsyncOpenAI | AsyncAnthropic
-):
+def get_bench_fn(provider: str, mode: str, client: AsyncOpenAI | AsyncAnthropic):
     fns = {
         ("openai", "streaming"): bench_openai_stream,
         ("openai", "non_streaming"): bench_openai_non_stream,
@@ -294,7 +301,7 @@ async def run_benchmark(
             print(f"  Skipping {model_name}: no {provider} API key configured")
             continue
 
-        routes = [("direct", direct_key), ("gateway", gateway_key)]
+        routes = [(route, key) for route, key in [("direct", direct_key), ("gateway", gateway_key)] if key in clients]
 
         for mode in modes:
             # Warmup each route
@@ -309,44 +316,36 @@ async def run_benchmark(
                     except Exception as e:
                         print(f"    warmup error: {e}")
 
-            # Interleaved measured iterations — direct/gateway back-to-back
             for i in range(iterations):
                 for route, client_key in routes:
                     client = clients[client_key]
                     bench_fn = get_bench_fn(provider, mode, client)
                     label = f"{model_name} / {route} / {mode}"
-                    print(f"  {label} — iteration {i + 1}/{iterations}")
-                    try:
-                        result = await run_single(
-                            bench_fn, client, model_name, prompt, max_tokens, route
-                        )
-                        all_results.append(result)
-                    except Exception as e:
-                        print(f"    error: {e}")
 
-            # Concurrent iterations — also interleaved per route
-            if concurrency > 1:
-                for route, client_key in routes:
-                    client = clients[client_key]
-                    bench_fn = get_bench_fn(provider, mode, client)
-                    label = f"{model_name} / {route} / {mode}"
-                    print(f"  {label} — concurrent ({concurrency})")
-                    try:
-                        concurrent_results = await asyncio.gather(
-                            *[
-                                run_single(bench_fn, client, model_name, prompt, max_tokens, route)
-                                for _ in range(concurrency)
-                            ],
-                            return_exceptions=True,
-                        )
-                        for r in concurrent_results:
-                            if isinstance(r, Exception):
-                                print(f"    concurrent error: {r}")
-                            else:
-                                r.mode = f"concurrent_{mode}"
-                                all_results.append(r)
-                    except Exception as e:
-                        print(f"    concurrent error: {e}")
+                    if concurrency > 1:
+                        print(f"  {label} — iteration {i + 1}/{iterations} (x{concurrency} concurrent)")
+                        try:
+                            concurrent_results = await asyncio.gather(
+                                *[
+                                    run_single(bench_fn, client, model_name, prompt, max_tokens, route)
+                                    for _ in range(concurrency)
+                                ],
+                                return_exceptions=True,
+                            )
+                            for r in concurrent_results:
+                                if isinstance(r, Exception):
+                                    print(f"    concurrent error: {r}")
+                                else:
+                                    all_results.append(r)
+                        except Exception as e:
+                            print(f"    concurrent error: {e}")
+                    else:
+                        print(f"  {label} — iteration {i + 1}/{iterations}")
+                        try:
+                            result = await run_single(bench_fn, client, model_name, prompt, max_tokens, route)
+                            all_results.append(result)
+                        except Exception as e:
+                            print(f"    error: {e}")
 
     return all_results
 
@@ -430,16 +429,8 @@ def print_streaming_table(
         if "direct" in mode_stats and "gateway" in mode_stats:
             d, g = mode_stats["direct"], mode_stats["gateway"]
             parts = ["  → overhead", ""]
-            parts.append(
-                fmt_overhead(d["ttft_ms"], g["ttft_ms"])
-                if "ttft_ms" in d and "ttft_ms" in g
-                else "—"
-            )
-            parts.append(
-                fmt_overhead(d["tps"], g["tps"], higher_is_better=True)
-                if "tps" in d and "tps" in g
-                else "—"
-            )
+            parts.append(fmt_overhead(d["ttft_ms"], g["ttft_ms"]) if "ttft_ms" in d and "ttft_ms" in g else "—")
+            parts.append(fmt_overhead(d["tps"], g["tps"], higher_is_better=True) if "tps" in d and "tps" in g else "—")
             parts.append(fmt_overhead(d["total_ms"], g["total_ms"]))
             print(f"{parts[0]:<30} {parts[1]:<10} {parts[2]:<22} {parts[3]:<22} {parts[4]:<22}")
         print()
@@ -479,14 +470,9 @@ def print_results(
     stats: dict[str, dict[str, dict[str, dict[str, BenchmarkStats]]]],
     concurrency: int,
 ) -> None:
-    print_streaming_table(stats, "streaming", "Streaming Results")
-    print_non_streaming_table(stats, "non_streaming", "Non-streaming Results")
-
-    if concurrency > 1:
-        print_streaming_table(stats, "concurrent_streaming", f"Concurrent ({concurrency}) Streaming Results")
-        print_non_streaming_table(
-            stats, "concurrent_non_streaming", f"Concurrent ({concurrency}) Non-streaming Results"
-        )
+    suffix = f" (x{concurrency} concurrent)" if concurrency > 1 else ""
+    print_streaming_table(stats, "streaming", f"Streaming Results{suffix}")
+    print_non_streaming_table(stats, "non_streaming", f"Non-streaming Results{suffix}")
 
 
 # -- Persistence --
@@ -514,7 +500,7 @@ def save_results(
     path = Path(output_dir)
     path.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     filename = path / f"benchmark_{timestamp}.json"
 
     data = {
@@ -547,9 +533,7 @@ def load_and_print_report(report_path: str) -> None:
         for mode, routes in modes.items():
             stats[model][mode] = {}
             for route, metrics in routes.items():
-                stats[model][mode][route] = {
-                    k: BenchmarkStats(**v) for k, v in metrics.items()
-                }
+                stats[model][mode][route] = {k: BenchmarkStats(**v) for k, v in metrics.items()}
 
     print_results(stats, meta["concurrency"])
 
@@ -609,8 +593,10 @@ async def main() -> None:
     else:
         modes = ["streaming", "non_streaming"]
 
-    print(f"Benchmarking {len(models)} models, {args.iterations} iterations, "
-          f"{args.warmup} warmup, concurrency={args.concurrency}")
+    print(
+        f"Benchmarking {len(models)} models, {args.iterations} iterations, "
+        f"{args.warmup} warmup, concurrency={args.concurrency}"
+    )
     print(f"Modes: {', '.join(modes)}")
     print(f"Prompt: {args.prompt[:80]}...")
     print(f"Max tokens: {args.max_tokens}")
@@ -636,7 +622,7 @@ async def main() -> None:
     print_results(stats, args.concurrency)
 
     metadata = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "iterations": args.iterations,
         "warmup": args.warmup,
         "concurrency": args.concurrency,
