@@ -11,6 +11,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -54,6 +55,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         hasUnsavedChanges,
     } = useValues(logic)
     const { setStatus, setPriority, setAssignee, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
+    const { user } = useValues(userLogic)
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -233,21 +235,32 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Assignee</span>
-                                <AssigneeSelect assignee={assignee} onChange={setAssignee}>
-                                    {(resolvedAssignee, isOpen) => (
+                                <div className="flex items-center gap-2">
+                                    {user && assignee?.id !== user.id && (
                                         <LemonButton
-                                            size="small"
-                                            type="secondary"
-                                            active={isOpen}
-                                            sideIcon={<IconChevronDown />}
+                                            type="tertiary"
+                                            size="xsmall"
+                                            onClick={() => setAssignee({ type: 'user', id: user.id })}
                                         >
-                                            <span className="flex items-center gap-1">
-                                                <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
-                                                <AssigneeLabelDisplay assignee={resolvedAssignee} size="small" />
-                                            </span>
+                                            Take it
                                         </LemonButton>
                                     )}
-                                </AssigneeSelect>
+                                    <AssigneeSelect assignee={assignee} onChange={setAssignee}>
+                                        {(resolvedAssignee, isOpen) => (
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                active={isOpen}
+                                                sideIcon={<IconChevronDown />}
+                                            >
+                                                <span className="flex items-center gap-1">
+                                                    <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
+                                                    <AssigneeLabelDisplay assignee={resolvedAssignee} size="small" />
+                                                </span>
+                                            </LemonButton>
+                                        )}
+                                    </AssigneeSelect>
+                                </div>
                             </div>
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">
