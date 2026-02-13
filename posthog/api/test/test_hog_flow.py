@@ -1004,6 +1004,43 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 400, response.json()
 
+    def test_hog_flow_draft_invalid_can_be_archived(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+        incomplete_action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {},
+        }
+
+        hog_flow = {
+            "name": "Draft to Archive Flow",
+            "status": "draft",
+            "actions": [trigger_action, incomplete_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+        assert response.json()["status"] == "draft"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"status": "archived"},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "archived"
+
     def test_hog_flow_draft_to_active_rejects_incomplete(self):
         trigger_action = {
             "id": "trigger_node",
