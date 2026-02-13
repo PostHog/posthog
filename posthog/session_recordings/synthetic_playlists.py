@@ -291,8 +291,8 @@ class ExpiringPlaylistSource(SyntheticPlaylistSource):
 @dataclass
 class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
     """
-    Surfaces sessions with high frustration signals: rage clicks, dead clicks, and exceptions.
-    Results are cached for 1 hour and scored by a composite frustration score.
+    Surfaces sessions with frustration signals: rage clicks and exceptions.
+    Results are cached for 1 hour and ranked by a composite frustration score.
     """
 
     CACHE_KEY_PREFIX = "frustration_signals_synthetic_playlist"
@@ -323,11 +323,11 @@ class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
                 `$session_id` AS session_id,
                 countIf(event = '$rageclick') * 3
                     + countIf(event = '$exception') * 2
-                    + countIf(event = '$dead_click') AS frustration_score
+                    AS frustration_score
             FROM events
             WHERE
                 team_id = %(team_id)s
-                AND event IN ('$rageclick', '$dead_click', '$exception')
+                AND event IN ('$rageclick', '$exception')
                 AND timestamp >= %(date_from)s
                 AND timestamp <= %(date_to)s
                 AND notEmpty(`$session_id`)
@@ -363,7 +363,7 @@ class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
             id=-7,
             short_id="synthetic-frustrated",
             name="Frustration signals",
-            description="Sessions with rage clicks, dead clicks, or errors in the last 7 days",
+            description="Sessions with rage clicks or errors in the last 7 days",
             type="collection",
             get_session_ids=self.get_session_ids,
             count_session_ids=self.count_session_ids,

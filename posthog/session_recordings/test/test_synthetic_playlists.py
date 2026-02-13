@@ -866,7 +866,7 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         sync_execute("TRUNCATE TABLE sharded_events")
 
     def _create_frustration_events(
-        self, session_id: str, rage_clicks: int = 0, dead_clicks: int = 0, exceptions: int = 0, days_ago: int = 1
+        self, session_id: str, rage_clicks: int = 0, exceptions: int = 0, days_ago: int = 1
     ) -> None:
         """Helper to create frustration events for a session"""
         from posthog.test.base import _create_event, flush_persons_and_events
@@ -879,14 +879,6 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
             _create_event(
                 distinct_id="user",
                 event="$rageclick",
-                properties={"$session_id": str(uuid7())},
-                team=self.team,
-                timestamp=timestamp,
-            )
-        for _ in range(dead_clicks):
-            _create_event(
-                distinct_id="user",
-                event="$dead_click",
                 properties={"$session_id": str(uuid7())},
                 team=self.team,
                 timestamp=timestamp,
@@ -986,30 +978,31 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
             timestamp=datetime.now() - timedelta(days=1),
         )
 
-        # session_c: 5 dead clicks = score 5, but also add 1 exception = score 7
+        # session_c: 2 rage clicks + 2 exceptions = score 10
         session_c = str(uuid7())
-        for _ in range(5):
+        for _ in range(2):
             _create_event(
                 distinct_id="user",
-                event="$dead_click",
+                event="$rageclick",
                 properties={"$session_id": session_c},
                 team=self.team,
                 timestamp=datetime.now() - timedelta(days=1),
             )
-        _create_event(
-            distinct_id="user",
-            event="$exception",
-            properties={"$session_id": session_c},
-            team=self.team,
-            timestamp=datetime.now() - timedelta(days=1),
-        )
+        for _ in range(2):
+            _create_event(
+                distinct_id="user",
+                event="$exception",
+                properties={"$session_id": session_c},
+                team=self.team,
+                timestamp=datetime.now() - timedelta(days=1),
+            )
 
         flush_persons_and_events()
 
         source = FrustrationSignalsPlaylistSource()
         session_ids = source.get_session_ids(self.team, self.user)
 
-        # session_c (score 7) > session_b (score 5) > session_a (score 3)
+        # session_c (score 10) > session_b (score 5) > session_a (score 3)
         assert session_ids == [session_c, session_b, session_a]
 
     def test_frustrated_sessions_excludes_old_data(self) -> None:
