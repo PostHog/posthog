@@ -175,6 +175,8 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
             base_url=base_url, application=oauth_app, state=signed_state, code_challenge=code_challenge
         )
 
+        # TODO: Session code_verifier is not yet consumed in this flow; token exchange
+        # uses code_verifier from the client (toolbar_oauth_exchange request body).
         request.session["toolbar_oauth_code_verifier"] = code_verifier
 
         return render_template(
@@ -187,16 +189,16 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
                 "authorization_url": authorization_url,
             },
         )
-    else:
-        return render_template(
-            "authorize_and_link.html" if is_forum_login else "authorize_and_redirect.html",
-            request=request,
-            context={
-                "email": request.user,
-                "domain": redirect_url.hostname,
-                "redirect_url": request.GET["redirect"],
-            },
-        )
+
+    return render_template(
+        "authorize_and_link.html" if is_forum_login else "authorize_and_redirect.html",
+        request=request,
+        context={
+            "email": request.user,
+            "domain": redirect_url.hostname,
+            "redirect_url": request.GET["redirect"],
+        },
+    )
 
 
 urlpatterns = [
@@ -239,7 +241,7 @@ urlpatterns = [
     opt_slash_path("api/user/toolbar_oauth_start", user.toolbar_oauth_start),
     opt_slash_path("api/user/toolbar_oauth_exchange", user.toolbar_oauth_exchange),
     opt_slash_path("api/user/toolbar_oauth_refresh", user.toolbar_oauth_refresh),
-    path("toolbar_oauth/callback", login_required(user.toolbar_oauth_callback)),
+    path("toolbar_oauth/callback", user.toolbar_oauth_callback),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),

@@ -16,58 +16,52 @@ class TestAuthorizeAndRedirectOAuth(APIBaseTest):
     def test_renders_oauth_authorize_url_when_enabled(self):
         response = self._get_authorize()
 
-        self.assertEqual(response.status_code, 200)
-        # Should contain an OAuth authorizaion URl pointing to /oauth/authorize
+        assert response.status_code == 200
         content = response.content.decode()
-        self.assertIn("/oauth/authorize", content)
-        self.assertIn("code_challenge", content)
-        self.assertNotIn("/api/user/redirect_to_site", content)
+        assert "/oauth/authorize" in content
+        assert "code_challenge" in content
+        assert "/api/user/redirect_to_site" not in content
 
     @override_settings(TOOLBAR_OAUTH_ENABLED=False)
     def test_renders_legacy_redirect_when_disabled(self):
         response = self._get_authorize()
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         content = response.content.decode()
-        self.assertIn("/api/user/redirect_to_site", content)
-        self.assertNotIn("/oauth/authorize", content)
+        assert "/api/user/redirect_to_site" in content
+        assert "/oauth/authorize" not in content
 
     def test_still_rejects_disallowed_domain(self):
         response = self._get_authorize(redirect_url="https://evil.com/page")
 
-        self.assertEqual(response.status_code, 403)
+        assert response.status_code == 403
 
     def test_still_requires_referrer_header(self):
         response = self.client.get("/authorize_and_redirect/?redirect=https://mysite.com/page")
 
-        self.assertEqual(response.status_code, 400)
+        assert response.status_code == 400
 
     def test_oauth_url_contains_state_and_pkce_params(self):
         response = self._get_authorize()
 
         content = response.content.decode()
-        # Find the authorization URL in the rendered HTML
-        # It should contain the state and PKCE parameters
-        self.assertIn("state=", content)
-        self.assertIn("code_challenge=", content)
-        self.assertIn("code_challenge_method=S256", content)
+        assert "state=" in content
+        assert "code_challenge=" in content
+        assert "code_challenge_method=S256" in content
 
     def test_oauth_url_contains_correct_redirect_uri(self):
         response = self._get_authorize()
 
         content = response.content.decode()
-        self.assertIn("redirect_uri=", content)
-        # Path is URL-encoded in the query string (toolbar_oauth%2Fcallback)
-        self.assertIn("toolbar_oauth", content)
-        self.assertIn("callback", content)
+        assert "redirect_uri=" in content
+        assert "toolbar_oauth" in content
+        assert "callback" in content
 
-    # Tests for PKCE generation
     def test_code_verifier_is_stored_in_session(self):
         response = self._get_authorize()
 
-        # assert status code
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         session = self.client.session
-        self.assertIn("toolbar_oauth_code_verifier", session)
-        self.assertTrue(len(session["toolbar_oauth_code_verifier"]) >= 43)
+        assert "toolbar_oauth_code_verifier" in session
+        assert len(session["toolbar_oauth_code_verifier"]) >= 43

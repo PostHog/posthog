@@ -21,11 +21,14 @@ from django.core.cache import cache
 from django.db import transaction
 
 import requests
+import structlog
 
 from posthog.api.utils import unparsed_hostname_in_allowed_url_list
 from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, is_loopback_host
 from posthog.models.organization import Organization
+
+logger = structlog.get_logger(__name__)
 
 STATE_SIGNER_SALT = "toolbar-oauth-state-v1"
 STATE_VERSION = 1
@@ -144,9 +147,14 @@ def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
             if existing.redirect_uris != redirect_uri:
                 existing.redirect_uris = redirect_uri
                 existing.save(update_fields=["redirect_uris"])
+                logger.info(
+                    "toolbar_oauth_redirect_uri_updated",
+                    organization_id=user.organization.pk,
+                    redirect_uri=redirect_uri,
+                )
             return existing
 
-        return OAuthApplication.objects.create(
+        app = OAuthApplication.objects.create(
             name=app_name,
             user=user,
             organization=user.organization,
@@ -157,6 +165,12 @@ def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
             skip_authorization=False,
             is_first_party=False,
         )
+        logger.info(
+            "toolbar_oauth_application_created",
+            organization_id=user.organization.pk,
+            redirect_uri=redirect_uri,
+        )
+        return app
 
 
 def build_toolbar_oauth_state(state: ToolbarOAuthState) -> tuple[str, datetime]:
@@ -204,23 +218,29 @@ def validate_and_consume_toolbar_oauth_state(
     try:
         payload = signing.loads(signed_state, salt=STATE_SIGNER_SALT, max_age=settings.TOOLBAR_OAUTH_STATE_TTL_SECONDS)
     except signing.SignatureExpired as exc:
+        logger.warning("toolbar_oauth_state_validation_failed", code="invalid_state", reason="expired")
         raise ToolbarOAuthError("invalid_state", "OAuth state has expired", 400) from exc
     except signing.BadSignature as exc:
+        logger.warning("toolbar_oauth_state_validation_failed", code="invalid_state", reason="bad_signature")
         raise ToolbarOAuthError("invalid_state", "OAuth state is invalid", 400) from exc
 
     if payload.get("v") != STATE_VERSION:
+        logger.warning("toolbar_oauth_state_validation_failed", code="invalid_state", reason="wrong_version")
         raise ToolbarOAuthError("invalid_state", "Invalid OAuth state version", 400)
 
     nonce = payload.get("nonce")
     if not nonce:
+        logger.warning("toolbar_oauth_state_validation_failed", code="invalid_state", reason="missing_nonce")
         raise ToolbarOAuthError("invalid_state", "OAuth state is missing nonce", 400)
 
     toolbar_oauth_state_cache.claim_or_raise(nonce)
 
     if payload.get("user_id") != request_user.pk:
+        logger.warning("toolbar_oauth_state_validation_failed", code="state_user_mismatch")
         raise ToolbarOAuthError("state_user_mismatch", "OAuth state user mismatch", 400)
 
     if payload.get("team_id") != request_team.pk:
+        logger.warning("toolbar_oauth_state_validation_failed", code="state_team_mismatch")
         raise ToolbarOAuthError("state_team_mismatch", "OAuth state team mismatch", 400)
 
     app_url = payload.get("app_url")
@@ -260,27 +280,48 @@ def exchange_code_for_tokens(
     redirect_uri = _get_redirect_uri()
     token_url = f"{settings.SITE_URL}/oauth/token/"
 
-    response = requests.post(
-        token_url,
-        data={
-            "grant_type": "authorization_code",
-            "client_id": client_id,
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "code_verifier": code_verifier,
-        },
-        timeout=settings.TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS,
-    )
-
     try:
-        payload = response.json()
-    except (ValueError, requests.exceptions.JSONDecodeError):
-        raise ToolbarOAuthError("token_exchange_failed", "Non-JSON response from token endpoint", 502)
+        response = requests.post(
+            token_url,
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_id,
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "code_verifier": code_verifier,
+            },
+            timeout=settings.TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as exc:
+        logger.warning("toolbar_oauth_token_exchange_failed", code="token_exchange_unavailable", error=str(exc))
+        raise ToolbarOAuthError("token_exchange_unavailable", "Failed to exchange code for tokens", 500) from exc
+
+    if response.content:
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            logger.warning(
+                "toolbar_oauth_token_exchange_failed",
+                code="token_exchange_invalid_response",
+                status=502,
+            )
+            raise ToolbarOAuthError(
+                "token_exchange_invalid_response", "OAuth token exchange returned invalid JSON", 502
+            ) from exc
+    else:
+        payload = {}
 
     if response.status_code >= 400:
         error = payload.get("error", "token_exchange_failed")
         detail = payload.get("error_description", "OAuth token exchange failed")
-        raise ToolbarOAuthError(error, detail, 400)
+        error_status = response.status_code if 400 <= response.status_code < 600 else 502
+        logger.warning(
+            "toolbar_oauth_token_exchange_failed",
+            code=error,
+            status=error_status,
+            detail=detail,
+        )
+        raise ToolbarOAuthError(error, detail, error_status)
 
     return {
         "access_token": payload.get("access_token"),
