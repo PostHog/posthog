@@ -174,9 +174,7 @@ def build_toolbar_oauth_state(state: ToolbarOAuthState) -> tuple[str, datetime]:
     }
 
     signed_state = signing.dumps(payload, salt=STATE_SIGNER_SALT)
-    cache.set(
-        _cache_key(STATE_CACHE_PREFIX, nonce), {"pending": True}, timeout=settings.TOOLBAR_OAUTH_STATE_TTL_SECONDS
-    )
+    cache.set(_cache_key(STATE_CACHE_PREFIX, nonce), True, timeout=settings.TOOLBAR_OAUTH_STATE_TTL_SECONDS)
 
     return signed_state, datetime.fromtimestamp(expires_at, tz=UTC)
 
@@ -233,7 +231,10 @@ def validate_and_consume_toolbar_oauth_state(
     if payload.get("team_id") != request_team.pk:
         raise ToolbarOAuthError("state_team_mismatch", "OAuth state team mismatch", 400)
 
-    normalize_and_validate_app_url(request_team, payload.get("app_url"))
+    app_url = payload.get("app_url")
+    if not app_url:
+        raise ToolbarOAuthError("invalid_state", "OAuth state is missing app_url", 400)
+    normalize_and_validate_app_url(request_team, app_url)
     return payload
 
 
@@ -242,12 +243,8 @@ def build_authorization_url(
     application: OAuthApplication,
     state: str,
     code_challenge: str,
-    code_challenge_method: str = "S256",
 ) -> str:
     base_url = normalize_base_url_for_oauth(base_url)
-    if code_challenge_method != "S256":
-        raise ToolbarOAuthError("invalid_code_challenge_method", "Unsupported code challenge method", 400)
-
     redirect_uri = f"{base_url.rstrip('/')}{CALLBACK_PATH}"
     scopes = " ".join(settings.TOOLBAR_OAUTH_SCOPES)
 
@@ -257,7 +254,7 @@ def build_authorization_url(
         "response_type": "code",
         "state": state,
         "code_challenge": code_challenge,
-        "code_challenge_method": code_challenge_method,
+        "code_challenge_method": "S256",
         "scope": scopes,
     }
 
