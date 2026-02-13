@@ -581,6 +581,14 @@ TOOLBAR_OAUTH_SCOPES = [
     "feature_flag:write",
     "experiment:read",
     "experiment:write",
+    "query:read",
+    "product_tour:read",
+    "product_tour:write",
+    "heatmap:read",
+    "heatmap:write",
+    "element:read",
+    "uploaded_media:read",
+    "uploaded_media:write",
 ]
 
 # Sharing configuration settings

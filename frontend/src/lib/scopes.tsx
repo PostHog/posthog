@@ -26,6 +26,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
     { key: 'desktop_recording', objectName: 'Desktop recording', objectPlural: 'desktop recordings' },
     { key: 'early_access_feature', objectName: 'Early access feature', objectPlural: 'early access features' },
+    { key: 'element', objectName: 'Element', objectPlural: 'elements' },
     { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },
     { key: 'event_definition', objectName: 'Event definition', objectPlural: 'event definitions' },
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
@@ -36,6 +37,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' },
     { key: 'group', objectName: 'Group', objectPlural: 'groups' },
     { key: 'health_issue', objectName: 'Health issue', objectPlural: 'health issues' },
+    { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
     { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
@@ -90,6 +92,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
     { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
+    { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
     {
         key: 'user',
         objectName: 'User',
