@@ -4,12 +4,15 @@ from django.utils import timezone
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
 
+class DataModelingJobStatus(models.TextChoices):
+    CANCELLED = "Cancelled", "Cancelled"
+    COMPLETED = "Completed", "Completed"
+    FAILED = "Failed", "Failed"
+    RUNNING = "Running", "Running"
+
+
 class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
-    class Status(models.TextChoices):
-        RUNNING = "Running", "Running"
-        COMPLETED = "Completed", "Completed"
-        FAILED = "Failed", "Failed"
-        CANCELLED = "Cancelled", "Cancelled"
+    Status = DataModelingJobStatus
 
     team = models.ForeignKey("posthog.Team", on_delete=models.SET_NULL, null=True)
     saved_query = models.ForeignKey("data_warehouse.DataWarehouseSavedQuery", on_delete=models.SET_NULL, null=True)
