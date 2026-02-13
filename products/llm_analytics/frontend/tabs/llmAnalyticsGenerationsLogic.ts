@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -10,6 +10,10 @@ import { DataTableNode, LLMTrace, NodeKind, TraceQuery } from '~/queries/schema/
 
 import { SortDirection, SortState, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { llmAnalyticsGenerationsLogicType } from './llmAnalyticsGenerationsLogicType'
+
+export interface LLMAnalyticsGenerationsLogicProps {
+    tabId?: string
+}
 
 export function getDefaultGenerationsColumns(showInputOutput: boolean): string[] {
     return [
@@ -28,16 +32,21 @@ export function getDefaultGenerationsColumns(showInputOutput: boolean): string[]
 
 export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsGenerationsLogic']),
-    connect(() => ({
+    key((props: LLMAnalyticsGenerationsLogicProps) => props.tabId || 'default'),
+    props({} as LLMAnalyticsGenerationsLogicProps),
+    connect((props: LLMAnalyticsGenerationsLogicProps) => ({
         values: [
-            llmAnalyticsSharedLogic,
+            llmAnalyticsSharedLogic({ tabId: props.tabId }),
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [llmAnalyticsSharedLogic, ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts']],
+        actions: [
+            llmAnalyticsSharedLogic({ tabId: props.tabId }),
+            ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts'],
+        ],
     })),
 
     actions({

@@ -10,6 +10,7 @@ from django.core.cache import cache
 
 from posthog.schema import (
     ActionConversionGoal,
+    CohortPropertyFilter,
     CustomEventConversionGoal,
     EventPropertyFilter,
     PersonPropertyFilter,
@@ -158,7 +159,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     @cached_property
     def property_filters_without_pathname(
         self,
-    ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]:
+    ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, CohortPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
 
     @cached_property

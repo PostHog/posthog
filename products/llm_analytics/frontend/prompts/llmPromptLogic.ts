@@ -14,10 +14,11 @@ import {
 } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import api from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
+import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { DataTableNode, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
@@ -34,6 +35,7 @@ export enum PromptMode {
 export interface PromptLogicProps {
     promptName: string | 'new'
     mode?: PromptMode
+    tabId?: string
 }
 
 export interface PromptFormValues {
@@ -53,7 +55,7 @@ const DEFAULT_PROMPT_FORM_VALUES: PromptFormValues = {
 export const llmPromptLogic = kea<llmPromptLogicType>([
     path(['scenes', 'llm-analytics', 'llmPromptLogic']),
     props({ promptName: 'new' } as PromptLogicProps),
-    key(({ promptName }) => `prompt-${promptName}`),
+    key(({ promptName, tabId }) => `prompt-${promptName}::${tabId ?? 'default'}`),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
     })),
@@ -114,6 +116,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             name: formValues.name,
                             prompt: formValues.prompt,
                         })
+                        llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                         lemonToast.success('Prompt created successfully')
                         router.actions.replace(urls.llmAnalyticsPrompt(savedPrompt.name))
 
@@ -353,7 +356,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         '/llm-analytics/prompts/:name': (_, __, ___, { method }) => {
             if (method === 'PUSH' && !values.isNewPrompt) {
                 actions.loadPrompt()
