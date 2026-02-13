@@ -346,7 +346,7 @@ export function SceneTitleSection({
                     {effectiveActions && (
                         <div
                             className={cn(
-                                'flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
+                                'flex flex-wrap gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
                                 isRemovingSidePanelFlag && 'gap-1 self-end'
                             )}
                         >
