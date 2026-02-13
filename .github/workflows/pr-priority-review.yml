@@ -101,6 +101,7 @@ jobs:
 
             - name: Add checkmark reaction
               if: steps.slack_msg.outputs.found == 'true'
+              continue-on-error: true # already_reacted is expected on multi-approval PRs
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: reactions.add
