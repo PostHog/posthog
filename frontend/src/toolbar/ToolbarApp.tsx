@@ -61,9 +61,24 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
         event.stopImmediatePropagation()
     }
 
+    // Prevent host site keyboard shortcuts from firing while the user types in the toolbar
+    const onKeyDown = ({ nativeEvent: event }: React.KeyboardEvent<HTMLDivElement>): void => {
+        event.stopPropagation()
+    }
+    const onKeyUp = ({ nativeEvent: event }: React.KeyboardEvent<HTMLDivElement>): void => {
+        event.stopPropagation()
+    }
+
     return (
         <>
-            <root.div id={TOOLBAR_ID} className="ph-no-capture" ref={shadowRef} onMouseDown={onMouseDown}>
+            <root.div
+                id={TOOLBAR_ID}
+                className="ph-no-capture"
+                ref={shadowRef}
+                onMouseDown={onMouseDown}
+                onKeyDown={onKeyDown}
+                onKeyUp={onKeyUp}
+            >
                 <div id="posthog-toolbar-styles" />
                 {didRender && (didLoadStyles || props.disableExternalStyles) ? <ToolbarContainer /> : null}
                 <ToastContainer

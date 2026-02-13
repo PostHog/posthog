@@ -154,7 +154,7 @@ export function ProductToursSidebar(): JSX.Element | null {
                         sidebarPosition === 'right'
                             ? '-4px 0 24px rgba(0, 0, 0, 0.4)'
                             : '4px 0 24px rgba(0, 0, 0, 0.4)',
-                    zIndex: 2147483019,
+                    zIndex: 2147483045,
                     pointerEvents: 'auto',
                     color: 'var(--text-3000)',
                 }}
@@ -294,7 +294,7 @@ export function ProductToursSidebar(): JSX.Element | null {
                         fontSize: 14,
                         fontWeight: 500,
                         boxShadow: '0 4px 12px rgba(29, 74, 255, 0.3)',
-                        zIndex: 2147483020,
+                        zIndex: 2147483046,
                         pointerEvents: 'auto',
                     }}
                 >

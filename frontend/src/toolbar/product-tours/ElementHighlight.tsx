@@ -28,7 +28,7 @@ export function ElementHighlight({ rect, isSelected, stepNumber }: ElementHighli
                     borderRadius: 6,
                     border: `${borderWidth}px solid ${color}`,
                     boxShadow: `0 0 8px ${color}40`,
-                    zIndex: 2147483015,
+                    zIndex: 2147483040,
                     background: colorLight,
                 }}
             />
@@ -47,7 +47,7 @@ export function ElementHighlight({ rect, isSelected, stepNumber }: ElementHighli
                         borderRadius: '50%',
                         background: '#1d4aff',
                         boxShadow: '0 1px 4px rgba(0, 0, 0, 0.3), 0 0 0 2px white',
-                        zIndex: 2147483016,
+                        zIndex: 2147483041,
                     }}
                 >
                     {stepNumber}

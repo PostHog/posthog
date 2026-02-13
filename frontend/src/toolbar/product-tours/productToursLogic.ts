@@ -761,6 +761,22 @@ export const productToursLogic = kea<productToursLogicType>([
                 }
             }
 
+            // Block mousedown on host site elements during selection so SPA routers
+            // and other mousedown-driven interactions don't fire before our click handler
+            cache.onMouseDown = (e: MouseEvent): void => {
+                if (values.isPreviewing) {
+                    return
+                }
+                const target = e.target as HTMLElement
+                if (!target || isToolbarElement(target)) {
+                    return
+                }
+                if (values.editorState.mode === 'selecting') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                }
+            }
+
             cache.onClick = (e: MouseEvent): void => {
                 if (values.isPreviewing) {
                     return
@@ -774,7 +790,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 // In selecting mode: capture the element
                 if (values.editorState.mode === 'selecting') {
                     e.preventDefault()
-                    e.stopPropagation()
+                    e.stopImmediatePropagation()
                     actions.selectElement(target)
                     return
                 }
@@ -799,6 +815,7 @@ export const productToursLogic = kea<productToursLogicType>([
             }
 
             document.addEventListener('mouseover', cache.onMouseOver, true)
+            document.addEventListener('mousedown', cache.onMouseDown, true)
             document.addEventListener('click', cache.onClick, true)
             document.addEventListener('scroll', cache.onScroll, true)
             window.addEventListener('resize', cache.onResize)
@@ -821,6 +838,9 @@ export const productToursLogic = kea<productToursLogicType>([
             }
             if (cache.onMouseOver) {
                 document.removeEventListener('mouseover', cache.onMouseOver, true)
+            }
+            if (cache.onMouseDown) {
+                document.removeEventListener('mousedown', cache.onMouseDown, true)
             }
             if (cache.onClick) {
                 document.removeEventListener('click', cache.onClick, true)
