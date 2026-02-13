@@ -8,6 +8,52 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `llm_judge` - LLM as a judge
+ */
+export type EvaluationTypeEnumApi = (typeof EvaluationTypeEnumApi)[keyof typeof EvaluationTypeEnumApi]
+
+export const EvaluationTypeEnumApi = {
+    llm_judge: 'llm_judge',
+} as const
+
+/**
+ * * `boolean` - Boolean (Pass/Fail)
+ */
+export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTypeEnumApi]
+
+export const OutputTypeEnumApi = {
+    boolean: 'boolean',
+} as const
+
+/**
+ * * `openai` - Openai
+ * `anthropic` - Anthropic
+ * `gemini` - Gemini
+ * `openrouter` - Openrouter
+ */
+export type ProviderEnumApi = (typeof ProviderEnumApi)[keyof typeof ProviderEnumApi]
+
+export const ProviderEnumApi = {
+    openai: 'openai',
+    anthropic: 'anthropic',
+    gemini: 'gemini',
+    openrouter: 'openrouter',
+} as const
+
+/**
+ * Nested serializer for model configuration.
+ */
+export interface ModelConfigurationApi {
+    provider: ProviderEnumApi
+    /** @maxLength 100 */
+    model: string
+    /** @nullable */
+    provider_key_id?: string | null
+    /** @nullable */
+    readonly provider_key_name: string | null
+}
+
+/**
  * * `engineering` - Engineering
  * `data` - Data
  * `product` - Product Management
@@ -64,156 +110,6 @@ export interface UserBasicApi {
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
-}
-
-export interface DatasetItemApi {
-    readonly id: string
-    dataset: string
-    input?: unknown | null
-    output?: unknown | null
-    metadata?: unknown | null
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_trace_id?: string | null
-    /** @nullable */
-    ref_timestamp?: string | null
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_source_id?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    readonly created_by: UserBasicApi
-    readonly team: number
-}
-
-export interface PaginatedDatasetItemListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DatasetItemApi[]
-}
-
-export interface PatchedDatasetItemApi {
-    readonly id?: string
-    dataset?: string
-    input?: unknown | null
-    output?: unknown | null
-    metadata?: unknown | null
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_trace_id?: string | null
-    /** @nullable */
-    ref_timestamp?: string | null
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_source_id?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    readonly created_by?: UserBasicApi
-    readonly team?: number
-}
-
-export interface DatasetApi {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    /** @nullable */
-    description?: string | null
-    metadata?: unknown | null
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_by: UserBasicApi
-    readonly team: number
-}
-
-export interface PaginatedDatasetListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DatasetApi[]
-}
-
-export interface PatchedDatasetApi {
-    readonly id?: string
-    /** @maxLength 400 */
-    name?: string
-    /** @nullable */
-    description?: string | null
-    metadata?: unknown | null
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_by?: UserBasicApi
-    readonly team?: number
-}
-
-/**
- * * `llm_judge` - LLM as a judge
- */
-export type EvaluationTypeEnumApi = (typeof EvaluationTypeEnumApi)[keyof typeof EvaluationTypeEnumApi]
-
-export const EvaluationTypeEnumApi = {
-    llm_judge: 'llm_judge',
-} as const
-
-/**
- * * `boolean` - Boolean (Pass/Fail)
- */
-export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTypeEnumApi]
-
-export const OutputTypeEnumApi = {
-    boolean: 'boolean',
-} as const
-
-/**
- * * `openai` - Openai
- * `anthropic` - Anthropic
- * `gemini` - Gemini
- * `openrouter` - Openrouter
- */
-export type ProviderEnumApi = (typeof ProviderEnumApi)[keyof typeof ProviderEnumApi]
-
-export const ProviderEnumApi = {
-    openai: 'openai',
-    anthropic: 'anthropic',
-    gemini: 'gemini',
-    openrouter: 'openrouter',
-} as const
-
-/**
- * Nested serializer for model configuration.
- */
-export interface ModelConfigurationApi {
-    provider: ProviderEnumApi
-    /** @maxLength 100 */
-    model: string
-    /** @nullable */
-    provider_key_id?: string | null
-    /** @nullable */
-    readonly provider_key_name: string | null
 }
 
 export interface EvaluationApi {
@@ -661,57 +557,109 @@ export interface TextReprResponseApi {
     metadata: TextReprMetadataApi
 }
 
-export type DatasetItemsListParams = {
+export interface DatasetItemApi {
+    readonly id: string
+    dataset: string
+    input?: unknown | null
+    output?: unknown | null
+    metadata?: unknown | null
     /**
-     * Filter by dataset ID
+     * @maxLength 255
+     * @nullable
      */
+    ref_trace_id?: string | null
+    /** @nullable */
+    ref_timestamp?: string | null
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_source_id?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedDatasetItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DatasetItemApi[]
+}
+
+export interface PatchedDatasetItemApi {
+    readonly id?: string
     dataset?: string
+    input?: unknown | null
+    output?: unknown | null
+    metadata?: unknown | null
     /**
-     * Number of results to return per page.
+     * @maxLength 255
+     * @nullable
      */
-    limit?: number
+    ref_trace_id?: string | null
+    /** @nullable */
+    ref_timestamp?: string | null
     /**
-     * The initial index from which to return the results.
+     * @maxLength 255
+     * @nullable
      */
-    offset?: number
+    ref_source_id?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    readonly created_by?: UserBasicApi
+    readonly team?: number
 }
 
-export type DatasetsListParams = {
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[]
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
- * Ordering
-
-* `created_at` - Created At
-* `-created_at` - Created At (descending)
-* `updated_at` - Updated At
-* `-updated_at` - Updated At (descending)
- */
-    order_by?: DatasetsListOrderByItem[]
-    /**
-     * Search in name, description, or metadata
-     */
-    search?: string
+export interface DatasetApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    description?: string | null
+    metadata?: unknown | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly team: number
 }
 
-export type DatasetsListOrderByItem = (typeof DatasetsListOrderByItem)[keyof typeof DatasetsListOrderByItem]
+export interface PaginatedDatasetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DatasetApi[]
+}
 
-export const DatasetsListOrderByItem = {
-    '-created_at': '-created_at',
-    '-updated_at': '-updated_at',
-    created_at: 'created_at',
-    updated_at: 'updated_at',
-} as const
+export interface PatchedDatasetApi {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** @nullable */
+    description?: string | null
+    metadata?: unknown | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by?: UserBasicApi
+    readonly team?: number
+}
 
 export type EvaluationsListParams = {
     /**
@@ -793,7 +741,7 @@ export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown }
 
-export type DatasetItemsList2Params = {
+export type DatasetItemsListParams = {
     /**
      * Filter by dataset ID
      */
@@ -808,7 +756,7 @@ export type DatasetItemsList2Params = {
     offset?: number
 }
 
-export type DatasetsList2Params = {
+export type DatasetsListParams = {
     /**
      * Multiple values may be separated by commas.
      */
@@ -829,16 +777,16 @@ export type DatasetsList2Params = {
 * `updated_at` - Updated At
 * `-updated_at` - Updated At (descending)
  */
-    order_by?: DatasetsList2OrderByItem[]
+    order_by?: DatasetsListOrderByItem[]
     /**
      * Search in name, description, or metadata
      */
     search?: string
 }
 
-export type DatasetsList2OrderByItem = (typeof DatasetsList2OrderByItem)[keyof typeof DatasetsList2OrderByItem]
+export type DatasetsListOrderByItem = (typeof DatasetsListOrderByItem)[keyof typeof DatasetsListOrderByItem]
 
-export const DatasetsList2OrderByItem = {
+export const DatasetsListOrderByItem = {
     '-created_at': '-created_at',
     '-updated_at': '-updated_at',
     created_at: 'created_at',

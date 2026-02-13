@@ -7,429 +7,6 @@
  * PostHog API - core
  * OpenAPI spec version: 1.0.0
  */
-/**
- * * `image/png` - image/png
- * `application/pdf` - application/pdf
- * `text/csv` - text/csv
- * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
- * `video/webm` - video/webm
- * `video/mp4` - video/mp4
- * `image/gif` - image/gif
- * `application/json` - application/json
- */
-export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
-
-export const ExportFormatEnumApi = {
-    'image/png': 'image/png',
-    'application/pdf': 'application/pdf',
-    'text/csv': 'text/csv',
-    'application/vndopenxmlformats-officedocumentspreadsheetmlsheet':
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'video/webm': 'video/webm',
-    'video/mp4': 'video/mp4',
-    'image/gif': 'image/gif',
-    'application/json': 'application/json',
-} as const
-
-/**
- * Standard ExportedAsset serializer that doesn't return content.
- */
-export interface ExportedAssetApi {
-    readonly id: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    export_format: ExportFormatEnumApi
-    readonly created_at: string
-    readonly has_content: string
-    export_context?: unknown | null
-    readonly filename: string
-    /** @nullable */
-    readonly expires_after: string | null
-    /** @nullable */
-    readonly exception: string | null
-}
-
-export interface PaginatedExportedAssetListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ExportedAssetApi[]
-}
-
-export interface FileSystemApi {
-    readonly id: string
-    path: string
-    /** @nullable */
-    readonly depth: number | null
-    /** @maxLength 100 */
-    type?: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    ref?: string | null
-    /** @nullable */
-    href?: string | null
-    meta?: unknown | null
-    /** @nullable */
-    shortcut?: boolean | null
-    readonly created_at: string
-    /** @nullable */
-    readonly last_viewed_at: string | null
-}
-
-export interface PaginatedFileSystemListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: FileSystemApi[]
-}
-
-export interface PatchedFileSystemApi {
-    readonly id?: string
-    path?: string
-    /** @nullable */
-    readonly depth?: number | null
-    /** @maxLength 100 */
-    type?: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    ref?: string | null
-    /** @nullable */
-    href?: string | null
-    meta?: unknown | null
-    /** @nullable */
-    shortcut?: boolean | null
-    readonly created_at?: string
-    /** @nullable */
-    readonly last_viewed_at?: string | null
-}
-
-export interface SharingConfigurationApi {
-    readonly created_at: string
-    enabled?: boolean
-    /** @nullable */
-    readonly access_token: string | null
-    settings?: unknown | null
-    password_required?: boolean
-    readonly share_passwords: string
-}
-
-/**
- * * `slack` - Slack
- * `salesforce` - Salesforce
- * `hubspot` - Hubspot
- * `google-pubsub` - Google Pubsub
- * `google-cloud-storage` - Google Cloud Storage
- * `google-ads` - Google Ads
- * `google-sheets` - Google Sheets
- * `snapchat` - Snapchat
- * `linkedin-ads` - Linkedin Ads
- * `reddit-ads` - Reddit Ads
- * `tiktok-ads` - Tiktok Ads
- * `bing-ads` - Bing Ads
- * `intercom` - Intercom
- * `email` - Email
- * `linear` - Linear
- * `github` - Github
- * `gitlab` - Gitlab
- * `meta-ads` - Meta Ads
- * `twilio` - Twilio
- * `clickup` - Clickup
- * `vercel` - Vercel
- * `databricks` - Databricks
- * `azure-blob` - Azure Blob
- * `firebase` - Firebase
- * `jira` - Jira
- */
-export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
-
-export const KindCf2EnumApi = {
-    slack: 'slack',
-    salesforce: 'salesforce',
-    hubspot: 'hubspot',
-    'google-pubsub': 'google-pubsub',
-    'google-cloud-storage': 'google-cloud-storage',
-    'google-ads': 'google-ads',
-    'google-sheets': 'google-sheets',
-    snapchat: 'snapchat',
-    'linkedin-ads': 'linkedin-ads',
-    'reddit-ads': 'reddit-ads',
-    'tiktok-ads': 'tiktok-ads',
-    'bing-ads': 'bing-ads',
-    intercom: 'intercom',
-    email: 'email',
-    linear: 'linear',
-    github: 'github',
-    gitlab: 'gitlab',
-    'meta-ads': 'meta-ads',
-    twilio: 'twilio',
-    clickup: 'clickup',
-    vercel: 'vercel',
-    databricks: 'databricks',
-    'azure-blob': 'azure-blob',
-    firebase: 'firebase',
-    jira: 'jira',
-} as const
-
-/**
- * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
-}
-
-/**
- * Standard Integration serializer.
- */
-export interface IntegrationApi {
-    readonly id: number
-    kind: KindCf2EnumApi
-    config?: unknown
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    readonly errors: string
-    readonly display_name: string
-}
-
-export interface PaginatedIntegrationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: IntegrationApi[]
-}
-
-/**
- * Standard Integration serializer.
- */
-export interface PatchedIntegrationApi {
-    readonly id?: number
-    kind?: KindCf2EnumApi
-    config?: unknown
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    readonly errors?: string
-    readonly display_name?: string
-}
-
-/**
- * * `email` - Email
- * `slack` - Slack
- * `webhook` - Webhook
- */
-export type TargetTypeEnumApi = (typeof TargetTypeEnumApi)[keyof typeof TargetTypeEnumApi]
-
-export const TargetTypeEnumApi = {
-    email: 'email',
-    slack: 'slack',
-    webhook: 'webhook',
-} as const
-
-/**
- * * `daily` - Daily
- * `weekly` - Weekly
- * `monthly` - Monthly
- * `yearly` - Yearly
- */
-export type FrequencyEnumApi = (typeof FrequencyEnumApi)[keyof typeof FrequencyEnumApi]
-
-export const FrequencyEnumApi = {
-    daily: 'daily',
-    weekly: 'weekly',
-    monthly: 'monthly',
-    yearly: 'yearly',
-} as const
-
-/**
- * * `monday` - Monday
- * `tuesday` - Tuesday
- * `wednesday` - Wednesday
- * `thursday` - Thursday
- * `friday` - Friday
- * `saturday` - Saturday
- * `sunday` - Sunday
- */
-export type ByweekdayEnumApi = (typeof ByweekdayEnumApi)[keyof typeof ByweekdayEnumApi]
-
-export const ByweekdayEnumApi = {
-    monday: 'monday',
-    tuesday: 'tuesday',
-    wednesday: 'wednesday',
-    thursday: 'thursday',
-    friday: 'friday',
-    saturday: 'saturday',
-    sunday: 'sunday',
-} as const
-
-/**
- * Standard Subscription serializer.
- */
-export interface SubscriptionApi {
-    readonly id: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    target_type: TargetTypeEnumApi
-    target_value: string
-    frequency: FrequencyEnumApi
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    interval?: number
-    /** @nullable */
-    byweekday?: ByweekdayEnumApi[] | null
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    bysetpos?: number | null
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    count?: number | null
-    start_date: string
-    /** @nullable */
-    until_date?: string | null
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    deleted?: boolean
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    title?: string | null
-    readonly summary: string
-    /** @nullable */
-    readonly next_delivery_date: string | null
-    /** @nullable */
-    invite_message?: string | null
-}
-
-export interface PaginatedSubscriptionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SubscriptionApi[]
-}
-
-/**
- * Standard Subscription serializer.
- */
-export interface PatchedSubscriptionApi {
-    readonly id?: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    target_type?: TargetTypeEnumApi
-    target_value?: string
-    frequency?: FrequencyEnumApi
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    interval?: number
-    /** @nullable */
-    byweekday?: ByweekdayEnumApi[] | null
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    bysetpos?: number | null
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    count?: number | null
-    start_date?: string
-    /** @nullable */
-    until_date?: string | null
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    deleted?: boolean
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    title?: string | null
-    readonly summary?: string
-    /** @nullable */
-    readonly next_delivery_date?: string | null
-    /** @nullable */
-    invite_message?: string | null
-}
-
 export interface OrganizationDomainApi {
     readonly id: string
     /** @maxLength 128 */
@@ -522,6 +99,65 @@ export const OrganizationMembershipLevelApi = {
     NUMBER_8: 8,
     NUMBER_15: 15,
 } as const
+
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    engineering: 'engineering',
+    data: 'data',
+    product: 'product',
+    founder: 'founder',
+    leadership: 'leadership',
+    marketing: 'marketing',
+    sales: 'sales',
+    other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+}
 
 export interface OrganizationInviteApi {
     readonly id: string
@@ -2453,12 +2089,233 @@ export interface PatchedEnterpriseEventDefinitionApi {
     default_columns?: string[]
 }
 
-export type EventDefinitionApiProperties = { [key: string]: unknown }
-
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface EventDefinitionApi {
-    elements: unknown[]
-    event: string
-    properties: EventDefinitionApiProperties
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    last_seen_at?: string | null
+    readonly last_updated_at: string
+    tags?: unknown[]
+    readonly is_action: string
+    readonly action_id: number
+    readonly is_calculating: boolean
+    readonly last_calculated_at: string
+    readonly created_by: UserBasicApi
+    post_to_slack?: boolean
+}
+
+/**
+ * * `image/png` - image/png
+ * `application/pdf` - application/pdf
+ * `text/csv` - text/csv
+ * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+ * `video/webm` - video/webm
+ * `video/mp4` - video/mp4
+ * `image/gif` - image/gif
+ * `application/json` - application/json
+ */
+export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
+
+export const ExportFormatEnumApi = {
+    'image/png': 'image/png',
+    'application/pdf': 'application/pdf',
+    'text/csv': 'text/csv',
+    'application/vndopenxmlformats-officedocumentspreadsheetmlsheet':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'video/webm': 'video/webm',
+    'video/mp4': 'video/mp4',
+    'image/gif': 'image/gif',
+    'application/json': 'application/json',
+} as const
+
+/**
+ * Standard ExportedAsset serializer that doesn't return content.
+ */
+export interface ExportedAssetApi {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    export_format: ExportFormatEnumApi
+    readonly created_at: string
+    readonly has_content: string
+    export_context?: unknown | null
+    readonly filename: string
+    /** @nullable */
+    readonly expires_after: string | null
+    /** @nullable */
+    readonly exception: string | null
+}
+
+export interface PaginatedExportedAssetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExportedAssetApi[]
+}
+
+export interface FileSystemApi {
+    readonly id: string
+    path: string
+    /** @nullable */
+    readonly depth: number | null
+    /** @maxLength 100 */
+    type?: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /** @nullable */
+    href?: string | null
+    meta?: unknown | null
+    /** @nullable */
+    shortcut?: boolean | null
+    readonly created_at: string
+    /** @nullable */
+    readonly last_viewed_at: string | null
+}
+
+export interface PaginatedFileSystemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FileSystemApi[]
+}
+
+export interface PatchedFileSystemApi {
+    readonly id?: string
+    path?: string
+    /** @nullable */
+    readonly depth?: number | null
+    /** @maxLength 100 */
+    type?: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /** @nullable */
+    href?: string | null
+    meta?: unknown | null
+    /** @nullable */
+    shortcut?: boolean | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly last_viewed_at?: string | null
+}
+
+export interface SharingConfigurationApi {
+    readonly created_at: string
+    enabled?: boolean
+    /** @nullable */
+    readonly access_token: string | null
+    settings?: unknown | null
+    password_required?: boolean
+    readonly share_passwords: string
+}
+
+/**
+ * * `slack` - Slack
+ * `salesforce` - Salesforce
+ * `hubspot` - Hubspot
+ * `google-pubsub` - Google Pubsub
+ * `google-cloud-storage` - Google Cloud Storage
+ * `google-ads` - Google Ads
+ * `google-sheets` - Google Sheets
+ * `snapchat` - Snapchat
+ * `linkedin-ads` - Linkedin Ads
+ * `reddit-ads` - Reddit Ads
+ * `tiktok-ads` - Tiktok Ads
+ * `bing-ads` - Bing Ads
+ * `intercom` - Intercom
+ * `email` - Email
+ * `linear` - Linear
+ * `github` - Github
+ * `gitlab` - Gitlab
+ * `meta-ads` - Meta Ads
+ * `twilio` - Twilio
+ * `clickup` - Clickup
+ * `vercel` - Vercel
+ * `databricks` - Databricks
+ * `azure-blob` - Azure Blob
+ * `firebase` - Firebase
+ * `jira` - Jira
+ */
+export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
+
+export const KindCf2EnumApi = {
+    slack: 'slack',
+    salesforce: 'salesforce',
+    hubspot: 'hubspot',
+    'google-pubsub': 'google-pubsub',
+    'google-cloud-storage': 'google-cloud-storage',
+    'google-ads': 'google-ads',
+    'google-sheets': 'google-sheets',
+    snapchat: 'snapchat',
+    'linkedin-ads': 'linkedin-ads',
+    'reddit-ads': 'reddit-ads',
+    'tiktok-ads': 'tiktok-ads',
+    'bing-ads': 'bing-ads',
+    intercom: 'intercom',
+    email: 'email',
+    linear: 'linear',
+    github: 'github',
+    gitlab: 'gitlab',
+    'meta-ads': 'meta-ads',
+    twilio: 'twilio',
+    clickup: 'clickup',
+    vercel: 'vercel',
+    databricks: 'databricks',
+    'azure-blob': 'azure-blob',
+    firebase: 'firebase',
+    jira: 'jira',
+} as const
+
+/**
+ * Standard Integration serializer.
+ */
+export interface IntegrationApi {
+    readonly id: number
+    kind: KindCf2EnumApi
+    config?: unknown
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly errors: string
+    readonly display_name: string
+}
+
+export interface PaginatedIntegrationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: IntegrationApi[]
+}
+
+/**
+ * Standard Integration serializer.
+ */
+export interface PatchedIntegrationApi {
+    readonly id?: number
+    kind?: KindCf2EnumApi
+    config?: unknown
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    readonly errors?: string
+    readonly display_name?: string
 }
 
 /**
@@ -2616,6 +2473,162 @@ export interface PatchedScheduledChangeApi {
     readonly last_executed_at?: string | null
     /** @nullable */
     end_date?: string | null
+}
+
+/**
+ * * `email` - Email
+ * `slack` - Slack
+ * `webhook` - Webhook
+ */
+export type TargetTypeEnumApi = (typeof TargetTypeEnumApi)[keyof typeof TargetTypeEnumApi]
+
+export const TargetTypeEnumApi = {
+    email: 'email',
+    slack: 'slack',
+    webhook: 'webhook',
+} as const
+
+/**
+ * * `daily` - Daily
+ * `weekly` - Weekly
+ * `monthly` - Monthly
+ * `yearly` - Yearly
+ */
+export type FrequencyEnumApi = (typeof FrequencyEnumApi)[keyof typeof FrequencyEnumApi]
+
+export const FrequencyEnumApi = {
+    daily: 'daily',
+    weekly: 'weekly',
+    monthly: 'monthly',
+    yearly: 'yearly',
+} as const
+
+/**
+ * * `monday` - Monday
+ * `tuesday` - Tuesday
+ * `wednesday` - Wednesday
+ * `thursday` - Thursday
+ * `friday` - Friday
+ * `saturday` - Saturday
+ * `sunday` - Sunday
+ */
+export type ByweekdayEnumApi = (typeof ByweekdayEnumApi)[keyof typeof ByweekdayEnumApi]
+
+export const ByweekdayEnumApi = {
+    monday: 'monday',
+    tuesday: 'tuesday',
+    wednesday: 'wednesday',
+    thursday: 'thursday',
+    friday: 'friday',
+    saturday: 'saturday',
+    sunday: 'sunday',
+} as const
+
+/**
+ * Standard Subscription serializer.
+ */
+export interface SubscriptionApi {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    target_type: TargetTypeEnumApi
+    target_value: string
+    frequency: FrequencyEnumApi
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    interval?: number
+    /** @nullable */
+    byweekday?: ByweekdayEnumApi[] | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    bysetpos?: number | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    count?: number | null
+    start_date: string
+    /** @nullable */
+    until_date?: string | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    deleted?: boolean
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    title?: string | null
+    readonly summary: string
+    /** @nullable */
+    readonly next_delivery_date: string | null
+    /** @nullable */
+    invite_message?: string | null
+}
+
+export interface PaginatedSubscriptionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SubscriptionApi[]
+}
+
+/**
+ * Standard Subscription serializer.
+ */
+export interface PatchedSubscriptionApi {
+    readonly id?: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    target_type?: TargetTypeEnumApi
+    target_value?: string
+    frequency?: FrequencyEnumApi
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    interval?: number
+    /** @nullable */
+    byweekday?: ByweekdayEnumApi[] | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    bysetpos?: number | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    count?: number | null
+    start_date?: string
+    /** @nullable */
+    until_date?: string | null
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    deleted?: boolean
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    title?: string | null
+    readonly summary?: string
+    /** @nullable */
+    readonly next_delivery_date?: string | null
+    /** @nullable */
+    invite_message?: string | null
 }
 
 /**
@@ -2940,54 +2953,6 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
 }
 
-export type ExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type FileSystemListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type IntegrationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type SubscriptionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type DomainsListParams = {
     /**
      * Number of results to return per page.
@@ -3098,7 +3063,7 @@ export type EventDefinitionsByNameRetrieveParams = {
     name: string
 }
 
-export type ExportsList2Params = {
+export type ExportsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -3109,7 +3074,7 @@ export type ExportsList2Params = {
     offset?: number
 }
 
-export type FileSystemList2Params = {
+export type FileSystemListParams = {
     /**
      * Number of results to return per page.
      */
@@ -3143,7 +3108,7 @@ export type FlagValueValuesRetrieve400 = { [key: string]: unknown }
  */
 export type FlagValueValuesRetrieve404 = { [key: string]: unknown }
 
-export type IntegrationsList3Params = {
+export type IntegrationsList2Params = {
     /**
      * Number of results to return per page.
      */
@@ -3241,7 +3206,7 @@ export type ScheduledChangesListParams = {
     offset?: number
 }
 
-export type SubscriptionsList2Params = {
+export type SubscriptionsListParams = {
     /**
      * Number of results to return per page.
      */

@@ -67,6 +67,32 @@ export interface UserBasicApi {
 }
 
 /**
+ * * `21` - Everyone in the project can edit
+ * `37` - Only those invited to this dashboard can edit
+ */
+export type DashboardRestrictionLevelApi =
+    (typeof DashboardRestrictionLevelApi)[keyof typeof DashboardRestrictionLevelApi]
+
+export const DashboardRestrictionLevelApi = {
+    NUMBER_21: 21,
+    NUMBER_37: 37,
+} as const
+
+export interface DashboardCollaboratorApi {
+    readonly id: string
+    readonly dashboard_id: number
+    readonly user: UserBasicApi
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level: DashboardRestrictionLevelApi
+    readonly added_at: string
+    readonly updated_at: string
+    user_uuid: string
+}
+
+/**
  * * `default` - Default
  * `template` - Template
  * `duplicate` - Duplicate
@@ -79,18 +105,6 @@ export const CreationModeEnumApi = {
     template: 'template',
     duplicate: 'duplicate',
     unlisted: 'unlisted',
-} as const
-
-/**
- * * `21` - Everyone in the project can edit
- * `37` - Only those invited to this dashboard can edit
- */
-export type DashboardRestrictionLevelApi =
-    (typeof DashboardRestrictionLevelApi)[keyof typeof DashboardRestrictionLevelApi]
-
-export const DashboardRestrictionLevelApi = {
-    NUMBER_21: 21,
-    NUMBER_37: 37,
 } as const
 
 export type EffectiveRestrictionLevelEnumApi =
@@ -225,20 +239,6 @@ export interface DashboardApi {
     use_dashboard?: number | null
     delete_insights?: boolean
     _create_in_folder?: string
-}
-
-export interface DashboardCollaboratorApi {
-    readonly id: string
-    readonly dashboard_id: number
-    readonly user: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level: DashboardRestrictionLevelApi
-    readonly added_at: string
-    readonly updated_at: string
-    user_uuid: string
 }
 
 export interface SharingConfigurationApi {
@@ -482,140 +482,6 @@ export const DashboardsCreateUnlistedDashboardCreateFormat = {
 } as const
 
 export type DataColorThemesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type DashboardsList2Params = {
-    format?: DashboardsList2Format
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type DashboardsList2Format = (typeof DashboardsList2Format)[keyof typeof DashboardsList2Format]
-
-export const DashboardsList2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsCreate2Params = {
-    format?: DashboardsCreate2Format
-}
-
-export type DashboardsCreate2Format = (typeof DashboardsCreate2Format)[keyof typeof DashboardsCreate2Format]
-
-export const DashboardsCreate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsRetrieve2Params = {
-    format?: DashboardsRetrieve2Format
-}
-
-export type DashboardsRetrieve2Format = (typeof DashboardsRetrieve2Format)[keyof typeof DashboardsRetrieve2Format]
-
-export const DashboardsRetrieve2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsUpdate2Params = {
-    format?: DashboardsUpdate2Format
-}
-
-export type DashboardsUpdate2Format = (typeof DashboardsUpdate2Format)[keyof typeof DashboardsUpdate2Format]
-
-export const DashboardsUpdate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsPartialUpdate2Params = {
-    format?: DashboardsPartialUpdate2Format
-}
-
-export type DashboardsPartialUpdate2Format =
-    (typeof DashboardsPartialUpdate2Format)[keyof typeof DashboardsPartialUpdate2Format]
-
-export const DashboardsPartialUpdate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsDestroy2Params = {
-    format?: DashboardsDestroy2Format
-}
-
-export type DashboardsDestroy2Format = (typeof DashboardsDestroy2Format)[keyof typeof DashboardsDestroy2Format]
-
-export const DashboardsDestroy2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsMoveTilePartialUpdate2Params = {
-    format?: DashboardsMoveTilePartialUpdate2Format
-}
-
-export type DashboardsMoveTilePartialUpdate2Format =
-    (typeof DashboardsMoveTilePartialUpdate2Format)[keyof typeof DashboardsMoveTilePartialUpdate2Format]
-
-export const DashboardsMoveTilePartialUpdate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsStreamTilesRetrieve2Params = {
-    format?: DashboardsStreamTilesRetrieve2Format
-}
-
-export type DashboardsStreamTilesRetrieve2Format =
-    (typeof DashboardsStreamTilesRetrieve2Format)[keyof typeof DashboardsStreamTilesRetrieve2Format]
-
-export const DashboardsStreamTilesRetrieve2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsCreateFromTemplateJsonCreate2Params = {
-    format?: DashboardsCreateFromTemplateJsonCreate2Format
-}
-
-export type DashboardsCreateFromTemplateJsonCreate2Format =
-    (typeof DashboardsCreateFromTemplateJsonCreate2Format)[keyof typeof DashboardsCreateFromTemplateJsonCreate2Format]
-
-export const DashboardsCreateFromTemplateJsonCreate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DashboardsCreateUnlistedDashboardCreate2Params = {
-    format?: DashboardsCreateUnlistedDashboardCreate2Format
-}
-
-export type DashboardsCreateUnlistedDashboardCreate2Format =
-    (typeof DashboardsCreateUnlistedDashboardCreate2Format)[keyof typeof DashboardsCreateUnlistedDashboardCreate2Format]
-
-export const DashboardsCreateUnlistedDashboardCreate2Format = {
-    json: 'json',
-    txt: 'txt',
-} as const
-
-export type DataColorThemesList2Params = {
     /**
      * Number of results to return per page.
      */
