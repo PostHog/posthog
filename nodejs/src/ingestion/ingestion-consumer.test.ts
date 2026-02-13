@@ -161,7 +161,7 @@ describe('IngestionConsumer', () => {
 
         // hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
-        const team2Id = await createTeam(hub.postgres, team.organization_id)
+        const team2Id = await createTeam(hub.postgres, team.organization_id, 'THIS IS NOT A TOKEN FOR TEAM 3')
         team2 = (await getTeam(hub, team2Id))!
 
         jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((...args) => {
