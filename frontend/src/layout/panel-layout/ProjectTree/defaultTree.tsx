@@ -287,6 +287,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     health: {
         icon: <IconStethoscope />,
     },
+    inbox: {
+        icon: <IconNotification />,
+    },
     sdk_doctor: {
         icon: <IconCode />,
     },

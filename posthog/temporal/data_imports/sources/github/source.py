@@ -77,6 +77,7 @@ class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
                                             type=SourceFieldInputConfigType.PASSWORD,
                                             required=False,
                                             placeholder="github_pat_...",
+                                            caption="You can create a personal access token in your [GitHub Settings](https://github.com/settings/tokens) under **Developer settings > Personal access tokens**.",
                                         ),
                                     ],
                                 ),

@@ -18,10 +18,7 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.temporal.ai import (
-    ACTIVITIES as AI_ACTIVITIES,
-    WORKFLOWS as AI_WORKFLOWS,
-)
+from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, SIGNALS_ACTIVITIES, SIGNALS_WORKFLOWS
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
@@ -128,10 +125,6 @@ from posthog.temporal.weekly_digest import (
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
-)
-from products.signals.backend.temporal import (
-    ACTIVITIES as SIGNALS_ACTIVITIES,
-    WORKFLOWS as SIGNALS_WORKFLOWS,
 )
 from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
