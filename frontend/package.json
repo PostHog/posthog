@@ -46,7 +46,8 @@
         "start-vite": "pnpm build:products && concurrently -n VITE,TAILWIND -c green,yellow \"vite --host 0.0.0.0\" \"pnpm watch:tailwind\"",
         "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path 'node_modules/@posthog/rrweb-types/dist/index.d.ts' --type 'eventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json && prettier --write ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json",
         "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path './src/scenes/session-recordings/mobile-replay/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json && prettier --write ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json",
-        "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json"
+        "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json",
+        "build:survey-sdk-docs": "ts-node -r tsconfig-paths/register --transpile-only ./bin/docs/build-survey-sdk-docs.ts"
     },
     "dependencies": {
         "@babel/runtime": "^7.24.0",
@@ -332,6 +333,7 @@
         "ts-clone-node": "^4.0.0",
         "ts-json-schema-generator": "^v2.4.0-next.6",
         "ts-node": "^10.9.1",
+        "tsconfig-paths": "^4.2.0",
         "whatwg-fetch": "^3.6.2"
     },
     "optionalDependencies": {

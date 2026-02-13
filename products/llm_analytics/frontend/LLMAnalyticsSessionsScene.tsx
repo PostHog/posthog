@@ -41,7 +41,6 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
 
     return (
         <DataTable
-            attachTo={llmAnalyticsSharedLogic}
             query={{
                 ...sessionsQuery,
                 showSavedFilters: true,
