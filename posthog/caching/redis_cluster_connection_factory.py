@@ -12,7 +12,9 @@ class RedisClusterConnectionFactory(ConnectionFactory):
     (compression, serialization) works unchanged.
     """
 
-    _cluster_clients: dict[str, RedisCluster] = {}
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._cluster_clients: dict[str, RedisCluster] = {}
 
     def connect(self, url: str) -> RedisCluster:
         if url not in self._cluster_clients:
