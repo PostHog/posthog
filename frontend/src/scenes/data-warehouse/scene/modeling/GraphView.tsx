@@ -4,7 +4,6 @@ import {
     Background,
     BackgroundVariant,
     Controls,
-    Edge,
     NodeTypes,
     ReactFlow,
     ReactFlowProvider,
@@ -23,7 +22,7 @@ import { DataModelingNodeType } from '~/types'
 
 import { dataModelingLogic, parseSearchTerm } from '../dataModelingLogic'
 import { REACT_FLOW_NODE_TYPES } from './Node'
-import { CreateModelNodeType, ElkDirection, Node } from './types'
+import { CreateModelNodeType, Edge, ElkDirection, Node } from './types'
 
 const FIT_VIEW_OPTIONS = {
     padding: 0.2,
@@ -162,7 +161,7 @@ function GraphViewContent(): JSX.Element {
     const { onEdgesChange, onNodesChange, setReactFlowInstance, setReactFlowWrapper } = useActions(dataModelingLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
-    const reactFlowInstance = useReactFlow()
+    const reactFlowInstance = useReactFlow<Node, Edge>()
 
     useEffect(() => {
         setReactFlowInstance(reactFlowInstance)
