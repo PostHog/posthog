@@ -117,6 +117,21 @@ class PreaggregationTable(StrEnum):
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
 
 
+# Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
+# so an expires_at just after midnight would round down to a time *before* the PG
+# job expires. We add an extra day of buffer for these tables.
+_DATE_EXPIRES_AT_TABLES: set[PreaggregationTable] = {
+    PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+}
+
+
+def _get_ch_expires_at(job: "PreaggregationJob", table: PreaggregationTable) -> datetime:
+    """Compute the ClickHouse expires_at for a job, accounting for the table's column type."""
+    assert job.expires_at is not None
+    extra_days = 1 if table in _DATE_EXPIRES_AT_TABLES else 0
+    return job.expires_at + timedelta(seconds=EXPIRY_BUFFER_SECONDS, days=extra_days)
+
+
 @dataclass
 class QueryInfo:
     """Normalized query information for preaggregation matching."""
@@ -418,11 +433,7 @@ def run_preaggregation_insert(
     query_info: QueryInfo,
 ) -> None:
     """Run the INSERT query to populate preaggregation results in ClickHouse."""
-    assert job.expires_at is not None
-
-    # CH data should outlive the PG job by EXPIRY_BUFFER_SECONDS so that
-    # queries in flight when the PG job expires still find data in ClickHouse.
-    ch_expires_at = job.expires_at + timedelta(seconds=EXPIRY_BUFFER_SECONDS)
+    ch_expires_at = _get_ch_expires_at(job, PreaggregationTable.PREAGGREGATION_RESULTS)
 
     insert_sql, values = build_preaggregation_insert_sql(
         team=team,
@@ -792,10 +803,7 @@ def _build_manual_insert_sql(
     )
     query.select.insert(1, job_id_expr)
 
-    # Add expires_at at the end — CH data outlives the PG job by EXPIRY_BUFFER_SECONDS.
-    # Extra day ensures Date-type columns (which truncate to midnight) stay in the future.
-    assert job.expires_at is not None
-    ch_expires_at = job.expires_at + timedelta(seconds=EXPIRY_BUFFER_SECONDS, days=1)
+    ch_expires_at = _get_ch_expires_at(job, table)
     expires_at_expr = ast.Alias(alias="expires_at", expr=ast.Constant(value=ch_expires_at))
     query.select.append(expires_at_expr)
 
