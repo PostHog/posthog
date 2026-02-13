@@ -15,6 +15,7 @@ enum Language {
     TypeScript,
     Golang,
     Python,
+    Json,
 }
 
 impl Language {
@@ -24,6 +25,7 @@ impl Language {
             Language::TypeScript => "typescript",
             Language::Golang => "golang",
             Language::Python => "python",
+            Language::Json => "json",
         }
     }
 
@@ -33,6 +35,7 @@ impl Language {
             Language::TypeScript => "TypeScript",
             Language::Golang => "Go",
             Language::Python => "Python",
+            Language::Json => "JSON",
         }
     }
 
@@ -43,6 +46,7 @@ impl Language {
             Language::Golang => "posthog-typed.go",
             // Python uses underscore because hyphens aren't valid in Python module names
             Language::Python => "posthog_typed.py",
+            Language::Json => "posthog_schema.json",
         }
     }
 
@@ -100,12 +104,28 @@ You can add optional properties through the option functions:
    client.shutdown()
 "#
             ),
+            Language::Json => format!(
+                r#"
+1. You now have a raw JSON export of your PostHog event schema:
+   {output_path}
+
+2. You can use this file to:
+   - Generate code for languages not yet supported by the CLI
+   - Validate events in your CI/CD pipeline
+   - Build custom integrations
+"#
+            ),
         }
     }
 
     /// Get all available languages
     fn all() -> Vec<Language> {
-        vec![Language::TypeScript, Language::Golang, Language::Python]
+        vec![
+            Language::TypeScript,
+            Language::Golang,
+            Language::Python,
+            Language::Json,
+        ]
     }
 
     /// Parse a language from a string identifier
@@ -114,6 +134,7 @@ You can add optional properties through the option functions:
             "typescript" => Some(Language::TypeScript),
             "golang" => Some(Language::Golang),
             "python" => Some(Language::Python),
+            "json" => Some(Language::Json),
             _ => None,
         }
     }

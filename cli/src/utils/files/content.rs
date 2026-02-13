@@ -20,10 +20,13 @@ impl<T: SourceContent> SourceFile<T> {
         Ok(SourceFile::new(path.clone(), T::parse(content)?))
     }
 
-    // TODO - I'm fairly sure the `dest` is redundant if it's None
-    pub fn save(&self, dest: Option<PathBuf>) -> Result<()> {
-        let final_path = dest.unwrap_or(self.path.clone());
-        std::fs::write(&final_path, &self.content.serialize()?)?;
+    pub fn save(&self) -> Result<()> {
+        std::fs::write(&self.path, &self.content.serialize()?)?;
+        Ok(())
+    }
+
+    pub fn save_to(&self, dest: PathBuf) -> Result<()> {
+        std::fs::write(&dest, &self.content.serialize()?)?;
         Ok(())
     }
 }

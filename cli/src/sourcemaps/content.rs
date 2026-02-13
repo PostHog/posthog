@@ -40,7 +40,7 @@ impl SourceMapFile {
     }
 
     pub fn save(&self) -> Result<()> {
-        self.inner.save(None)
+        self.inner.save()
     }
 
     pub fn get_chunk_id(&self) -> Option<String> {
@@ -124,7 +124,7 @@ impl MinifiedSourceFile {
     }
 
     pub fn save(&self) -> Result<()> {
-        self.inner.save(None)
+        self.inner.save()
     }
 
     pub fn get_chunk_id(&self) -> Option<String> {
