@@ -23,7 +23,6 @@ interface AppShortcutProps extends Omit<AppShortcutType, 'ref' | 'keybind' | 'in
     disabled?: boolean
 }
 
-// forwardRef is needed so parent components (e.g. Popover) can inject refs through AppShortcut to the child element
 export const AppShortcut = forwardRef<HTMLElement, AppShortcutProps>(function AppShortcut(
     { children, name, keybind, intent, interaction, scope = 'global', disabled = false, priority = 0 },
     forwardedRef
