@@ -49,6 +49,10 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
+            - name: Start PostgreSQL with Docker Compose
+              run: |
+                  docker compose -f docker-compose.dev.yml up db -d --wait
+
             - name: Set up Python
               uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
@@ -67,10 +71,24 @@ jobs:
             - name: Lint skills
               run: ./bin/hogli lint:skills
 
+            - name: Wait for PostgreSQL
+              run: bin/check_postgres_up
+
+            - name: Run migrations and create test data
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  REDIS_URL: 'redis://localhost'
+                  TEST: 1
+                  DEBUG: 1
+              run: |
+                  python manage.py migrate --noinput
+                  python manage.py setup_dev
+
             - name: Build skills
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
-                  DATABASE_URL: 'postgres://localhost:5432/posthog'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   REDIS_URL: 'redis://localhost'
                   TEST: 1
                   DEBUG: 1
@@ -89,6 +107,10 @@ jobs:
               with:
                   fetch-depth: 0
 
+            - name: Start PostgreSQL with Docker Compose
+              run: |
+                  docker compose -f docker-compose.dev.yml up db -d --wait
+
             - name: Set up Python
               uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
@@ -104,10 +126,24 @@ jobs:
             - name: Install python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Wait for PostgreSQL
+              run: bin/check_postgres_up
+
+            - name: Run migrations and create test data
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  REDIS_URL: 'redis://localhost'
+                  TEST: 1
+                  DEBUG: 1
+              run: |
+                  python manage.py migrate --noinput
+                  python manage.py setup_dev
+
             - name: Build skills ZIP
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
-                  DATABASE_URL: 'postgres://localhost:5432/posthog'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   REDIS_URL: 'redis://localhost'
                   TEST: 1
                   DEBUG: 1
