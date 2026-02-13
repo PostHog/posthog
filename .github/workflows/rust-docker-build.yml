@@ -93,8 +93,14 @@ jobs:
               # Turning off cone mode ensures that files in the project root are not included during checkout
               uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: |
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
+
+            - name: Copy proto files into rust build context
+              working-directory: .
+              run: cp -r proto rust/proto
 
             - name: Set up Depot CLI
               uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0

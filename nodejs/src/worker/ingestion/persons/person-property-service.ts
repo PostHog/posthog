@@ -82,6 +82,12 @@ export class PersonPropertyService {
             otherUpdates.is_identified = true
         }
 
+        // Update last_seen_at if the event timestamp (rounded to hour) is newer
+        const roundedTimestamp = this.context.timestamp.startOf('hour')
+        if (!person.last_seen_at || roundedTimestamp > person.last_seen_at) {
+            otherUpdates.last_seen_at = roundedTimestamp
+        }
+
         // Check if we have any changes to make
         const hasChanges = propertyUpdates.hasChanges || Object.keys(otherUpdates).length > 0
         if (!hasChanges) {

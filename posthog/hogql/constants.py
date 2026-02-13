@@ -45,7 +45,7 @@ BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 
 type HogQLDialect = Literal["hogql", "clickhouse", "postgres"]
 
-type HogQLParserBackend = Literal["python", "cpp", "cpp-json"]
+type HogQLParserBackend = Literal["python", "cpp-json"]
 
 
 class LimitContext(StrEnum):
@@ -113,6 +113,8 @@ class HogQLQuerySettings(BaseModel):
     date_time_input_format: Optional[str] = None
     join_algorithm: Optional[str] = None
     force_data_skipping_indices: Optional[list[str]] = None
+    load_balancing: Optional[str] = None
+    optimize_skip_unused_shards: Optional[bool] = None
 
 
 # Settings applied on top of all HogQL queries.

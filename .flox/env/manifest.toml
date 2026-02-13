@@ -34,6 +34,7 @@ go = { pkg-path = "go", version = "1.24", pkg-group = "go" }
 golangci-lint = { pkg-path = "golangci-lint", pkg-group = "go" }
 air = { pkg-path = "air" }
 # CLI tools
+git-lfs = { pkg-path = "git-lfs" }
 mprocs = { pkg-path = "mprocs" }
 util-linux = { pkg-path = "util-linux" } # flock
 cmake = { pkg-path = "cmake", version = "3.31.5", pkg-group = "cmake" }

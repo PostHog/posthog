@@ -27,6 +27,7 @@ export const MAX_BRACKETS = 30
 export interface MeanRetentionValue {
     label: string | number | null
     meanPercentages: number[]
+    meanValues: number[]
     totalCohortSize: number
     isOverall?: boolean
 }
@@ -145,6 +146,11 @@ export const retentionLogic = kea<retentionLogicType>([
     }),
     selectors({
         hasValidBreakdown: [(s) => [s.breakdownFilter], (breakdownFilter) => isValidBreakdown(breakdownFilter)],
+        isPropertyValueAggregation: [
+            (s) => [s.retentionFilter],
+            (retentionFilter: RetentionFilter | undefined) =>
+                retentionFilter?.aggregationType === 'sum' || retentionFilter?.aggregationType === 'avg',
+        ],
         results: [
             (s) => [s.insightQuery, s.insightData, s.retentionFilter, s.timezone],
             (insightQuery, insightData, retentionFilter, timezone): ProcessedRetentionPayload[] => {
@@ -243,6 +249,7 @@ export const retentionLogic = kea<retentionLogicType>([
                     }
 
                     const meanPercentagesForBreakdown: number[] = []
+                    const meanValuesForBreakdown: number[] = []
                     const isOverallGroupWithoutBreakdown = breakdownKey === OVERALL_MEAN_KEY && !hasValidBreakdown
                     const label = isOverallGroupWithoutBreakdown
                         ? 'Overall'
@@ -257,21 +264,30 @@ export const retentionLogic = kea<retentionLogicType>([
                         )
 
                         let currentIntervalMean = 0
+                        let currentIntervalMeanValue = 0
                         if (validRows.length > 0) {
                             if (meanRetentionCalculation === 'weighted') {
                                 const weightedValueSum = sum(
                                     validRows,
                                     (row) => (row.values[intervalIndex]?.percentage || 0) * (row.values[0]?.count || 0)
                                 )
+                                const weightedCountSum = sum(
+                                    validRows,
+                                    (row) => (row.values[intervalIndex]?.count || 0) * (row.values[0]?.count || 0)
+                                )
                                 const totalWeight = sum(validRows, (row) => row.values[0]?.count || 0)
                                 currentIntervalMean = totalWeight > 0 ? weightedValueSum / totalWeight : 0
+                                currentIntervalMeanValue = totalWeight > 0 ? weightedCountSum / totalWeight : 0
                             } else {
                                 // Simple mean
                                 currentIntervalMean =
                                     mean(validRows.map((row) => row.values[intervalIndex]?.percentage || 0)) || 0
+                                currentIntervalMeanValue =
+                                    mean(validRows.map((row) => row.values[intervalIndex]?.count || 0)) || 0
                             }
                         }
                         meanPercentagesForBreakdown.push(currentIntervalMean)
+                        meanValuesForBreakdown.push(currentIntervalMeanValue)
                     }
 
                     const totalCohortSizeForGroup = sum(breakdownRows.map((row) => row.values[0]?.count || 0))
@@ -279,6 +295,7 @@ export const retentionLogic = kea<retentionLogicType>([
                     means[breakdownKey] = {
                         label: label,
                         meanPercentages: meanPercentagesForBreakdown,
+                        meanValues: meanValuesForBreakdown,
                         totalCohortSize: totalCohortSizeForGroup,
                         isOverall: isOverallGroupWithoutBreakdown,
                     }
