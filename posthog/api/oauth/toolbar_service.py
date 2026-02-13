@@ -7,6 +7,8 @@ Non-obvious behavior documented here:
 - OAuth state is both signed and one-time-use (cache-backed) to prevent replay.
 """
 
+import base64
+import hashlib
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -323,6 +325,14 @@ def refresh_tokens(
         "token_type": payload.get("token_type"),
         "scope": payload.get("scope"),
     }
+
+
+def generate_pkce_pair() -> tuple[str, str]:
+    """Generate a PKCE code_verifier and its S256 code_challenge."""
+    code_verifier = secrets.token_urlsafe(48)
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    return code_verifier, code_challenge
 
 
 def new_state_nonce() -> str:

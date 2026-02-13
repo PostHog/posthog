@@ -38,12 +38,21 @@
             <li>Toggle feature flags</li>
         </ul>
 
-        <a href="/api/user/redirect_to_site/?appUrl={{ redirect_url }}" class="button">
-            <span>
-                Authorize
-                <strong>{{ domain }}</strong>
-            </span>
-        </a>
+        {% if authorization_url %}
+            <a href="{{ authorization_url }}" class="button">
+                <span>
+                    Authorize
+                    <strong>{{ domain }}</strong>
+                </span>
+            </a>
+        {% else %}
+            <a href="/api/user/redirect_to_site/?appUrl={{ redirect_url }}" class="button">
+                <span>
+                    Authorize
+                    <strong>{{ domain }}</strong>
+                </span>
+            </a>
+        {% endif %}
     </form>
 </div>
 {% endblock %}

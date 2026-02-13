@@ -31,6 +31,14 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.oauth.toolbar_service import (
+    ToolbarOAuthState,
+    build_authorization_url,
+    build_toolbar_oauth_state,
+    generate_pkce_pair,
+    get_or_create_toolbar_oauth_application,
+    new_state_nonce,
+)
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.slack import slack_interactivity_callback
@@ -139,15 +147,49 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
             status=403,
         )
 
-    return render_template(
-        "authorize_and_link.html" if is_forum_login else "authorize_and_redirect.html",
-        request=request,
-        context={
-            "email": request.user,
-            "domain": redirect_url.hostname,
-            "redirect_url": request.GET["redirect"],
-        },
-    )
+    # Toolbar OAuth
+    if settings.TOOLBAR_OAUTH_ENABLED and not is_forum_login:
+        base_url = request.build_absolute_uri("/").rstrip("/")
+        code_verifier, code_challenge = generate_pkce_pair()
+
+        user = cast(User, request.user)
+        oauth_app = get_or_create_toolbar_oauth_application(base_url=base_url, user=user)
+
+        signed_state, expires_at = build_toolbar_oauth_state(
+            ToolbarOAuthState(
+                nonce=new_state_nonce(),
+                user_id=request.user.id,
+                team_id=current_team.id,
+                app_url=request.GET["redirect"],
+            )
+        )
+
+        authorization_url = build_authorization_url(
+            base_url=base_url, application=oauth_app, state=signed_state, code_challenge=code_challenge
+        )
+
+        request.session["toolbar_oauth_code_verifier"] = code_verifier
+
+        return render_template(
+            "authorize_and_redirect.html",
+            request=request,
+            context={
+                "email": request.user,
+                "domain": redirect_url.hostname,
+                "redirect_url": request.GET["redirect"],
+                "authorization_url": authorization_url,
+            },
+        )
+    else:
+        return render_template(
+            "authorize_and_link.html",
+            request=request,
+            context={
+                "email": request.user,
+                "domain": redirect_url.hostname,
+                "redirect_url": request.GET["redirect"],
+            },
+        )
 
 
 urlpatterns = [
