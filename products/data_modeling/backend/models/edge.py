@@ -3,6 +3,7 @@ from django.db import connection, models, transaction
 from posthog.models import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
+from .dag import DAG
 from .node import Node
 
 DISALLOWED_UPDATE_FIELDS = ("dag_id", "source", "source_id", "target", "target_id", "team", "team_id")
@@ -57,7 +58,9 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     source = models.ForeignKey(Node, related_name="outgoing_edges", on_delete=models.CASCADE, editable=False)
     # the target node of the edge (i.e. the node this edge is pointed toward)
     target = models.ForeignKey(Node, related_name="incoming_edges", on_delete=models.CASCADE, editable=False)
-    # the name of the DAG this edge belongs to
+    # NOTE: initially nullable for clean migrations
+    dag = models.ForeignKey(DAG, on_delete=models.CASCADE, null=True, blank=True)
+    # NOTE: this will be dropped
     dag_id = models.TextField(max_length=256, default="posthog", db_index=True, editable=False)
     properties = models.JSONField(default=dict)
 
