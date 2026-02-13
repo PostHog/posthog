@@ -1008,8 +1008,8 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
     def test_frustrated_sessions_count(self) -> None:
         cache.clear()
 
-        session_id = str(uuid7())
         for _ in range(3):
+            session_id = str(uuid7())
             _create_event(
                 distinct_id="user",
                 event="$rageclick",
