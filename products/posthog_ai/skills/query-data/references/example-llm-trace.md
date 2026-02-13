@@ -4,6 +4,7 @@ This query might return a very large blob of JSON data. You should either only i
 This query must always have time ranges set. You can calculate the time range as -30 to +30 minutes from the source event.
 The typical order of event capture for a trace is: $ai_span -> $ai_generation/$ai_embedding -> $ai_trace.
 Explore `$ai\_\*`-prefixed properties to find related to traces, generations, embeddings, spans, feedback, and metric.
+Key properties of the $ai_generation event: $ai_input and $ai_output_choices.
 
 ```sql
 SELECT
