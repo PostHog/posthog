@@ -485,30 +485,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if not isinstance(raw_question, dict):
                 raise serializers.ValidationError("Questions must be a list of objects")
 
-            # Start with empty dict and only add validated fields
-            cleaned_question = {}
-
-            # Copy known safe fields that don't need validation
-            for field in [
-                "type",
-                "id",
-                "branching",
-                "buttonText",
-                "lowerBoundLabel",
-                "upperBoundLabel",
-                "scale",
-                "lowerLabel",
-                "upperLabel",
-                "hasOpenChoice",
-                "shuffleOptions",
-                "descriptionContentType",
-                "skipSubmitButton",
-                "optional",
-                "display",
-                "isNpsQuestion",
-            ]:
-                if field in raw_question:
-                    cleaned_question[field] = raw_question[field]
+            cleaned_question = {**raw_question}
 
             question_text = raw_question.get("question")
 
@@ -536,7 +513,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
             # Validate choices first before translation validation to provide clearer error messages
             choices = raw_question.get("choices")
-            if choices is not None:
+            if choices:
                 if not isinstance(choices, list):
                     raise serializers.ValidationError("Question choices must be a list of strings")
                 cleaned_question["choices"] = self._validate_and_sanitize_choices(choices)
@@ -553,11 +530,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 original_choices = cleaned_question.get("choices")
                 for lang_code, translation_data in cleaned_translations.items():
                     if "choices" in translation_data:
-                        # Reject choices in translation if original question doesn't have choices
                         if "choices" not in cleaned_question or not isinstance(original_choices, list):
-                            raise serializers.ValidationError(
-                                f"Question {index + 1}: Translation '{lang_code}' has choices field but original question does not have choices"
-                            )
+                            translation_data.pop("choices", None)
+                            continue
 
                         translated_choices = translation_data["choices"]
                         if len(translated_choices) != len(original_choices):

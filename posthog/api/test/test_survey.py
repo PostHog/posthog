@@ -363,8 +363,7 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "invalid mailto" in response.json()["detail"].lower()
 
-    def test_choices_translation_on_non_choice_question_rejected(self):
-        """Test that adding choices translation to non-choice question types is rejected"""
+    def test_choices_translation_on_non_choice_question_silently_removed(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -377,7 +376,7 @@ class TestSurvey(APIBaseTest):
                         "translations": {
                             "es": {
                                 "question": "¿Qué piensas?",
-                                "choices": ["Option A", "Option B"],  # Not allowed for open questions
+                                "choices": ["Option A", "Option B"],
                             },
                         },
                     }
@@ -385,8 +384,10 @@ class TestSurvey(APIBaseTest):
             },
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "does not have choices" in response.json()["detail"]
+        assert response.status_code == status.HTTP_201_CREATED
+        translations = response.json()["questions"][0]["translations"]["es"]
+        assert "choices" not in translations
+        assert translations["question"] == "¿Qué piensas?"
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_creation_context_is_set_to_surveys(self, mock_capture):
