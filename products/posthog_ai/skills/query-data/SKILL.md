@@ -344,3 +344,4 @@ Use the examples below to create optimized queries.
 - [Web views by devices](./references/example-web-traffic-by-device-type.md)
 - [Web overview](./references/example-web-overview.md)
 - [Error tracking (search for a value in an error and filtering by custom properties)](./references/example-error-tracking.md)
+- [Logs (filtering by severity and searching for a term)](./references/example-logs.md)

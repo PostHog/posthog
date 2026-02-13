@@ -55,6 +55,7 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
         ast_query = runner.to_query()
 
         from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+        from products.logs.backend.logs_query_runner import LogsQueryRunner
 
         hogql_filters = HogQLFilters()
         if isinstance(runner, ErrorTrackingQueryRunner):
@@ -62,6 +63,8 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
                 filterTestAccounts=runner.query.filterTestAccounts,
                 properties=runner.hogql_properties,
             )
+        elif isinstance(runner, LogsQueryRunner):
+            hogql_filters = HogQLFilters(dateRange=runner.query.dateRange)
         ast_query = replace_filters(ast_query, hogql_filters, _cached_team)
 
         return to_printed_hogql(ast_query, _cached_team)
