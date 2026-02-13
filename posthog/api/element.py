@@ -49,7 +49,8 @@ class ElementStatsSerializer(serializers.Serializer):
 
 @extend_schema(tags=[ProductKey.PRODUCT_ANALYTICS])
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "element"
+    scope_object_read_actions = ["list", "retrieve", "stats", "values"]
     filter_rewrite_rules = {"team_id": "group__team_id"}
 
     queryset = Element.objects.all()
