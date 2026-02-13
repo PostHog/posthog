@@ -111,6 +111,12 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any]) -> MCPServerInstallation:
         request = self.context["request"]
         team_id = self.context["team_id"]
+
+        config = validated_data.get("configuration") or {}
+        if api_key := config.pop("api_key", None):
+            validated_data["configuration"] = config
+            validated_data["sensitive_configuration"] = {"api_key": api_key}
+
         return MCPServerInstallation.objects.create(
             team_id=team_id,
             user=request.user,
