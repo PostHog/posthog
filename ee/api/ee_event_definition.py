@@ -162,6 +162,10 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         return hasattr(obj, "action_id") and obj.action_id is not None
 
     def get_media_preview_urls(self, obj) -> list[str]:
+        media_map = self.context.get("media_preview_urls_map")
+        if media_map is not None:
+            return media_map.get(str(obj.id), [])
+
         if not obj.id:
             return []
         previews = (
