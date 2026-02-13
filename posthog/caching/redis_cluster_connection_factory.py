@@ -14,10 +14,10 @@ class RedisClusterConnectionFactory(ConnectionFactory):
 
     _cluster_clients: dict[str, RedisCluster] = {}
 
-    def connect(self, url: str) -> RedisCluster:  # type: ignore[override]
+    def connect(self, url: str) -> RedisCluster:
         if url not in self._cluster_clients:
             self._cluster_clients[url] = RedisCluster.from_url(url)
         return self._cluster_clients[url]
 
-    def disconnect(self, connection) -> None:  # type: ignore[override]
+    def disconnect(self, connection) -> None:
         connection.close()

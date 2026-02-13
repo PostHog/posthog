@@ -1,4 +1,4 @@
-from typing import NamedTuple
+from typing import Any, NamedTuple, cast
 
 from django.conf import settings
 from django.core.cache import cache, caches
@@ -40,7 +40,7 @@ def get_query_cache_selection(team_id: int) -> QueryCacheSelection:
         query_cache = caches[QUERY_CACHE_ALIAS]
         return QueryCacheSelection(
             cache_backend=query_cache,
-            redis_client=query_cache.client.get_client(write=True),
+            redis_client=cast(Any, query_cache).client.get_client(write=True),
         )
 
     return QueryCacheSelection(
