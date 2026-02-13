@@ -673,6 +673,7 @@ class PostHogFeatureFlagPermission(BasePermission):
     def has_permission(self, request, view) -> bool:
         user = cast(User, request.user)
         organization = get_organization_from_view(view)
+        team_id = view.team_id  # type: ignore
         flag = getattr(view, "posthog_feature_flag", None)
 
         config = {}
@@ -694,8 +695,8 @@ class PostHogFeatureFlagPermission(BasePermission):
                 enabled = posthoganalytics.feature_enabled(
                     required_flag,
                     user.distinct_id,
-                    groups={"organization": org_id},
-                    group_properties={"organization": {"id": org_id}},
+                    groups={"organization": org_id, "project": str(team_id)},
+                    group_properties={"organization": {"id": org_id}, "project": {"id": str(team_id)}},
                     only_evaluate_locally=False,
                     send_feature_flag_events=False,
                 )

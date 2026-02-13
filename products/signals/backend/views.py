@@ -71,7 +71,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     serializer_class = SignalReportSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    scope_object = "task"  # Using task scope as signal_report doesn't have its own scope yet
+    scope_object = "INTERNAL"
     queryset = SignalReport.objects.all()
     posthog_feature_flag = {
         "product-autonomy": [
