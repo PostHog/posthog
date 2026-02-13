@@ -153,27 +153,26 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     if settings.TOOLBAR_OAUTH_ENABLED and not is_forum_login:
         try:
             app_url = normalize_and_validate_app_url(current_team, request.GET["redirect"])
+            base_url = request.build_absolute_uri("/").rstrip("/")
+            code_verifier, code_challenge = generate_pkce_pair()
+
+            user = cast(User, request.user)
+            oauth_app = get_or_create_toolbar_oauth_application(base_url=base_url, user=user)
+
+            signed_state, expires_at = build_toolbar_oauth_state(
+                ToolbarOAuthState(
+                    nonce=new_state_nonce(),
+                    user_id=cast(int, request.user.pk),
+                    team_id=cast(int, current_team.pk),
+                    app_url=app_url,
+                )
+            )
+
+            authorization_url = build_authorization_url(
+                base_url=base_url, application=oauth_app, state=signed_state, code_challenge=code_challenge
+            )
         except ToolbarOAuthError as exc:
             return HttpResponse(exc.detail, status=exc.status_code)
-
-        base_url = request.build_absolute_uri("/").rstrip("/")
-        code_verifier, code_challenge = generate_pkce_pair()
-
-        user = cast(User, request.user)
-        oauth_app = get_or_create_toolbar_oauth_application(base_url=base_url, user=user)
-
-        signed_state, expires_at = build_toolbar_oauth_state(
-            ToolbarOAuthState(
-                nonce=new_state_nonce(),
-                user_id=cast(int, request.user.pk),
-                team_id=cast(int, current_team.pk),
-                app_url=app_url,
-            )
-        )
-
-        authorization_url = build_authorization_url(
-            base_url=base_url, application=oauth_app, state=signed_state, code_challenge=code_challenge
-        )
 
         # TODO: Session code_verifier is not yet consumed in this flow; token exchange
         # uses code_verifier from the client (toolbar_oauth_exchange request body).
