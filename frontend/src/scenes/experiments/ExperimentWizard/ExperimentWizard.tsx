@@ -12,7 +12,8 @@ import { AnalyticsStep } from './steps/AnalyticsStep'
 import { VariantsStep } from './steps/VariantsStep'
 
 export function ExperimentWizard(): JSX.Element {
-    const { currentStep, isLastStep, isFirstStep, isExperimentSubmitting } = useValues(experimentWizardLogic)
+    const { currentStep, isLastStep, isFirstStep, isExperimentSubmitting, stepValidationErrors } =
+        useValues(experimentWizardLogic)
     const { nextStep, prevStep, setStep, saveExperiment, openFullEditor } = useActions(experimentWizardLogic)
 
     return (
@@ -27,7 +28,11 @@ export function ExperimentWizard(): JSX.Element {
                         <h1 className="text-2xl font-semibold">New experiment</h1>
                     </div>
                     <div className="flex justify-center">
-                        <ExperimentWizardStepper currentStep={currentStep} onStepClick={setStep} />
+                        <ExperimentWizardStepper
+                            currentStep={currentStep}
+                            onStepClick={setStep}
+                            stepErrors={stepValidationErrors}
+                        />
                     </div>
                 </div>
 

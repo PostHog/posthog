@@ -1,5 +1,6 @@
 import { IconCheckCircle } from '@posthog/icons'
 
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
 import { ExperimentWizardStep } from './experimentWizardLogic'
@@ -24,9 +25,14 @@ const STEP_ORDER: Record<ExperimentWizardStep, number> = {
 interface ExperimentWizardStepperProps {
     currentStep: ExperimentWizardStep
     onStepClick: (step: ExperimentWizardStep) => void
+    stepErrors?: Record<ExperimentWizardStep, string[]>
 }
 
-export function ExperimentWizardStepper({ currentStep, onStepClick }: ExperimentWizardStepperProps): JSX.Element {
+export function ExperimentWizardStepper({
+    currentStep,
+    onStepClick,
+    stepErrors,
+}: ExperimentWizardStepperProps): JSX.Element {
     const currentOrder = STEP_ORDER[currentStep]
 
     return (
@@ -35,6 +41,7 @@ export function ExperimentWizardStepper({ currentStep, onStepClick }: Experiment
                 const stepOrder = STEP_ORDER[step.key]
                 const isCompleted = currentOrder > stepOrder
                 const isCurrent = currentStep === step.key
+                const hasErrors = (stepErrors?.[step.key]?.length ?? 0) > 0
 
                 return (
                     <div key={step.key} className="flex items-center">
@@ -57,7 +64,9 @@ export function ExperimentWizardStepper({ currentStep, onStepClick }: Experiment
                             )}
                             aria-current={isCurrent ? 'step' : undefined}
                         >
-                            {isCompleted ? (
+                            {hasErrors ? (
+                                <IconErrorOutline className="size-5 text-danger" />
+                            ) : isCompleted ? (
                                 <IconCheckCircle className="size-5 text-success" />
                             ) : (
                                 <span
@@ -76,8 +85,8 @@ export function ExperimentWizardStepper({ currentStep, onStepClick }: Experiment
                                 className={cn(
                                     'text-sm transition-colors duration-150',
                                     isCurrent && 'font-semibold text-primary',
-                                    isCompleted && 'font-medium text-primary',
-                                    !isCompleted && !isCurrent && 'text-secondary'
+                                    isCompleted && !hasErrors && 'font-medium text-primary',
+                                    (!isCompleted || hasErrors) && !isCurrent && 'text-secondary'
                                 )}
                             >
                                 {step.label}

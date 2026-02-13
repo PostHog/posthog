@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonInput, Link } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { slugify } from 'lib/utils'
 
 import { SelectExistingFeatureFlagModal } from '../../ExperimentForm/SelectExistingFeatureFlagModal'
@@ -12,24 +14,49 @@ import { selectExistingFeatureFlagModalLogic } from '../../ExperimentForm/select
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
 export function AboutStep(): JSX.Element {
-    const { experiment, linkedFeatureFlag } = useValues(experimentWizardLogic)
-    const { setExperimentValue, setFeatureFlagConfig, setLinkedFeatureFlag } = useActions(experimentWizardLogic)
+    const { experiment, linkedFeatureFlag, featureFlagKeyValidation, featureFlagKeyValidationLoading, departedSteps } =
+        useValues(experimentWizardLogic)
+    const {
+        setExperimentValue,
+        setFeatureFlagConfig,
+        setLinkedFeatureFlag,
+        validateFeatureFlagKey,
+        clearFeatureFlagKeyValidation,
+    } = useActions(experimentWizardLogic)
     const { openSelectExistingFeatureFlagModal, closeSelectExistingFeatureFlagModal } = useActions(
         selectExistingFeatureFlagModalLogic
     )
+
+    const debouncedValidateFeatureFlagKey = useDebouncedCallback((key: string) => {
+        if (key) {
+            validateFeatureFlagKey(key)
+        } else {
+            clearFeatureFlagKeyValidation()
+        }
+    }, 300)
+
+    const isDeparted = !!departedSteps.about
+    const nameError = isDeparted && !experiment.name?.trim() ? 'Name is required' : undefined
+    const featureFlagKeyError =
+        (!linkedFeatureFlag && featureFlagKeyValidation?.valid === false
+            ? featureFlagKeyValidation.error
+            : undefined) ??
+        (isDeparted && !experiment.feature_flag_key?.trim() ? 'Feature flag key is required' : undefined)
 
     return (
         <div className="space-y-6">
             <h3 className="text-lg font-semibold">What are we testing?</h3>
 
-            <LemonField.Pure label="Experiment name">
+            <LemonField.Pure label="Experiment name" error={nameError}>
                 <LemonInput
                     placeholder="e.g., New checkout flow test"
                     value={experiment.name}
                     onChange={(value) => {
                         setExperimentValue('name', value)
                         if (!experiment.feature_flag_key || experiment.feature_flag_key === slugify(experiment.name)) {
-                            setExperimentValue('feature_flag_key', slugify(value))
+                            const newKey = slugify(value)
+                            setExperimentValue('feature_flag_key', newKey)
+                            debouncedValidateFeatureFlagKey(newKey)
                         }
                     }}
                     data-attr="experiment-wizard-name"
@@ -53,37 +80,47 @@ export function AboutStep(): JSX.Element {
                     onRemove={() => {
                         setLinkedFeatureFlag(null)
                         setExperimentValue('feature_flag_key', '')
+                        clearFeatureFlagKeyValidation()
                     }}
                 />
             ) : (
-                <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                        <label className="text-sm font-semibold">Feature flag key</label>
-                        <span className="text-muted text-sm">
-                            Do you have a feature flag already?{' '}
-                            <Link
-                                className="whitespace-nowrap text-sm"
-                                subtle
-                                onClick={openSelectExistingFeatureFlagModal}
-                            >
-                                Select existing flag
-                            </Link>
-                        </span>
-                    </div>
+                <LemonField.Pure
+                    label={
+                        <div className="flex items-center justify-between w-full">
+                            <span>Feature flag key</span>
+                            <span className="text-muted text-sm font-normal">
+                                Do you have a feature flag already?{' '}
+                                <Link
+                                    className="whitespace-nowrap text-sm"
+                                    subtle
+                                    onClick={openSelectExistingFeatureFlagModal}
+                                >
+                                    Select existing flag
+                                </Link>
+                            </span>
+                        </div>
+                    }
+                    error={featureFlagKeyError}
+                >
                     <LemonInput
                         placeholder="e.g., new-checkout-flow-test"
                         value={experiment.feature_flag_key ?? ''}
-                        onChange={(value) => setExperimentValue('feature_flag_key', value)}
+                        onChange={(value) => {
+                            setExperimentValue('feature_flag_key', value)
+                            debouncedValidateFeatureFlagKey(value)
+                        }}
+                        suffix={featureFlagKeyValidationLoading ? <Spinner className="text-xl" /> : undefined}
                         data-attr="experiment-wizard-flag-key"
                         fullWidth
                     />
-                </div>
+                </LemonField.Pure>
             )}
 
             <SelectExistingFeatureFlagModal
                 onClose={closeSelectExistingFeatureFlagModal}
                 onSelect={(flag) => {
                     setLinkedFeatureFlag(flag)
+                    clearFeatureFlagKeyValidation()
                     setFeatureFlagConfig({
                         feature_flag_key: flag.key,
                         feature_flag_variants: flag.filters?.multivariate?.variants || [],
