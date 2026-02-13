@@ -1,6 +1,6 @@
 """API endpoint for fetching Slack channels using a bot token."""
 
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from rest_framework import status
@@ -44,7 +44,7 @@ class SlackChannelsView(APIView):
                     limit=1000,
                     cursor=cursor,
                 )
-                for c in result.get("channels", []):
+                for c in cast(list[dict[str, Any]], result.get("channels") or []):
                     channels.append({"id": c["id"], "name": c["name"]})
 
                 response_metadata = result.get("response_metadata") or {}
