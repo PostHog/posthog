@@ -18,7 +18,6 @@ import temporalio.exceptions
 from asgiref.sync import sync_to_async
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination
-from posthog.temporal.tests.utils.datetimes import date_range
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -36,6 +35,7 @@ from products.batch_exports.backend.temporal.backfill_batch_export import (
     backfill_schedule,
 )
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_events
+from products.batch_exports.backend.tests.temporal.utils.s3 import create_test_client, delete_all_from_s3
 
 
 async def wait_for_workflows(
@@ -798,8 +798,7 @@ async def test_backfill_batch_export_workflow_is_cancelled_on_repeated_failures(
     end_at = dt.datetime(2023, 1, 1, 1, 0, 0, tzinfo=dt.UTC)
 
     # We need some data otherwise the S3 batch export will not fail as it short-circuits.
-    for d in date_range(start_at, end_at, dt.timedelta(minutes=5)):
-        await generate_events(start_time=start_at, end_time=end_at, inserted_at=d)
+    await generate_events(start_time=start_at, end_time=end_at, count=100)
 
     inputs = BackfillBatchExportInputs(
         team_id=ateam.pk,
@@ -884,10 +883,31 @@ async def test_backfill_batch_export_workflow_no_start_at(
         assert backfill_id == str(backfill.id)
 
 
+@pytest.fixture
+def bucket_name() -> str:
+    """Name for a test S3 bucket."""
+    return f"test-batch-exports-{str(uuid.uuid4())}"
+
+
 @pytest_asyncio.fixture
-async def events_batch_export(temporal_client, ateam, clickhouse_client):
+async def minio_client(bucket_name):
+    """Manage a MinIO S3 client, creating and cleaning up a test bucket."""
+    async with create_test_client(
+        "s3",
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+    ) as client:
+        await client.create_bucket(Bucket=bucket_name)
+
+        yield client
+
+        await delete_all_from_s3(client, bucket_name, key_prefix="")
+        await client.delete_bucket(Bucket=bucket_name)
+
+
+@pytest_asyncio.fixture
+async def events_batch_export(temporal_client, ateam, clickhouse_client, bucket_name, minio_client):
     """Create a batch export for testing backfill info (defaults to events model)."""
-    # Truncate events table to ensure clean state for each test
     await truncate_events(clickhouse_client)
 
     batch_export = await acreate_batch_export(
@@ -896,7 +916,7 @@ async def events_batch_export(temporal_client, ateam, clickhouse_client):
         destination_data={
             "type": "S3",
             "config": {
-                "bucket_name": "test-batch-exports",
+                "bucket_name": bucket_name,
                 "region": "us-east-1",
                 "prefix": "posthog-events/",
                 "aws_access_key_id": "object_storage_root_user",
