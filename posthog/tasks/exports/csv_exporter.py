@@ -16,9 +16,11 @@ import requests
 import structlog
 from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from requests.exceptions import HTTPError
 from rest_framework_csv.renderers import CSVRenderer
+
+from posthog.schema import QuerySchemaRoot
 
 from posthog.api.services.query import process_query_dict
 from posthog.exceptions_capture import capture_exception
@@ -439,25 +441,31 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
         next_url = data.get("next")
 
 
+def _query_supports_limit(query: dict) -> bool:
+    if not query.get("kind"):
+        return False
+    try:
+        QuerySchemaRoot.model_validate({**query, "limit": 1})
+        return True
+    except ValidationError:
+        return False
+
+
 def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any, None, None]:
     query = resource.get("source")
     assert query is not None
 
     breakdown_filter = query.get("breakdownFilter") if query else None
-    total = 0
+    supports_limit = _query_supports_limit(query)
 
-    # Pagination state - detected from response
+    total = 0
     cursor: str | None = None
     offset = 0
-    use_cursor = False
-    supports_pagination: bool | None = None  # None = not yet detected
 
     while total < CSV_EXPORT_LIMIT:
         # Build paginated query
         paginated_query = query.copy()
-
-        # Only add pagination parameters after confirming the query supports pagination
-        if supports_pagination:
+        if supports_limit:
             paginated_query["limit"] = QUERY_PAGE_SIZE
             if cursor is not None:
                 paginated_query["after"] = cursor
@@ -485,29 +493,28 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
         else:
             response_dict = query_response
 
+        if response_dict.get("error"):
+            raise Exception(f"Query failed: {response_dict['error']}")
+
         rows = list(_convert_response_to_csv_data(response_dict, breakdown_filter=breakdown_filter))
         rows = rows[: CSV_EXPORT_LIMIT - total]
         total += len(rows)
         yield from rows
 
-        if total >= CSV_EXPORT_LIMIT or len(rows) == 0:
+        if not supports_limit or total >= CSV_EXPORT_LIMIT or len(rows) == 0:
             break
 
-        # Detect pagination support from response
         next_cursor = response_dict.get("nextCursor") or response_dict.get("next_cursor")
         has_more = response_dict.get("hasMore", False)
 
         if next_cursor:
             # Priority 1: Cursor pagination
             cursor = next_cursor
-            use_cursor = True
-            supports_pagination = True
-        elif has_more and not use_cursor:
+        elif has_more and cursor is None:
             # Priority 2: Offset pagination
             offset += QUERY_PAGE_SIZE
-            supports_pagination = True
         else:
-            # No pagination indicators - single query only
+            # No more pages
             break
 
 

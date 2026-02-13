@@ -310,6 +310,7 @@ class ExperimentAdmin(admin.ModelAdmin):
 
     def fix_malformed_properties(self, request, object_id):
         try:
+            # nosemgrep: idor-lookup-without-team (Django admin, staff-only)
             experiment = Experiment.objects.get(pk=object_id)
 
             all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
