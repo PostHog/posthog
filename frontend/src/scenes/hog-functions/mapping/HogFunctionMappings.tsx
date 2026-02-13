@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { memo, useEffect, useState } from 'react'
 
-import { IconArrowRight, IconEllipsis, IconFilter, IconPlus } from '@posthog/icons'
+import { IconArrowRight, IconEllipsis, IconFilter, IconPlus, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -40,8 +40,10 @@ export const humanize = (value: string): string => {
 
 export const MappingSummary = memo(function MappingSummary({
     mapping,
+    eventNotSeen,
 }: {
     mapping: HogFunctionMappingType
+    eventNotSeen?: string
 }): JSX.Element | null {
     const events = mapping.filters?.events?.map((event) => event.name ?? event.id) ?? []
     const actions = mapping.filters?.actions?.map((action) => action.name ?? action.id) ?? []
@@ -75,6 +77,18 @@ export const MappingSummary = memo(function MappingSummary({
                       ? JSON.stringify(firstInputValue)
                       : humanize(firstInputValue)}
             </span>
+            {eventNotSeen ? (
+                <Tooltip
+                    title={
+                        <span>
+                            The event '{eventNotSeen}' hasn't been seen in this project yet. You may wish to select a
+                            different event for this mapping.
+                        </span>
+                    }
+                >
+                    <IconWarning className="text-warning text-xl shrink-0" />
+                </Tooltip>
+            ) : null}
             <span className="flex-1" />
             {mapping.disabled ? <LemonTag type="danger">Disabled</LemonTag> : null}
         </span>
@@ -189,7 +203,8 @@ export function HogFunctionMapping({
 }
 
 export function HogFunctionMappings(): JSX.Element | null {
-    const { useMapping, mappingTemplates, configuration } = useValues(hogFunctionConfigurationLogic)
+    const { useMapping, mappingTemplates, configuration, unmatchedMappingEvents } =
+        useValues(hogFunctionConfigurationLogic)
     const [activeKeys, setActiveKeys] = useState<number[]>([])
 
     // If there is only one mapping template, then we start it expanded
@@ -322,7 +337,14 @@ export function HogFunctionMappings(): JSX.Element | null {
                                             (mapping, index): LemonCollapsePanel<number> => ({
                                                 key: index,
                                                 header: {
-                                                    children: <MappingSummary mapping={mapping} />,
+                                                    children: (
+                                                        <MappingSummary
+                                                            mapping={mapping}
+                                                            eventNotSeen={(mapping.filters?.events ?? [])
+                                                                .map((e) => String(e.id))
+                                                                .find((id) => unmatchedMappingEvents.includes(id))}
+                                                        />
+                                                    ),
                                                     sideAction: {
                                                         icon: <IconEllipsis />,
                                                         dropdown: {

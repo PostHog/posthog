@@ -597,6 +597,22 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
+        unmatchedMappingEvents: [
+            [] as string[],
+            {
+                loadUnmatchedMappingEvents: async (_, breakpoint) => {
+                    const eventIds = values.mappingEventIds
+                    if (eventIds.length === 0) {
+                        return []
+                    }
+                    await breakpoint(500)
+                    const results = await Promise.all(eventIds.map((id) => api.eventDefinitions.exists({ name: id })))
+                    breakpoint()
+                    return eventIds.filter((_, idx) => !results[idx])
+                },
+            },
+        ],
+
         sampleGlobals: [
             null as CyclotronJobInvocationGlobals | null,
             {
@@ -1005,6 +1021,54 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return properties
             },
             { resultEqualityCheck: equal },
+        ],
+
+        mappingEventIds: [
+            (s) => [s.configuration, s.useMapping],
+            (configuration: HogFunctionConfigurationType, useMapping: boolean): string[] => {
+                if (!useMapping) {
+                    return []
+                }
+                const ids = new Set<string>()
+                for (const mapping of configuration.mappings ?? []) {
+                    for (const event of mapping.filters?.events ?? []) {
+                        if (event.id) {
+                            ids.add(String(event.id))
+                        }
+                    }
+                }
+                return Array.from(ids)
+            },
+            { resultEqualityCheck: equal },
+        ],
+
+        globalFiltersEventConflict: [
+            (s) => [s.configuration, s.mappingEventIds],
+            (configuration: HogFunctionConfigurationType, mappingEventIds: string[]): string[] | null => {
+                if (mappingEventIds.length === 0) {
+                    return null
+                }
+
+                const eventMetadataFilter = (configuration.filters?.properties ?? []).find(
+                    (p: AnyPropertyFilter) => p.type === 'event_metadata' && p.key === 'event' && p.value != null
+                )
+                if (!eventMetadataFilter) {
+                    return null
+                }
+
+                const mappingEventIdSet = new Set(mappingEventIds)
+                const rawValue = eventMetadataFilter.value
+                const filterValues = (Array.isArray(rawValue) ? rawValue : [rawValue])
+                    .filter((v): v is string | number => v != null)
+                    .map(String)
+
+                if (filterValues.length === 0) {
+                    return null
+                }
+
+                const unmatchedValues = filterValues.filter((v) => !mappingEventIdSet.has(v))
+                return unmatchedValues.length > 0 ? unmatchedValues : null
+            },
         ],
 
         filtersContainPersonProperties: [
@@ -1476,6 +1540,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     data_warehouse: [],
                 })
             }
+        },
+        mappingEventIds: () => {
+            actions.loadUnmatchedMappingEvents({})
         },
     })),
 

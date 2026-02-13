@@ -2563,6 +2563,21 @@ const api = {
         }): Promise<EventDefinitionMetrics> {
             return new ApiRequest().eventDefinitionDetail(eventDefinitionId).withAction('metrics').get()
         },
+        async exists({ name }: { name: string }): Promise<boolean> {
+            try {
+                await new ApiRequest()
+                    .eventDefinitions()
+                    .withAction('by_name')
+                    .withQueryString(toParams({ name }))
+                    .get()
+                return true
+            } catch (e: any) {
+                if (e.status === 404) {
+                    return false
+                }
+                throw e
+            }
+        },
         determineListEndpoint({
             limit = EVENT_DEFINITIONS_PER_PAGE,
             teamId,
