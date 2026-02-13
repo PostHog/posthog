@@ -149,3 +149,36 @@ SELECT
     <redacted>but this one is hidden</redacted>
 FROM events
 ```
+
+## Funnel functions
+
+The three variants differ only in how the breakdown property column is typed.
+
+### `aggregate_funnel` / `aggregate_funnel_array` / `aggregate_funnel_cohort`
+
+7 arguments:
+
+1. `num_steps` (Int) — total number of funnel steps
+2. `conversion_window_limit` (Int) — max seconds between first and last step
+3. `breakdown_attribution_type` (String) — one of `first_touch`, `last_touch`, `all_events`, or `step_N`
+4. `funnel_order_type` (String) — `ordered`, `unordered`, or `strict`
+5. `prop_vals` (Array) — breakdown property values to aggregate over
+6. `optional_steps` (Array(Int)) — 1-indexed step numbers marked as optional
+7. `events_array` (Array(Tuple)) — pre-sorted array of `(timestamp, uuid, breakdown_prop, steps)` tuples per person
+
+Returns an array of tuples: `(step_reached, breakdown_value, timings, event_uuids, steps_bitmask)`.
+
+### `aggregate_funnel_trends` / `aggregate_funnel_array_trends` / `aggregate_funnel_cohort_trends`
+
+8 arguments:
+
+1. `from_step` (Int) — 1-indexed start step for conversion measurement
+2. `to_step` (Int) — 1-indexed goal step for conversion measurement
+3. `num_steps` (Int) — total number of funnel steps
+4. `conversion_window_limit` (Int) — max seconds between first and last step
+5. `breakdown_attribution_type` (String) — one of `first_touch`, `last_touch`, `all_events`, or `step_N`
+6. `funnel_order_type` (String) — `ordered`, `unordered`, or `strict`
+7. `prop_vals` (Array) — breakdown property values to aggregate over
+8. `events_array` (Array(Tuple)) — pre-sorted array of `(timestamp, interval_start, uuid, breakdown_prop, steps)` tuples per person
+
+Returns an array of tuples: `(interval_start, success_bool, breakdown_value, event_uuid)`.
