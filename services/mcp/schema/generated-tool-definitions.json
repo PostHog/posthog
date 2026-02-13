@@ -1,9 +1,9 @@
 {
     "action-get": {
-        "description": "Retrieves a specific action by its ID. Actions combine multiple trigger conditions into a single trackable event.",
+        "description": "Get a specific action by ID. Returns the action configuration including all steps and their trigger conditions.",
         "category": "Actions",
         "feature": "actions",
-        "summary": "Retrieves a specific action by its ID. Actions combine multiple trigger conditions into a single trackable event.",
+        "summary": "Get action",
         "title": "Get action",
         "required_scopes": ["action:read"],
         "new_mcp": true,
@@ -15,11 +15,11 @@
         }
     },
     "actions-get-all": {
-        "description": "Lists all actions in the project. Actions are reusable event definitions that combine multiple trigger conditions.",
+        "description": "Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels.",
         "category": "Actions",
         "feature": "actions",
-        "summary": "Lists all actions in the project. Actions are reusable event definitions that combine multiple trigger conditions.",
-        "title": "List actions",
+        "summary": "Get all actions",
+        "title": "Get all actions",
         "required_scopes": ["action:read"],
         "new_mcp": true,
         "annotations": {
@@ -30,10 +30,10 @@
         }
     },
     "action-create": {
-        "description": "Creates a new action in the project. An action needs at least one step defining a trigger condition. Multiple steps are OR-ed together.",
+        "description": "Create a new action in the project. Actions define reusable event triggers based on page views, clicks, form submissions, or custom events. At least one step is required.",
         "category": "Actions",
         "feature": "actions",
-        "summary": "Creates a new action in the project. An action needs at least one step defining a trigger condition. Multiple steps are OR-ed together.",
+        "summary": "Create action",
         "title": "Create action",
         "required_scopes": ["action:write"],
         "new_mcp": true,
@@ -45,10 +45,10 @@
         }
     },
     "action-update": {
-        "description": "Updates an existing action. Only provided fields are changed.",
+        "description": "Update an existing action by ID. Can update name, description, steps, tags, and Slack notification settings.",
         "category": "Actions",
         "feature": "actions",
-        "summary": "Updates an existing action. Only provided fields are changed.",
+        "summary": "Update action",
         "title": "Update action",
         "required_scopes": ["action:write"],
         "new_mcp": true,
@@ -60,10 +60,10 @@
         }
     },
     "action-delete": {
-        "description": "Deletes an action by ID.",
+        "description": "Delete an action by ID. The action will no longer appear in lists but historical data is preserved.",
         "category": "Actions",
         "feature": "actions",
-        "summary": "Deletes an action by ID.",
+        "summary": "Delete action",
         "title": "Delete action",
         "required_scopes": ["action:write"],
         "new_mcp": true,

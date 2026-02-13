@@ -355,6 +355,71 @@ function buildGroupedSchemasByOutput(schema, mappings) {
     return grouped
 }
 
+/**
+ * Filter an OpenAPI schema to only include operations matching given operationIds.
+ * Used by MCP to produce a small subset for Orval Zod generation.
+ */
+function filterSchemaByOperationIds(fullSchema, operationIds) {
+    const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])
+    const filteredPaths = {}
+    const refs = new Set()
+
+    for (const [pathKey, operations] of Object.entries(fullSchema.paths ?? {})) {
+        for (const [method, operation] of Object.entries(operations ?? {})) {
+            if (!httpMethods.has(method)) {
+                continue
+            }
+            if (!operationIds.has(operation.operationId)) {
+                continue
+            }
+
+            filteredPaths[pathKey] ??= {}
+            filteredPaths[pathKey][method] = operation
+            collectSchemaRefs(operation, refs)
+        }
+    }
+
+    const allSchemas = fullSchema.components?.schemas ?? {}
+    const allRefs = resolveNestedRefs(allSchemas, refs)
+    const filteredSchemas = {}
+
+    for (const ref of allRefs) {
+        const schemaName = ref.replace('#/components/schemas/', '')
+        if (allSchemas[schemaName]) {
+            filteredSchemas[schemaName] = allSchemas[schemaName]
+        }
+    }
+
+    return {
+        openapi: fullSchema.openapi,
+        info: { ...fullSchema.info, title: `${fullSchema.info?.title ?? 'API'} - MCP` },
+        paths: filteredPaths,
+        components: { schemas: filteredSchemas },
+    }
+}
+
+/**
+ * Read MCP YAML definitions and extract all operationIds.
+ * Returns a Set of operationIds referenced by any tool (enabled or not).
+ */
+function collectMcpOperationIds(definitionsDir) {
+    const operationIds = new Set()
+    if (!fs.existsSync(definitionsDir)) {
+        return operationIds
+    }
+
+    for (const file of fs.readdirSync(definitionsDir)) {
+        if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
+            continue
+        }
+        const content = fs.readFileSync(path.join(definitionsDir, file), 'utf-8')
+        for (const match of content.matchAll(/^\s+operation:\s+(\S+)/gm)) {
+            operationIds.add(match[1])
+        }
+    }
+    return operationIds
+}
+
 // Main execution
 
 const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'))
@@ -425,19 +490,77 @@ const jobs = entries.map(([outputDir, groupedSchema]) => {
     return { tempFile, outputDir, label }
 })
 
+// Add MCP Zod schemas job — filtered to only operations referenced in YAML definitions
+const mcpDefinitionsDir = path.resolve(repoRoot, 'services', 'mcp', 'definitions')
+const mcpOperationIds = collectMcpOperationIds(mcpDefinitionsDir)
+
+if (mcpOperationIds.size > 0) {
+    const mcpSchema = filterSchemaByOperationIds(schema, mcpOperationIds)
+    const mcpOutputDir = path.resolve(repoRoot, 'services', 'mcp', 'src', 'generated')
+    const mcpTempFile = path.join(tmpDir, 'mcp.json')
+    fs.writeFileSync(mcpTempFile, JSON.stringify(mcpSchema, null, 2))
+    const mcpPathCount = Object.keys(mcpSchema.paths || {}).length
+    const mcpSchemaCount = Object.keys(mcpSchema.components?.schemas || {}).length
+    console.log(
+        `📦 mcp: ${mcpPathCount} paths, ${mcpSchemaCount} schemas (Zod, filtered to ${mcpOperationIds.size} operations)`
+    )
+    jobs.push({ tempFile: mcpTempFile, outputDir: mcpOutputDir, label: 'mcp', isMcp: true })
+} else {
+    console.log(`⚠️  mcp: no YAML definitions found in ${path.relative(repoRoot, mcpDefinitionsDir)}, skipping`)
+}
+
 console.log('')
 console.log(`Running ${jobs.length} orval generations in parallel...`)
 console.log('')
 
 // Run all orval generations in parallel
 const results = await Promise.allSettled(
-    jobs.map(async ({ tempFile, outputDir, label }) => {
+    jobs.map(async ({ tempFile, outputDir, label, isMcp }) => {
         const { execSync } = await import('node:child_process')
         const configFile = path.join(tmpDir, `orval-${label}.config.mjs`)
         const outputFile = path.join(outputDir, 'api.ts')
         const mutatorPath = path.resolve(frontendRoot, 'src', 'lib', 'api-orval-mutator.ts')
 
         fs.mkdirSync(outputDir, { recursive: true })
+
+        // MCP uses client: 'zod' for Zod schemas (runtime validation in tool handlers)
+        // Frontend uses client: 'fetch' with a custom mutator
+        const mutatorConfig = isMcp
+            ? ''
+            : `
+        mutator: {
+          path: '${mutatorPath}',
+          name: 'apiMutator',
+          external: ['lib/api'],
+        },`
+
+        const clientConfig = isMcp ? 'zod' : 'fetch'
+
+        const headerLines = isMcp
+            ? `(info) => [
+          'Auto-generated from the Django backend OpenAPI schema.',
+          'MCP service uses these Zod schemas for generated tool handlers.',
+          'To regenerate: hogli build:openapi',
+          '',
+          ...(info?.title ? [info.title] : []),
+          ...(info?.version ? ['OpenAPI spec version: ' + info.version] : []),
+        ]`
+            : `(info) => [
+          'Auto-generated from the Django backend OpenAPI schema.',
+          'To modify these types, update the Django serializers or views, then run:',
+          '  hogli build:openapi',
+          'Questions or issues? #team-devex on Slack',
+          '',
+          ...(info?.title ? [info.title] : []),
+          ...(info?.version ? ['OpenAPI spec version: ' + info.version] : []),
+        ]`
+
+        const fetchConfig = isMcp
+            ? ''
+            : `
+        fetch: {
+          includeHttpResponseReturnType: false,
+        },`
 
         const config = `
 import { defineConfig } from 'orval';
@@ -447,26 +570,10 @@ export default defineConfig({
     output: {
       target: '${outputFile}',
       mode: 'split',
-      client: 'fetch',
+      client: '${clientConfig}',
       prettier: false,
       override: {
-        header: (info) => [
-          'Auto-generated from the Django backend OpenAPI schema.',
-          'To modify these types, update the Django serializers or views, then run:',
-          '  hogli build:openapi',
-          'Questions or issues? #team-devex on Slack',
-          '',
-          ...(info?.title ? [info.title] : []),
-          ...(info?.version ? ['OpenAPI spec version: ' + info.version] : []),
-        ],
-        fetch: {
-          includeHttpResponseReturnType: false,
-        },
-        mutator: {
-          path: '${mutatorPath}',
-          name: 'apiMutator',
-          external: ['lib/api'],
-        },
+        header: ${headerLines},${fetchConfig}${mutatorConfig}
         components: {
           schemas: { suffix: 'Api' },
         },

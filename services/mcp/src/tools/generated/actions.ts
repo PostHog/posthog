@@ -1,11 +1,17 @@
-// AUTO-GENERATED from definitions/actions.yaml — do not edit
+// AUTO-GENERATED from definitions/actions.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
+import {
+    ActionsCreateBody,
+    ActionsDestroyParams,
+    ActionsListQueryParams,
+    ActionsPartialUpdateBody,
+    ActionsPartialUpdateParams,
+    ActionsRetrieveParams,
+} from '@/generated/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ActionGetSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to retrieve'),
-})
+const ActionGetSchema = ActionsRetrieveParams.omit({ project_id: true })
 
 const actionGet = (): ToolBase<typeof ActionGetSchema> => ({
     name: 'action-get',
@@ -14,7 +20,7 @@ const actionGet = (): ToolBase<typeof ActionGetSchema> => ({
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request({
             method: 'GET',
-            path: `/api/projects/${projectId}/actions/${params.actionId}/`,
+            path: `/api/projects/${projectId}/actions/${params.id}/`,
         })
         return {
             ...(result as any),
@@ -23,10 +29,7 @@ const actionGet = (): ToolBase<typeof ActionGetSchema> => ({
     },
 })
 
-const ActionsGetAllSchema = z.object({
-    limit: z.number().int().optional().describe('Maximum number of actions to return'),
-    offset: z.number().int().optional().describe('Number of actions to skip for pagination'),
-})
+const ActionsGetAllSchema = ActionsListQueryParams.omit({ format: true })
 
 const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema> => ({
     name: 'actions-get-all',
@@ -49,37 +52,7 @@ const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema> => ({
     },
 })
 
-const ActionCreateSchema = z.object({
-    name: z.string().min(1).describe('Name of the action (must be unique within the project)'),
-    description: z.string().optional().describe('Description of what this action represents'),
-    steps: z
-        .array(
-            z.object({
-                event: z
-                    .string()
-                    .optional()
-                    .describe("Event name (e.g., '$pageview', '$autocapture', or custom event name)"),
-                properties: z.any().optional().describe('Event properties to filter on'),
-                tag_name: z.string().optional().describe("HTML tag name to match (e.g., 'button', 'a', 'input')"),
-                text: z.string().optional().describe('Element text content to match'),
-                text_matching: z.string().optional().describe("How to match text: 'contains', 'regex', or 'exact'"),
-                href: z.string().optional().describe('Link href attribute to match'),
-                href_matching: z.string().optional().describe("How to match href: 'contains', 'regex', or 'exact'"),
-                selector: z.string().optional().describe('CSS selector to match element'),
-                url: z.string().optional().describe('Page URL to match'),
-                url_matching: z.string().optional().describe("How to match URL: 'contains', 'regex', or 'exact'"),
-            })
-        )
-        .min(1)
-        .describe('Action steps — each defines a trigger condition. Multiple steps are OR-ed together.'),
-    tags: z.array(z.string()).optional().describe('Tags for organizing actions'),
-    postToSlack: z
-        .boolean()
-        .default(false)
-        .optional()
-        .describe('Whether to post to Slack when this action is triggered'),
-    slackMessageFormat: z.string().optional().describe('Custom Slack message format'),
-})
+const ActionCreateSchema = ActionsCreateBody.omit({ deleted: true, last_calculated_at: true, _create_in_folder: true })
 
 const actionCreate = (): ToolBase<typeof ActionCreateSchema> => ({
     name: 'action-create',
@@ -93,17 +66,20 @@ const actionCreate = (): ToolBase<typeof ActionCreateSchema> => ({
         if (params.description !== undefined) {
             body['description'] = params.description
         }
-        if (params.steps !== undefined) {
-            body['steps'] = params.steps
-        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
-        if (params.postToSlack !== undefined) {
-            body['post_to_slack'] = params.postToSlack
+        if (params.post_to_slack !== undefined) {
+            body['post_to_slack'] = params.post_to_slack
         }
-        if (params.slackMessageFormat !== undefined) {
-            body['slack_message_format'] = params.slackMessageFormat
+        if (params.slack_message_format !== undefined) {
+            body['slack_message_format'] = params.slack_message_format
+        }
+        if (params.steps !== undefined) {
+            body['steps'] = params.steps
+        }
+        if (params.pinned_at !== undefined) {
+            body['pinned_at'] = params.pinned_at
         }
         const result = await context.api.request({
             method: 'POST',
@@ -117,32 +93,9 @@ const actionCreate = (): ToolBase<typeof ActionCreateSchema> => ({
     },
 })
 
-const ActionUpdateSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to update'),
-    name: z.string().optional().describe('Updated action name'),
-    description: z.string().optional().nullable().describe('Updated description'),
-    steps: z
-        .array(
-            z.object({
-                event: z.string().optional().describe('Event name'),
-                properties: z.any().optional().describe('Event properties to filter on'),
-                tag_name: z.string().optional().describe('HTML tag name to match'),
-                text: z.string().optional().describe('Element text content to match'),
-                text_matching: z.string().optional().describe('How to match text'),
-                href: z.string().optional().describe('Link href to match'),
-                href_matching: z.string().optional().describe('How to match href'),
-                selector: z.string().optional().describe('CSS selector'),
-                url: z.string().optional().describe('Page URL to match'),
-                url_matching: z.string().optional().describe('How to match URL'),
-            })
-        )
-        .optional()
-        .describe('Updated action steps'),
-    tags: z.array(z.string()).optional().describe('Updated tags'),
-    postToSlack: z.boolean().optional().describe('Whether to post to Slack'),
-    slackMessageFormat: z.string().optional().describe('Custom Slack message format'),
-    pinnedAt: z.string().optional().nullable().describe('Pin timestamp (set to pin, null to unpin)'),
-})
+const ActionUpdateSchema = ActionsPartialUpdateParams.omit({ project_id: true }).merge(
+    ActionsPartialUpdateBody.omit({ deleted: true, last_calculated_at: true, _create_in_folder: true })
+)
 
 const actionUpdate = (): ToolBase<typeof ActionUpdateSchema> => ({
     name: 'action-update',
@@ -156,24 +109,24 @@ const actionUpdate = (): ToolBase<typeof ActionUpdateSchema> => ({
         if (params.description !== undefined) {
             body['description'] = params.description
         }
-        if (params.steps !== undefined) {
-            body['steps'] = params.steps
-        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
-        if (params.postToSlack !== undefined) {
-            body['post_to_slack'] = params.postToSlack
+        if (params.post_to_slack !== undefined) {
+            body['post_to_slack'] = params.post_to_slack
         }
-        if (params.slackMessageFormat !== undefined) {
-            body['slack_message_format'] = params.slackMessageFormat
+        if (params.slack_message_format !== undefined) {
+            body['slack_message_format'] = params.slack_message_format
         }
-        if (params.pinnedAt !== undefined) {
-            body['pinned_at'] = params.pinnedAt
+        if (params.steps !== undefined) {
+            body['steps'] = params.steps
+        }
+        if (params.pinned_at !== undefined) {
+            body['pinned_at'] = params.pinned_at
         }
         const result = await context.api.request({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/actions/${params.actionId}/`,
+            path: `/api/projects/${projectId}/actions/${params.id}/`,
             body,
         })
         return {
@@ -183,9 +136,7 @@ const actionUpdate = (): ToolBase<typeof ActionUpdateSchema> => ({
     },
 })
 
-const ActionDeleteSchema = z.object({
-    actionId: z.number().int().positive().describe('The ID of the action to delete'),
-})
+const ActionDeleteSchema = ActionsDestroyParams.omit({ project_id: true })
 
 const actionDelete = (): ToolBase<typeof ActionDeleteSchema> => ({
     name: 'action-delete',
@@ -194,7 +145,7 @@ const actionDelete = (): ToolBase<typeof ActionDeleteSchema> => ({
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request({
             method: 'DELETE',
-            path: `/api/projects/${projectId}/actions/${params.actionId}/`,
+            path: `/api/projects/${projectId}/actions/${params.id}/`,
         })
         return result
     },

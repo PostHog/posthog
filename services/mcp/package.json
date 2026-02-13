@@ -16,7 +16,8 @@
         "test:watch": "vitest watch",
         "typecheck": "tsc --noEmit",
         "generate-client": "tsx scripts/update-openapi-client.ts",
-        "generate-tools": "tsx scripts/generate-tools.ts"
+        "generate-tools": "tsx scripts/generate-tools.ts",
+        "scaffold-yaml": "tsx scripts/scaffold-yaml.ts"
     },
     "keywords": [
         "posthog",
