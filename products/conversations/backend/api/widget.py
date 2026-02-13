@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.auth import WidgetAuthentication
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
@@ -157,9 +158,9 @@ class WidgetMessageView(APIView):
             invalidate_unread_count_cache(team.id)
             try:
                 capture_ticket_created(ticket)
-            except Exception:
+            except Exception as e:
                 # Don't let analytics failures break the widget
-                logger.exception("Failed to capture ticket_created event", extra={"ticket_id": str(ticket.id)})
+                capture_exception(e, {"ticket_id": str(ticket.id)})
 
         # Create message
         comment = Comment.objects.create(

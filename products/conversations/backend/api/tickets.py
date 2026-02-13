@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.person.person import READ_DB_FOR_PERSONS, Person, PersonDistinctId
@@ -299,8 +300,8 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_priority = instance.priority
             if old_priority != new_priority:
                 capture_ticket_priority_changed(instance, old_priority, new_priority)
-        except Exception:
-            logger.exception("Failed to capture ticket event", ticket_id=str(instance.id))
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
 
         # Re-serialize to include updated assignee
         serializer = self.get_serializer(instance)
@@ -431,5 +432,5 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
                 assignee_type = None
                 assignee_id = None
             capture_ticket_assigned(ticket, assignee_type, assignee_id)
-        except Exception:
-            logger.exception("Failed to capture ticket_assigned event", ticket_id=str(ticket.id))
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
