@@ -15674,6 +15674,7 @@
                 "toolbar",
                 "settings",
                 "health",
+                "inbox",
                 "sdk_doctor",
                 "pipeline_status",
                 "llm_evaluations",
@@ -31534,6 +31535,7 @@
                 "activity_log_properties",
                 "max_ai_context",
                 "workflow_variables",
+                "quick_filters",
                 "empty"
             ],
             "type": "string"
@@ -33225,6 +33227,9 @@
                 },
                 {
                     "$ref": "#/definitions/SessionPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/CohortPropertyFilter"
                 }
             ]
         },
