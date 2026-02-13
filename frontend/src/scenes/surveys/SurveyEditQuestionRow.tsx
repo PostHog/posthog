@@ -41,7 +41,7 @@ export function SurveyEditQuestionHeader({
     setSelectedPageIndex,
     setSurveyValue,
 }: SurveyQuestionHeaderProps): JSX.Element {
-    const { hasBranchingLogic } = useValues(surveyLogic)
+    const { hasBranchingLogic, editingLanguage } = useValues(surveyLogic)
     const { deleteBranchingLogic } = useActions(surveyLogic)
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({
         id: index.toString(),
@@ -63,7 +63,11 @@ export function SurveyEditQuestionHeader({
                 <SurveyDragHandle listeners={listeners} hasMultipleQuestions={survey.questions.length > 1} />
 
                 <b>
-                    Question {index + 1}. {survey.questions[index].question}
+                    Question {index + 1}.{' '}
+                    {editingLanguage
+                        ? (survey.questions[index].translations?.[editingLanguage]?.question ??
+                          survey.questions[index].question)
+                        : survey.questions[index].question}
                 </b>
             </div>
             {survey.questions.length > 1 && (
@@ -123,45 +127,162 @@ function canQuestionSkipSubmitButton(
 }
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
-    const { survey, descriptionContentType } = useValues(surveyLogic)
+    const { survey, descriptionContentType, editingLanguage } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion, setMultipleSurveyQuestion } =
         useActions(surveyLogic)
 
     const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
 
     const handleQuestionValueChange = (key: string, val: string): void => {
-        const updatedQuestion = survey.questions.map((question, idx) => {
-            if (index === idx) {
-                return {
-                    ...question,
-                    [key]: val,
+        if (
+            editingLanguage &&
+            ['question', 'description', 'buttonText', 'choices', 'link', 'lowerBoundLabel', 'upperBoundLabel'].includes(
+                key
+            )
+        ) {
+            const updatedQuestion = survey.questions.map((q, idx) => {
+                if (index === idx) {
+                    const currentTranslations = q.translations || {}
+                    const currentLangTrans = currentTranslations[editingLanguage] || {}
+                    return {
+                        ...q,
+                        translations: {
+                            ...currentTranslations,
+                            [editingLanguage]: {
+                                ...currentLangTrans,
+                                [key]: val,
+                            },
+                        },
+                    }
                 }
-            }
-            return question
-        })
-        setSurveyValue('questions', updatedQuestion)
+                return q
+            })
+            setSurveyValue('questions', updatedQuestion)
+        } else {
+            const updatedQuestion = survey.questions.map((question, idx) => {
+                if (index === idx) {
+                    return {
+                        ...question,
+                        [key]: val,
+                    }
+                }
+                return question
+            })
+            setSurveyValue('questions', updatedQuestion)
+        }
     }
 
     const handleTabChange = (key: string): void => {
         handleQuestionValueChange('descriptionContentType', key)
     }
 
+    const getFieldName = (key: string): string =>
+        editingLanguage === null ? key : `translations.${editingLanguage}.${key}`
+
+    const displayQuestion = editingLanguage
+        ? {
+              ...question,
+              ...question.translations?.[editingLanguage],
+              choices:
+                  question.translations?.[editingLanguage]?.choices ||
+                  (question.type === SurveyQuestionType.SingleChoice ||
+                  question.type === SurveyQuestionType.MultipleChoice
+                      ? question.choices || []
+                      : undefined),
+          }
+        : question
+
     const canSkipSubmitButton = canQuestionSkipSubmitButton(question)
     const shouldShowNpsCheckbox =
         question.type === SurveyQuestionType.Rating && question.scale === SURVEY_RATING_SCALE.NPS_10_POINT
+
+    const hasTranslations = question.translations && Object.keys(question.translations).length > 0
+
+    // Helper to synchronize choices in all translations when default choices change
+    const syncChoicesInTranslations = (newChoices: string[]): void => {
+        if (!hasTranslations || !question.translations) {
+            return
+        }
+
+        const updatedTranslations = { ...question.translations }
+        Object.keys(updatedTranslations).forEach((lang) => {
+            const trans = updatedTranslations[lang]
+            if (trans.choices) {
+                const oldChoices = trans.choices
+                const newTransChoices = [...newChoices].map((defaultChoice, idx) => {
+                    const existingChoice = oldChoices[idx]
+                    if (existingChoice !== undefined && existingChoice !== null) {
+                        return existingChoice
+                    }
+                    if (defaultChoice !== undefined && defaultChoice !== null && defaultChoice !== '') {
+                        return defaultChoice
+                    }
+                    return '[Translation needed]'
+                })
+                updatedTranslations[lang] = {
+                    ...trans,
+                    choices: newTransChoices,
+                }
+            }
+        })
+
+        setSurveyValue('questions', [
+            ...survey.questions.slice(0, index),
+            { ...question, choices: newChoices, translations: updatedTranslations },
+            ...survey.questions.slice(index + 1),
+        ])
+    }
 
     const confirmQuestionTypeChange = (
         index: number,
         question: MultipleSurveyQuestion,
         newType: SurveyQuestionType
     ): void => {
-        // Reset to current type first (because onSelect has already changed it)
-        setMultipleSurveyQuestion(index, question, question.type)
-
         LemonDialog.open({
             title: 'Changing question type',
             description: (
-                <p className="py-2">The choices you have configured will be removed. Would you like to proceed?</p>
+                <p className="py-2">
+                    {hasTranslations ? (
+                        <>
+                            This question has translations. Changing the question type will remove the choices you have
+                            configured and incompatible translation fields.
+                        </>
+                    ) : (
+                        'The choices you have configured will be removed.'
+                    )}{' '}
+                    Would you like to proceed?
+                </p>
+            ),
+            primaryButton: {
+                children: 'Continue',
+                status: 'danger',
+                onClick: () => {
+                    setDefaultForQuestionType(index, question, newType)
+                    resetBranchingForQuestion(index)
+                },
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                onClick: () => {
+                    // Revert the question type back to original
+                    setMultipleSurveyQuestion(index, question, question.type)
+                },
+            },
+        })
+    }
+
+    const confirmQuestionTypeChangeWithTranslations = (
+        index: number,
+        question: SurveyQuestion,
+        newType: SurveyQuestionType
+    ): void => {
+        LemonDialog.open({
+            title: 'Changing question type',
+            description: (
+                <p className="py-2">
+                    This question has translations. Changing the question type will remove incompatible translation
+                    fields. Would you like to proceed?
+                </p>
             ),
             primaryButton: {
                 children: 'Continue',
@@ -181,62 +302,78 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
         <Group name={`questions.${index}`} key={index}>
             <div className="flex flex-col gap-2">
                 <LemonField name="type" label="Question type" className="max-w-60">
-                    <LemonSelect
-                        data-attr={`survey-question-type-${index}`}
-                        onSelect={(newType) => {
-                            const isCurrentMultipleChoice =
-                                question.type === SurveyQuestionType.MultipleChoice ||
-                                question.type === SurveyQuestionType.SingleChoice
-                            const isNewMultipleChoice =
-                                newType === SurveyQuestionType.MultipleChoice ||
-                                newType === SurveyQuestionType.SingleChoice
+                    {({ value: currentType }) => (
+                        <LemonSelect
+                            value={currentType}
+                            disabled={!!editingLanguage}
+                            disabledReason={
+                                editingLanguage
+                                    ? 'Question type can only be changed in the default language'
+                                    : undefined
+                            }
+                            data-attr={`survey-question-type-${index}`}
+                            onSelect={(newType) => {
+                                const isCurrentMultipleChoice =
+                                    question.type === SurveyQuestionType.MultipleChoice ||
+                                    question.type === SurveyQuestionType.SingleChoice
+                                const isNewMultipleChoice =
+                                    newType === SurveyQuestionType.MultipleChoice ||
+                                    newType === SurveyQuestionType.SingleChoice
 
-                            // Same multiple choice type - just update type
-                            if (isCurrentMultipleChoice && isNewMultipleChoice) {
-                                setMultipleSurveyQuestion(index, question, newType)
+                                if (isCurrentMultipleChoice && isNewMultipleChoice) {
+                                    setMultipleSurveyQuestion(index, question, newType)
+                                    resetBranchingForQuestion(index)
+                                    return
+                                }
+                                if (isCurrentMultipleChoice && !isNewMultipleChoice) {
+                                    confirmQuestionTypeChange(index, question, newType)
+                                    return
+                                }
+                                if (hasTranslations) {
+                                    confirmQuestionTypeChangeWithTranslations(index, question, newType)
+                                    return
+                                }
+                                setDefaultForQuestionType(index, question, newType)
                                 resetBranchingForQuestion(index)
-                                return
-                            }
-                            if (isCurrentMultipleChoice && !isNewMultipleChoice) {
-                                confirmQuestionTypeChange(index, question, newType)
-                                return
-                            }
-                            setDefaultForQuestionType(index, question, newType)
-                            resetBranchingForQuestion(index)
-                        }}
-                        options={[
-                            {
-                                label: SurveyQuestionLabel[SurveyQuestionType.Open],
-                                value: SurveyQuestionType.Open,
-                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Open}`,
-                            },
-                            {
-                                label: 'Link/Notification',
-                                value: SurveyQuestionType.Link,
-                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Link}`,
-                            },
-                            {
-                                label: 'Rating',
-                                value: SurveyQuestionType.Rating,
-                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Rating}`,
-                            },
-                            {
-                                label: 'Single choice select',
-                                value: SurveyQuestionType.SingleChoice,
-                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
-                            },
-                            {
-                                label: 'Multiple choice select',
-                                value: SurveyQuestionType.MultipleChoice,
-                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
-                            },
-                        ]}
+                            }}
+                            options={[
+                                {
+                                    label: SurveyQuestionLabel[SurveyQuestionType.Open],
+                                    value: SurveyQuestionType.Open,
+                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Open}`,
+                                },
+                                {
+                                    label: 'Link/Notification',
+                                    value: SurveyQuestionType.Link,
+                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Link}`,
+                                },
+                                {
+                                    label: 'Rating',
+                                    value: SurveyQuestionType.Rating,
+                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Rating}`,
+                                },
+                                {
+                                    label: 'Single choice select',
+                                    value: SurveyQuestionType.SingleChoice,
+                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
+                                },
+                                {
+                                    label: 'Multiple choice select',
+                                    value: SurveyQuestionType.MultipleChoice,
+                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
+                                },
+                            ]}
+                        />
+                    )}
+                </LemonField>
+                <LemonField name={getFieldName('question')} label="Label">
+                    <LemonInput
+                        data-attr={`survey-question-label-${index}`}
+                        value={displayQuestion.question || ''}
+                        placeholder={editingLanguage ? question.question : undefined}
                     />
                 </LemonField>
-                <LemonField name="question" label="Label">
-                    <LemonInput data-attr={`survey-question-label-${index}`} value={question.question} />
-                </LemonField>
-                <LemonField name="description" label="Description (optional)">
+                <LemonField name={getFieldName('description')} label="Description (optional)">
                     {({ value, onChange }) => (
                         <HTMLEditor
                             value={value}
@@ -251,12 +388,30 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                 </LemonField>
                 {survey.questions.length > 1 && (
                     <LemonField name="optional" className="my-2">
-                        <LemonCheckbox label="Optional" checked={!!question.optional} />
+                        <LemonCheckbox
+                            label="Optional"
+                            checked={!!question.optional}
+                            disabled={!!editingLanguage}
+                            disabledReason={
+                                editingLanguage
+                                    ? 'Question settings can only be changed in the default language'
+                                    : undefined
+                            }
+                        />
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Link && (
-                    <LemonField name="link" label="Link" info="Only https:// or mailto: links are supported.">
-                        <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
+                    <LemonField
+                        name={getFieldName('link')}
+                        label="Link"
+                        info="Only https:// or mailto: links are supported."
+                    >
+                        <LemonInput
+                            value={displayQuestion.link || ''}
+                            placeholder={
+                                editingLanguage ? question.link || 'https://posthog.com' : 'https://posthog.com'
+                            }
+                        />
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Rating && (
@@ -264,6 +419,12 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         <div className="flex flex-row gap-4">
                             <LemonField name="display" label="Display type" className="w-1/2">
                                 <LemonSelect
+                                    disabled={!!editingLanguage}
+                                    disabledReason={
+                                        editingLanguage
+                                            ? 'Display type can only be changed in the default language'
+                                            : undefined
+                                    }
                                     options={[
                                         { label: 'Number', value: 'number' },
                                         { label: 'Emoji', value: 'emoji' },
@@ -287,6 +448,12 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             </LemonField>
                             <LemonField name="scale" label="Scale" className="w-1/2">
                                 <LemonSelect
+                                    disabled={!!editingLanguage}
+                                    disabledReason={
+                                        editingLanguage
+                                            ? 'Rating scale can only be changed in the default language'
+                                            : undefined
+                                    }
                                     options={question.display === 'emoji' ? SCALE_OPTIONS.EMOJI : SCALE_OPTIONS.NUMBER}
                                     onChange={(val) => {
                                         const newQuestion = { ...survey.questions[index], scale: val }
@@ -300,11 +467,25 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         </div>
                         {!isThumbQuestion(question) && (
                             <div className="flex flex-row gap-4">
-                                <LemonField name="lowerBoundLabel" label="Lower bound label" className="w-1/2">
-                                    <LemonInput value={question.lowerBoundLabel || ''} />
+                                <LemonField
+                                    name={getFieldName('lowerBoundLabel')}
+                                    label="Lower bound label"
+                                    className="w-1/2"
+                                >
+                                    <LemonInput
+                                        value={displayQuestion.lowerBoundLabel || ''}
+                                        placeholder={editingLanguage ? question.lowerBoundLabel : undefined}
+                                    />
                                 </LemonField>
-                                <LemonField name="upperBoundLabel" label="Upper bound label" className="w-1/2">
-                                    <LemonInput value={question.upperBoundLabel || ''} />
+                                <LemonField
+                                    name={getFieldName('upperBoundLabel')}
+                                    label="Upper bound label"
+                                    className="w-1/2"
+                                >
+                                    <LemonInput
+                                        value={displayQuestion.upperBoundLabel || ''}
+                                        placeholder={editingLanguage ? question.upperBoundLabel : undefined}
+                                    />
                                 </LemonField>
                             </div>
                         )}
@@ -315,6 +496,12 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         label="This is an NPS question"
                                         info="If checked, we'll calculate and display NPS on the survey results page."
                                         checked={isNpsQuestion !== false}
+                                        disabled={!!editingLanguage}
+                                        disabledReason={
+                                            editingLanguage
+                                                ? 'Question settings can only be changed in the default language'
+                                                : undefined
+                                        }
                                         onChange={toggleIsNpsQuestion}
                                     />
                                 )}
@@ -327,102 +514,131 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     <div className="flex flex-col gap-2">
                         <LemonField name="hasOpenChoice">
                             {({ value: hasOpenChoice, onChange: toggleHasOpenChoice }) => (
-                                <LemonField name="choices" label="Choices">
-                                    {({ value, onChange }) => (
-                                        <div className="flex flex-col gap-2">
-                                            {(value || []).map((choice: string, index: number) => {
-                                                const isOpenChoice = hasOpenChoice && index === value?.length - 1
-                                                return (
-                                                    <div className="flex flex-row gap-2 relative" key={index}>
-                                                        <LemonInput
-                                                            value={choice}
-                                                            fullWidth
-                                                            onChange={(val) => {
-                                                                const newChoices = [...value]
-                                                                newChoices[index] = val
-                                                                onChange(newChoices)
-                                                            }}
-                                                            suffix={
-                                                                isOpenChoice && (
-                                                                    <LemonTag type="highlight">open-ended</LemonTag>
-                                                                )
-                                                            }
-                                                        />
-                                                        <LemonButton
-                                                            icon={<IconTrash />}
-                                                            size="xsmall"
-                                                            noPadding
-                                                            onClick={() => {
-                                                                const newChoices = [...value]
-                                                                newChoices.splice(index, 1)
-                                                                onChange(newChoices)
-                                                                if (isOpenChoice) {
-                                                                    toggleHasOpenChoice(false)
+                                <LemonField name={getFieldName('choices')} label="Choices">
+                                    {({ value, onChange }) => {
+                                        const handleChoicesChange = (newChoices: string[]): void => {
+                                            onChange(newChoices)
+                                            if (!editingLanguage) {
+                                                syncChoicesInTranslations(newChoices)
+                                            }
+                                        }
+
+                                        return (
+                                            <div className="flex flex-col gap-2">
+                                                {(value || []).map((choice: string, index: number) => {
+                                                    const isOpenChoice = hasOpenChoice && index === value?.length - 1
+                                                    const originalChoices = (question.choices || []) as string[]
+                                                    return (
+                                                        <div className="flex flex-row gap-2 relative" key={index}>
+                                                            <LemonInput
+                                                                value={choice}
+                                                                fullWidth
+                                                                onChange={(val) => {
+                                                                    const newChoices = [...value]
+                                                                    newChoices[index] = val
+                                                                    handleChoicesChange(newChoices)
+                                                                }}
+                                                                placeholder={
+                                                                    editingLanguage ? originalChoices[index] : undefined
                                                                 }
-                                                            }}
-                                                        />
-                                                    </div>
-                                                )
-                                            })}
-                                            <div className="w-fit flex flex-row flex-wrap gap-2">
-                                                {((value || []).length < MAX_NUMBER_OF_OPTIONS ||
-                                                    survey.type != SurveyType.Popover) && (
-                                                    <>
-                                                        <LemonButton
-                                                            icon={<IconPlusSmall />}
-                                                            type="secondary"
-                                                            fullWidth={false}
-                                                            onClick={() => {
-                                                                if (!value) {
-                                                                    onChange([''])
-                                                                } else if (hasOpenChoice) {
-                                                                    const newChoices = value.slice(0, -1)
-                                                                    newChoices.push('')
-                                                                    newChoices.push(value[value.length - 1])
-                                                                    onChange(newChoices)
-                                                                } else {
-                                                                    onChange([...value, ''])
+                                                                suffix={
+                                                                    isOpenChoice && (
+                                                                        <LemonTag type="highlight">open-ended</LemonTag>
+                                                                    )
                                                                 }
-                                                            }}
-                                                        >
-                                                            Add choice
-                                                        </LemonButton>
-                                                        {!hasOpenChoice && (
+                                                            />
+                                                            <LemonButton
+                                                                icon={<IconTrash />}
+                                                                size="xsmall"
+                                                                noPadding
+                                                                onClick={() => {
+                                                                    const newChoices = [...value]
+                                                                    newChoices.splice(index, 1)
+                                                                    handleChoicesChange(newChoices)
+                                                                    if (isOpenChoice) {
+                                                                        toggleHasOpenChoice(false)
+                                                                    }
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    )
+                                                })}
+                                                <div className="w-fit flex flex-row flex-wrap gap-2">
+                                                    {((value || []).length < MAX_NUMBER_OF_OPTIONS ||
+                                                        survey.type != SurveyType.Popover) && (
+                                                        <>
                                                             <LemonButton
                                                                 icon={<IconPlusSmall />}
                                                                 type="secondary"
                                                                 fullWidth={false}
+                                                                disabledReason={
+                                                                    editingLanguage
+                                                                        ? 'Cannot modify choices while translating'
+                                                                        : undefined
+                                                                }
                                                                 onClick={() => {
                                                                     if (!value) {
-                                                                        onChange(['Other'])
+                                                                        handleChoicesChange([''])
+                                                                    } else if (hasOpenChoice) {
+                                                                        const newChoices = value.slice(0, -1)
+                                                                        newChoices.push('')
+                                                                        newChoices.push(value[value.length - 1])
+                                                                        handleChoicesChange(newChoices)
                                                                     } else {
-                                                                        onChange([...value, 'Other'])
+                                                                        handleChoicesChange([...value, ''])
                                                                     }
-                                                                    toggleHasOpenChoice(true)
                                                                 }}
                                                             >
-                                                                Add open-ended choice
+                                                                Add choice
                                                             </LemonButton>
-                                                        )}
-                                                        <LemonField name="shuffleOptions" className="mt-2">
-                                                            {({
-                                                                value: shuffleOptions,
-                                                                onChange: toggleShuffleOptions,
-                                                            }) => (
-                                                                <LemonCheckbox
-                                                                    checked={!!shuffleOptions}
-                                                                    label="Shuffle options"
-                                                                    onChange={(checked) =>
-                                                                        toggleShuffleOptions(checked)
+                                                            {!hasOpenChoice && (
+                                                                <LemonButton
+                                                                    icon={<IconPlusSmall />}
+                                                                    type="secondary"
+                                                                    fullWidth={false}
+                                                                    disabledReason={
+                                                                        editingLanguage
+                                                                            ? 'Cannot modify choices while translating'
+                                                                            : undefined
                                                                     }
-                                                                />
+                                                                    onClick={() => {
+                                                                        if (!value) {
+                                                                            handleChoicesChange(['Other'])
+                                                                        } else {
+                                                                            handleChoicesChange([...value, 'Other'])
+                                                                        }
+                                                                        toggleHasOpenChoice(true)
+                                                                    }}
+                                                                >
+                                                                    Add open-ended choice
+                                                                </LemonButton>
                                                             )}
-                                                        </LemonField>
-                                                    </>
-                                                )}
+                                                            <LemonField name="shuffleOptions" className="mt-2">
+                                                                {({
+                                                                    value: shuffleOptions,
+                                                                    onChange: toggleShuffleOptions,
+                                                                }) => (
+                                                                    <LemonCheckbox
+                                                                        checked={!!shuffleOptions}
+                                                                        label="Shuffle options"
+                                                                        disabled={!!editingLanguage}
+                                                                        disabledReason={
+                                                                            editingLanguage
+                                                                                ? 'Shuffle options can only be changed in the default language'
+                                                                                : undefined
+                                                                        }
+                                                                        onChange={(checked) =>
+                                                                            toggleShuffleOptions(checked)
+                                                                        }
+                                                                    />
+                                                                )}
+                                                            </LemonField>
+                                                        </>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    )}
+                                        )
+                                    }}
                                 </LemonField>
                             )}
                         </LemonField>
@@ -442,11 +658,16 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         {(!canSkipSubmitButton || (canSkipSubmitButton && !question.skipSubmitButton)) && (
                             <LemonInput
                                 value={
-                                    question.buttonText === undefined
+                                    displayQuestion.buttonText === undefined
                                         ? (survey.appearance?.submitButtonText ?? 'Submit')
-                                        : question.buttonText
+                                        : displayQuestion.buttonText
                                 }
                                 onChange={(val) => handleQuestionValueChange('buttonText', val)}
+                                placeholder={
+                                    editingLanguage
+                                        ? (question.buttonText ?? survey.appearance?.submitButtonText ?? 'Submit')
+                                        : undefined
+                                }
                             />
                         )}
                         {canSkipSubmitButton && (
@@ -465,6 +686,12 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         label="Automatically submit on selection"
                                         checked={!!skipSubmitButtonValue}
                                         onChange={onSkipSubmitButtonChange}
+                                        disabled={!!editingLanguage}
+                                        disabledReason={
+                                            editingLanguage
+                                                ? 'Submit settings can only be changed in the default language'
+                                                : undefined
+                                        }
                                     />
                                 )}
                             </LemonField>
