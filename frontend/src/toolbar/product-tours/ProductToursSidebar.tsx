@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCheck, IconCursorClick, IconPlay, IconPlus, IconSidebarClose, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+import { IconCheck, IconCursorClick, IconDocument, IconPlay, IconPlus, IconSidebarClose, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 
+import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { hasIncompleteTargeting } from 'scenes/product-tours/stepUtils'
 
@@ -136,6 +137,100 @@ export function ProductToursSidebar(): JSX.Element | null {
     const isAddingStep = editorState.mode === 'selecting'
     const isNewTour = !tourForm?.id
 
+    /**
+     * check if the ui_host is misconfigured:
+     * - reverse proxy + bad or missing ui_host value
+     * - no proxy + bad ui_host value
+     *
+     * notes:
+     * - "has proxy" is determined by checking if the api_host does not contain 'posthog.com'
+     * - this does not work for self-hosted instances...
+     */
+    const isUiHostMisconfigured = (): boolean => {
+        if (!posthog) {
+            return false
+        }
+
+        const apiHost = posthog.config.api_host
+        const uiHost = posthog.config.ui_host
+
+        const validUiHosts = Object.values(CLOUD_HOSTNAMES).map((h) => `https://${h}`)
+        const hasProxy = !apiHost.includes('posthog.com')
+
+        if (hasProxy) {
+            // proxy is set, but ui host is missing or invalid
+            if (!uiHost || !validUiHosts.some((h) => uiHost.startsWith(h))) {
+                return true
+            }
+        } else {
+            // no proxy, so ui_host should be undefined or set properly
+            if (uiHost && !validUiHosts.some((h) => uiHost.startsWith(h))) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    const PostHogMisconfiguration = (): JSX.Element | null => {
+        const [showModal, setShowModal] = useState<boolean>(false)
+
+        const codeSample = `posthog.init({
+  api_host: "https://us.i.posthog.com",
+  ui_host: "https://us.posthog.com", // or "https://eu.posthog.com"
+})`
+
+        if (!isUiHostMisconfigured()) {
+            return null
+        }
+
+        return (
+            <>
+                <button className="cursor-pointer" onClick={() => setShowModal(true)} type="button">
+                    <LemonBanner className="rounded-none" hideIcon={false} type="warning">
+                        Configuration issue detected
+                    </LemonBanner>
+                </button>
+                <LemonModal
+                    isOpen={showModal}
+                    onClose={() => setShowModal(false)}
+                    title="PostHog configuration issue detected"
+                    forceAbovePopovers
+                    overlayClassName="items-center"
+                    maxWidth="42rem"
+                    footer={
+                        <>
+                            <LemonButton type="secondary" onClick={() => setShowModal(false)}>
+                                Dismiss
+                            </LemonButton>
+                            <LemonButton
+                                icon={<IconDocument />}
+                                type="primary"
+                                to="https://posthog.com/docs/product-tours/troubleshooting#toolbar-issues-with-reverse-proxy"
+                            >
+                                Read the docs
+                            </LemonButton>
+                        </>
+                    }
+                >
+                    <div className="flex flex-col gap-3">
+                        <p className="mb-0">
+                            If you are not self-hosting PostHog, your <code>ui_host</code> must be set to a PostHog
+                            domain for the Toolbar to work properly.
+                        </p>
+                        <pre className="rounded bg-bg-3000 p-3 text-xs overflow-x-auto border border-border-bold-3000">
+                            <code>{codeSample}</code>
+                        </pre>
+                        <p>
+                            If are not using a reverse proxy, you can omit <code>ui_host</code> from your config and
+                            we'll handle it automatically.
+                        </p>
+                    </div>
+                </LemonModal>
+            </>
+        )
+    }
+
     return (
         <>
             <div
@@ -217,6 +312,8 @@ export function ProductToursSidebar(): JSX.Element | null {
                         </LemonButton>
                     </div>
                 </div>
+
+                <PostHogMisconfiguration />
 
                 <div className="flex-1 overflow-y-auto p-4">
                     <div className="flex items-center justify-between mb-3">
