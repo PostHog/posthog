@@ -1,5 +1,6 @@
 import { Placement } from '@floating-ui/react'
-import { Ref, forwardRef, useEffect, useState } from 'react'
+// @ts-expect-error - useId exists in React 18 but @types/react is pinned to v17
+import { Ref, forwardRef, useEffect, useId, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 
@@ -89,6 +90,8 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     }: TaxonomicPopoverProps<ValueType>,
     ref: Ref<HTMLButtonElement>
 ): JSX.Element {
+    const generatedKey = useId()
+    const taxonomicFilterLogicKey = `taxonomic-popover-${generatedKey}`
     const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
     const [visible, setVisible] = useState(false)
 
@@ -115,6 +118,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         <LemonDropdown
             overlay={
                 <TaxonomicFilter
+                    taxonomicFilterLogicKey={taxonomicFilterLogicKey}
                     groupType={groupType}
                     value={value}
                     filter={filter}

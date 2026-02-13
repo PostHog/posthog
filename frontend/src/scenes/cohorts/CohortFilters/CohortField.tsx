@@ -2,7 +2,8 @@ import './CohortField.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+// @ts-expect-error - useId exists in React 18 but @types/react is pinned to v17
+import { useEffect, useId, useRef } from 'react'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -29,13 +30,9 @@ import {
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
 
-let uniqueMemoizedIndex = 0
-
 const useCohortFieldLogic = (props: CohortFieldBaseProps): { logic: ReturnType<typeof cohortFieldLogic.build> } => {
-    const cohortFilterLogicKey = useMemo(
-        () => props.cohortFilterLogicKey || `cohort-filter-${uniqueMemoizedIndex++}`,
-        [props.cohortFilterLogicKey]
-    )
+    const generatedKey = useId()
+    const cohortFilterLogicKey = props.cohortFilterLogicKey || `cohort-filter-${generatedKey}`
     return {
         logic: cohortFieldLogic({ ...props, cohortFilterLogicKey }),
     }
