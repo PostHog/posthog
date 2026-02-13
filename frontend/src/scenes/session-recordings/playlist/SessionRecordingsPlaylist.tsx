@@ -246,6 +246,7 @@ function PlayerWrapper({
                 </div>
             ) : showContent && activeSessionRecording ? (
                 <AttachedPlayer
+                    key={activeSessionRecording.id}
                     playlistProps={props}
                     activeSessionRecording={activeSessionRecording}
                     matchingEventsMatchType={matchingEventsMatchType}

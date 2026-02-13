@@ -49,7 +49,7 @@ import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOv
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { BuiltLogging, COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, makeLogger, makeNoOpLogger } from './rrweb'
 import { AudioMuteReplayerPlugin } from './rrweb/audio/audio-mute-plugin'
-import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
+import { CanvasReplayerPlugin, cleanupCanvasPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording } from './utils/playerUtils'
@@ -1313,6 +1313,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                                 iframe.contentDocument.head.innerHTML = ''
                             }
                         }
+
+                        if (iframe?.parentNode) {
+                            iframe.parentNode.removeChild(iframe)
+                        }
+
+                        cleanupCanvasPlugin()
                     }
                 },
                 `replayer-${props.mode}`,
@@ -2116,14 +2122,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     beforeUnmount(({ values, actions, cache, props }) => {
         actions.stopAnimation()
 
-        // Note: Disposables (timers, event listeners) are automatically cleaned up
-        // by the kea disposables plugin's beforeUnmount hook
-
         cache.hasInitialized = false
         cache.pausedMediaElements = []
 
         actions.setPlayer(null)
         actions.setRootFrame(null)
+
+        cleanupCanvasPlugin()
 
         if (props.mode === SessionRecordingPlayerMode.Preview) {
             return
