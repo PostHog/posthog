@@ -158,6 +158,38 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(search=f"id-{self.random_uuid}-9"))
         self.assertEqual(len(runner.calculate().results), 1)
 
+    def test_persons_query_search_not_limited_by_pagination(self):
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        # Create the target person with an early created_at so it sorts last with ORDER BY created_at DESC
+        _create_person(
+            properties={"email": f"findme@{random_uuid}.com", "name": "Target Person"},
+            team=self.team,
+            distinct_ids=[f"findme-{random_uuid}"],
+            is_identified=True,
+            created_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        # Create 20 other persons with later created_at
+        for i in range(20):
+            _create_person(
+                properties={"email": f"other{i}@{random_uuid}.com", "name": f"Other {i}"},
+                team=self.team,
+                distinct_ids=[f"other-{random_uuid}-{i}"],
+                is_identified=True,
+                created_at=datetime(2024, 1, 1, tzinfo=UTC),
+            )
+        flush_persons_and_events()
+
+        runner = self._create_runner(
+            ActorsQuery(
+                search=f"findme@{random_uuid}",
+                select=["person", "id", "person.$delete", "created_at"],
+                orderBy=["created_at DESC"],
+                limit=5,
+            )
+        )
+        results = runner.calculate().results
+        self.assertEqual(len(results), 1)
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_persons_query_search_snapshot(self):
         runner = self._create_runner(ActorsQuery(search="SEARCHSTRING"))

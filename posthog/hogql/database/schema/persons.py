@@ -160,6 +160,9 @@ def select_from_persons_table(
 
         # START order_by/limit optimization.
         # only apply this to queries that directly select from the persons table
+        # Skip when the outer query has WHERE conditions that couldn't be pushed down
+        # (e.g. person search with cross-table distinct_id lookup). Pushing limit
+        # before those filters would exclude matching rows.
         if (
             node.select_from
             and node.select_from.type
@@ -167,6 +170,7 @@ def select_from_persons_table(
             and node.select_from.type.table
             and isinstance(node.select_from.type.table, PersonsTable)
             and not node.group_by  # TODO: support group_by
+            and not node.where
         ):
             compare = cast(ast.CompareOperation, select.where)
             right_select = cast(ast.SelectQuery, compare.right)
