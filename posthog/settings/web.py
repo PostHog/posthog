@@ -97,6 +97,7 @@ MIDDLEWARE = [
     "django_structlog.middlewares.RequestMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
+    "posthog.middleware.ToolbarOAuthCoopMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
@@ -581,6 +582,14 @@ TOOLBAR_OAUTH_SCOPES = [
     "feature_flag:write",
     "experiment:read",
     "experiment:write",
+    "query:read",
+    "product_tour:read",
+    "product_tour:write",
+    "heatmap:read",
+    "heatmap:write",
+    "element:read",
+    "uploaded_media:read",
+    "uploaded_media:write",
 ]
 
 # Sharing configuration settings

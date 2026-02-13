@@ -16,6 +16,7 @@ export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
 export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
+export const OAUTH_LOCALSTORAGE_KEY = '_postHogToolbarOAuth'
 
 export function getSafeText(el: HTMLElement): string {
     if (!el.childNodes || !el.childNodes.length) {
