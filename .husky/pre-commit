@@ -3,7 +3,7 @@
 
 # Skip lint-staged during merges — staged files include the entire merge diff,
 # not just your changes, making it slow and pointless
-[ -f .git/MERGE_HEAD ] && exit 0
+[ -f "$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)" ] && exit 0
 
 # Activate Flox environment if available and not already active
 # This ensures lint-staged commands work in GUI Git clients (GitHub Desktop, etc.)
