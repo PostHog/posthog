@@ -81,7 +81,7 @@
         "@types/node": "catalog:",
         "@types/tail": "^2.2.1",
         "avsc": "^5.7.9",
-        "aws-sdk": "^2.927.0",
+        "aws-sdk": "^2.1693.0",
         "cors": "^2.8.5",
         "detect-browser": "^5.3.0",
         "escape-string-regexp": "^4.0.0",
