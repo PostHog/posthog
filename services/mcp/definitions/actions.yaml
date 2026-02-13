@@ -1,0 +1,149 @@
+category: Actions
+feature: actions
+url_prefix: /data-management/actions
+
+tools:
+    action-get:
+        method: GET
+        path: /api/projects/{project_id}/actions/{action_id}/
+        title: Get action
+        description: >
+            Retrieves a specific action by its ID. Actions combine multiple
+            trigger conditions into a single trackable event.
+        scopes: [action:read]
+        annotations: { readOnly: true, destructive: false, idempotent: true }
+        input:
+            action_id: { type: integer, required: true, description: 'The ID of the action to retrieve' }
+        enrich_url: '{id}'
+
+    actions-get-all:
+        method: GET
+        path: /api/projects/{project_id}/actions/
+        title: List actions
+        description: >
+            Lists all actions in the project. Actions are reusable event
+            definitions that combine multiple trigger conditions.
+        scopes: [action:read]
+        annotations: { readOnly: true, destructive: false, idempotent: true }
+        input:
+            limit: { type: integer, required: false, description: 'Maximum number of actions to return' }
+            offset: { type: integer, required: false, description: 'Number of actions to skip for pagination' }
+        enrich_url: '{id}'
+        list: true
+
+    action-create:
+        method: POST
+        path: /api/projects/{project_id}/actions/
+        title: Create action
+        description: >
+            Creates a new action in the project. An action needs at least one
+            step defining a trigger condition. Multiple steps are OR-ed together.
+        scopes: [action:write]
+        annotations: { readOnly: false, destructive: false, idempotent: false }
+        input:
+            name:
+                { type: string, required: true, description: 'Name of the action (must be unique within the project)' }
+            description: { type: string, required: false, description: 'Description of what this action represents' }
+            steps:
+                type: array
+                required: true
+                items:
+                    type: object
+                    properties:
+                        event:
+                            {
+                                type: string,
+                                required: false,
+                                description: "Event name (e.g., '$pageview', '$autocapture', or custom event name)",
+                            }
+                        properties: { type: any, required: false, description: 'Event properties to filter on' }
+                        tag_name:
+                            {
+                                type: string,
+                                required: false,
+                                description: "HTML tag name to match (e.g., 'button', 'a', 'input')",
+                            }
+                        text: { type: string, required: false, description: 'Element text content to match' }
+                        text_matching:
+                            {
+                                type: string,
+                                required: false,
+                                description: "How to match text: 'contains', 'regex', or 'exact'",
+                            }
+                        href: { type: string, required: false, description: 'Link href attribute to match' }
+                        href_matching:
+                            {
+                                type: string,
+                                required: false,
+                                description: "How to match href: 'contains', 'regex', or 'exact'",
+                            }
+                        selector: { type: string, required: false, description: 'CSS selector to match element' }
+                        url: { type: string, required: false, description: 'Page URL to match' }
+                        url_matching:
+                            {
+                                type: string,
+                                required: false,
+                                description: "How to match URL: 'contains', 'regex', or 'exact'",
+                            }
+                description: 'Action steps — each defines a trigger condition. Multiple steps are OR-ed together.'
+            tags: { type: 'string[]', required: false, description: 'Tags for organizing actions' }
+            post_to_slack:
+                {
+                    type: boolean,
+                    required: false,
+                    default: false,
+                    description: 'Whether to post to Slack when this action is triggered',
+                }
+            slack_message_format: { type: string, required: false, description: 'Custom Slack message format' }
+        enrich_url: '{id}'
+
+    action-update:
+        method: PATCH
+        path: /api/projects/{project_id}/actions/{action_id}/
+        title: Update action
+        description: Updates an existing action. Only provided fields are changed.
+        scopes: [action:write]
+        annotations: { readOnly: false, destructive: false, idempotent: true }
+        input:
+            action_id:
+                { type: integer, required: true, path_param: true, description: 'The ID of the action to update' }
+            name: { type: string, required: false, description: 'Updated action name' }
+            description: { type: string, required: false, nullable: true, description: 'Updated description' }
+            steps:
+                type: array
+                required: false
+                items:
+                    type: object
+                    properties:
+                        event: { type: string, required: false, description: 'Event name' }
+                        properties: { type: any, required: false, description: 'Event properties to filter on' }
+                        tag_name: { type: string, required: false, description: 'HTML tag name to match' }
+                        text: { type: string, required: false, description: 'Element text content to match' }
+                        text_matching: { type: string, required: false, description: 'How to match text' }
+                        href: { type: string, required: false, description: 'Link href to match' }
+                        href_matching: { type: string, required: false, description: 'How to match href' }
+                        selector: { type: string, required: false, description: 'CSS selector' }
+                        url: { type: string, required: false, description: 'Page URL to match' }
+                        url_matching: { type: string, required: false, description: 'How to match URL' }
+                description: 'Updated action steps'
+            tags: { type: 'string[]', required: false, description: 'Updated tags' }
+            post_to_slack: { type: boolean, required: false, description: 'Whether to post to Slack' }
+            slack_message_format: { type: string, required: false, description: 'Custom Slack message format' }
+            pinned_at:
+                {
+                    type: string,
+                    required: false,
+                    nullable: true,
+                    description: 'Pin timestamp (set to pin, null to unpin)',
+                }
+        enrich_url: '{id}'
+
+    action-delete:
+        method: DELETE
+        path: /api/projects/{project_id}/actions/{action_id}/
+        title: Delete action
+        description: Deletes an action by ID.
+        scopes: [action:write]
+        annotations: { readOnly: false, destructive: true, idempotent: false }
+        input:
+            action_id: { type: integer, required: true, description: 'The ID of the action to delete' }

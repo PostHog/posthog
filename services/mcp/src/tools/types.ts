@@ -44,6 +44,11 @@ export type Env = {
      * PostHog API token for MCP Apps analytics (used for CSP and analytics ingestion).
      */
     POSTHOG_UI_APPS_TOKEN: string | undefined
+    /**
+     * When 'true', generated MCP tools (from definitions/*.yaml) override
+     * hand-written equivalents. Default: undefined (off).
+     */
+    USE_GENERATED_TOOLS?: string
 }
 
 export type Context = {

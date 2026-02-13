@@ -1,0 +1,77 @@
+{
+    "action-get": {
+        "description": "Retrieves a specific action by its ID. Actions combine multiple trigger conditions into a single trackable event.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Retrieves a specific action by its ID. Actions combine multiple trigger conditions into a single trackable event.",
+        "title": "Get action",
+        "required_scopes": ["action:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "actions-get-all": {
+        "description": "Lists all actions in the project. Actions are reusable event definitions that combine multiple trigger conditions.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Lists all actions in the project. Actions are reusable event definitions that combine multiple trigger conditions.",
+        "title": "List actions",
+        "required_scopes": ["action:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "action-create": {
+        "description": "Creates a new action in the project. An action needs at least one step defining a trigger condition. Multiple steps are OR-ed together.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Creates a new action in the project. An action needs at least one step defining a trigger condition. Multiple steps are OR-ed together.",
+        "title": "Create action",
+        "required_scopes": ["action:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "action-update": {
+        "description": "Updates an existing action. Only provided fields are changed.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Updates an existing action. Only provided fields are changed.",
+        "title": "Update action",
+        "required_scopes": ["action:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "action-delete": {
+        "description": "Deletes an action by ID.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Deletes an action by ID.",
+        "title": "Delete action",
+        "required_scopes": ["action:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    }
+}

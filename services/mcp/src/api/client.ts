@@ -156,6 +156,38 @@ export class ApiClient {
         return `${this.baseUrl}/project/${projectId}`
     }
 
+    /**
+     * Generic HTTP request with auth, rate limiting, and retries.
+     * Used by generated tool handlers to avoid duplicating endpoint-specific methods.
+     */
+    async request<T = unknown>(opts: {
+        method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
+        path: string
+        body?: Record<string, unknown>
+        query?: Record<string, string | number | undefined>
+    }): Promise<T> {
+        const searchParams = new URLSearchParams()
+        if (opts.query) {
+            for (const [k, v] of Object.entries(opts.query)) {
+                if (v !== undefined) {
+                    searchParams.append(k, String(v))
+                }
+            }
+        }
+        const qs = searchParams.toString()
+        const url = `${this.baseUrl}${opts.path}${qs ? `?${qs}` : ''}`
+
+        const result = await this.fetchWithSchema(url, z.any(), {
+            method: opts.method,
+            ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
+        })
+
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        return result.data as T
+    }
+
     private async fetchWithSchema<T>(url: string, schema: z.ZodType<T>, options?: RequestInit): Promise<Result<T>> {
         const maxRetries = 3
         const baseBackoffMs = 2000

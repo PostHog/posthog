@@ -34,6 +34,8 @@ import deleteFeatureFlag from './featureFlags/delete'
 import getAllFeatureFlags from './featureFlags/getAll'
 import getFeatureFlagDefinition from './featureFlags/getDefinition'
 import updateFeatureFlag from './featureFlags/update'
+// Generated tools (from definitions/*.yaml)
+import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import createInsight from './insights/create'
 import deleteInsight from './insights/delete'
@@ -177,6 +179,9 @@ export const getToolsFromContext = async (
     context: Context,
     options?: ToolFilterOptions
 ): Promise<Tool<ZodObjectAny>[]> => {
+    const useGenerated = context.env.USE_GENERATED_TOOLS === 'true'
+    const effectiveMap = useGenerated ? { ...TOOL_MAP, ...GENERATED_TOOL_MAP } : TOOL_MAP
+
     const allowedToolNames = getFilteredToolNames(options)
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
@@ -185,7 +190,7 @@ export const getToolsFromContext = async (
         if (toolName === 'docs-search' && context.env.INKEEP_API_KEY) {
             toolBases.push(searchDocs())
         } else {
-            const toolFactory = TOOL_MAP[toolName]
+            const toolFactory = effectiveMap[toolName]
             if (toolFactory) {
                 toolBases.push(toolFactory())
             }

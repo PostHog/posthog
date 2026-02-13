@@ -15,7 +15,8 @@
         "test:integration": "vitest run --config vitest.integration.config.mts",
         "test:watch": "vitest watch",
         "typecheck": "tsc --noEmit",
-        "generate-client": "tsx scripts/update-openapi-client.ts"
+        "generate-client": "tsx scripts/update-openapi-client.ts",
+        "generate-tools": "tsx scripts/generate-tools.ts"
     },
     "keywords": [
         "posthog",
@@ -62,6 +63,7 @@
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^3.2.4",
         "wrangler": "^4.59.0",
+        "yaml": "^2.8.2",
         "zod-to-json-schema": "^3.24.6"
     }
 }
