@@ -87,7 +87,6 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        base_currency = self.context.base_currency
 
         # Get cost in micros and convert to standard units
         spend_field = ast.Field(chain=[stats_table_name, "spend"])
@@ -96,25 +95,10 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
         )
         cost_float = ast.Call(name="toFloat", args=[cost_standard])
 
-        # Check if currency column exists in campaign_report table
-        try:
-            columns = getattr(self.config.stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and "currency" in columns:
-                # Convert each row's cost, then sum
-                # Use coalesce to handle NULL currency values - fallback to base_currency
-                currency_field = ast.Field(chain=[stats_table_name, "currency"])
-                currency_with_fallback = ast.Call(
-                    name="coalesce", args=[currency_field, ast.Constant(value=base_currency)]
-                )
-                convert_currency = ast.Call(
-                    name="convertCurrency", args=[currency_with_fallback, ast.Constant(value=base_currency), cost_float]
-                )
-                convert_to_float = ast.Call(name="toFloat", args=[convert_currency])
-                return ast.Call(name="SUM", args=[convert_to_float])
-        except (TypeError, AttributeError, KeyError):
-            pass
+        converted = self._apply_currency_conversion(self.config.stats_table, stats_table_name, "currency", cost_float)
+        if converted:
+            return ast.Call(name="SUM", args=[converted])
 
-        # Currency column doesn't exist, return cost without conversion
         return ast.Call(name="SUM", args=[cost_float])
 
     def _get_reported_conversion_field(self) -> ast.Expr:
@@ -133,7 +117,6 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
     def _get_reported_conversion_value_field(self) -> ast.Expr:
         """Get conversion value (monetary value of conversions)"""
         stats_table_name = self.config.stats_table.name
-        base_currency = self.context.base_currency
 
         purchase_field = ast.Call(
             name="ifNull",
@@ -150,39 +133,18 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
             ],
         )
 
-        # Apply currency conversion if currency column exists
-        try:
-            columns = getattr(self.config.stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and "currency" in columns:
-                currency_field = ast.Field(chain=[stats_table_name, "currency"])
-                currency_with_fallback = ast.Call(
-                    name="coalesce", args=[currency_field, ast.Constant(value=base_currency)]
-                )
-                # Convert each value per row, then sum
-                converted_purchase = ast.Call(
-                    name="toFloat",
-                    args=[
-                        ast.Call(
-                            name="convertCurrency",
-                            args=[currency_with_fallback, ast.Constant(value=base_currency), purchase_field],
-                        )
-                    ],
-                )
-                converted_signup = ast.Call(
-                    name="toFloat",
-                    args=[
-                        ast.Call(
-                            name="convertCurrency",
-                            args=[currency_with_fallback, ast.Constant(value=base_currency), signup_field],
-                        )
-                    ],
-                )
-                sum_purchase = ast.Call(name="SUM", args=[converted_purchase])
-                sum_signup = ast.Call(name="SUM", args=[converted_signup])
-                total = ast.ArithmeticOperation(left=sum_purchase, op=ast.ArithmeticOperationOp.Add, right=sum_signup)
-                return ast.Call(name="toFloat", args=[total])
-        except (TypeError, AttributeError, KeyError):
-            pass
+        converted_purchase = self._apply_currency_conversion(
+            self.config.stats_table, stats_table_name, "currency", purchase_field
+        )
+        converted_signup = self._apply_currency_conversion(
+            self.config.stats_table, stats_table_name, "currency", signup_field
+        )
+
+        if converted_purchase and converted_signup:
+            sum_purchase = ast.Call(name="SUM", args=[converted_purchase])
+            sum_signup = ast.Call(name="SUM", args=[converted_signup])
+            total = ast.ArithmeticOperation(left=sum_purchase, op=ast.ArithmeticOperationOp.Add, right=sum_signup)
+            return ast.Call(name="toFloat", args=[total])
 
         sum_purchase = ast.Call(name="SUM", args=[purchase_field])
         sum_signup = ast.Call(name="SUM", args=[signup_field])
