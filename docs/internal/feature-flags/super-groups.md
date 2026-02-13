@@ -8,16 +8,18 @@ When a super group condition matches, it takes precedence over all regular featu
 
 ## What they're used for
 
-Super groups power the early access feature (EAF) system. When users opt into an early access feature through the UI, PostHog sets a person property like `$feature_enrollment/my-feature = true`. The super group condition checks for this property.
+Super groups power the early access feature (EAF) system. When users opt into an early access feature through the UI, PostHog sets a person property like `$feature_enrollment/my-feature` with the value `"true"` (stored as a string, not a boolean). The super group condition checks for this property.
 
 Example flow:
 
 1. Product team creates an early access feature "New Dashboard" linked to feature flag `new-dashboard`
 2. PostHog automatically adds a super group to the flag checking `$feature_enrollment/new-dashboard`
 3. User opts in via the early access features UI
-4. PostHog sets `$feature_enrollment/new-dashboard = true` on their person
+4. PostHog sets `$feature_enrollment/new-dashboard` to `"true"` on their person
 5. On next flag evaluation, super group matches → user sees the feature
 6. Regular rollout conditions are never checked for this user
+
+Note: The condition uses `["true"]` (an array) because property filters in PostHog always expect array values for the `exact` operator, even for single values.
 
 This allows opted-in users to see features regardless of percentage rollouts, geography targeting, or other conditions on the flag.
 
