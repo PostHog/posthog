@@ -867,30 +867,6 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
 
         sync_execute("TRUNCATE TABLE sharded_events")
 
-    def _create_frustration_events(
-        self, session_id: str, rage_clicks: int = 0, exceptions: int = 0, days_ago: int = 1
-    ) -> None:
-        """Helper to create frustration events for a session"""
-        timestamp = datetime.now() - timedelta(days=days_ago)
-
-        for _ in range(rage_clicks):
-            _create_event(
-                distinct_id="user",
-                event="$rageclick",
-                properties={"$session_id": str(uuid7())},
-                team=self.team,
-                timestamp=timestamp,
-            )
-        for _ in range(exceptions):
-            _create_event(
-                distinct_id="user",
-                event="$exception",
-                properties={"$session_id": str(uuid7())},
-                team=self.team,
-                timestamp=timestamp,
-            )
-        flush_persons_and_events()
-
     def _get_playlists_response(self, query_params: str = "") -> dict:
         url = f"/api/projects/{self.team.id}/session_recording_playlists{query_params}"
         response = self.client.get(url)
@@ -1032,11 +1008,12 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
     def test_frustrated_sessions_count(self) -> None:
         cache.clear()
 
+        session_id = str(uuid7())
         for _ in range(3):
             _create_event(
                 distinct_id="user",
                 event="$rageclick",
-                properties={"$session_id": str(uuid7())},
+                properties={"$session_id": session_id},
                 team=self.team,
                 timestamp=datetime.now() - timedelta(days=1),
             )
