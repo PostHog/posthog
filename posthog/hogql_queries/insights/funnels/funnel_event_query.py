@@ -493,7 +493,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                             f"""tupleElement((
                                 throwIf(isNull({{id_field}}), {{exception_message}}),
                                 toUUIDOrDefault(
-                                    {{id_field}},
+                                    toString({{id_field}}),
                                     reinterpretAsUUID(md5(concat({{table_prefix}}, toString({{id_field}}))))
                                 )
                             ), 2)""",

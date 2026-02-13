@@ -30,12 +30,12 @@
         FROM
           (SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                   e.user_id AS aggregation_target,
-                  tupleElement(tuple(throwIf(isNull(e.uuid), 'Encountered a null value in posthog_test_test_table_1.uuid, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.uuid, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.uuid), ''))))))), 2) AS uuid,
+                  tupleElement(tuple(throwIf(isNull(e.uuid), 'Encountered a null value in posthog_test_test_table_1.uuid, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(toString(e.uuid), reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.uuid), ''))))))), 2) AS uuid,
                   NULL AS `$session_id`,
                   NULL AS `$window_id`,
                   if(1, 1, 0) AS step_0,
                   if(1, 1, 0) AS step_1
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `uuid` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `properties` Nullable(String), `id_with_nulls` Nullable(Int64)') AS e
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `uuid` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `id_decimal` Decimal(18, 2), `properties` Nullable(String), `id_with_nulls` Nullable(Int64)') AS e
            WHERE and(and(greaterOrEquals(timestamp, toDateTime64('2025-11-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2025-11-07 23:59:59.999999', 6, 'UTC'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -115,12 +115,12 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview'))), ifNull(equals(step_0, 1), 0))
               UNION ALL SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                                accurateCastOrNull(e.user_id, 'UUID') AS aggregation_target,
-                               tupleElement(tuple(throwIf(isNull(e.uuid), 'Encountered a null value in posthog_test_test_table_1.uuid, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.uuid, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.uuid), ''))))))), 2) AS uuid,
+                               tupleElement(tuple(throwIf(isNull(e.uuid), 'Encountered a null value in posthog_test_test_table_1.uuid, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(toString(e.uuid), reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.uuid), ''))))))), 2) AS uuid,
                                NULL AS `$session_id`,
                                NULL AS `$window_id`,
                                0 AS step_0,
                                if(1, 1, 0) AS step_1
-              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `uuid` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `properties` Nullable(String), `id_with_nulls` Nullable(Int64)') AS e
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `uuid` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `id_decimal` Decimal(18, 2), `properties` Nullable(String), `id_with_nulls` Nullable(Int64)') AS e
               WHERE and(and(greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), ifNull(equals(step_1, 1), 0))) AS e)
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -176,12 +176,12 @@
         FROM
           (SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                   e.user_id AS aggregation_target,
-                  tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_test_table_1.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
+                  tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_test_table_1.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(toString(e.id), reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
                   NULL AS `$session_id`,
                   NULL AS `$window_id`,
                   if(1, 1, 0) AS step_0,
                   if(1, 1, 0) AS step_1
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `uuid` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `properties` Nullable(String), `id_with_nulls` Nullable(Int64)') AS e
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `uuid` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `id_decimal` Decimal(18, 2), `properties` Nullable(String), `id_with_nulls` Nullable(Int64)') AS e
            WHERE and(and(greaterOrEquals(timestamp, toDateTime64('2025-11-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2025-11-07 23:59:59.999999', 6, 'UTC'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -237,12 +237,12 @@
         FROM
           (SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                   e.user_id AS aggregation_target,
-                  tupleElement(tuple(throwIf(isNull(e.id_with_nulls), 'Encountered a null value in posthog_test_test_table_1.id_with_nulls, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id_with_nulls, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.id_with_nulls), ''))))))), 2) AS uuid,
+                  tupleElement(tuple(throwIf(isNull(e.id_with_nulls), 'Encountered a null value in posthog_test_test_table_1.id_with_nulls, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(toString(e.id_with_nulls), reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.id_with_nulls), ''))))))), 2) AS uuid,
                   NULL AS `$session_id`,
                   NULL AS `$window_id`,
                   if(1, 1, 0) AS step_0,
                   if(1, 1, 0) AS step_1
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `uuid` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `properties` Nullable(String), `id_with_nulls` Nullable(Int64)') AS e
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `uuid` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `id_decimal` Decimal(18, 2), `properties` Nullable(String), `id_with_nulls` Nullable(Int64)') AS e
            WHERE and(and(greaterOrEquals(timestamp, toDateTime64('2025-11-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2025-11-07 23:59:59.999999', 6, 'UTC'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -298,12 +298,12 @@
         FROM
           (SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                   e.user_id AS aggregation_target,
-                  tupleElement(tuple(throwIf(isNull(e.id_with_nulls), 'Encountered a null value in posthog_test_test_table_1.id_with_nulls, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id_with_nulls, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.id_with_nulls), ''))))))), 2) AS uuid,
+                  tupleElement(tuple(throwIf(isNull(e.id_with_nulls), 'Encountered a null value in posthog_test_test_table_1.id_with_nulls, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(toString(e.id_with_nulls), reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.id_with_nulls), ''))))))), 2) AS uuid,
                   NULL AS `$session_id`,
                   NULL AS `$window_id`,
                   if(isNotNull(e.id_with_nulls), 1, 0) AS step_0,
                   if(isNotNull(e.id_with_nulls), 1, 0) AS step_1
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `uuid` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `properties` Nullable(String), `id_with_nulls` Nullable(Int64)') AS e
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Int64, `uuid` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `id_decimal` Decimal(18, 2), `properties` Nullable(String), `id_with_nulls` Nullable(Int64)') AS e
            WHERE and(and(greaterOrEquals(timestamp, toDateTime64('2025-11-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2025-11-07 23:59:59.999999', 6, 'UTC'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -373,7 +373,7 @@
            FROM
              (SELECT toTimeZone(e.created_date, 'UTC') AS timestamp,
                      coalesce(e.converted_opportunity_id, e.id) AS aggregation_target,
-                     tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_salesforce_lead.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id, reinterpretAsUUID(hex(MD5(concat('posthog_test_salesforce_lead_0_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
+                     tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_salesforce_lead.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(toString(e.id), reinterpretAsUUID(hex(MD5(concat('posthog_test_salesforce_lead_0_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
                      NULL AS `$session_id`,
                      NULL AS `$window_id`,
                      if(1, 1, 0) AS step_0,
@@ -383,7 +383,7 @@
               WHERE and(and(greaterOrEquals(timestamp, toDateTime64('2024-05-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2024-06-30 23:59:59.999999', 6, 'UTC'))), ifNull(equals(step_0, 1), 0))
               UNION ALL SELECT toTimeZone(e.created_date, 'UTC') AS timestamp,
                                e.id AS aggregation_target,
-                               tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_salesforce_opportunity.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id, reinterpretAsUUID(hex(MD5(concat('posthog_test_salesforce_opportunity_1_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
+                               tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_salesforce_opportunity.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(toString(e.id), reinterpretAsUUID(hex(MD5(concat('posthog_test_salesforce_opportunity_1_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
                                NULL AS `$session_id`,
                                NULL AS `$window_id`,
                                0 AS step_0,
@@ -393,7 +393,7 @@
               WHERE and(and(greaterOrEquals(timestamp, toDateTime64('2024-05-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('2024-06-30 23:59:59.999999', 6, 'UTC'))), ifNull(equals(step_1, 1), 0))
               UNION ALL SELECT e.close_date AS timestamp,
                                e.id AS aggregation_target,
-                               tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_salesforce_opportunity.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id, reinterpretAsUUID(hex(MD5(concat('posthog_test_salesforce_opportunity_2_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
+                               tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_salesforce_opportunity.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(toString(e.id), reinterpretAsUUID(hex(MD5(concat('posthog_test_salesforce_opportunity_2_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
                                NULL AS `$session_id`,
                                NULL AS `$window_id`,
                                0 AS step_0,

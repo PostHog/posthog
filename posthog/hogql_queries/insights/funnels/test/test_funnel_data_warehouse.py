@@ -44,6 +44,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                     "clickhouse": "Nullable(Int64)",
                     "hogql": "IntegerDatabaseField",
                 },
+                "id_decimal": {"clickhouse": "Decimal(18, 2)", "hogql": "DecimalDatabaseField"},
                 "uuid": {"clickhouse": "String", "hogql": "StringDatabaseField"},
                 "user_id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
                 "created": {
@@ -230,6 +231,38 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                     id=table_name,
                     table_name=table_name,
                     id_field="id",
+                    distinct_id_field="user_id",
+                    timestamp_field="created",
+                ),
+            ],
+        )
+
+        with freeze_time("2025-11-07"):
+            runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
+            response = runner.calculate()
+
+        results = response.results
+        assert results[0]["count"] == 5
+        assert results[1]["count"] == 1
+
+    def test_funnels_data_warehouse_decimal_id_column(self):
+        table_name = self.setup_data_warehouse()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2025-11-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id_decimal",
+                    distinct_id_field="user_id",
+                    timestamp_field="created",
+                ),
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id_decimal",
                     distinct_id_field="user_id",
                     timestamp_field="created",
                 ),
