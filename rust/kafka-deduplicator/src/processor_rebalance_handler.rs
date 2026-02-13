@@ -1166,7 +1166,7 @@ mod tests {
         // Now do async setup - should send Resume command
         handler.async_setup_assigned_partitions(&tx).await.unwrap();
 
-        // Check that Resume command was sent
+        // Check that Resume command was sent (no importer, so only Resume is sent)
         let command = rx.try_recv().expect("Should have received a command");
         match command {
             ConsumerCommand::Resume(resume_partitions) => {
@@ -1175,6 +1175,9 @@ mod tests {
                     2,
                     "Resume command should contain all assigned partitions"
                 );
+            }
+            ConsumerCommand::SeekPartitions(_) => {
+                panic!("Handler has no importer; should not send SeekPartitions");
             }
         }
 
@@ -1249,7 +1252,20 @@ mod tests {
 
         // Should have received exactly one Resume command (from the last rebalance)
         let cmd = rx.try_recv().expect("Should have received Resume command");
-        let ConsumerCommand::Resume(tpl) = cmd;
+        let tpl = match &cmd {
+            ConsumerCommand::Resume(t) => t.clone(),
+            ConsumerCommand::SeekPartitions(_) => {
+                let cmd2 = rx
+                    .try_recv()
+                    .expect("Should have received Resume after SeekPartitions");
+                match cmd2 {
+                    ConsumerCommand::Resume(t) => t,
+                    ConsumerCommand::SeekPartitions(_) => {
+                        panic!("Expected Resume, got SeekPartitions")
+                    }
+                }
+            }
+        };
         // Should resume both partitions
         assert_eq!(tpl.count(), 2, "Should resume all owned partitions");
 
@@ -1342,6 +1358,23 @@ mod tests {
                     !partition_nums.contains(&1),
                     "Partition 1 should NOT be in Resume (not owned)"
                 );
+            }
+            ConsumerCommand::SeekPartitions(_) => {
+                let cmd2 = rx
+                    .try_recv()
+                    .expect("Should have received Resume after SeekPartitions");
+                let ConsumerCommand::Resume(resume_partitions) = cmd2 else {
+                    panic!("Expected Resume command, got {:?}", cmd2);
+                };
+                assert_eq!(resume_partitions.count(), 2);
+                let partition_nums: Vec<i32> = resume_partitions
+                    .elements()
+                    .iter()
+                    .map(|e| e.partition())
+                    .collect();
+                assert!(partition_nums.contains(&0));
+                assert!(partition_nums.contains(&2));
+                assert!(!partition_nums.contains(&1));
             }
         }
 
@@ -1578,6 +1611,14 @@ mod tests {
                 let elements = tpl.elements();
                 assert_eq!(elements[0].partition(), 0, "Should resume partition 0");
             }
+            ConsumerCommand::SeekPartitions(_) => {
+                let cmd2 = rx.try_recv().expect("Should have received Resume");
+                let ConsumerCommand::Resume(tpl) = cmd2 else {
+                    panic!("Expected Resume command, got {:?}", cmd2);
+                };
+                assert_eq!(tpl.count(), 1);
+                assert_eq!(tpl.elements()[0].partition(), 0);
+            }
         }
 
         // Verify partition 0's store still exists after B completes
@@ -1654,6 +1695,20 @@ mod tests {
                 let topics: Vec<&str> = elements.iter().map(|e| e.topic()).collect();
                 assert!(topics.contains(&"topic-a"), "topic-a:0 should be resumed");
                 assert!(topics.contains(&"topic-b"), "topic-b:0 should be resumed");
+            }
+            ConsumerCommand::SeekPartitions(_) => {
+                let cmd2 = rx.try_recv().expect("Should have received Resume");
+                let ConsumerCommand::Resume(tpl) = cmd2 else {
+                    panic!("Expected Resume command, got {:?}", cmd2);
+                };
+                assert_eq!(tpl.count(), 2);
+                let topics: Vec<String> = tpl
+                    .elements()
+                    .iter()
+                    .map(|e| e.topic().to_string())
+                    .collect();
+                assert!(topics.contains(&"topic-a".to_string()));
+                assert!(topics.contains(&"topic-b".to_string()));
             }
         }
 
