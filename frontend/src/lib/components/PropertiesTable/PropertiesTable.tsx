@@ -362,7 +362,7 @@ export function PropertiesTable({
                                     }
 
                                     if (isComplexStructure) {
-                                        return <JSONViewer src={arrayItem} collapsed={true} />
+                                        return <JSONViewer src={arrayItem} collapsed={true} enableClipboard={false} />
                                     }
 
                                     return (
@@ -421,7 +421,7 @@ export function PropertiesTable({
                     const isComplexStructure = Array.isArray(item[1]) || (isObject(item[1]) && item[1] !== null)
 
                     if (isComplexStructure && featureFlags[FEATURE_FLAGS.TOGGLE_PROPERTY_ARRAYS]) {
-                        return <JSONViewer src={item[1]} collapsed={true} />
+                        return <JSONViewer src={item[1]} collapsed={true} enableClipboard={false} />
                     }
                     return (
                         <PropertiesTable
