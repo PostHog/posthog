@@ -1,13 +1,11 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual, pluralize } from '~/lib/utils'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
@@ -31,14 +29,8 @@ function cleanFilters(values: Partial<DatasetFilters>): DatasetFilters {
     }
 }
 
-export interface LLMAnalyticsDatasetsLogicProps {
-    tabId?: string
-}
-
 export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsDatasetsLogic']),
-    props({} as LLMAnalyticsDatasetsLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         setFilters: (filters: Partial<DatasetFilters>, merge: boolean = true, debounce: boolean = true) => ({
@@ -171,7 +163,7 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => {
+    actionToUrl(({ values }) => {
         const changeUrl = ():
             | [
                   string,
@@ -193,7 +185,7 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
         }
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.llmAnalyticsDatasets()]: (_, searchParams) => {
             const newFilters = cleanFilters(searchParams)
             if (values.rawFilters === null || !objectsEqual(values.filters, newFilters)) {
