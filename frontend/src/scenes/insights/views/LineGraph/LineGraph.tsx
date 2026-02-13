@@ -49,7 +49,6 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 
 function truncateString(str: string, num: number): string {
@@ -286,13 +285,11 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, isFunnels, breakdownFilter, query, interval, insightData } = useValues(
+    const { timezone, isTrends, isFunnels, breakdownFilter, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex } = useValues(trendsDataLogic(insightProps))
     const { setHoveredDatasetIndex } = useActions(trendsDataLogic(insightProps))
-
-    const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
     const { tooltipId, hideTooltip, getTooltip } = useInsightTooltip()
 
@@ -315,30 +312,7 @@ export function LineGraph_({
         if (!isShiftPressed) {
             setHoveredDatasetIndex(null)
         }
-    }, [isShiftPressed])
-
-    // Add scrollend event on main element to hide tooltips when scrolling
-    useEffect(() => {
-        if (!hideTooltipOnScroll) {
-            return
-        }
-
-        const handleScrollEnd = (): void => hideTooltip()
-
-        // Scroll events happen on the main element due to overflow-y: scroll
-        // but we need to make sure it exists before adding the event listener,
-        // e.g: it does not exist in the shared pages
-        const main = document.getElementsByTagName('main')[0]
-        if (main) {
-            main.addEventListener('scrollend', handleScrollEnd)
-        }
-
-        return () => {
-            if (main) {
-                main.removeEventListener('scrollend', handleScrollEnd)
-            }
-        }
-    }, [hideTooltipOnScroll, hideTooltip])
+    }, [isShiftPressed, setHoveredDatasetIndex])
 
     // Add event listeners to canvas
     useOnMountEffect(() => {

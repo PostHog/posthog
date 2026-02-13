@@ -8,6 +8,8 @@ import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { MenuSeparator } from 'lib/ui/Menus/Menus'
+import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -37,15 +39,14 @@ interface CreateOrgItem {
 
 type ListItem = OrgListItem | CreateOrgItem
 
-export function OrgSwitcher(): JSX.Element {
+export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { otherOrganizations } = useValues(userLogic)
     const { updateCurrentOrganization } = useActions(userLogic)
-    const { closeOrgSwitcher } = useActions(newAccountMenuLogic)
-
+    const { closeOrgSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const [searchValue, setSearchValue] = useState('')
     const inputRef = useRef<HTMLInputElement>(null!)
 
@@ -109,6 +110,7 @@ export function OrgSwitcher(): JSX.Element {
                     AvailableFeature.ORGANIZATIONS_PROJECTS,
                     () => {
                         showCreateOrganizationModal()
+                        setAccountMenuOpen(false)
                     },
                     { guardOnCloud: false }
                 )
@@ -118,7 +120,13 @@ export function OrgSwitcher(): JSX.Element {
                 updateCurrentOrganization(item.org.id)
             }
         },
-        [closeOrgSwitcher, updateCurrentOrganization, guardAvailableFeature, showCreateOrganizationModal]
+        [
+            closeOrgSwitcher,
+            updateCurrentOrganization,
+            guardAvailableFeature,
+            showCreateOrganizationModal,
+            setAccountMenuOpen,
+        ]
     )
 
     const getItemString = useCallback((item: ListItem | null): string => {
@@ -133,6 +141,8 @@ export function OrgSwitcher(): JSX.Element {
 
     const canCreateOrg = preflight?.can_create_org !== false
 
+    const spacingClass = dialog ? 'p-2' : 'p-1'
+
     return (
         <Combobox.Root
             items={filteredItems}
@@ -144,8 +154,15 @@ export function OrgSwitcher(): JSX.Element {
         >
             <div className="flex flex-col overflow-hidden">
                 {/* Search Input */}
-                <div className="p-2 border-b border-primary">
-                    <label className="group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2">
+                <div className={`${spacingClass} ${dialog && 'border-b border-primary'}`}>
+                    <label
+                        className={cn(
+                            'group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2',
+                            {
+                                'h-[30px]': !dialog,
+                            }
+                        )}
+                    >
                         <Combobox.Icon
                             className="size-5"
                             render={<IconSearch className="text-tertiary group-focus-within:text-primary" />}
@@ -183,7 +200,10 @@ export function OrgSwitcher(): JSX.Element {
                     styledScrollbars
                     className="flex-1 overflow-y-auto max-h-[400px]"
                 >
-                    <Combobox.List className="flex flex-col gap-px p-2">
+                    <Combobox.List
+                        className={`flex flex-col gap-px ${spacingClass} bg-surface-primary ${!dialog && 'pt-0.5'}`}
+                        tabIndex={-1}
+                    >
                         {/* Current Organization */}
                         {currentOrgItem && (
                             <Combobox.Group items={[currentOrgItem]}>
@@ -193,16 +213,8 @@ export function OrgSwitcher(): JSX.Element {
                                             key={item.id}
                                             value={item}
                                             onClick={() => handleItemClick(item)}
-                                            disabled
                                             render={(props) => (
-                                                <ButtonPrimitive
-                                                    {...props}
-                                                    disabled
-                                                    data-disabled="true"
-                                                    menuItem
-                                                    active
-                                                    fullWidth
-                                                >
+                                                <ButtonPrimitive {...props} menuItem active fullWidth>
                                                     <IconCheck className="text-tertiary" />
                                                     <UploadedLogo
                                                         size="xsmall"
@@ -259,6 +271,8 @@ export function OrgSwitcher(): JSX.Element {
                             </Combobox.Group>
                         )}
 
+                        <MenuSeparator />
+
                         {/* Create New Organization */}
                         {createItem && (
                             <Combobox.Group items={[createItem]}>
@@ -294,19 +308,21 @@ export function OrgSwitcher(): JSX.Element {
                 </ScrollableShadows>
 
                 {/* Footer */}
-                <div className="menu-legend border-t border-primary p-1">
-                    <div className="px-2 py-1 text-xxs text-tertiary font-medium flex items-center gap-2">
-                        <span>
-                            <KeyboardShortcut arrowup arrowdown preserveOrder /> navigate
-                        </span>
-                        <span>
-                            <KeyboardShortcut enter /> select
-                        </span>
-                        <span>
-                            <KeyboardShortcut escape /> close
-                        </span>
+                {dialog && (
+                    <div className="menu-legend border-t border-primary p-1">
+                        <div className="px-2 py-1 text-xxs text-tertiary font-medium flex items-center gap-2">
+                            <span>
+                                <KeyboardShortcut arrowup arrowdown preserveOrder /> navigate
+                            </span>
+                            <span>
+                                <KeyboardShortcut enter /> select
+                            </span>
+                            <span>
+                                <KeyboardShortcut escape /> close
+                            </span>
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </Combobox.Root>
     )

@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 from freezegun import freeze_time
-from posthog.test.base import _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import _create_event, _create_person
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -158,8 +158,6 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
                 properties={feature_flag_property: "test"},
             )
 
-        flush_persons_and_events()
-
         direct_result, preagg_result = self._preaggregated_and_compare(experiment, feature_flag, metric)
         assert direct_result.baseline is not None
         assert direct_result.baseline.number_of_samples == 5
@@ -223,8 +221,6 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             properties={feature_flag_property: "control"},
         )
 
-        flush_persons_and_events()
-
         # Preaggregating in two phases forces multiple jobs
         builder = self._build_preaggregation_builder(experiment, feature_flag, metric)
         query_string, placeholders = builder.get_exposure_query_for_preaggregation()
@@ -278,6 +274,175 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert direct_result.variant_results[0].number_of_samples == 3
 
     @freeze_time("2024-01-10T12:00:00Z")
+    def test_multiple_variant_handling_exclude_tags_multi_variant_user(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+        experiment.exposure_preaggregation_enabled = True
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # 1 user sees "control" on Jan 2, then "test" on Jan 4
+        _create_person(distinct_ids=["switcher"], team_id=self.team.pk)
+        self._create_exposure_event("switcher", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC))
+        self._create_exposure_event("switcher", feature_flag, "test", datetime(2024, 1, 4, 12, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="switcher",
+            timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # 1 normal control user
+        _create_person(distinct_ids=["normal_control"], team_id=self.team.pk)
+        self._create_exposure_event(
+            "normal_control", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="normal_control",
+            timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # 1 normal test user
+        _create_person(distinct_ids=["normal_test"], team_id=self.team.pk)
+        self._create_exposure_event("normal_test", feature_flag, "test", datetime(2024, 1, 4, 12, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="normal_test",
+            timestamp=datetime(2024, 1, 4, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "test"},
+        )
+
+        # Preaggreggate in two phases so "switcher" ends up in two separate jobs with different variants
+        builder = self._build_preaggregation_builder(experiment, feature_flag, metric)
+        query_string, placeholders = builder.get_exposure_query_for_preaggregation()
+
+        ensure_preaggregated(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
+            table=PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+        ensure_preaggregated(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
+            table=PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+
+        result = self._run_experiment(experiment, metric)
+
+        # Default handling is EXCLUDE: "switcher" is tagged $multiple and filtered out
+        # So we should see 1 control + 1 test
+        assert result.baseline is not None
+        assert result.baseline.number_of_samples == 1
+        assert result.variant_results is not None
+        assert result.variant_results[0].number_of_samples == 1
+
+    @freeze_time("2024-01-10T12:00:00Z")
+    def test_multiple_variant_handling_first_seen_keeps_multi_variant_user(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+        experiment.exposure_preaggregation_enabled = True
+        experiment.exposure_criteria = {"multiple_variant_handling": "first_seen"}
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # 1 user sees "control" on Jan 2, then "test" on Jan 4
+        _create_person(distinct_ids=["switcher"], team_id=self.team.pk)
+        self._create_exposure_event("switcher", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC))
+        self._create_exposure_event("switcher", feature_flag, "test", datetime(2024, 1, 4, 12, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="switcher",
+            timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # 1 normal control user
+        _create_person(distinct_ids=["normal_control"], team_id=self.team.pk)
+        self._create_exposure_event(
+            "normal_control", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="normal_control",
+            timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "control"},
+        )
+
+        # 1 normal test user
+        _create_person(distinct_ids=["normal_test"], team_id=self.team.pk)
+        self._create_exposure_event("normal_test", feature_flag, "test", datetime(2024, 1, 4, 12, 0, 0, tzinfo=UTC))
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="normal_test",
+            timestamp=datetime(2024, 1, 4, 13, 0, 0, tzinfo=UTC),
+            properties={feature_flag_property: "test"},
+        )
+
+        # Preaggreggate in two phases so "switcher" ends up in two separate jobs with different variants
+        builder = self._build_preaggregation_builder(experiment, feature_flag, metric)
+        query_string, placeholders = builder.get_exposure_query_for_preaggregation()
+
+        ensure_preaggregated(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
+            table=PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+        ensure_preaggregated(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
+            table=PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+
+        result = self._run_experiment(experiment, metric)
+
+        # FIRST_SEEN: "switcher" keeps their first variant (control)
+        # So: 2 control (switcher + normal_control) + 1 test (normal_test)
+        assert result.baseline is not None
+        assert result.baseline.number_of_samples == 2
+        assert result.variant_results is not None
+        assert result.variant_results[0].number_of_samples == 1
+
+    @freeze_time("2024-01-10T12:00:00Z")
     def test_falls_back_to_events_scan_on_preaggregation_failure(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -320,8 +485,6 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
                 timestamp=datetime(2024, 1, 2, 15, 0, 0, tzinfo=UTC),
                 properties={feature_flag_property: "test"},
             )
-
-        flush_persons_and_events()
 
         with patch.object(ExperimentQueryRunner, "_ensure_exposures_preaggregated", side_effect=Exception("boom")):
             result = self._run_experiment(experiment, metric)

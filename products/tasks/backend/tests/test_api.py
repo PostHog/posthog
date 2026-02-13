@@ -1,9 +1,11 @@
 import json
+import time
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
+import jwt
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -14,6 +16,37 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+
+# Test RSA private key for JWT tests (RS256)
+TEST_RSA_PRIVATE_KEY = """-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDqh94SYMFsvG4C
+Co9BSGjtPr2/OxzuNGr41O4+AMkDQRd9pKO49DhTA4VzwnOvrH8y4eI9N8OQne7B
+wpdoouSn4DoDAS/b3SUfij/RoFUSyZiTQoWz0H6o2Vuufiz0Hf+BzlZEVnhSQ1ru
+vqSf+4l8cWgeMXaFXgdD5kQ8GjvR5uqKxvO2Env1hMJRKeOOEGgCep/0c6SkMUTX
+SeC+VjypVg9+8yPxtIpOQ7XKv+7e/PA0ilqehRQh4fo9BAWjUW1+HnbtsjJAjjfv
+ngzIjpajuQVyMi7G79v8OvijhLMJjJBh3TdbVIfi+RkVj/H94UUfKWRfJA0eLykA
+VvTiFf0nAgMBAAECggEABkLBQWFW2IXBNAm/IEGEF408uH2l/I/mqSTaBUq1EwKq
+U17RRg8y77hg2CHBP9fNf3i7NuIltNcaeA6vRwpOK1MXiVv/QJHLO2fP41Mx4jIC
+gi/c7NtsfiprQaG5pnykhP0SnXlndd65bzUkpOasmWdXnbK5VL8ZV40uliInJafE
+1Eo9qSYCJxHmivU/4AbiBgygOAo1QIiuuUHcx0YGknLrBaMQETuvWJGE3lxVQ30/
+EuRyA3r6BwN2T0z47PZBzvCpg/C1KeoYuKSMwMyEXfl+a8NclqdROkVaenmZpvVH
+0lAvFDuPrBSDmU4XJbKCEfwfHjRkiWAFaTrKntGQtQKBgQD/ILoK4U9DkJoKTYvY
+9lX7dg6wNO8jGLHNufU8tHhU+QnBMH3hBXrAtIKQ1sGs+D5rq/O7o0Balmct9vwb
+CQZ1EpPfa83Thsv6Skd7lWK0JF7g2vVk8kT4nY/eqkgZUWgkfdMp+OMg2drYiIE8
+u+sRPTCdq4Tv5miRg0OToX2H/QKBgQDrVR2GXm6ZUyFbCy8A0kttXP1YyXqDVq7p
+L4kqyUq43hmbjzIRM4YDN3EvgZvVf6eub6L/3HfKvWD/OvEhHovTvHb9jkwZ3FO+
+YQllB/ccAWJs/Dw5jLAsX9O+eIe4lfwROib3vYLnDTAmrXD5VL35R5F0MsdRoxk5
+lTCq1sYI8wKBgGA9ZjDIgXAJUjJkwkZb1l9/T1clALiKjjf+2AXIRkQ3lXhs5G9H
+8+BRt5cPjAvFsTZIrS6xDIufhNiP/NXt96OeGG4FaqVKihOmhYSW+57cwXWs4zjr
+Mx1dwnHKZlw2m0R4unlwy60OwUFBbQ8ODER6gqZXl1Qv5G5Px+Qe3Q25AoGAUl+s
+wgfz9r9egZvcjBEQTeuq0pVTyP1ipET7YnqrKSK1G/p3sAW09xNFDzfy8DyK2UhC
+agUl+VVoym47UTh8AVWK4R4aDUNOHOmifDbZjHf/l96CxjI0yJOSbq2J9FarsOwG
+D9nKJE49eIxlayD6jnM6us27bxwEDF/odSRQlXkCgYEAxn9l/5kewWkeEA0Afe1c
+Uf+mepHBLw1Pbg5GJYIZPC6e5+wRNvtFjM5J6h5LVhyb7AjKeLBTeohoBKEfUyUO
+rl/ql9qDIh5lJFn3uNh7+r7tmG21Zl2pyh+O8GljjZ25mYhdiwl0uqzVZaINe2Wa
+vbMnD1ZQKgL8LHgb02cbTsc=
+-----END PRIVATE KEY-----"""
 
 
 class BaseTaskAPITest(TestCase):
@@ -345,6 +378,92 @@ class TestTaskAPI(BaseTaskAPITest):
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
+    @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
+    def test_update_run_status_to_completed_signals_workflow(self, mock_signal):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "completed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_signal.assert_called_once()
+        call_args = mock_signal.call_args
+        self.assertEqual(call_args[0][1], "completed")
+        self.assertIsNone(call_args[0][2])
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+        self.assertIsNotNone(run.completed_at)
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
+    def test_update_run_status_to_failed_signals_workflow_with_error(self, mock_signal):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "failed", "error_message": "Something went wrong"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_signal.assert_called_once()
+        call_args = mock_signal.call_args
+        self.assertEqual(call_args[0][1], "failed")
+        self.assertEqual(call_args[0][2], "Something went wrong")
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.FAILED)
+        self.assertEqual(run.error_message, "Something went wrong")
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
+    def test_update_run_status_to_cancelled_signals_workflow(self, mock_signal):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "cancelled"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_signal.assert_called_once()
+        call_args = mock_signal.call_args
+        self.assertEqual(call_args[0][1], "cancelled")
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
+    def test_update_run_non_terminal_status_does_not_signal(self, mock_signal):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "in_progress"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_signal.assert_not_called()
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
+    def test_update_run_same_terminal_status_does_not_signal(self, mock_signal):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "completed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_signal.assert_not_called()
+
     def test_list_runs_for_task(self):
         task = self.create_task()
 
@@ -577,6 +696,92 @@ class TestTaskRunAPI(BaseTaskAPITest):
             format="json",
         )
 
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_connection_token_returns_jwt(self):
+        get_sandbox_jwt_public_key.cache_clear()
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/connection_token/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertIn("token", data)
+
+        public_key = get_sandbox_jwt_public_key()
+        decoded = jwt.decode(
+            data["token"],
+            public_key,
+            audience="posthog:sandbox_connection",
+            algorithms=["RS256"],
+        )
+
+        self.assertEqual(decoded["run_id"], str(run.id))
+        self.assertEqual(decoded["task_id"], str(task.id))
+        self.assertEqual(decoded["team_id"], self.team.id)
+        self.assertEqual(decoded["user_id"], self.user.id)
+        self.assertIn("exp", decoded)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_connection_token_has_correct_expiry(self):
+        get_sandbox_jwt_public_key.cache_clear()
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/connection_token/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        public_key = get_sandbox_jwt_public_key()
+        decoded = jwt.decode(
+            response.json()["token"],
+            public_key,
+            audience="posthog:sandbox_connection",
+            algorithms=["RS256"],
+        )
+
+        now = time.time()
+        expected_expiry = now + (24 * 60 * 60)
+        self.assertAlmostEqual(decoded["exp"], expected_expiry, delta=60)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_connection_token_includes_distinct_id(self):
+        get_sandbox_jwt_public_key.cache_clear()
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/connection_token/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        public_key = get_sandbox_jwt_public_key()
+        decoded = jwt.decode(
+            response.json()["token"],
+            public_key,
+            audience="posthog:sandbox_connection",
+            algorithms=["RS256"],
+        )
+
+        self.assertIn("distinct_id", decoded)
+        self.assertEqual(decoded["distinct_id"], self.user.distinct_id)
+
+    def test_connection_token_cannot_access_other_team_run(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_task = Task.objects.create(
+            team=other_team,
+            title="Other Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        other_run = TaskRun.objects.create(task=other_task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{other_task.id}/runs/{other_run.id}/connection_token/"
+        )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
@@ -986,3 +1191,53 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
                 status.HTTP_403_FORBIDDEN,
                 f"Expected 403 but got {response.status_code} for {scope} on {method} {url}",
             )
+
+
+class TestTaskRepositoryReadinessAPI(BaseTaskAPITest):
+    @patch("products.tasks.backend.api.compute_repository_readiness")
+    def test_repository_readiness_endpoint(self, mock_compute):
+        mock_compute.return_value = {
+            "repository": "posthog/posthog",
+            "classification": "backend_service",
+            "excluded": False,
+            "coreSuggestions": {
+                "state": "ready",
+                "estimated": True,
+                "reason": "ok",
+                "evidence": {},
+            },
+            "replayInsights": {
+                "state": "not_applicable",
+                "estimated": True,
+                "reason": "n/a",
+                "evidence": {},
+            },
+            "errorInsights": {
+                "state": "ready",
+                "estimated": True,
+                "reason": "ok",
+                "evidence": {},
+            },
+            "overall": "ready",
+            "evidenceTaskCount": 1,
+            "windowDays": 7,
+            "generatedAt": "2026-01-01T00:00:00+00:00",
+            "cacheAgeSeconds": 0,
+        }
+
+        response = self.client.get(
+            "/api/projects/@current/tasks/repository_readiness/",
+            {
+                "repository": "posthog/posthog",
+                "window_days": "7",
+                "refresh": "false",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["repository"], "posthog/posthog")
+        mock_compute.assert_called_once()
+
+    def test_repository_readiness_requires_repository(self):
+        response = self.client.get("/api/projects/@current/tasks/repository_readiness/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

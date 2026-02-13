@@ -1,8 +1,10 @@
 import { Message } from 'node-rdkafka'
 
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { EventHeaders, IncomingEventWithTeam } from '../../types'
+import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import {
     EventPipelineResult,
@@ -15,7 +17,10 @@ import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResult, isOkResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-export interface EventPipelineRunnerInput extends IncomingEventWithTeam {
+export interface EventPipelineRunnerInput {
+    message: Message
+    event: PluginEvent
+    team: Team
     headers: EventHeaders
     groupStoreForBatch: GroupStoreForBatch
     processPerson: boolean

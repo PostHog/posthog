@@ -413,7 +413,6 @@ export interface EvaluationPatternApi {
     title: string
     description: string
     frequency: string
-    example_reasoning: string
     example_generation_ids: string[]
 }
 
@@ -506,9 +505,9 @@ export const SummarizeTypeEnumApi = {
  * * `minimal` - minimal
  * `detailed` - detailed
  */
-export type ModeEnumApi = (typeof ModeEnumApi)[keyof typeof ModeEnumApi]
+export type Mode02aEnumApi = (typeof Mode02aEnumApi)[keyof typeof Mode02aEnumApi]
 
-export const ModeEnumApi = {
+export const Mode02aEnumApi = {
     minimal: 'minimal',
     detailed: 'detailed',
 } as const
@@ -523,7 +522,7 @@ export interface SummarizeRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: ModeEnumApi
+    mode?: Mode02aEnumApi
     /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. */
     data: unknown
     /** Force regenerate summary, bypassing cache */
@@ -575,7 +574,7 @@ export interface BatchCheckRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: ModeEnumApi
+    mode?: Mode02aEnumApi
     /**
      * LLM model used for cached summaries
      * @nullable

@@ -195,7 +195,9 @@ from posthog.models.web_preaggregated.team_selection import (
 )
 from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.test.assert_faster_than import assert_faster_than
@@ -1408,27 +1410,38 @@ def failhard_threadhook_context():
     """
     Context manager to ensure that exceptions raised by threads are treated as a
     test failure.
-    """
 
-    def raise_hook(args: threading.ExceptHookArgs):
-        """Capture exceptions from threads and raise them as AssertionError"""
+    Collects thread exceptions silently, then re-raises in the main thread after
+    context exit. Raising inside the hook itself just causes Python to print
+    "Exception in threading.excepthook:" with a full traceback per thread.
+    """
+    thread_exceptions: list[BaseException] = []
+
+    def collect_hook(args: threading.ExceptHookArgs):
         exc = args.exc_value
         if exc is None:
             return
 
-        # Filter out expected Kafka table errors during test setup
-        if hasattr(exc, "code") and exc.code == 60 and "kafka_" in str(exc) and "posthog_test" in str(exc):
-            return  # Silently ignore expected Kafka table errors
+        # Filter out UNKNOWN_TABLE errors (code 60) in the test database.
+        # Tables may not exist during setup/teardown depending on test configuration.
+        if hasattr(exc, "code") and exc.code == 60 and "posthog_test" in str(exc):
+            return
 
-        # For other exceptions, raise as AssertionError to fail tests
-        raise AssertionError from exc  # Must be an AssertionError to fail tests
+        thread_exceptions.append(exc)
 
-    old_hook, threading.excepthook = threading.excepthook, raise_hook
+    old_hook, threading.excepthook = threading.excepthook, collect_hook
     try:
         yield old_hook
     finally:
-        assert threading.excepthook is raise_hook
+        was_ours = threading.excepthook is collect_hook
         threading.excepthook = old_hook
+        assert was_ours, "something else replaced threading.excepthook while we held it"
+        if thread_exceptions:
+            unique_errors = {f"{type(e).__name__}: {e}" for e in thread_exceptions}
+            summary = "; ".join(sorted(unique_errors))
+            raise AssertionError(
+                f"{len(thread_exceptions)} thread(s) raised exceptions: {summary}"
+            ) from thread_exceptions[0]
 
 
 def run_clickhouse_statement_in_parallel(statements: list[str]):
@@ -1479,6 +1492,7 @@ def reset_clickhouse_database() -> None:
             DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
             DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3(),
             DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             DROP_SESSION_TABLE_SQL(),
             DROP_WEB_STATS_SQL(),
             DROP_WEB_BOUNCES_SQL(),
@@ -1550,6 +1564,7 @@ def reset_clickhouse_database() -> None:
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
             DISTRIBUTED_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
             CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
             CUSTOM_METRICS_TEST_VIEW(),
