@@ -434,6 +434,9 @@ describe('sendMessageToDLQ', () => {
                 'dlq-reason': 'Test error',
                 'dlq-step': stepName,
                 'dlq-timestamp': expect.any(String),
+                'dlq-topic': 'test-topic',
+                'dlq-partition': '0',
+                'dlq-offset': '123',
             }),
         })
     })

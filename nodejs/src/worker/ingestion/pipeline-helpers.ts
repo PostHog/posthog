@@ -241,6 +241,9 @@ export async function sendMessageToDLQ(
                 'dlq-reason': error instanceof Error ? error.message : String(error),
                 'dlq-step': step,
                 'dlq-timestamp': new Date().toISOString(),
+                'dlq-topic': originalMessage.topic,
+                'dlq-partition': String(originalMessage.partition),
+                'dlq-offset': String(originalMessage.offset),
             }),
         })
     } catch (dlqError) {
