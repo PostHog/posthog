@@ -23,16 +23,6 @@ else
     timestamp() { echo "$(date +%s).000000000"; }
 fi
 
-# Hobby deploys: run persons migrations via Django (no sqlx binary needed)
-if [ "${DEPLOYMENT:-}" = "hobby" ] && run_scope "persons"; then
-    echo "Running persons migrations via Django management command..."
-    python manage.py apply_persons_migrations
-    if [ $? -ne 0 ]; then
-        echo "Error in apply_persons_migrations, exiting."
-        exit 1
-    fi
-fi
-
 # NOTE when running in docker, rust might not exist so we need to check for it
 if [ -d "$SCRIPT_DIR/../rust/bin" ] && [ "${DEPLOYMENT:-}" != "hobby" ]; then
     if run_scope "cyclotron"; then
@@ -165,6 +155,18 @@ if [ "$RUN_POSTGRES" = "1" ]; then
         exit 1
     fi
     
+fi
+
+# Hobby deploys: run persons migrations via Django (no sqlx binary needed).
+# Must run AFTER Django postgres migrations so that historical migrations
+# (0001-0872) create the person tables first via CreateModel.
+if [ "${DEPLOYMENT:-}" = "hobby" ] && run_scope "persons"; then
+    echo "Running persons migrations via Django management command..."
+    python manage.py apply_persons_migrations
+    if [ $? -ne 0 ]; then
+        echo "Error in apply_persons_migrations, exiting."
+        exit 1
+    fi
 fi
 
 if run_scope "async"; then
