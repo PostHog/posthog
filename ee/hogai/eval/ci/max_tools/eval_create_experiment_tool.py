@@ -1,268 +1,239 @@
 """Evaluations for CreateExperimentTool."""
 
 import uuid
+from typing import Any, TypedDict
 
 import pytest
+from unittest.mock import patch
 
-from autoevals.partial import ScorerWithPartial
-from autoevals.ragas import AnswerSimilarity
+from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
+from langchain_core.runnables import RunnableConfig
 
-from posthog.models import Experiment, FeatureFlag
+from posthog.schema import AgentMode, AssistantMessage, AssistantToolCallMessage, HumanMessage
 
-from products.experiments.backend.max_tools import CreateExperimentTool
-
+from ee.hogai.chat_agent import AssistantGraph
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.eval.base import MaxPublicEval
-from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
 
-class ExperimentOutputScorer(ScorerWithPartial):
-    """Custom scorer for experiment tool output that combines semantic similarity for text and exact matching for numbers/booleans."""
+class EvalInput(TypedDict):
+    input: str
 
-    def __init__(self, semantic_fields: set[str] | None = None, **kwargs):
-        super().__init__(**kwargs)
-        self.semantic_fields = semantic_fields or {"message"}
 
-    def _run_eval_sync(self, output: dict, expected: dict, **kwargs):
-        if not expected:
-            return Score(name=self._name(), score=None, metadata={"reason": "No expected value provided"})
+EXPERIMENT_OPERATION_ACCURACY_PROMPT = """
+Evaluate if the agent correctly created an experiment.
+
+<user_request>
+{{input.input}}
+</user_request>
+
+<expected>
+{{#expected}}
+Experiment created: {{expected.experiment_created}}
+{{#expected.experiment_name_contains}}
+Experiment name should contain: {{expected.experiment_name_contains}}
+{{/expected.experiment_name_contains}}
+{{#expected.experiment_type}}
+Experiment type: {{expected.experiment_type}}
+{{/expected.experiment_type}}
+{{#expected.variant_count}}
+Expected number of variants: {{expected.variant_count}}
+{{/expected.variant_count}}
+{{#expected.has_uneven_split}}
+Expected uneven variant split: {{expected.has_uneven_split}}
+{{/expected.has_uneven_split}}
+{{/expected}}
+</expected>
+
+<actual_output>
+Feature flag tool called: {{output.flag_tool_called}}
+Feature flag tool args: {{output.flag_tool_args}}
+Feature flag tool output: {{output.flag_tool_output}}
+Create experiment tool called: {{output.experiment_tool_called}}
+Create experiment args: {{output.experiment_tool_args}}
+Create experiment output: {{output.experiment_tool_output}}
+Error: {{output.error}}
+</actual_output>
+
+Evaluate:
+1. Did the agent call create_experiment?
+2. Was the experiment created successfully (no error in output)?
+3. Does the experiment name/configuration match the user's request?
+4. If variant count was specified, does the feature flag have the correct number of variants?
+5. If uneven split was specified, were the variant percentages set accordingly?
+
+Choose: pass (all requirements met) or fail (any requirement not met)
+""".strip()
+
+
+class ExperimentOperationAccuracy(LLMClassifier):
+    """Binary LLM judge for full agent experiment creation (tests trajectory)."""
+
+    def _normalize(self, output: dict | None, expected: dict | None) -> tuple[dict, dict]:
+        normalized_output = {
+            "experiment_tool_called": None,
+            "experiment_tool_args": None,
+            "experiment_tool_output": None,
+            "error": None,
+            **(output or {}),
+        }
+        normalized_expected = {**(expected or {})}
+        return normalized_output, normalized_expected
+
+    async def _run_eval_async(self, output: dict | None, expected: dict | None = None, **kwargs):
         if not output:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No output provided"})
+        normalized_output, normalized_expected = self._normalize(output, expected)
+        return await super()._run_eval_async(normalized_output, normalized_expected, **kwargs)
 
-        total_fields = len(expected)
-        if total_fields == 0:
-            return Score(name=self._name(), score=1.0)
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs):
+        if not output:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No output provided"})
+        normalized_output, normalized_expected = self._normalize(output, expected)
+        return super()._run_eval_sync(normalized_output, normalized_expected, **kwargs)
 
-        score_per_field = 1.0 / total_fields
-        total_score = 0.0
-        metadata = {}
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="experiment_operation_accuracy",
+            prompt_template=EXPERIMENT_OPERATION_ACCURACY_PROMPT,
+            choice_scores={"pass": 1.0, "fail": 0.0},
+            model="gpt-5.2",
+            max_tokens=2048,
+            reasoning_effort="medium",
+            **kwargs,
+        )
 
-        for field_name, expected_value in expected.items():
-            actual_value = output.get(field_name)
 
-            if field_name in self.semantic_fields:
-                # Use semantic similarity for text fields
-                if actual_value is not None and expected_value is not None:
-                    similarity_scorer = AnswerSimilarity(model="text-embedding-3-small")
-                    result = similarity_scorer.eval(output=str(actual_value), expected=str(expected_value))
-                    field_score = result.score * score_per_field
-                    total_score += field_score
-                    metadata[f"{field_name}_score"] = result.score
-                else:
-                    metadata[f"{field_name}_missing"] = True
-            else:
-                # Use exact match for numeric/boolean fields
-                if actual_value == expected_value:
-                    total_score += score_per_field
-                    metadata[f"{field_name}_match"] = True
-                else:
-                    metadata[f"{field_name}_mismatch"] = {
-                        "expected": expected_value,
-                        "actual": actual_value,
-                    }
+def _extract_experiment_result(state: AssistantState) -> dict[str, Any]:
+    """Extract experiment creation result from final state."""
+    result: dict[str, Any] = {
+        "experiment_tool_called": None,
+        "experiment_tool_args": None,
+        "experiment_tool_output": None,
+        "flag_tool_called": None,
+        "flag_tool_args": None,
+        "flag_tool_output": None,
+        "error": None,
+    }
 
-        return Score(name=self._name(), score=total_score, metadata=metadata)
+    create_experiment_tool_call_id: str | None = None
+    create_flag_tool_call_id: str | None = None
+
+    for msg in state.messages:
+        if isinstance(msg, AssistantMessage) and msg.tool_calls:
+            for tool_call in msg.tool_calls:
+                if tool_call.name == "create_experiment":
+                    result["experiment_tool_called"] = "create_experiment"
+                    result["experiment_tool_args"] = tool_call.args
+                    create_experiment_tool_call_id = tool_call.id
+                elif tool_call.name == "create_feature_flag":
+                    result["flag_tool_called"] = "create_feature_flag"
+                    result["flag_tool_args"] = tool_call.args
+                    create_flag_tool_call_id = tool_call.id
+
+    for msg in state.messages:
+        if isinstance(msg, AssistantToolCallMessage):
+            if msg.tool_call_id == create_experiment_tool_call_id:
+                result["experiment_tool_output"] = msg.content
+                if msg.content and ("error" in msg.content.lower() or "failed" in msg.content.lower()):
+                    result["error"] = msg.content
+            elif msg.tool_call_id == create_flag_tool_call_id:
+                result["flag_tool_output"] = msg.content
+
+    return result
+
+
+@pytest.fixture
+def call_agent_for_experiment(demo_org_team_user):
+    """Run full agent graph in FLAGS mode with natural language experiment requests."""
+    with patch("ee.hogai.chat_agent.mode_manager.has_flags_mode_feature_flag", return_value=True):
+        _, team, user = demo_org_team_user
+
+        graph = (
+            AssistantGraph(team, user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root()
+            .compile(checkpointer=DjangoCheckpointer())
+        )
+
+        async def callable(input: EvalInput) -> dict:
+            conversation = await Conversation.objects.acreate(team=team, user=user)
+            initial_state = AssistantState(
+                messages=[HumanMessage(content=input["input"])],
+                agent_mode=AgentMode.FLAGS,
+            )
+            config = RunnableConfig(configurable={"thread_id": conversation.id}, recursion_limit=48)
+            raw_state = await graph.ainvoke(initial_state, config)
+            state = AssistantState.model_validate(raw_state)
+            return _extract_experiment_result(state)
+
+        yield callable
 
 
 @pytest.mark.django_db
-async def eval_create_experiment(pytestconfig, demo_org_team_user):
-    """Test experiment creation tool with various scenarios."""
-    _, team, user = demo_org_team_user
-
-    conversation = await Conversation.objects.acreate(team=team, user=user)
-
-    # Pre-create flags and experiments for error testing
-    duplicate_exp_flag_key = f"test-flag-{uuid.uuid4().hex[:8]}"
-    duplicate_exp_flag = await FeatureFlag.objects.acreate(team=team, key=duplicate_exp_flag_key, created_by=user)
-    await Experiment.objects.acreate(
-        team=team, name="Existing Experiment", feature_flag=duplicate_exp_flag, created_by=user
-    )
-
-    used_flag_key = f"used-flag-{uuid.uuid4().hex[:8]}"
-    used_flag = await FeatureFlag.objects.acreate(team=team, key=used_flag_key, created_by=user)
-    await Experiment.objects.acreate(team=team, name="First Experiment", feature_flag=used_flag, created_by=user)
-
-    # Pre-create a reusable flag with multivariate variants
-    reusable_flag_key = f"reusable-flag-{uuid.uuid4().hex[:8]}"
-    await FeatureFlag.objects.acreate(
-        team=team,
-        key=reusable_flag_key,
-        name="Reusable Flag",
-        created_by=user,
-        filters={
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control", "rollout_percentage": 50},
-                    {"key": "test", "name": "Test", "rollout_percentage": 50},
-                ]
-            },
-        },
-    )
-
-    async def task_create_experiment(test_case: dict):
-        # Create feature flag if needed (not for error cases)
-        if test_case.get("create_flag"):
-            await FeatureFlag.objects.acreate(
-                team=team,
-                created_by=user,
-                key=test_case["feature_flag_key"],
-                name=f"Flag for {test_case['name']}",
-                filters={
-                    "groups": [{"properties": [], "rollout_percentage": 100}],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "control", "name": "Control", "rollout_percentage": 50},
-                            {"key": "test", "name": "Test", "rollout_percentage": 50},
-                        ]
-                    },
-                },
-            )
-
-        tool = await CreateExperimentTool.create_tool_class(
-            team=team,
-            user=user,
-            state=AssistantState(messages=[]),
-            config={
-                "configurable": {
-                    "thread_id": conversation.id,
-                    "team": team,
-                    "user": user,
-                }
-            },
-        )
-
-        result_message, artifact = await tool._arun_impl(
-            name=test_case["name"],
-            feature_flag_key=test_case["feature_flag_key"],
-            description=test_case.get("description"),
-            type=test_case.get("type", "product"),
-        )
-
-        # Initialize result
-        result: dict = {
-            "message": result_message,
-        }
-
-        # Check if experiment was created
-        exp_exists = await Experiment.objects.filter(team=team, name=test_case["name"], deleted=False).aexists()
-        result["experiment_created"] = exp_exists
-
-        # Get experiment name from artifact
-        if artifact:
-            result["experiment_name"] = artifact.get("experiment_name")
-            result["experiment_id"] = artifact.get("experiment_id")
-
-            # Check for errors
-            if "error" in artifact:
-                result["has_error"] = True
-
-        # Get experiment type if it was created
-        if exp_exists:
-            try:
-                experiment = await Experiment.objects.aget(team=team, name=test_case["name"])
-                result["experiment_type"] = experiment.type
-                if artifact:
-                    result["artifact_type"] = artifact.get("type")
-            except Experiment.DoesNotExist:
-                pass
-
-        return result
+async def eval_create_experiment_llm(call_agent_for_experiment, pytestconfig):
+    """Test experiment creation via full agent with natural language prompts."""
+    unique_suffix = uuid.uuid4().hex[:6]
 
     await MaxPublicEval(
-        experiment_name="create_experiment",
-        task=task_create_experiment,
-        scores=[ExperimentOutputScorer(semantic_fields={"message", "experiment_name"})],
+        experiment_name="create_experiment_llm",
+        task=call_agent_for_experiment,
+        scores=[ExperimentOperationAccuracy()],
         data=[
-            # Basic experiment creation
             EvalCase(
-                input={
-                    "name": "Pricing Test",
-                    "feature_flag_key": "pricing-test-flag",
-                    "create_flag": True,
-                },
+                input=EvalInput(
+                    input=f"Create an A/B test experiment called 'Pricing Test {unique_suffix}' to test our new pricing page"
+                ),
                 expected={
-                    "message": "Successfully created experiment",
                     "experiment_created": True,
-                    "experiment_name": "Pricing Test",
+                    "experiment_name_contains": "pricing",
                 },
+                metadata={"test_type": "full_workflow"},
             ),
             EvalCase(
-                input={
-                    "name": "Homepage Redesign",
-                    "feature_flag_key": "homepage-redesign",
-                    "description": "Testing new homepage layout for better conversion",
-                    "create_flag": True,
-                },
+                input=EvalInput(
+                    input=f"Set up an experiment named 'Checkout Flow {unique_suffix}' to test a new checkout experience"
+                ),
                 expected={
-                    "message": "Successfully created experiment",
                     "experiment_created": True,
-                    "experiment_name": "Homepage Redesign",
+                    "experiment_name_contains": "checkout",
                 },
-            ),
-            # Experiment creation with different types
-            EvalCase(
-                input={
-                    "name": "Product Feature Test",
-                    "feature_flag_key": "product-test",
-                    "type": "product",
-                    "create_flag": True,
-                },
-                expected={
-                    "message": "Successfully created experiment",
-                    "experiment_type": "product",
-                    "artifact_type": "product",
-                },
+                metadata={"test_type": "full_workflow"},
             ),
             EvalCase(
-                input={
-                    "name": "Web UI Test",
-                    "feature_flag_key": "web-test",
-                    "type": "web",
-                    "create_flag": True,
-                },
+                input=EvalInput(
+                    input=f"I want to run an A/B test on our homepage hero section, call it 'Hero Test {unique_suffix}'"
+                ),
                 expected={
-                    "message": "Successfully created experiment",
-                    "experiment_type": "web",
-                    "artifact_type": "web",
-                },
-            ),
-            # Experiment with existing flag
-            EvalCase(
-                input={
-                    "name": "Reuse Flag Test",
-                    "feature_flag_key": reusable_flag_key,
-                    "create_flag": False,
-                },
-                expected={
-                    "message": "Successfully created experiment",
                     "experiment_created": True,
+                    "experiment_name_contains": "hero",
                 },
+                metadata={"test_type": "full_workflow"},
             ),
-            # Error: Duplicate experiment name
             EvalCase(
-                input={
-                    "name": "Existing Experiment",
-                    "feature_flag_key": "another-flag",
-                    "create_flag": True,
-                },
+                input=EvalInput(
+                    input=f"Create an experiment called 'Multi-variant CTA {unique_suffix}' with three variants: control, variant_a, and variant_b to test different call-to-action buttons"
+                ),
                 expected={
-                    "message": "Failed to create experiment: An experiment with name 'Existing Experiment' already exists",
-                    "has_error": True,
+                    "experiment_created": True,
+                    "experiment_name_contains": "CTA",
+                    "variant_count": 3,
                 },
+                metadata={"test_type": "multivariate"},
             ),
-            # Error: Flag already used by another experiment
             EvalCase(
-                input={
-                    "name": "Second Experiment",
-                    "feature_flag_key": used_flag_key,
-                    "create_flag": False,
-                },
+                input=EvalInput(
+                    input=f"Set up an experiment called 'Gradual Rollout {unique_suffix}' with an 80/20 split between control and test to cautiously test a new onboarding flow"
+                ),
                 expected={
-                    "message": "Failed to create experiment: Feature flag is already used by experiment",
-                    "has_error": True,
+                    "experiment_created": True,
+                    "experiment_name_contains": "rollout",
+                    "has_uneven_split": True,
                 },
+                metadata={"test_type": "uneven_split"},
             ),
         ],
         pytestconfig=pytestconfig,

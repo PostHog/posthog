@@ -13,6 +13,7 @@ start_child_workflow + await pattern for controlled concurrency.
 
 import dataclasses
 from datetime import timedelta
+from typing import Any
 
 import structlog
 import temporalio
@@ -53,6 +54,14 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
 
 logger = structlog.get_logger(__name__)
+
+# Per-team trace filters to scope which traces are included in summarization sampling.
+# team_id=2 (PostHog internal): only summarize posthog_ai traces, excluding
+# summarization LLM calls, playground, and other internal noise.
+# TODO: generalize via FF payload config so any team can define filters without code changes.
+PER_TEAM_TRACE_FILTERS: dict[int, list[dict[str, Any]]] = {
+    2: [{"key": "ai_product", "value": "posthog_ai", "operator": "exact", "type": "event"}],
+}
 
 
 @dataclasses.dataclass
@@ -138,6 +147,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                 tuple[int, ChildWorkflowHandle[BatchTraceSummarizationWorkflow, BatchSummarizationResult]]
             ] = []
             for team_id in batch:
+                trace_filters = PER_TEAM_TRACE_FILTERS.get(team_id, [])
                 handle = await temporalio.workflow.start_child_workflow(
                     BatchTraceSummarizationWorkflow.run,
                     BatchSummarizationInputs(
@@ -148,14 +158,12 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                         mode=inputs.mode,
                         window_minutes=inputs.window_minutes,
                         model=inputs.model,
+                        trace_filters=trace_filters,
                     ),
                     id=f"{child_id_prefix}-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
-                    # Allow child workflows to complete even if the coordinator
-                    # is cancelled (e.g. due to coordinator timeout). Prevents
-                    # wasting work already in progress.
-                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.TERMINATE,
                 )
                 workflow_handles.append((team_id, handle))
 

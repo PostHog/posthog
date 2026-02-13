@@ -73,9 +73,7 @@ jobs:
               run: sudo apt-get update && sudo apt-get install -y ninja-build unzip
 
             - name: Setup Emscripten for WASM build
-              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
-              with:
-                  version: '4.0.23'
+              uses: ./.github/actions/setup-emsdk
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -139,7 +137,7 @@ jobs:
         runs-on: ubuntu-latest
         needs: [changes, build-storybook, detect-snapshot-mode]
         if: needs.changes.outputs.frontend == 'true'
-        timeout-minutes: 30
+        timeout-minutes: 60
         container:
             image: mcr.microsoft.com/playwright:v1.45.0
         strategy:
@@ -211,6 +209,7 @@ jobs:
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
+            JEST_JUNIT_SUITE_NAME: '{filepath}'
         steps:
             - uses: actions/checkout@v6
               with:
@@ -233,9 +232,7 @@ jobs:
               run: apt-get update && apt-get install -y ninja-build unzip xz-utils
 
             - name: Setup Emscripten for WASM build
-              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
-              with:
-                  version: '4.0.23'
+              uses: ./.github/actions/setup-emsdk
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -494,8 +491,8 @@ jobs:
         name: Calculate running time
         needs: [visual-regression, changes]
         runs-on: ubuntu-latest
-        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
-            always() &&
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
+            always() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))

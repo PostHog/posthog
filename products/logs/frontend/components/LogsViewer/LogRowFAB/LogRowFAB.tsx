@@ -39,10 +39,10 @@ export function LogRowFAB({
     onTogglePrettify,
     showScrollButtons = false,
 }: LogRowFABProps): JSX.Element {
-    const { tabId } = useValues(logsViewerLogic)
+    const { id } = useValues(logsViewerLogic)
     const { copyLinkToLog } = useActions(logsViewerLogic)
     const { openLogDetails } = useActions(logDetailsModalLogic)
-    const { startScrolling, stopScrolling } = useCellScrollControls({ tabId, cellKey: 'message' })
+    const { startScrolling, stopScrolling } = useCellScrollControls({ id, cellKey: 'message' })
 
     return (
         <div
