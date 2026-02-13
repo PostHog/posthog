@@ -1,17 +1,25 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { urls } from 'scenes/urls'
 
+import { SessionRecordingSidebarTab } from '~/types'
+
+import { playerSidebarLogic } from '../sidebar/playerSidebarLogic'
 import { PlayerShareLogicProps, playerShareLogic } from './playerShareLogic'
 
 function TimestampForm(props: PlayerShareLogicProps): JSX.Element {
@@ -93,7 +101,70 @@ function PrivateLink(props: PlayerShareLogicProps): JSX.Element {
     )
 }
 
-function LinearLink(props: PlayerShareLogicProps): JSX.Element {
+function IntegrationNudgeBanner({
+    kind,
+    onCloseDialog,
+}: {
+    kind: 'linear' | 'github'
+    onCloseDialog?: () => void
+}): JSX.Element | null {
+    const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
+    const { setTab } = useActions(playerSidebarLogic)
+    const [dismissed, setDismissed] = useState(false)
+
+    if (integrationsLoading || dismissed) {
+        return null
+    }
+
+    const hasIntegration = getIntegrationsByKind([kind]).length > 0
+    const displayName = kind === 'linear' ? 'Linear' : 'GitHub'
+
+    if (hasIntegration) {
+        return (
+            <LemonBanner
+                type="info"
+                onClose={() => setDismissed(true)}
+                action={{
+                    children: 'Use linked issues',
+                    onClick: () => {
+                        posthog.capture('session_replay_share_integration_nudge_clicked', {
+                            kind,
+                            has_integration: true,
+                            action: 'switch_to_linked_issues',
+                        })
+                        setTab(SessionRecordingSidebarTab.LINKED_ISSUES)
+                        onCloseDialog?.()
+                    },
+                }}
+            >
+                Your {displayName} integration is connected. Use the <strong>Linked issues</strong> tab in the sidebar
+                to create tracked issues directly from PostHog.
+            </LemonBanner>
+        )
+    }
+
+    return (
+        <LemonBanner
+            type="info"
+            onClose={() => setDismissed(true)}
+            action={{
+                children: 'Set up integration',
+                onClick: () => {
+                    posthog.capture('session_replay_share_integration_nudge_clicked', {
+                        kind,
+                        has_integration: false,
+                        action: 'go_to_settings',
+                    })
+                    router.actions.push(urls.replaySettings('replay-integrations'))
+                },
+            }}
+        >
+            Set up a {displayName} integration to create issues that are tracked and linked to this recording.
+        </LemonBanner>
+    )
+}
+
+function LinearLink({ onCloseDialog, ...props }: PlayerShareLogicProps & { onCloseDialog?: () => void }): JSX.Element {
     const logic = playerShareLogic(props)
 
     const { linearLinkForm, linearUrl, linearLinkFormHasErrors } = useValues(logic)
@@ -101,7 +172,8 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
 
     return (
         <>
-            <p>Add an issue to your Linear workspace with a link to this recording.</p>
+            <IntegrationNudgeBanner kind="linear" onCloseDialog={onCloseDialog} />
+            <p className="mt-2">Add an issue to your Linear workspace with a link to this recording.</p>
 
             <Form logic={playerShareLogic} props={props} formKey="linearLinkForm" className="flex flex-col gap-2">
                 <LemonField className="gap-1" name="issueTitle" label="Issue title">
@@ -176,7 +248,10 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
     )
 }
 
-function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
+function GithubIssueLink({
+    onCloseDialog,
+    ...props
+}: PlayerShareLogicProps & { onCloseDialog?: () => void }): JSX.Element {
     const logic = playerShareLogic(props)
 
     const { githubLinkForm, githubUrl, githubLinkFormHasErrors } = useValues(logic)
@@ -184,7 +259,8 @@ function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
 
     return (
         <>
-            <p>Add an issue to your Github repository with a link to this recording.</p>
+            <IntegrationNudgeBanner kind="github" onCloseDialog={onCloseDialog} />
+            <p className="mt-2">Add an issue to your Github repository with a link to this recording.</p>
 
             <Form logic={playerShareLogic} props={props} formKey="githubLinkForm" className="flex flex-col gap-2">
                 <LemonField className="gap-1" name="githubUsername" label="Username or Organization Name">
@@ -275,16 +351,19 @@ function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
     )
 }
 
-export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element {
+export function PlayerShareRecording({
+    onCloseDialog,
+    ...props
+}: PlayerShareLogicProps & { onCloseDialog?: () => void }): JSX.Element {
     return (
         <div className="gap-y-2">
             {props.shareType === 'private' && <PrivateLink {...props} />}
 
             {props.shareType === 'public' && <PublicLink {...props} />}
 
-            {props.shareType === 'linear' && <LinearLink {...props} />}
+            {props.shareType === 'linear' && <LinearLink {...props} onCloseDialog={onCloseDialog} />}
 
-            {props.shareType === 'github' && <GithubIssueLink {...props} />}
+            {props.shareType === 'github' && <GithubIssueLink {...props} onCloseDialog={onCloseDialog} />}
         </div>
     )
 }
@@ -299,7 +378,7 @@ const shareTitleMapping = {
 export function openPlayerShareDialog(props: PlayerShareLogicProps): void {
     LemonDialog.open({
         title: props.shareType ? shareTitleMapping[props.shareType] : '',
-        content: <PlayerShareRecording {...props} />,
+        content: (closeDialog) => <PlayerShareRecording {...props} onCloseDialog={closeDialog} />,
         maxWidth: '85vw',
         zIndex: '1162',
         primaryButton: null,
