@@ -2,11 +2,12 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'alpha',
+    status: 'hidden',
     type: 'source_webhook',
     id: 'template-source-vercel-log-drain',
     name: 'Vercel log drain',
-    description: 'Capture Vercel deployment logs as events',
+    description:
+        'Capture Vercel deployment logs as events. To set up: copy the webhook URL above, then in Vercel go to Project Settings → Observability → Log Drains → Add Drain → Custom and paste the URL.',
     icon_url: '/static/services/vercel.png',
     category: ['Infrastructure', 'Monitoring'],
     code_language: 'hog',
