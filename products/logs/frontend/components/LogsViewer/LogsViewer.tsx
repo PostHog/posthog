@@ -32,9 +32,9 @@ export function LogsViewer({ id }: LogsViewerProps): JSX.Element {
         <BindLogic logic={logsViewerFiltersLogic} props={{ id }}>
             <BindLogic logic={logsViewerConfigLogic} props={{ id }}>
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
-                    <BindLogic logic={logDetailsModalLogic} props={{ tabId: id }}>
-                        <BindLogic logic={logsViewerLogic} props={{ tabId: id }}>
-                            <BindLogic logic={logsExportLogic} props={{ tabId: id }}>
+                    <BindLogic logic={logDetailsModalLogic} props={{ id }}>
+                        <BindLogic logic={logsViewerLogic} props={{ id }}>
+                            <BindLogic logic={logsExportLogic} props={{ id }}>
                                 <LogsViewerContent />
                             </BindLogic>
                         </BindLogic>
@@ -47,7 +47,7 @@ export function LogsViewer({ id }: LogsViewerProps): JSX.Element {
 
 function LogsViewerContent(): JSX.Element {
     const {
-        tabId,
+        id,
         wrapBody,
         prettifyJson,
         pinnedLogsArray,
@@ -75,8 +75,8 @@ function LogsViewerContent(): JSX.Element {
         useValues(logsViewerDataLogic)
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
-    const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ tabId }))
-    const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ tabId }))
+    const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
+    const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
     const messageScrollLeft = cellScrollLefts['message'] ?? 0
     const scrollLeftRef = useRef(messageScrollLeft)
     scrollLeftRef.current = messageScrollLeft

@@ -124,7 +124,7 @@ export const LogsFilterBar = (): JSX.Element => {
 }
 
 const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { filters, tabId, utcDateRange } = useValues(logsViewerFiltersLogic)
+    const { filters, id, utcDateRange } = useValues(logsViewerFiltersLogic)
     const { filterGroup, serviceNames } = filters
     const { setFilterGroup } = useActions(logsViewerFiltersLogic)
 
@@ -136,7 +136,7 @@ const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Eleme
 
     return (
         <UniversalFilters
-            rootKey={`${taxonomicFilterLogicKey}-${tabId}`}
+            rootKey={`${taxonomicFilterLogicKey}-${id}`}
             group={filterGroup.values[0] as UniversalFiltersGroup}
             taxonomicGroupTypes={taxonomicGroupTypes}
             endpointFilters={endpointFilters}

@@ -30,32 +30,32 @@ export interface VisibleLogsTimeRange {
 export type LogCursor = number | null
 
 export interface LogsViewerLogicProps {
-    tabId: string
+    id: string
 }
 
 export const logsViewerLogic = kea<logsViewerLogicType>([
-    path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', tabId]),
+    path((id) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', id]),
     props({} as LogsViewerLogicProps),
-    key((props) => props.tabId),
-    connect(({ tabId }: LogsViewerLogicProps) => ({
+    key((props) => props.id),
+    connect(({ id }: LogsViewerLogicProps) => ({
         values: [
             logsViewerSettingsLogic,
             ['timezone', 'wrapBody', 'prettifyJson'],
-            logDetailsModalLogic({ tabId }),
+            logDetailsModalLogic({ id }),
             ['isLogDetailsOpen'],
-            logsViewerDataLogic({ id: tabId }),
+            logsViewerDataLogic({ id }),
             ['parsedLogs as logs'],
-            logsViewerConfigLogic({ id: tabId }),
+            logsViewerConfigLogic({ id }),
             ['orderBy'],
         ],
         actions: [
             logsViewerSettingsLogic,
             ['setTimezone', 'setWrapBody', 'setPrettifyJson'],
-            logDetailsModalLogic({ tabId }),
+            logDetailsModalLogic({ id }),
             ['openLogDetails', 'closeLogDetails'],
-            logsViewerFiltersLogic({ id: tabId }),
+            logsViewerFiltersLogic({ id }),
             ['addFilter'],
-            logsViewerDataLogic({ id: tabId }),
+            logsViewerDataLogic({ id }),
             ['setLogs', 'clearLogs'],
         ],
     })),
@@ -284,7 +284,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     })),
 
     selectors({
-        tabId: [(_, p) => [p.tabId], (tabId: string): string => tabId],
+        id: [(_, p) => [p.id], (id: string): string => id],
 
         pinnedLogsArray: [(s) => [s.pinnedLogs], (pinnedLogs): ParsedLogMessage[] => Object.values(pinnedLogs)],
 

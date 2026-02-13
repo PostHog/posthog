@@ -42,22 +42,22 @@ export function getExportColumns(attributeColumns: string[]): string[] {
 }
 
 export interface LogsExportLogicProps {
-    tabId: string
+    id: string
 }
 
 export const logsExportLogic = kea<logsExportLogicType>([
-    path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsExportLogic', tabId]),
+    path((id) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsExportLogic', id]),
     props({} as LogsExportLogicProps),
-    key((props) => props.tabId),
-    connect(({ tabId }: LogsExportLogicProps) => ({
+    key((props) => props.id),
+    connect(({ id }: LogsExportLogicProps) => ({
         values: [
-            logsViewerLogic({ tabId }),
+            logsViewerLogic({ id }),
             ['selectedLogsArray', 'attributeColumns'],
-            logsViewerFiltersLogic({ id: tabId }),
+            logsViewerFiltersLogic({ id }),
             ['filters', 'utcDateRange'],
-            logsViewerDataLogic({ id: tabId }),
+            logsViewerDataLogic({ id }),
             ['maxExportableLogs'],
-            logsViewerConfigLogic({ id: tabId }),
+            logsViewerConfigLogic({ id }),
             ['orderBy'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel']],
