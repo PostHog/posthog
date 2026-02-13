@@ -58,7 +58,7 @@ export const clustersAdminLogic = kea<clustersAdminLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clustersAdminLogic']),
 
     connect({
-        values: [clusteringConfigLogic, ['config']],
+        values: [clusteringConfigLogic, ['config', 'configLoading']],
     }),
 
     actions({
@@ -107,9 +107,12 @@ export const clustersAdminLogic = kea<clustersAdminLogicType>([
 
     listeners(({ actions, values }) => ({
         openModal: () => {
-            // Always sync event_filters from saved config (including empty)
-            const savedFilters = values.config?.event_filters ?? []
-            actions.setParams({ event_filters: savedFilters })
+            // Only sync event_filters once config has actually loaded from the API
+            // (created_at is empty in the initial state before loadConfig completes)
+            if (values.config?.created_at && !values.configLoading) {
+                const savedFilters = values.config.event_filters ?? []
+                actions.setParams({ event_filters: savedFilters })
+            }
         },
 
         triggerClusteringRun: () => {
