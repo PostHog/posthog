@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -11,6 +12,7 @@ from rest_framework import status
 from posthog.models import Comment, SessionRecordingPlaylist
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.synthetic_playlists import (
     FrustrationSignalsPlaylistSource,
@@ -346,8 +348,6 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
     def test_new_urls_creates_dynamic_playlists(self) -> None:
         """Test that new URLs detected in last 14 days create dynamic synthetic playlists"""
         # Clear cache to ensure fresh detection
-        from django.core.cache import cache
-
         cache.clear()
 
         # Create recordings with new URLs (within last 14 days)
@@ -368,8 +368,6 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
 
     def test_new_urls_ignores_historical_urls(self) -> None:
         """Test that URLs that appeared before the 14-day window are not considered new"""
-        from django.core.cache import cache
-
         cache.clear()
 
         now_time = datetime.now()
@@ -388,8 +386,6 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
 
     def test_new_urls_only_truly_new(self) -> None:
         """Test that only truly new URLs (first seen in last 14 days) are included"""
-        from django.core.cache import cache
-
         cache.clear()
 
         now_time = datetime.now()
@@ -409,8 +405,6 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
 
     def test_retrieve_new_url_playlist(self) -> None:
         """Test retrieving a specific new URL playlist by its short_id"""
-        from django.core.cache import cache
-
         cache.clear()
 
         now_time = datetime.now()
@@ -435,8 +429,6 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
 
     def test_new_url_playlist_count(self) -> None:
         """Test that new URL playlists correctly count recordings"""
-        from django.core.cache import cache
-
         cache.clear()
 
         now_time = datetime.now()
@@ -454,8 +446,6 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
 
     def test_new_url_caching(self) -> None:
         """Test that new URL detection results are cached"""
-        from django.core.cache import cache
-
         cache.clear()
 
         now_time = datetime.now()
@@ -485,8 +475,6 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
 
     def test_long_url_truncation(self) -> None:
         """Test that very long URLs are truncated in playlist names"""
-        from django.core.cache import cache
-
         cache.clear()
 
         now_time = datetime.now()
@@ -505,8 +493,6 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
 
     def test_url_grouping_with_numeric_ids(self) -> None:
         """Test that URLs with different numeric IDs are grouped into one playlist"""
-        from django.core.cache import cache
-
         cache.clear()
 
         now_time = datetime.now()
@@ -533,8 +519,6 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
 
     def test_url_grouping_with_uuids(self) -> None:
         """Test that URLs with different UUIDs are grouped into one playlist"""
-        from django.core.cache import cache
-
         cache.clear()
 
         now_time = datetime.now()
@@ -562,8 +546,6 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
 
     def test_url_grouping_with_query_params(self) -> None:
         """Test that URLs with different query parameters are grouped together"""
-        from django.core.cache import cache
-
         cache.clear()
 
         now_time = datetime.now()
@@ -588,8 +570,6 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
 
     def test_url_grouping_preserves_different_paths(self) -> None:
         """Test that genuinely different URLs create separate playlists"""
-        from django.core.cache import cache
-
         cache.clear()
 
         now_time = datetime.now()
@@ -621,8 +601,6 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
 
     def test_url_grouping_mixed_patterns(self) -> None:
         """Test URL grouping with a realistic mix of patterns"""
-        from django.core.cache import cache
-
         cache.clear()
 
         now_time = datetime.now()
@@ -811,8 +789,6 @@ class TestUrlNormalization(BaseTest):
         If we saw /billing/1/summary months ago, then /billing/2/summary today
         should NOT be considered a new pattern.
         """
-        from datetime import datetime, timedelta
-
         now = datetime.now()
         six_months_ago = now - timedelta(days=180)
         today = now - timedelta(days=1)
@@ -869,10 +845,6 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         self, session_id: str, rage_clicks: int = 0, exceptions: int = 0, days_ago: int = 1
     ) -> None:
         """Helper to create frustration events for a session"""
-        from posthog.test.base import _create_event, flush_persons_and_events
-
-        from posthog.models.utils import uuid7
-
         timestamp = datetime.now() - timedelta(days=days_ago)
 
         for _ in range(rage_clicks):
@@ -920,12 +892,6 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         assert playlist["created_by"] is None
 
     def test_frustrated_sessions_detected(self) -> None:
-        from posthog.test.base import _create_event, flush_persons_and_events
-
-        from django.core.cache import cache
-
-        from posthog.models.utils import uuid7
-
         cache.clear()
 
         session_id = str(uuid7())
@@ -943,12 +909,6 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         assert session_id in session_ids
 
     def test_frustrated_sessions_ordered_by_score(self) -> None:
-        from posthog.test.base import _create_event, flush_persons_and_events
-
-        from django.core.cache import cache
-
-        from posthog.models.utils import uuid7
-
         cache.clear()
 
         # session_a: 1 rage click = score 3
@@ -1006,12 +966,6 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         assert session_ids == [session_c, session_b, session_a]
 
     def test_frustrated_sessions_excludes_old_data(self) -> None:
-        from posthog.test.base import _create_event, flush_persons_and_events
-
-        from django.core.cache import cache
-
-        from posthog.models.utils import uuid7
-
         cache.clear()
 
         old_session = str(uuid7())
@@ -1029,12 +983,6 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         assert old_session not in session_ids
 
     def test_frustrated_sessions_caching(self) -> None:
-        from posthog.test.base import _create_event, flush_persons_and_events
-
-        from django.core.cache import cache
-
-        from posthog.models.utils import uuid7
-
         cache.clear()
 
         session_id = str(uuid7())
@@ -1056,12 +1004,6 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         assert cache.get(cache_key) is not None
 
     def test_frustrated_sessions_count(self) -> None:
-        from posthog.test.base import _create_event, flush_persons_and_events
-
-        from django.core.cache import cache
-
-        from posthog.models.utils import uuid7
-
         cache.clear()
 
         for _ in range(3):
@@ -1079,12 +1021,6 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         assert count == 3
 
     def test_frustrated_sessions_pagination(self) -> None:
-        from posthog.test.base import _create_event, flush_persons_and_events
-
-        from django.core.cache import cache
-
-        from posthog.models.utils import uuid7
-
         cache.clear()
 
         for i in range(5):
