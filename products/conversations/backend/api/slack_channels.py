@@ -1,5 +1,7 @@
 """API endpoint for fetching Slack channels using a bot token."""
 
+from typing import Any
+
 import structlog
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -20,9 +22,9 @@ class SlackChannelsView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request: Request, *args, **kwargs) -> Response:
-        team = request.user.current_team
-        bot_token = get_support_slack_bot_token(team)
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        team = request.user.current_team  # type: ignore[union-attr]
+        bot_token = get_support_slack_bot_token(team)  # type: ignore[arg-type]
         if not bot_token:
             return Response(
                 {"error": "Support Slack bot token is not configured"},
@@ -42,9 +44,10 @@ class SlackChannelsView(APIView):
                     limit=1000,
                     cursor=cursor,
                 )
-                channels.extend([{"id": c["id"], "name": c["name"]} for c in result.get("channels", [])])
+                for c in result.get("channels", []):
+                    channels.append({"id": c["id"], "name": c["name"]})
 
-                cursor = result.get("response_metadata", {}).get("next_cursor")
+                cursor = result.get("response_metadata", {}).get("next_cursor", "")
                 if not cursor:
                     break
             else:

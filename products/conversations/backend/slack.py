@@ -39,7 +39,7 @@ MAX_REDIRECTS = 5
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
 
@@ -93,7 +93,7 @@ def _is_allowed_slack_file_url(url: str) -> bool:
 def _is_valid_image_bytes(content: bytes) -> bool:
     try:
         image = Image.open(BytesIO(content))
-        image.transpose(Image.FLIP_LEFT_RIGHT)
+        image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
         image.close()
         return True
     except Exception:
@@ -622,7 +622,7 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
             inclusive=True,
             limit=1,
         )
-        messages = result.get("messages", [])
+        messages: list[dict] = result.get("messages", [])
         if not messages:
             return
 

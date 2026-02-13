@@ -154,7 +154,7 @@ def post_reply_to_slack(
                     thread_ts=slack_thread_ts,
                     text=fallback_text,
                     username=author_name or "Support",
-                    **({"icon_url": icon_url} if icon_url else {}),
+                    icon_url=icon_url if icon_url else None,
                 )
                 logger.warning(
                     "🖼️ slack_reply_image_upload_fallback_links_posted",
@@ -281,6 +281,14 @@ def _read_image_bytes_for_slack_upload(team_id: int, image_url: str) -> bytes | 
             team_id=team_id,
             image_id=image_id,
             error=str(e),
+        )
+        return None
+
+    if payload is None:
+        logger.warning(
+            "🖼️ slack_reply_image_storage_returned_none",
+            team_id=team_id,
+            image_id=image_id,
         )
         return None
 

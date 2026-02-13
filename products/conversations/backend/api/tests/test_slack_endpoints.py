@@ -1,10 +1,12 @@
 import json
+from typing import Any
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+from rest_framework.response import Response
 from rest_framework.test import APIClient
 from slack_sdk.errors import SlackApiError
 
@@ -12,6 +14,8 @@ from posthog.models.integration import SlackIntegrationError
 
 
 class TestSupportSlackEventsAPI(BaseTest):
+    client: APIClient
+
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
@@ -20,8 +24,8 @@ class TestSupportSlackEventsAPI(BaseTest):
         self.client = APIClient()
         cache.clear()
 
-    def _post(self, payload: dict) -> APIClient:
-        return self.client.post(
+    def _post(self, payload: dict[str, Any]) -> Response:
+        return self.client.post(  # type: ignore[return-value]
             "/api/conversations/v1/slack/events",
             data=json.dumps(payload),
             content_type="application/json",

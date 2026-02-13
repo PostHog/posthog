@@ -70,14 +70,15 @@ class SupportSlackAuthorizeView(APIView):
         if not client_id:
             return Response({"error": "Support Slack OAuth client ID is not configured"}, status=503)
 
-        if request.user.current_team_id is None:
+        user = request.user
+        if not hasattr(user, "current_team_id") or user.current_team_id is None:  # type: ignore[union-attr]
             return Response({"error": "No current team selected"}, status=400)
 
-        team_id = int(request.user.current_team_id)
+        team_id = int(user.current_team_id)  # type: ignore[union-attr]
         next_path = _safe_next_path(team_id, request.query_params.get("next"))
         state_payload = {
             "team_id": team_id,
-            "user_id": request.user.id,
+            "user_id": user.id,  # type: ignore[union-attr]
             "next": next_path,
         }
         state = signing.dumps(state_payload, salt=STATE_SALT)
