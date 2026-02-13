@@ -75,7 +75,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
                         {issue && (
-                            <div className="flex flex-col h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))]">
+                            <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
                                 <SceneTitleSection
                                     canEdit
                                     name={issue.name}
@@ -121,8 +121,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
                                 <ErrorTrackingIssueScenePanel issue={issue} />
 
-                                <div className="ErrorTrackingIssue flex flex-grow">
-                                    <div className="flex flex-1 h-full w-full">
+                                <div className="ErrorTrackingIssue flex flex-grow min-h-0 overflow-hidden">
+                                    <div className="flex flex-1 h-full w-full min-h-0">
                                         <LeftHandColumn />
                                         <RightHandColumn />
                                     </div>
@@ -141,18 +141,20 @@ const RightHandColumn = (): JSX.Element => {
     const tagRenderer = useErrorTagRenderer()
 
     return (
-        <div className="flex flex-1 gap-y-1 overflow-y-auto min-w-[375px]">
+        <div className="flex flex-col flex-1 gap-1 min-h-0 min-w-[375px]">
             <PostHogSDKIssueBanner event={selectedEvent} />
-            <ExceptionCard
-                issueId={issue?.id ?? 'no-issue'}
-                issueName={issue?.name ?? null}
-                loading={issueLoading || initialEventLoading}
-                event={selectedEvent ?? undefined}
-                label={tagRenderer(selectedEvent)}
-                renderStackTraceActions={() => {
-                    return issue ? <StackTraceActions issue={issue} /> : null
-                }}
-            />
+            <div className="flex-1 min-h-0 flex flex-col">
+                <ExceptionCard
+                    issueId={issue?.id ?? 'no-issue'}
+                    issueName={issue?.name ?? null}
+                    loading={issueLoading || initialEventLoading}
+                    event={selectedEvent ?? undefined}
+                    label={tagRenderer(selectedEvent)}
+                    renderStackTraceActions={() => {
+                        return issue ? <StackTraceActions issue={issue} /> : null
+                    }}
+                />
+            </div>
         </div>
     )
 }
@@ -243,7 +245,7 @@ const ExceptionsTab = (): JSX.Element => {
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full min-h-0">
             <div className="px-2 py-3">
                 <ErrorFilters.Root>
                     <div className="flex gap-2 justify-between flex-wrap">
@@ -254,7 +256,7 @@ const ExceptionsTab = (): JSX.Element => {
                 </ErrorFilters.Root>
             </div>
             <LemonDivider className="my-0" />
-            <Metadata className="flex flex-col overflow-y-auto">
+            <Metadata className="flex flex-col flex-1 min-h-0 overflow-y-auto">
                 <EventsTable
                     query={eventsQuery}
                     queryKey={eventsQueryKey}

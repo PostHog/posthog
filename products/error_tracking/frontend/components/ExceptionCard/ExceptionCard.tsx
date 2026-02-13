@@ -69,7 +69,7 @@ function ExceptionCardContent({ timestamp, renderStackTraceActions, label }: Exc
     const { setCurrentTab } = useActions(exceptionCardLogic)
 
     return (
-        <LemonCard hoverEffect={false} className="p-0 relative overflow-y-auto w-full border-0 rounded-none">
+        <LemonCard hoverEffect={false} className="p-0 relative overflow-y-auto w-full h-full border-0 rounded-none">
             <TabsPrimitive value={currentTab} onValueChange={setCurrentTab}>
                 <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b">
                     <TabsPrimitiveList className="flex justify-between w-full h-full items-center">
