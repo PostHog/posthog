@@ -1457,7 +1457,7 @@ def run_clickhouse_statement_in_parallel(statements: list[str]):
                     raise
                 time.sleep(0.05 * (attempt**2))
 
-    with ThreadPoolExecutor(max_workers=10) as pool:
+    with ThreadPoolExecutor() as pool:
         futures = [pool.submit(_execute_with_retry, stmt) for stmt in statements]
 
         exceptions: list[BaseException] = []
