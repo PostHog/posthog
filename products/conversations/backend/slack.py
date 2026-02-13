@@ -64,7 +64,8 @@ def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
     try:
         response = client.users_info(user=slack_user_id)
         # SlackResponse stores data in .data attribute (dict)
-        data: dict = response.data if hasattr(response, "data") else {}
+        raw_data = response.data if hasattr(response, "data") else None
+        data: dict = raw_data if isinstance(raw_data, dict) else {}
         logger.info(
             "slack_support_user_resolve_raw",
             slack_user_id=slack_user_id,
