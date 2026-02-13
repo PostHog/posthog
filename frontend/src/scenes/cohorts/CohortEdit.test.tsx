@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
@@ -10,6 +10,15 @@ import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
 
 import { CohortEdit } from './CohortEdit'
+
+// Mock heavy child components that are not relevant to calculation status tests
+jest.mock('~/queries/Query/Query', () => ({
+    Query: () => <div data-testid="mock-query">Query</div>,
+}))
+
+jest.mock('scenes/cohorts/CohortFilters/CohortCriteriaGroups', () => ({
+    CohortCriteriaGroups: () => <div data-testid="mock-cohort-criteria-groups">CohortCriteriaGroups</div>,
+}))
 
 describe('cohortEditLogic', () => {
     let logic: ReturnType<typeof cohortEditLogic.build>
@@ -99,6 +108,7 @@ describe('cohortEditLogic', () => {
         let querySelectorSpy: jest.SpyInstance
 
         beforeEach(() => {
+            jest.useFakeTimers()
             scrollIntoViewSpy = jest.fn()
             querySelectorSpy = jest.spyOn(document, 'querySelector')
 
@@ -109,6 +119,7 @@ describe('cohortEditLogic', () => {
         })
 
         afterEach(() => {
+            jest.useRealTimers()
             scrollIntoViewSpy.mockRestore()
             querySelectorSpy.mockRestore()
         })
@@ -126,7 +137,7 @@ describe('cohortEditLogic', () => {
                 logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
 
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            jest.runAllTimers()
 
             expect(querySelectorSpy).toHaveBeenCalledWith('.Field--error')
             expect(scrollIntoViewSpy).toHaveBeenCalledWith({
@@ -152,7 +163,7 @@ describe('cohortEditLogic', () => {
                 logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
 
-            await new Promise((resolve) => requestAnimationFrame(resolve))
+            jest.runAllTimers()
 
             expect(querySelectorSpy).toHaveBeenCalledWith('.Field--error')
             expect(querySelectorSpy).toHaveBeenCalledWith('.CohortCriteriaRow__Criteria--error')
@@ -177,7 +188,7 @@ describe('cohortEditLogic', () => {
                 logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
 
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            jest.runAllTimers()
 
             expect(scrollIntoViewSpy).not.toHaveBeenCalled()
         })
@@ -291,9 +302,10 @@ describe('cohortEditLogic', () => {
 
             render(<CohortEdit id={cohortId} tabId="test-tab" />)
 
-            // Wait a bit for component to render then verify no loading states
-            await new Promise((resolve) => setTimeout(resolve, 100))
-            expect(screen.queryAllByText('In progress...')).toHaveLength(0)
+            // Wait for component to finish loading, then verify no loading states
+            await waitFor(() => {
+                expect(screen.queryAllByText('In progress...')).toHaveLength(0)
+            })
         })
     })
 })

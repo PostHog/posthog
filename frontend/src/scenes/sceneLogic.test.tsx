@@ -96,6 +96,8 @@ describe('sceneLogic', () => {
     })
 
     it('can pin and unpin tabs, syncing storage', async () => {
+        jest.useFakeTimers()
+
         const teamId = teamLogic.values.currentTeamId ?? 'null'
         const pinnedStorageKey = `scene-tabs-pinned-state-${teamId}`
 
@@ -122,13 +124,14 @@ describe('sceneLogic', () => {
 
         logic.actions.pinTab('tab-2')
 
-        await expectLogic(logic).toMatchValues({
-            tabs: [
-                expect.objectContaining({ id: 'tab-2', pinned: true }),
-                expect.objectContaining({ id: 'tab-1', pinned: false }),
-            ],
-        })
-        await expectLogic(logic).delay(600)
+        // Verify tabs are pinned correctly (synchronous check)
+        expect(logic.values.tabs).toEqual([
+            expect.objectContaining({ id: 'tab-2', pinned: true }),
+            expect.objectContaining({ id: 'tab-1', pinned: false }),
+        ])
+
+        // Advance past debounce to trigger localStorage persistence
+        await jest.advanceTimersByTimeAsync(600)
 
         const storedPinned = JSON.parse(localStorage.getItem(pinnedStorageKey) ?? '{}')
         expect(storedPinned).toEqual({
@@ -138,7 +141,7 @@ describe('sceneLogic', () => {
 
         logic.actions.setHomepage(logic.values.tabs[0])
 
-        await expectLogic(logic).delay(600)
+        await jest.advanceTimersByTimeAsync(600)
 
         expect(JSON.parse(localStorage.getItem(pinnedStorageKey) ?? '{}')).toEqual({
             tabs: [expect.objectContaining({ id: 'tab-2', pathname: '/b', pinned: true })],
@@ -147,15 +150,19 @@ describe('sceneLogic', () => {
 
         logic.actions.unpinTab('tab-2')
 
-        await expectLogic(logic).toMatchValues({
-            tabs: expect.arrayContaining([
+        // Verify tabs are unpinned correctly (synchronous check)
+        expect(logic.values.tabs).toEqual(
+            expect.arrayContaining([
                 expect.objectContaining({ id: 'tab-1', pinned: false }),
                 expect.objectContaining({ id: 'tab-2', pinned: false }),
-            ]),
-        })
-        await expectLogic(logic).delay(600)
+            ])
+        )
+
+        await jest.advanceTimersByTimeAsync(600)
         expect(localStorage.getItem(pinnedStorageKey)).toBeNull()
         expect(logic.values.homepage).toBeNull()
+
+        jest.useRealTimers()
     })
 
     it('removes pinned tabs when receiving updated storage without them', async () => {

@@ -1,5 +1,3 @@
-import { expectLogic } from 'kea-test-utils'
-
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
@@ -49,13 +47,19 @@ describe('notebookSelectButtonLogic filters', () => {
     })
 
     test('passes search and created_by to api', async () => {
+        jest.useFakeTimers()
+
         logic.actions.setSearchQuery('problem')
         logic.actions.setCreatedBy('USER-UUID-1234')
 
-        await expectLogic(logic).delay(350).toFinishAllListeners()
+        // Advance timers and run pending promises
+        await jest.advanceTimersByTimeAsync(350)
+        await jest.runAllTimersAsync()
 
         // There will be two calls (one per listener), assert last call has both params
         const lastCallArgs = listMock.mock.calls.at(-1)?.[0] as Record<string, any>
         expect(lastCallArgs).toEqual(expect.objectContaining({ search: 'problem', created_by: 'USER-UUID-1234' }))
+
+        jest.useRealTimers()
     })
 })

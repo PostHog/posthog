@@ -81,31 +81,39 @@ describe('surveysLogic', () => {
         })
 
         it('triggers backend search after debounce for large datasets', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSurveysSuccess({
-                    surveys: [createTestSurvey('1', 'Test Survey')],
-                    surveysCount: 150, // > SURVEY_PAGE_SIZE
-                    searchSurveys: [],
-                    searchSurveysCount: 0,
-                })
-                logic.actions.setSearchTerm('Test')
+            jest.useFakeTimers()
+
+            logic.actions.loadSurveysSuccess({
+                surveys: [createTestSurvey('1', 'Test Survey')],
+                surveysCount: 150, // > SURVEY_PAGE_SIZE
+                searchSurveys: [],
+                searchSurveysCount: 0,
             })
-                .delay(400)
-                .toDispatchActions(['loadSearchResults'])
+            logic.actions.setSearchTerm('Test')
+
+            await jest.advanceTimersByTimeAsync(400)
+
+            await expectLogic(logic).toDispatchActions(['loadSearchResults'])
+
+            jest.useRealTimers()
         })
 
         it('performs only frontend search for small datasets', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSurveysSuccess({
-                    surveys: [createTestSurvey('1', 'Test Survey')],
-                    surveysCount: 50, // < SURVEY_PAGE_SIZE
-                    searchSurveys: [],
-                    searchSurveysCount: 0,
-                })
-                logic.actions.setSearchTerm('Test')
+            jest.useFakeTimers()
+
+            logic.actions.loadSurveysSuccess({
+                surveys: [createTestSurvey('1', 'Test Survey')],
+                surveysCount: 50, // < SURVEY_PAGE_SIZE
+                searchSurveys: [],
+                searchSurveysCount: 0,
             })
-                .delay(400)
-                .toNotHaveDispatchedActions(['loadSearchResults'])
+            logic.actions.setSearchTerm('Test')
+
+            await jest.advanceTimersByTimeAsync(400)
+
+            await expectLogic(logic).toNotHaveDispatchedActions(['loadSearchResults'])
+
+            jest.useRealTimers()
         })
 
         it('merges and deduplicates frontend and backend results', async () => {
