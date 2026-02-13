@@ -29,6 +29,7 @@ return {
     'status': 200,
     'body': base64Decode('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='),
     'contentType': 'image/gif',
+    'isBase64Encoded': true
   }
 }
 `,
