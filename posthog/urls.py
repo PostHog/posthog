@@ -32,12 +32,14 @@ from posthog.api import (
     user,
 )
 from posthog.api.oauth.toolbar_service import (
+    ToolbarOAuthError,
     ToolbarOAuthState,
     build_authorization_url,
     build_toolbar_oauth_state,
     generate_pkce_pair,
     get_or_create_toolbar_oauth_application,
     new_state_nonce,
+    normalize_and_validate_app_url,
 )
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
@@ -149,6 +151,11 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
 
     # Toolbar OAuth
     if settings.TOOLBAR_OAUTH_ENABLED and not is_forum_login:
+        try:
+            app_url = normalize_and_validate_app_url(current_team, request.GET["redirect"])
+        except ToolbarOAuthError as exc:
+            return HttpResponse(exc.detail, status=exc.status_code)
+
         base_url = request.build_absolute_uri("/").rstrip("/")
         code_verifier, code_challenge = generate_pkce_pair()
 
@@ -160,7 +167,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
                 nonce=new_state_nonce(),
                 user_id=request.user.id,
                 team_id=current_team.id,
-                app_url=request.GET["redirect"],
+                app_url=app_url,
             )
         )
 
@@ -182,7 +189,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
         )
     else:
         return render_template(
-            "authorize_and_link.html",
+            "authorize_and_link.html" if is_forum_login else "authorize_and_redirect.html",
             request=request,
             context={
                 "email": request.user,

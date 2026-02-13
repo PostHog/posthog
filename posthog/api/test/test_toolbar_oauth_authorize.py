@@ -57,7 +57,9 @@ class TestAuthorizeAndRedirectOAuth(APIBaseTest):
 
         content = response.content.decode()
         self.assertIn("redirect_uri=", content)
-        self.assertIn("toolbar_oauth_callback", content)
+        # Path is URL-encoded in the query string (toolbar_oauth%2Fcallback)
+        self.assertIn("toolbar_oauth", content)
+        self.assertIn("callback", content)
 
     # Tests for PKCE generation
     def test_code_verifier_is_stored_in_session(self):
