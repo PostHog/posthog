@@ -600,6 +600,7 @@ export const WebStatsTrendTile = ({
         dateFilter: { interval },
     } = useValues(webAnalyticsLogic)
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
+    const regionPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Region)?.key
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
@@ -611,6 +612,21 @@ export const WebStatsTrendTile = ({
             })
         },
         [togglePropertyFilter, worldMapPropertyName, hasCountryFilter]
+    )
+
+    const onRegionMapClick = useCallback(
+        (breakdownValue: string) => {
+            if (!regionPropertyName || !worldMapPropertyName) {
+                return
+            }
+
+            const [countryCode, subdivisionCode] = breakdownValue.split('::')
+            if (countryCode && subdivisionCode) {
+                togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, countryCode)
+                togglePropertyFilter(PropertyFilterType.Event, regionPropertyName, subdivisionCode)
+            }
+        },
+        [togglePropertyFilter, regionPropertyName, worldMapPropertyName]
     )
 
     const context = useMemo((): QueryContext => {
@@ -628,6 +644,26 @@ export const WebStatsTrendTile = ({
             query.source?.kind === NodeKind.TrendsQuery &&
             query.source.trendsFilter?.display === ChartDisplayType.WorldMap
 
+        const isRegionMap =
+            isWorldMap &&
+            query.source?.kind === NodeKind.TrendsQuery &&
+            query.source.breakdownFilter?.breakdowns &&
+            query.source.breakdownFilter.breakdowns.length >= 2 &&
+            query.source.breakdownFilter.breakdowns.some(
+                (b) => b.property === '$geoip_subdivision_1_code' || b.property === '$geoip_subdivision_1_name'
+            )
+
+        if (isRegionMap) {
+            return {
+                ...baseContext,
+                onDataPointClick({ breakdown }, data) {
+                    if (typeof breakdown === 'string' && data && (data.count > 0 || data.aggregated_value > 0)) {
+                        onRegionMapClick(breakdown)
+                    }
+                },
+            }
+        }
+
         if (isWorldMap) {
             return {
                 ...baseContext,
@@ -640,7 +676,7 @@ export const WebStatsTrendTile = ({
         }
 
         return baseContext
-    }, [onWorldMapClick, insightProps, query])
+    }, [onWorldMapClick, onRegionMapClick, insightProps, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">

@@ -1,11 +1,13 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
+import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from '~/lib/utils'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
@@ -29,8 +31,14 @@ function cleanFilters(values: Partial<PromptFilters>): PromptFilters {
     }
 }
 
+export interface LLMPromptsLogicProps {
+    tabId?: string
+}
+
 export const llmPromptsLogic = kea<llmPromptsLogicType>([
     path(['scenes', 'llm-analytics', 'llmPromptsLogic']),
+    props({} as LLMPromptsLogicProps),
+    key((props) => props.tabId ?? 'default'),
 
     actions({
         setFilters: (filters: Partial<PromptFilters>, merge: boolean = true, debounce: boolean = true) => ({
@@ -153,7 +161,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | void => {
             const nextValues = cleanFilters(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
@@ -166,7 +174,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
         return { setFilters: changeUrl }
     }),
 
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.llmAnalyticsPrompts()]: (_, searchParams) => {
             const newFilters = cleanFilters(searchParams)
 
