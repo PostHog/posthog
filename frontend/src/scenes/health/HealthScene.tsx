@@ -1,8 +1,6 @@
-import { IconCode, IconDatabase, IconRefresh, IconWarning } from '@posthog/icons'
+import { IconCode, IconDatabase, IconWarning } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -53,19 +51,9 @@ export function HealthScene(): JSX.Element {
                 resourceType={{
                     type: 'health',
                 }}
-                actions={
-                    // TODO: Implement refresh all
-                    <LemonButton type="primary" size="small" icon={<IconRefresh className="size-4" />}>
-                        Refresh all
-                    </LemonButton>
-                }
             />
 
-            <LemonBanner type="warning">
-                <strong>DEVELOPMENT WARNING!</strong> This is being actively developed and will be updated soon.
-            </LemonBanner>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl">
+            <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-4 max-w-3xl">
                 {/* TODO: move ingestions warnings to under /health route? */}
                 {/* TODO: pass in actual statuses and change icon to reflect status */}
                 <HealthCard

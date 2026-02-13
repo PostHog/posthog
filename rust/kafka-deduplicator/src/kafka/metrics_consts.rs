@@ -65,6 +65,9 @@ pub const BATCH_CONSUMER_BATCH_FILL_RATIO: &str = "kafka_batch_consumer_batch_fi
 pub const BATCH_CONSUMER_BATCH_COLLECTION_DURATION_MS: &str =
     "kafka_batch_consumer_batch_collection_duration_ms";
 
+pub const BATCH_CONSUMER_SEEK_ERROR: &str = "kafka_batch_consumer_seek_error";
+pub const BATCH_CONSUMER_SEEK_DURATION_MS: &str = "kafka_batch_consumer_seek_duration_ms";
+
 // ==== Partition Worker metrics ====
 /// Counter for partition worker channel backpressure events
 /// Incremented when route_batch has to wait because the worker channel is full

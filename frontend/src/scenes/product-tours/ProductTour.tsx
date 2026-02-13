@@ -1,6 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { LemonModal } from '@posthog/lemon-ui'
+
+import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
+import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -23,8 +27,10 @@ export const scene: SceneExport<ProductTourLogicProps> = {
 
 export function ProductTourComponent({ id }: ProductTourLogicProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { productTourMissing, isEditingProductTour } = useValues(productTourLogic({ id }))
-    const { editingProductTour } = useActions(productTourLogic({ id }))
+    const { productTourMissing, isEditingProductTour, isToolbarModalOpen, toolbarMode } = useValues(
+        productTourLogic({ id })
+    )
+    const { editingProductTour, closeToolbarModal } = useActions(productTourLogic({ id }))
 
     useEffect(() => {
         return () => {
@@ -47,6 +53,24 @@ export function ProductTourComponent({ id }: ProductTourLogicProps): JSX.Element
             ) : (
                 <BindLogic logic={productTourLogic} props={{ id }}>
                     {isEditingProductTour ? <ProductTourEdit id={id} /> : <ProductTourView id={id} />}
+
+                    <LemonModal
+                        title={toolbarMode === 'edit' ? 'Edit in toolbar' : 'Preview product tour'}
+                        description="Select a URL to launch the toolbar"
+                        isOpen={isToolbarModalOpen}
+                        onClose={closeToolbarModal}
+                        width={600}
+                    >
+                        <div className="mt-4">
+                            <AuthorizedUrlList
+                                type={AuthorizedUrlListType.TOOLBAR_URLS}
+                                addText="Add authorized URL"
+                                productTourId={id}
+                                userIntent={toolbarMode === 'edit' ? 'edit-product-tour' : 'preview-product-tour'}
+                                launchInSameTab={isEditingProductTour}
+                            />
+                        </div>
+                    </LemonModal>
                 </BindLogic>
             )}
         </div>

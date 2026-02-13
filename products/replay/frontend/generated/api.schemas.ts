@@ -156,6 +156,8 @@ export interface MinimalPersonApi {
     properties?: unknown
     readonly created_at: string
     readonly uuid: string
+    /** @nullable */
+    readonly last_seen_at: string | null
 }
 
 export type SessionRecordingApiExternalReferencesItem = { [key: string]: unknown }
