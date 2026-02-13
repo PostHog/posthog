@@ -563,7 +563,7 @@ export class HogFlowExecutorService {
             }
         }
 
-        // Check that total variables are below 1kb
+        // Check that total variables are below 5KB
         const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
         if (resultSize > 5120) {
             const keyNames = allStoredKeys.join(', ')
