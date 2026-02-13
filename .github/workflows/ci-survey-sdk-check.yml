@@ -4,6 +4,8 @@ on:
     pull_request:
         paths:
             - 'frontend/src/scenes/surveys/**'
+            - 'docs/published/surveys/**'
+            - 'frontend/bin/build-survey-sdk-docs.ts'
 
 permissions:
     contents: read
@@ -47,3 +49,12 @@ jobs:
                   `frontend/src/scenes/surveys/surveyVersionRequirements.ts`
 
                   This ensures users see warnings when launching surveys their SDK doesn'\''t support.'
+
+    check-docs-generated:
+        name: Check SDK docs are up to date
+        uses: ./.github/workflows/ci-docs-check.yml
+        with:
+            source_file: frontend/src/scenes/surveys/surveyVersionRequirements.ts
+            build_command: pnpm --filter=@posthog/frontend build:survey-sdk-docs
+            output_file: docs/published/docs/surveys/sdk-feature-support.mdx
+            fail_on_outdated: true

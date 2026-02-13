@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1003_clean_up_stale_alert_subscriptions"),
+        ("posthog", "1004_resource_transfer"),
     ]
 
     operations = [
