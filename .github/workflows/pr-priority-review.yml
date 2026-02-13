@@ -72,7 +72,7 @@ jobs:
               uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .priority-review-slack
-                  key: priority-review-slack-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
+                  key: priority-review-slack-pr-${{ github.event.pull_request.number }}
 
     # When a priority-review PR is approved, react and thread-reply on the Slack message
     notify-reviewed:
@@ -86,8 +86,7 @@ jobs:
               uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .priority-review-slack
-                  key: priority-review-slack-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
-                  restore-keys: priority-review-slack-pr-${{ github.event.pull_request.number }}-
+                  key: priority-review-slack-pr-${{ github.event.pull_request.number }}
 
             - name: Read Slack message info
               id: slack_msg
