@@ -75,11 +75,11 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         assert len(graph) == 0
 
     def test_raises_for_unvisitable_model(self) -> None:
-        from posthog.models import Cohort
+        from posthog.models import Annotation
 
-        cohort = Cohort.objects.create(team=self.team, name="My cohort")
+        annotation = Annotation.objects.create(team=self.team, content="My annotation")
         with self.assertRaises(TypeError):
-            list(build_resource_duplication_graph(cohort, set()))
+            list(build_resource_duplication_graph(annotation, set()))
 
 
 class TestDagSortDuplicationGraph(BaseTest):
