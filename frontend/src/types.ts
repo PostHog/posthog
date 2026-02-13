@@ -6662,12 +6662,17 @@ export interface QuickFilterOption {
     operator: PropertyOperator
 }
 
+export interface QuickFilterAutoDiscoveryConfig {
+    value_pattern: string
+    operator: PropertyOperator
+}
+
 export interface QuickFilter {
     id: string
     name: string
     property_name: string
     type: QuickFilterType
-    options: QuickFilterOption[]
+    options: QuickFilterOption[] | QuickFilterAutoDiscoveryConfig
     contexts: QuickFilterContext[]
     created_at: string
     updated_at: string

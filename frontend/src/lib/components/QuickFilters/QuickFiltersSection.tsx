@@ -33,8 +33,7 @@ export function QuickFiltersSection({ context }: QuickFiltersSectionProps): JSX.
                 return (
                     <QuickFilterSelector
                         key={filter.id}
-                        label={filter.name}
-                        options={filter.options}
+                        filter={filter}
                         selectedOptionId={selectedFilter?.optionId || null}
                         onChange={(option) => {
                             if (option === null) {
