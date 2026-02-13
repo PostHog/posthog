@@ -842,7 +842,7 @@ async def update_batch_export_backfill_activity(inputs: UpdateBatchExportBackfil
     """Activity that updates a BatchExportBackfill.
 
     When finished=True, this also sets finished_at and calculates the actual
-    total_records_count from completed runs if status is COMPLETED.
+    total_records_count from completed runs if total_records_count is not provided.
     """
     bind_contextvars(id=inputs.id, status=inputs.status)
     logger = LOGGER.bind()
@@ -853,22 +853,21 @@ async def update_batch_export_backfill_activity(inputs: UpdateBatchExportBackfil
     if inputs.finished:
         # Calculate actual total from completed runs when finished successfully or not,
         # but only if total_records_count was not explicitly provided (e.g. early exit with 0 records)
-        if (
-            inputs.status
-            in (
-                BatchExportBackfill.Status.COMPLETED,
-                BatchExportBackfill.Status.FAILED,
-                BatchExportBackfill.Status.CANCELLED,
-            )
-            and inputs.total_records_count is None
+        if inputs.status in (
+            BatchExportBackfill.Status.COMPLETED,
+            BatchExportBackfill.Status.FAILED,
+            BatchExportBackfill.Status.CANCELLED,
         ):
-            result = await database_sync_to_async(
-                lambda: BatchExportRun.objects.filter(
-                    backfill_id=inputs.id,
-                    status=BatchExportRun.Status.COMPLETED,
-                ).aggregate(total=Sum("records_completed"))
-            )()
-            total_records_count = result["total"]
+            if inputs.total_records_count is None:
+                result = await database_sync_to_async(
+                    lambda: BatchExportRun.objects.filter(
+                        backfill_id=inputs.id,
+                        status=BatchExportRun.Status.COMPLETED,
+                    ).aggregate(total=Sum("records_completed"))
+                )()
+                total_records_count = result["total"]
+            else:
+                total_records_count = inputs.total_records_count
 
         finished_at = dt.datetime.now(dt.UTC)
 
