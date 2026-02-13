@@ -112,6 +112,7 @@ jobs:
                         - docker-compose.dev.yml
                         - docker-compose.profiles.yml
                         - docker-compose.base.yml
+                        - bin/wait-for-docker
                         - frontend/public/email/*
                         - docker/clickhouse
                       migrations:

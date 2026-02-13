@@ -124,8 +124,7 @@ core:
             - docker:services:remove
             - docker:services:up
             - setup:python
-            - check:postgres
-            - check:clickhouse
+            - services:ready
             - hogli: db:restore-schema
               prompt: 'Restore pre-migrated schema from CI? (faster than migrations)'
               else: migrations:run
