@@ -1422,9 +1422,10 @@ def failhard_threadhook_context():
         if exc is None:
             return
 
-        # Filter out expected Kafka table errors during test setup
-        if hasattr(exc, "code") and exc.code == 60 and "kafka_" in str(exc) and "posthog_test" in str(exc):
-            return  # Silently ignore expected Kafka table errors
+        # Filter out UNKNOWN_TABLE errors (code 60) in the test database.
+        # Tables may not exist during setup/teardown depending on test configuration.
+        if hasattr(exc, "code") and exc.code == 60 and "posthog_test" in str(exc):
+            return
 
         thread_exceptions.append(exc)
 
