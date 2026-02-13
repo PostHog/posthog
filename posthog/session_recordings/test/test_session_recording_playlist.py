@@ -5,6 +5,7 @@ from uuid import uuid4
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
+from unittest.mock import MagicMock, patch
 
 from django.db import transaction
 
@@ -786,6 +787,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             == 0
         )
 
+    @patch("posthog.hogql.database.database.posthoganalytics.feature_enabled", new=MagicMock(return_value=True))
     @snapshot_postgres_queries
     @freeze_time("2025-01-01T12:00:00Z")
     def test_filters_playlist_by_type(self):

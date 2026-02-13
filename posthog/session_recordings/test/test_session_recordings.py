@@ -108,6 +108,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ),
         ]
     )
+    @patch("posthog.hogql.database.database.posthoganalytics.feature_enabled", new=MagicMock(return_value=True))
     @snapshot_postgres_queries
     def test_get_session_recordings_scenarios(
         self,
@@ -154,6 +155,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         if expected_distinct_ids_count is not None:
             assert len(results[0]["person"]["distinct_ids"]) == expected_distinct_ids_count
 
+    @patch("posthog.hogql.database.database.posthoganalytics.feature_enabled", new=MagicMock(return_value=True))
     @snapshot_postgres_queries
     def test_get_session_recordings_returns_newest_first(self) -> None:
         """Test that recordings are returned in descending order by start time"""
@@ -198,6 +200,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ["ascending", "start_time", "ASC", ["at_base_time", "at_base_time_plus_20"]],
         ]
     )
+    @patch("posthog.hogql.database.database.posthoganalytics.feature_enabled", new=MagicMock(return_value=True))
     @snapshot_postgres_queries
     # we can't take snapshots of the CH queries
     # because we use `now()` in the CH queries which don't know about any frozen time
@@ -305,7 +308,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # so we call the API once and then use query snapshot as a context manager _after_ that
         self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
-        with freeze_time("2022-06-03T12:00:00.000Z"), snapshot_postgres_queries_context(self):
+        with freeze_time("2022-06-03T12:00:00.000Z"), patch("posthog.hogql.database.database.posthoganalytics.feature_enabled", return_value=True), snapshot_postgres_queries_context(self):
             # request once without counting queries to cache an ee.license lookup that makes results vary otherwise
             self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
