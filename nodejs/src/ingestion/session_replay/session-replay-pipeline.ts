@@ -20,7 +20,7 @@ export interface SessionReplayPipelineOutput {
 }
 
 export interface SessionReplayPipelineConfig {
-    kafkaProducer: KafkaProducerWrapper
+    kafkaProducer?: KafkaProducerWrapper
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
     overflowTopic: string

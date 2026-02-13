@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
+import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { pipelineLastStepCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from '../../worker/ingestion/pipeline-helpers'
@@ -8,7 +9,7 @@ import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.
 import { PipelineResult, isDlqResult, isDropResult, isOkResult, isRedirectResult } from './results'
 
 export type PipelineConfig = {
-    kafkaProducer: KafkaProducerWrapper
+    kafkaProducer?: KafkaProducerWrapper
     dlqTopic: string
     promiseScheduler: PromiseScheduler
 }
@@ -77,27 +78,48 @@ export class ResultHandlingPipeline<
         const sideEffects: Promise<unknown>[] = []
 
         if (isDlqResult(result)) {
-            const dlqPromise = sendMessageToDLQ(
-                this.config.kafkaProducer,
-                originalMessage,
-                result.error || new Error(result.reason),
-                stepName,
-                this.config.dlqTopic
-            )
-            sideEffects.push(dlqPromise)
+            if (!this.config.kafkaProducer) {
+                logger.warn('📝', 'pipeline_dlq_no_producer', {
+                    reason: result.reason,
+                    stepName,
+                    partition: originalMessage.partition,
+                    offset: originalMessage.offset,
+                })
+                logDroppedMessage(originalMessage, `dlq unavailable: ${result.reason}`, stepName)
+            } else {
+                const dlqPromise = sendMessageToDLQ(
+                    this.config.kafkaProducer,
+                    originalMessage,
+                    result.error || new Error(result.reason),
+                    stepName,
+                    this.config.dlqTopic
+                )
+                sideEffects.push(dlqPromise)
+            }
         } else if (isDropResult(result)) {
             logDroppedMessage(originalMessage, result.reason, stepName)
         } else if (isRedirectResult(result)) {
-            const redirectPromise = redirectMessageToTopic(
-                this.config.kafkaProducer,
-                this.config.promiseScheduler,
-                originalMessage,
-                result.topic,
-                stepName,
-                result.preserveKey ?? true,
-                result.awaitAck ?? true
-            )
-            sideEffects.push(redirectPromise)
+            if (!this.config.kafkaProducer) {
+                logger.warn('📝', 'pipeline_redirect_no_producer', {
+                    reason: result.reason,
+                    topic: result.topic,
+                    stepName,
+                    partition: originalMessage.partition,
+                    offset: originalMessage.offset,
+                })
+                logDroppedMessage(originalMessage, `redirect unavailable: ${result.reason}`, stepName)
+            } else {
+                const redirectPromise = redirectMessageToTopic(
+                    this.config.kafkaProducer,
+                    this.config.promiseScheduler,
+                    originalMessage,
+                    result.topic,
+                    stepName,
+                    result.preserveKey ?? true,
+                    result.awaitAck ?? true
+                )
+                sideEffects.push(redirectPromise)
+            }
         }
 
         return sideEffects

@@ -95,7 +95,7 @@ export class SessionRecordingIngester {
         { message: Message }
     >
     private readonly kafkaMetadataProducer: KafkaProducerWrapper
-    private readonly kafkaMessageProducer: KafkaProducerWrapper
+    private readonly kafkaMessageProducer?: KafkaProducerWrapper
     private readonly ingestionWarningProducer?: KafkaProducerWrapper
     private readonly overflowTopic: string
     private readonly topTracker: TopTracker
@@ -106,7 +106,7 @@ export class SessionRecordingIngester {
         private consumeOverflow: boolean,
         postgres: PostgresRouter,
         kafkaMetadataProducer: KafkaProducerWrapper,
-        kafkaMessageProducer: KafkaProducerWrapper,
+        kafkaMessageProducer?: KafkaProducerWrapper,
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
         this.topic = consumeOverflow
@@ -447,7 +447,9 @@ export class SessionRecordingIngester {
         // Clean up resources owned by this ingester
         // Note: kafkaMetadataProducer may be shared (e.g., hub.kafkaProducer in production),
         // so callers are responsible for disconnecting it if they created it
-        await this.kafkaMessageProducer.disconnect()
+        if (this.kafkaMessageProducer) {
+            await this.kafkaMessageProducer.disconnect()
+        }
         if (this.ingestionWarningProducer) {
             await this.ingestionWarningProducer.disconnect()
         }

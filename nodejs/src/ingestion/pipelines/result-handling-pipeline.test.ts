@@ -565,6 +565,89 @@ describe('ResultHandlingPipeline', () => {
             )
         })
     })
+
+    describe('without kafka producer', () => {
+        let noProducerConfig: PipelineConfig
+
+        beforeEach(() => {
+            noProducerConfig = {
+                kafkaProducer: undefined,
+                dlqTopic: 'test-dlq',
+                promiseScheduler: mockPromiseScheduler,
+            }
+        })
+
+        it('should log and drop dlq results when no producer is available', async () => {
+            const messages: Message[] = [
+                { value: Buffer.from('dlq'), topic: 'test', partition: 0, offset: 2 } as Message,
+            ]
+
+            const batchResults: BatchPipelineResultWithContext<any, any> = [
+                createContext(dlq('test dlq reason', new Error('test error')), { message: messages[0] }),
+            ]
+
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, noProducerConfig)
+            resultPipeline.feed(batchResults)
+            const results = await resultPipeline.next()
+
+            expect(results).not.toBeNull()
+            expect(results).toHaveLength(1)
+            expect(results![0].context.sideEffects).toHaveLength(0)
+            expect(mockSendMessageToDLQ).not.toHaveBeenCalled()
+            expect(mockLogDroppedMessage).toHaveBeenCalledWith(
+                messages[0],
+                'dlq unavailable: test dlq reason',
+                'unknown'
+            )
+        })
+
+        it('should log and drop redirect results when no producer is available', async () => {
+            const messages: Message[] = [
+                { value: Buffer.from('redirect'), topic: 'test', partition: 0, offset: 2 } as Message,
+            ]
+
+            const batchResults: BatchPipelineResultWithContext<any, any> = [
+                createContext(redirect('test redirect', 'overflow-topic'), { message: messages[0] }),
+            ]
+
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, noProducerConfig)
+            resultPipeline.feed(batchResults)
+            const results = await resultPipeline.next()
+
+            expect(results).not.toBeNull()
+            expect(results).toHaveLength(1)
+            expect(results![0].context.sideEffects).toHaveLength(0)
+            expect(mockRedirectMessageToTopic).not.toHaveBeenCalled()
+            expect(mockLogDroppedMessage).toHaveBeenCalledWith(
+                messages[0],
+                'redirect unavailable: test redirect',
+                'unknown'
+            )
+        })
+
+        it('should still handle ok and drop results normally', async () => {
+            const messages: Message[] = [
+                { value: Buffer.from('test1'), topic: 'test', partition: 0, offset: 1 } as Message,
+                { value: Buffer.from('drop'), topic: 'test', partition: 0, offset: 2 } as Message,
+            ]
+
+            const batchResults: BatchPipelineResultWithContext<any, any> = [
+                createContext(ok({ processed: 'test1' }), { message: messages[0] }),
+                createContext(drop('test drop reason'), { message: messages[1] }),
+            ]
+
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, noProducerConfig)
+            resultPipeline.feed(batchResults)
+            const results = await resultPipeline.next()
+
+            expect(results).not.toBeNull()
+            expect(results).toHaveLength(2)
+            expect(mockLogDroppedMessage).toHaveBeenCalledWith(messages[1], 'test drop reason', 'unknown')
+        })
+    })
 })
 
 describe('Integration tests', () => {

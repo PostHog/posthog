@@ -167,18 +167,8 @@ export class PluginServer {
                     const actualHub = hub ?? (await createHub(this.config))
                     const postgres = actualHub.postgres
                     const kafkaMetadataProducer = actualHub.kafkaProducer
-                    const kafkaMessageProducer = await KafkaProducerWrapper.create(
-                        actualHub.KAFKA_CLIENT_RACK,
-                        'WARPSTREAM_PRODUCER'
-                    )
 
-                    const ingester = new SessionRecordingIngester(
-                        actualHub,
-                        true,
-                        postgres,
-                        kafkaMetadataProducer,
-                        kafkaMessageProducer
-                    )
+                    const ingester = new SessionRecordingIngester(actualHub, true, postgres, kafkaMetadataProducer)
                     await ingester.start()
                     return ingester.service
                 })
