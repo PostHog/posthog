@@ -51,6 +51,11 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
     with freeze_time(FROZEN_TIME):
+        kind = query_dict.get("kind")
+
+        if kind == "RecordingsQuery":
+            return _render_recordings_query(query_dict, _cached_team)
+
         runner = get_query_runner(query_dict, _cached_team)
         ast_query = runner.to_query()
 
@@ -68,3 +73,16 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
         ast_query = replace_filters(ast_query, hogql_filters, _cached_team)
 
         return to_printed_hogql(ast_query, _cached_team)
+
+
+def _render_recordings_query(query_dict: dict[str, Any], team: Any) -> str:
+    from posthog.schema import RecordingsQuery
+
+    from posthog.hogql.printer.utils import to_printed_hogql
+
+    from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+
+    query = RecordingsQuery(**{k: v for k, v in query_dict.items() if k != "kind"})
+    listing = SessionRecordingListFromQuery(team=team, query=query)
+    ast_query = listing.get_query()
+    return to_printed_hogql(ast_query, team)

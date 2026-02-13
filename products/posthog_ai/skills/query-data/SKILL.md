@@ -345,3 +345,5 @@ Use the examples below to create optimized queries.
 - [Web overview](./references/example-web-overview.md)
 - [Error tracking (search for a value in an error and filtering by custom properties)](./references/example-error-tracking.md)
 - [Logs (filtering by severity and searching for a term)](./references/example-logs.md)
+- [Sessions (listing sessions with duration, pageviews, and bounce rate)](./references/example-sessions.md)
+- [Session replay (listing recordings with activity filters)](./references/example-session-replay.md)
