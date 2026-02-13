@@ -392,6 +392,8 @@ export function LineGraph_({
             hoverBackgroundColor: isBackgroundBasedGraphType ? lightenDarkenColor(mainColor, -20) : undefined,
             fill: isArea ? 'origin' : false,
             backgroundColor,
+            // Per Chart.js docs, this improves performance for large sorted datasets
+            normalized: true,
             segment: {
                 borderDash: (ctx: ScriptableLineSegmentContext) => {
                     // If chart is line graph, show dotted lines for incomplete data
@@ -579,11 +581,22 @@ export function LineGraph_({
                     line: {
                         tension: 0,
                     },
+                    point: {
+                        radius: (ctx) => ((ctx.chart.data.labels?.length || 0) > 100 ? 0 : 4),
+                        hitRadius: (ctx) => ((ctx.chart.data.labels?.length || 0) > 100 ? 0 : 8),
+                    },
                 },
                 interaction: {
+                    mode: 'nearest',
+                    axis: 'x',
+                    intersect: false,
                     includeInvisible: true,
                 },
                 plugins: {
+                    decimation: {
+                        enabled: true,
+                        algorithm: 'min-max',
+                    },
                     stacked100: { enable: isPercentStackView, precision: 1 },
                     datalabels: {
                         color: 'white',
