@@ -605,10 +605,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     if (eventIds.length === 0) {
                         return []
                     }
-                    await breakpoint(500)
-                    const results = await Promise.all(eventIds.map((id) => api.eventDefinitions.exists({ name: id })))
-                    breakpoint()
-                    return eventIds.filter((_, idx) => !results[idx])
+                    const checked: Record<string, boolean> = cache.eventExistsCache ?? {}
+                    const uncheckedIds = eventIds.filter((id) => !(id in checked))
+                    if (uncheckedIds.length > 0) {
+                        await breakpoint(500)
+                        const results = await Promise.all(
+                            uncheckedIds.map((id) => api.eventDefinitions.exists({ name: id }))
+                        )
+                        breakpoint()
+                        for (let i = 0; i < uncheckedIds.length; i++) {
+                            checked[uncheckedIds[i]] = results[i]
+                        }
+                        cache.eventExistsCache = checked
+                    }
+                    return eventIds.filter((id) => !checked[id])
                 },
             },
         ],
