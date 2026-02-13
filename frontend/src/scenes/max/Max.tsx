@@ -182,7 +182,6 @@ export const MaxInstance = React.memo(function MaxInstance({
                                 onClick={() => goBack()}
                                 tooltip="Go back"
                                 tooltipPlacement="bottom-end"
-                                className="mr-2"
                                 disabledReasons={backButtonDisabled ? { 'You are already at home': true } : undefined}
                             >
                                 <IconChevronLeft className="text-tertiary size-3 group-hover:text-primary z-10" />
