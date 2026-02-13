@@ -31,7 +31,6 @@ Table | Description
 `system.actions` | Named event combinations for filtering
 `system.cohorts` | Groups of persons for segmentation
 `system.dashboards` | Collections of insights
-`system.dashboard_tiles` | Links insights to dashboards with layout
 `system.data_warehouse_sources` | Connected external data sources
 `system.data_warehouse_tables` | Connected tables with their columns and formats
 `system.error_tracking_issues` | Error tracking issues (grouped exceptions)
@@ -71,7 +70,6 @@ Schema reference for PostHog's core system models, organized by domain:
 #### Entity Relationships
 
 From | Relation | To | Join
-Dashboard | M:N | Insight | via `dashboardtile`
 Experiment | 1:1 | FeatureFlag | `feature_flag_id`
 Experiment | N:1 | Cohort | `exposure_cohort_id`
 Survey | N:1 | FeatureFlag | `linked_flag_id`, `targeting_flag_id`
@@ -184,12 +182,6 @@ Keep in mind that the right expression is loaded in memory when joining data in 
 #### System data
 
 You are allowed joining system data. Insights are the most used entity, so keep it on the left.
-
-Example:
-
-```sql
-SELECT i.name FROM system.insights AS i INNER JOIN system.dashboard_tiles AS t ON i.id = t.insight_id WHERE t.dashboard_id = 1
-```
 
 #### Analytical data
 
