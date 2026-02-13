@@ -7,7 +7,7 @@ from django.test import override_settings
 class TestAuthorizeAndRedirectOAuth(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.team.app_urls = ["https://example.com"]
+        self.team.app_urls = ["https://mysite.com"]
         self.team.save()
 
     def _get_authorize(self, redirect_url: str = "https://mysite.com/page"):
@@ -58,3 +58,14 @@ class TestAuthorizeAndRedirectOAuth(APIBaseTest):
         content = response.content.decode()
         self.assertIn("redirect_uri=", content)
         self.assertIn("toolbar_oauth_callback", content)
+
+    # Tests for PKCE generation
+    def test_code_verifier_is_stored_in_session(self):
+        response = self._get_authorize()
+
+        # assert status code
+        self.assertEqual(response.status_code, 200)
+
+        session = self.client.session
+        self.assertIn("toolbar_oauth_code_verifier", session)
+        self.assertTrue(len(session["toolbar_oauth_code_verifier"]) >= 43)
