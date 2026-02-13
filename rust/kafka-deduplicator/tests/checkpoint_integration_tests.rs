@@ -291,11 +291,11 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         .expect("metadata.json in import dir should deserialize");
     assert_eq!(loaded_metadata.topic, test_topic);
     assert_eq!(loaded_metadata.partition, test_partition);
-    let now = Utc::now();
     assert!(
-        (now - loaded_metadata.updated_at).num_seconds().abs() < 300,
-        "updated_at should be recent (import time), got {:?}",
-        loaded_metadata.updated_at
+        loaded_metadata.updated_at >= downloaded_metadata.attempt_timestamp,
+        "updated_at should be more recent than attempt_timestamp (stamped at import write), got updated_at {:?} attempt_timestamp {:?}",
+        loaded_metadata.updated_at,
+        downloaded_metadata.attempt_timestamp
     );
 
     // Verify marker file exists (created by import to identify imported stores)
