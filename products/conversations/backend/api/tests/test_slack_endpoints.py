@@ -98,7 +98,7 @@ class TestSupportSlackEventsAPI(BaseTest):
 class TestSlackChannelsAPI(APIBaseTest):
     def test_authentication_required(self):
         response = APIClient().post("/api/conversations/v1/slack/channels", {})
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
     def test_returns_503_when_support_bot_token_missing(self, mock_get_token: MagicMock):
