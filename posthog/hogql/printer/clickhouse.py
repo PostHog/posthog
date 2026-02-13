@@ -700,7 +700,13 @@ class ClickHousePrinter(HogQLPrinter):
                 while True:
                     if isinstance(table_type, ast.TableType):
                         table_name = table_type.table.to_printed_hogql()
-                        if table_name in ("events", "raw_sessions", "raw_sessions_v3"):
+                        if table_name in (
+                            "events",
+                            "raw_sessions",
+                            "raw_sessions_v3",
+                            "session_replay_events",
+                            "raw_session_replay_events",
+                        ):
                             return True
                         break
                     elif isinstance(table_type, (ast.LazyJoinType, ast.VirtualTableType)):
