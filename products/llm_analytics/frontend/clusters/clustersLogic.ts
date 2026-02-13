@@ -1,13 +1,12 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { urls } from 'scenes/urls'
 
 import { hogql } from '~/queries/utils'
@@ -57,14 +56,8 @@ export interface ScatterDataset {
         | 'triangle'
 }
 
-export interface ClustersLogicProps {
-    tabId?: string
-}
-
 export const clustersLogic = kea<clustersLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clustersLogic']),
-    props({} as ClustersLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         setClusteringLevel: (level: ClusteringLevel) => ({ level }),
@@ -500,7 +493,7 @@ export const clustersLogic = kea<clustersLogicType>([
         actions.loadClusteringRuns()
     }),
 
-    tabAwareUrlToAction(({ actions }) => ({
+    urlToAction(({ actions }) => ({
         '/llm-analytics/clusters': () => {
             actions.setSelectedRunId(null)
         },
@@ -510,7 +503,7 @@ export const clustersLogic = kea<clustersLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
+    actionToUrl(({ values }) => ({
         setSelectedRunId: () => {
             if (values.selectedRunId) {
                 return urls.llmAnalyticsClusters(values.selectedRunId)

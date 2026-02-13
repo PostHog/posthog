@@ -27,7 +27,6 @@ export function LLMAnalyticsErrors(): JSX.Element {
 
     return (
         <DataTable
-            attachTo={llmAnalyticsSharedLogic}
             query={{
                 ...errorsQuery,
                 showSavedFilters: true,
