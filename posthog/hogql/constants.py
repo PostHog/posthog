@@ -115,6 +115,8 @@ class HogQLQuerySettings(BaseModel):
     force_data_skipping_indices: Optional[list[str]] = None
     load_balancing: Optional[str] = None
     optimize_skip_unused_shards: Optional[bool] = None
+    read_overflow_mode: Optional[str] = None
+    max_bytes_to_read: Optional[int] = None
 
 
 # Settings applied on top of all HogQL queries.
@@ -141,5 +143,3 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
     use_hive_partitioning: Optional[int] = 0
-    read_overflow_mode: Optional[str] = None
-    max_bytes_to_read: Optional[int] = None

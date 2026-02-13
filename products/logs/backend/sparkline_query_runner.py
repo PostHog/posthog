@@ -83,9 +83,7 @@ class SparklineQueryRunner(LogsQueryRunner):
         """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
-                "time_field": ast.Field(chain=["time_minute"])
-                if self.query_date_range.interval_name != "second"
-                else ast.Field(chain=["timestamp"]),
+                "time_field": ast.Field(chain=["timestamp"]),
                 "where": self.where(),
                 "breakdown_field": ast.Field(
                     chain=[BREAKDOWN_DB_FIELD[self.query.sparklineBreakdownBy or DEFAULT_BREAKDOWN]]
