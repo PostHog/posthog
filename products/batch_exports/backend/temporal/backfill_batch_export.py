@@ -278,6 +278,7 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
                 interval_seconds=interval_seconds,
             )
 
+        adjusted_start_at_str = inputs.start_at
         if start_at is not None and adjusted_start_at != start_at:
             adjusted_start_at_str = adjusted_start_at.astimezone(start_at.tzinfo).isoformat()
             logger.info(
@@ -285,8 +286,6 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
                 original_start_at=inputs.start_at,
                 adjusted_start_at=adjusted_start_at_str,
             )
-        else:
-            adjusted_start_at_str = inputs.start_at
 
         return GetBackfillInfoOutputs(
             adjusted_start_at=adjusted_start_at_str,
