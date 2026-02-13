@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import type { Experiment } from '~/types'
+import type { Experiment, FeatureFlagType } from '~/types'
 
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import type { experimentWizardLogicType } from './experimentWizardLogicType'
@@ -53,6 +53,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         prevStep: true,
         resetWizard: true,
         openFullEditor: true,
+        setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
     }),
 
     reducers(() => ({
@@ -69,6 +70,13 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                     return WIZARD_STEPS[Math.max(currentIndex - 1, 0)]
                 },
                 resetWizard: () => 'about',
+            },
+        ],
+        linkedFeatureFlag: [
+            null as FeatureFlagType | null,
+            {
+                setLinkedFeatureFlag: (_, { flag }) => flag,
+                resetWizard: () => null,
             },
         ],
     })),

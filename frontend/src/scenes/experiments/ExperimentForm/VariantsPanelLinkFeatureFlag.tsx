@@ -1,5 +1,7 @@
 import { useState } from 'react'
 
+import { IconX } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -12,6 +14,7 @@ interface VariantsPanelLinkFeatureFlagProps {
     linkedFeatureFlag: FeatureFlagType | null
     setShowFeatureFlagSelector: () => void
     disabled?: boolean
+    onRemove?: () => void
 }
 
 const getTargetingSummary = (flag: FeatureFlagType): string[] => {
@@ -69,6 +72,7 @@ export const VariantsPanelLinkFeatureFlag = ({
     linkedFeatureFlag,
     setShowFeatureFlagSelector,
     disabled = false,
+    onRemove,
 }: VariantsPanelLinkFeatureFlagProps): JSX.Element => {
     if (!linkedFeatureFlag) {
         if (disabled) {
@@ -116,16 +120,26 @@ export const VariantsPanelLinkFeatureFlag = ({
                     </div>
                     {/* Only show Change button when not read-only */}
 
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={setShowFeatureFlagSelector}
-                        disabledReason={
-                            disabled ? 'You cannot change the feature flag when editing an experiment.' : undefined
-                        }
-                    >
-                        Change
-                    </LemonButton>
+                    <div className="flex items-center gap-1">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={setShowFeatureFlagSelector}
+                            disabledReason={
+                                disabled ? 'You cannot change the feature flag when editing an experiment.' : undefined
+                            }
+                        >
+                            Change
+                        </LemonButton>
+                        {onRemove && (
+                            <LemonButton
+                                size="small"
+                                icon={<IconX />}
+                                onClick={onRemove}
+                                tooltip="Remove linked flag"
+                            />
+                        )}
+                    </div>
                 </div>
 
                 {/* Description */}
