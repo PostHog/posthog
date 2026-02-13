@@ -568,6 +568,23 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
 
+        filteredEvaluationRuns: [
+            (s) => [s.evaluationRuns, s.evaluationSummaryFilter],
+            (runs: EvaluationRun[], filter: EvaluationSummaryFilter): EvaluationRun[] => {
+                if (filter === 'all') {
+                    return runs
+                }
+                if (filter === 'pass') {
+                    return runs.filter((r) => r.status === 'completed' && r.result === true)
+                }
+                if (filter === 'fail') {
+                    return runs.filter((r) => r.status === 'completed' && r.result === false)
+                }
+                // na
+                return runs.filter((r) => r.status === 'completed' && r.result === null)
+            },
+        ],
+
         runsToSummarizeCount: [
             (s) => [s.evaluationRuns, s.evaluationSummaryFilter],
             (runs, filter) => {
