@@ -1,0 +1,52 @@
+name: Toolbar UI Host Link Check
+
+on:
+    pull_request:
+        paths:
+            - 'frontend/src/toolbar/**'
+
+permissions:
+    contents: read
+    pull-requests: write
+
+jobs:
+    check-ui-host-links:
+        name: Check for UI host linking patterns
+        runs-on: ubuntu-24.04
+
+        steps:
+            - name: Check for UI host link patterns in toolbar changes
+              id: ui-host-check
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # Check added lines in toolbar files for patterns that link back to the main app
+                  if gh pr diff ${{ github.event.pull_request.number }} \
+                      | grep '^+' | grep -v '^+++' \
+                      | grep -qE 'joinWithUiHost|urls\.|uiHost'; then
+                      echo "found=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Post reminder comment
+              if: steps.ui-host-check.outputs.found == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # Check if reminder comment already exists
+                  if gh pr view ${{ github.event.pull_request.number }} --json comments \
+                      --jq '.comments[].body' | grep -q 'Toolbar UI Host Link Reminder'; then
+                      echo "Comment already exists, skipping"
+                      exit 0
+                  fi
+
+                  gh pr comment ${{ github.event.pull_request.number }} --body '### Toolbar UI Host Link Reminder
+
+                  This PR adds toolbar code that links users back to the main PostHog app.
+
+                  Please ensure you update the charts repo:
+
+                  `charts/contour-ingress/templates/_helpers.tpl`
+
+                  to include your new path(s) in the `ingress.toolbar-hint-regex`.
+
+                  This way, users with misconfigured `ui_host` values or proxies will see a relevant error message instead of a generic 404.'
