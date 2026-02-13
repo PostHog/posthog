@@ -1,5 +1,5 @@
 import { taxonomicPropertyFilterLogic } from 'lib/components/PropertyFilters/components/taxonomicPropertyFilterLogic'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -181,5 +181,44 @@ describe('taxonomicPropertyFilterLogic', () => {
             logic.actions.selectItem(group, undefined)
             expect(setFilterSpy).not.toHaveBeenCalled()
         })
+    })
+
+    it('creates a complete property filter from a QuickFilterItem', async () => {
+        const setFilter = jest.fn()
+        const quickLogic = taxonomicPropertyFilterLogic({
+            filters: [],
+            setFilter,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            filterIndex: 0,
+            pageKey: 'testQuick',
+        })
+        quickLogic.mount()
+
+        const quickFiltersGroup = {
+            type: TaxonomicFilterGroupType.QuickFilters,
+            name: 'Quick filters',
+            searchPlaceholder: 'quick filters',
+        } as TaxonomicFilterGroup
+
+        const quickFilterItem = {
+            _type: 'quick_filter' as const,
+            name: 'Current URL containing "blog"',
+            filterValue: 'blog',
+            operator: PropertyOperator.IContains,
+            propertyKey: '$current_url',
+            propertyFilterType: PropertyFilterType.Event,
+            eventName: '$pageview',
+        }
+
+        quickLogic.actions.selectItem(quickFiltersGroup, undefined, undefined, quickFilterItem)
+
+        expect(setFilter).toHaveBeenCalledWith(0, {
+            key: '$current_url',
+            value: 'blog',
+            operator: PropertyOperator.IContains,
+            type: PropertyFilterType.Event,
+        })
+
+        quickLogic.unmount()
     })
 })

@@ -1,11 +1,13 @@
 import { actions, afterMount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
+import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from '~/lib/utils'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
@@ -20,6 +22,7 @@ import { EMPTY_JSON, coerceJsonToObject, isStringJsonObject, prettifyJson } from
 
 export interface DatasetLogicProps {
     datasetId: string | 'new'
+    tabId?: string
 }
 
 export enum DatasetTab {
@@ -56,7 +59,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
 
     props({ datasetId: 'new' } as DatasetLogicProps),
 
-    key(({ datasetId }) => `dataset-${datasetId}`),
+    key(({ datasetId, tabId }) => `dataset-${datasetId}::${tabId ?? 'default'}`),
 
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
@@ -200,6 +203,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                             description: formValues.description,
                             metadata: coerceJsonToObject(formValues.metadata),
                         })
+                        llmAnalyticsDatasetsLogic.findMounted()?.actions.loadDatasets(false)
 
                         lemonToast.success('Dataset created successfully')
                         router.actions.replace(urls.llmAnalyticsDataset(savedDataset.id))
@@ -375,7 +379,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.llmAnalyticsDataset(':id')]: (_, searchParams) => {
             if (
                 searchParams.tab &&
@@ -402,7 +406,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         closeModalAndRefetchDatasetItems: () => {
             const searchParams = router.values.searchParams
             const nextSearchParams = { ...searchParams, item: undefined }

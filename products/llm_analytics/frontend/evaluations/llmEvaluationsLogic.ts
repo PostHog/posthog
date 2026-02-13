@@ -1,8 +1,10 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -14,8 +16,14 @@ import { EvaluationConfig } from './types'
 const INITIAL_DATE_FROM = '-1h' as string | null
 const INITIAL_DATE_TO = null as string | null
 
+export interface LLMEvaluationsLogicProps {
+    tabId?: string
+}
+
 export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     path(['products', 'llm_analytics', 'evaluations', 'llmEvaluationsLogic']),
+    props({} as LLMEvaluationsLogicProps),
+    key((props) => props.tabId ?? 'default'),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
     })),
@@ -209,7 +217,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         ],
     }),
 
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.llmAnalyticsEvaluations()]: (_, searchParams) => {
             const dateFrom = (searchParams.date_from as string | null) || INITIAL_DATE_FROM
             const dateTo = (searchParams.date_to as string | null) || INITIAL_DATE_TO
@@ -220,7 +228,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         },
     })),
 
-    actionToUrl(() => ({
+    tabAwareActionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }) => [
             urls.llmAnalyticsEvaluations(),
             {

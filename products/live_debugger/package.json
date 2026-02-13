@@ -6,8 +6,8 @@
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",
-        "kea": "*",
-        "kea-loaders": "*",
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
         "react": "*",
         "react-dom": "*"
     },
