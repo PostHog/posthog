@@ -21,10 +21,9 @@
             const targetOrigin = "{{ target_origin|escapejs }}"
 
             if (openerWindow && !openerWindow.closed) {
-                // Security: restrict message delivery to the PostHog origin that
-                // initiated the popup, instead of broadcasting with "*".
-                // The opener is expected to validate `event.origin` and `type`
-                // before using this payload.
+                // Restrict postMessage to targetOrigin (the PostHog origin that opened
+                // this popup) so the payload is not sent to other origins. The opener
+                // must validate event.origin and event.data.type before using the payload.
                 openerWindow.postMessage(payload, targetOrigin)
                 window.close()
                 return

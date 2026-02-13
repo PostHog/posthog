@@ -863,7 +863,6 @@ def toolbar_oauth_start(request):
             application=oauth_app,
             state=signed_state,
             code_challenge=serializer.validated_data["code_challenge"],
-            code_challenge_method=serializer.validated_data.get("code_challenge_method", "S256"),
         )
     except ToolbarOAuthError as exc:
         return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
