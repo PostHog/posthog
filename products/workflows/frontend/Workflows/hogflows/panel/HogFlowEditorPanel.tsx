@@ -63,7 +63,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
         <div
             className={clsx(
                 'absolute flex flex-col m-0 p-2 overflow-hidden max-h-full right-0',
-                isPanelFullscreen ? 'inset-0 z-20 justify-stretch' : 'justify-end transition-[width]'
+                isPanelFullscreen ? 'inset-0 z-20' : 'justify-end transition-[width]'
             )}
             style={isPanelFullscreen ? undefined : { width }}
         >
