@@ -17,7 +17,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.permissions import APIScopePermission
 
 from products.signals.backend.api import emit_signal
 from products.signals.backend.models import SignalReport
@@ -70,17 +70,9 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
 
     serializer_class = SignalReportSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"  # Using task scope as signal_report doesn't have its own scope yet
     queryset = SignalReport.objects.all()
-    posthog_feature_flag = {
-        "product-autonomy": [
-            "list",
-            "retrieve",
-            "artefacts",
-            "analyze_sessions",
-        ]
-    }
 
     def safely_get_queryset(self, queryset):
         qs = (
