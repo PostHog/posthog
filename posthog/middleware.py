@@ -673,6 +673,30 @@ class Fix204Middleware:
         return response
 
 
+class ToolbarOAuthCoopMiddleware:
+    """
+    Override Cross-Origin-Opener-Policy for toolbar OAuth popup pages.
+
+    Django's SecurityMiddleware sets COOP to "same-origin" by default. This severs
+    window.opener when a cross-origin popup navigates to our OAuth pages — breaking
+    the postMessage flow that sends tokens back to the toolbar.
+
+    We set COOP to "unsafe-none" on the specific paths involved in the toolbar
+    OAuth popup flow so the opener reference is preserved.
+    """
+
+    _COOP_PATHS = ("/toolbar_oauth/", "/oauth/authorize")
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if any(request.path.startswith(p) for p in self._COOP_PATHS):
+            response["Cross-Origin-Opener-Policy"] = "unsafe-none"
+        return response
+
+
 class ActivityLoggingMiddleware:
     """
     Middleware that sets the current user and impersonation status in activity storage

@@ -799,6 +799,9 @@ export interface ToolbarParams {
     apiURL?: string
     token?: string /** public posthog-js token */
     temporaryToken?: string /** private temporary user token */
+    accessToken?: string /** OAuth access token (Bearer) */
+    refreshToken?: string /** OAuth refresh token */
+    clientId?: string /** OAuth client_id for token refresh */
     actionId?: number
     experimentId?: ExperimentIdType
     userIntent?: ToolbarUserIntent
@@ -4986,6 +4989,7 @@ export type APIScopeObject =
     | 'dataset'
     | 'desktop_recording'
     | 'early_access_feature'
+    | 'element'
     | 'endpoint'
     | 'error_tracking'
     | 'evaluation'
@@ -4997,6 +5001,7 @@ export type APIScopeObject =
     | 'feature_flag'
     | 'group'
     | 'health_issue'
+    | 'heatmap'
     | 'hog_function'
     | 'insight'
     | 'insight_variable'
@@ -5025,6 +5030,7 @@ export type APIScopeObject =
     | 'survey'
     | 'task'
     | 'ticket'
+    | 'uploaded_media'
     | 'user'
     | 'warehouse_table'
     | 'warehouse_view'
