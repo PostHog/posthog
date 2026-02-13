@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use kafka_deduplicator::kafka::{
+    config::ConsumerConfigBuilder,
     types::{Partition, PartitionOffset},
     watermark_consumer::WatermarkConsumer,
 };
@@ -131,11 +132,7 @@ async fn test_watermark_consumer_reads_to_high_watermark_then_closes() -> Result
     }
 
     let group_id = format!("watermark-consumer-{}", Uuid::now_v7());
-    let mut config = ClientConfig::new();
-    config
-        .set("bootstrap.servers", KAFKA_BROKERS)
-        .set("group.id", &group_id)
-        .set("socket.timeout.ms", "10000");
+    let config = ConsumerConfigBuilder::for_watermark_consumer(KAFKA_BROKERS, &group_id).build();
 
     let assignments: Vec<PartitionOffset> = partitions_to_use
         .iter()

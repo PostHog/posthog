@@ -22,7 +22,10 @@ use tracing::{info, warn};
 
 /// Low-level consumer that reads from assigned (topic, partition, offset) tuples
 /// until each partition reaches its high-watermark, then shuts down.
-/// No consumer group; outputs batches via a channel.
+/// No consumer group coordination; outputs batches via a channel.
+///
+/// Use `ConsumerConfigBuilder::for_watermark_consumer()` (or `Config::build_watermark_consumer_config()`)
+/// to create an appropriate `ClientConfig` for this consumer.
 pub struct WatermarkConsumer<T> {
     consumer: StreamConsumer,
     batch_size: usize,

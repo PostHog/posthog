@@ -1,4 +1,4 @@
-// Kafka module - batch consumption with rebalance handling
+// Kafka module - batch consumption with rebalance handling, and watermark (assign-only) consumption
 pub mod batch_consumer;
 pub mod batch_context;
 pub mod batch_message;
