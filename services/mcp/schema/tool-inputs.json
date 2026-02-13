@@ -675,6 +675,18 @@
             "required": ["eventName", "data"],
             "additionalProperties": false
         },
+        "ExecuteSQLSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The final SQL query to be executed."
+                }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+        },
         "ExperimentCreateSchema": {
             "type": "object",
             "properties": {
@@ -723,9 +735,53 @@
                                 "description": "For funnel metrics only: Array of event names for each funnel step (e.g., ['product_view', 'add_to_cart', 'checkout', 'purchase'])"
                             },
                             "properties": {
-                                "type": "object",
-                                "additionalProperties": {},
-                                "description": "Event properties to filter on"
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "anyOf": [
+                                                {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "operator": {
+                                            "type": "string"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["key"],
+                                    "additionalProperties": false
+                                },
+                                "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]"
                             },
                             "description": {
                                 "type": "string",
@@ -763,9 +819,53 @@
                                 "description": "For funnel metrics only: Array of event names for each funnel step"
                             },
                             "properties": {
-                                "type": "object",
-                                "additionalProperties": {},
-                                "description": "Event properties to filter on"
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "anyOf": [
+                                                {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "operator": {
+                                            "type": "string"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["key"],
+                                    "additionalProperties": false
+                                },
+                                "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]"
                             },
                             "description": {
                                 "type": "string",
@@ -924,9 +1024,53 @@
                                 "description": "For funnel metrics only: Array of event names for each funnel step"
                             },
                             "properties": {
-                                "type": "object",
-                                "additionalProperties": {},
-                                "description": "Event properties to filter on"
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "anyOf": [
+                                                {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "operator": {
+                                            "type": "string"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["key"],
+                                    "additionalProperties": false
+                                },
+                                "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]"
                             },
                             "description": {
                                 "type": "string",
@@ -964,9 +1108,53 @@
                                 "description": "For funnel metrics only: Array of event names"
                             },
                             "properties": {
-                                "type": "object",
-                                "additionalProperties": {},
-                                "description": "Event properties to filter on"
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "anyOf": [
+                                                {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "operator": {
+                                            "type": "string"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["key"],
+                                    "additionalProperties": false
+                                },
+                                "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]"
                             },
                             "description": {
                                 "type": "string",
@@ -1050,9 +1238,53 @@
                                         "description": "For funnel metrics only: Array of event names for each funnel step"
                                     },
                                     "properties": {
-                                        "type": "object",
-                                        "additionalProperties": {},
-                                        "description": "Event properties to filter on"
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "key": {
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "anyOf": [
+                                                        {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    }
+                                                                }
+                                                            ]
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
+                                                },
+                                                "operator": {
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["key"],
+                                            "additionalProperties": false
+                                        },
+                                        "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]"
                                     },
                                     "description": {
                                         "type": "string",
@@ -1090,9 +1322,53 @@
                                         "description": "For funnel metrics only: Array of event names"
                                     },
                                     "properties": {
-                                        "type": "object",
-                                        "additionalProperties": {},
-                                        "description": "Event properties to filter on"
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "key": {
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "anyOf": [
+                                                        {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    }
+                                                                }
+                                                            ]
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
+                                                },
+                                                "operator": {
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["key"],
+                                            "additionalProperties": false
+                                        },
+                                        "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]"
                                     },
                                     "description": {
                                         "type": "string",
@@ -1207,9 +1483,7 @@
                                                         "lt",
                                                         "lte",
                                                         "min",
-                                                        "max",
-                                                        "in",
-                                                        "not_in"
+                                                        "max"
                                                     ]
                                                 }
                                             },
@@ -1396,9 +1670,7 @@
                                                                 "lt",
                                                                 "lte",
                                                                 "min",
-                                                                "max",
-                                                                "in",
-                                                                "not_in"
+                                                                "max"
                                                             ]
                                                         }
                                                     },
@@ -3052,6 +3324,137 @@
             "required": ["query"],
             "additionalProperties": false
         },
+        "ReadDataSchemaSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "anyOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "type": "string",
+                                    "const": "events"
+                                }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "type": "string",
+                                    "const": "event_properties"
+                                },
+                                "event_name": {
+                                    "type": "string",
+                                    "description": "The name of the event that you want to retrieve properties for."
+                                }
+                            },
+                            "required": ["kind", "event_name"],
+                            "additionalProperties": false
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "type": "string",
+                                    "const": "entity_properties"
+                                },
+                                "entity": {
+                                    "type": "string",
+                                    "description": "The type of the entity that you want to retrieve properties for."
+                                }
+                            },
+                            "required": ["kind", "entity"],
+                            "additionalProperties": false
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "type": "string",
+                                    "const": "action_properties"
+                                },
+                                "action_id": {
+                                    "type": "integer",
+                                    "description": "The ID of the action that you want to retrieve properties for."
+                                }
+                            },
+                            "required": ["kind", "action_id"],
+                            "additionalProperties": false
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "type": "string",
+                                    "const": "entity_property_values"
+                                },
+                                "entity": {
+                                    "type": "string",
+                                    "description": "The type of the entity that you want to retrieve properties for."
+                                },
+                                "property_name": {
+                                    "type": "string",
+                                    "description": "Verified property name of an entity."
+                                }
+                            },
+                            "required": ["kind", "entity", "property_name"],
+                            "additionalProperties": false
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "type": "string",
+                                    "const": "event_property_values"
+                                },
+                                "event_name": {
+                                    "type": "string",
+                                    "description": "Verified event name"
+                                },
+                                "property_name": {
+                                    "type": "string",
+                                    "description": "Verified property name of an event."
+                                }
+                            },
+                            "required": ["kind", "event_name", "property_name"],
+                            "additionalProperties": false
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "type": "string",
+                                    "const": "action_property_values"
+                                },
+                                "action_id": {
+                                    "type": "integer",
+                                    "description": "Verified action ID"
+                                },
+                                "property_name": {
+                                    "type": "string",
+                                    "description": "Verified property name of an action."
+                                }
+                            },
+                            "required": ["kind", "action_id", "property_name"],
+                            "additionalProperties": false
+                        }
+                    ],
+                    "description": "The data schema query to execute."
+                }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+        },
+        "ReadDataWarehouseSchemaSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false,
+            "description": "No input required. Returns core data warehouse schemas."
+        },
         "SurveyCreateSchema": {
             "type": "object",
             "properties": {
@@ -3730,9 +4133,7 @@
                                                         "lt",
                                                         "lte",
                                                         "min",
-                                                        "max",
-                                                        "in",
-                                                        "not_in"
+                                                        "max"
                                                     ]
                                                 }
                                             },
@@ -4619,9 +5020,7 @@
                                                         "lt",
                                                         "lte",
                                                         "min",
-                                                        "max",
-                                                        "in",
-                                                        "not_in"
+                                                        "max"
                                                     ]
                                                 }
                                             },

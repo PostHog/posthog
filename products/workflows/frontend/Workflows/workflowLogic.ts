@@ -298,9 +298,15 @@ export const workflowLogic = kea<workflowLogicType>([
                             const emailTemplating = action.config.inputs?.email?.templating
 
                             const emailTemplateErrors: Partial<EmailTemplate> = {
-                                html: !emailValue?.html
-                                    ? 'HTML is required'
-                                    : getTemplatingError(emailValue?.html, emailTemplating),
+                                html:
+                                    !emailValue?.html && !emailValue?.text
+                                        ? 'HTML or plain text is required'
+                                        : emailValue?.html
+                                          ? getTemplatingError(emailValue?.html, emailTemplating)
+                                          : undefined,
+                                text: emailValue?.text
+                                    ? getTemplatingError(emailValue?.text, emailTemplating)
+                                    : undefined,
                                 subject: !emailValue?.subject
                                     ? 'Subject is required'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),

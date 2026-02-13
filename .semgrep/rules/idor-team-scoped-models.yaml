@@ -1,0 +1,811 @@
+# Metavariable conventions used in these rules:
+#   $METHOD — in sinks/lookups, matches queryset lookup methods; constrained by metavariable-regex to (get|filter|aget)
+#   $METHOD / $METHOD2 — in sanitizers/pattern-nots, matches any queryset method (get, filter, aget, exclude, etc.)
+#   . ... . (chain ellipsis) — matches zero or more intermediate calls (select_related, prefetch_related, only, defer, etc.)
+# The $METHOD regex is nested inside pattern-either so it only applies to patterns that bind $METHOD.
+# $GOC — in lookups, matches create-like methods; constrained by metavariable-regex to (get_or_create|update_or_create|aget_or_create).
+# In pattern-nots, $METHOD2 with `. ... .` (zero or more calls) covers all methods including
+# get_or_create and update_or_create, so no separate pattern-nots are needed for those.
+rules:
+    - id: idor-taint-user-input-to-model-get
+      mode: taint
+      languages: [python]
+      severity: ERROR
+      message: |
+          IDOR: User input flows to team-scoped model lookup without team filter.
+          Fix: Add team__project_id=team.project_id to the query.
+      pattern-sources:
+          - patterns:
+                - pattern-either:
+                      # Django request params
+                      - pattern: $REQ.GET.get(...)
+                      - pattern: $REQ.POST.get(...)
+                      - pattern: $REQ.GET[...]
+                      - pattern: $REQ.POST[...]
+                      - pattern: $REQ.data.get(...)
+                      - pattern: $REQ.data[...]
+                      - pattern: $REQ.query_params.get(...)
+                      - pattern: $REQ.query_params[...]
+                      # DRF serializer
+                      - pattern: $SER.validated_data.get(...)
+                      - pattern: $SER.validated_data[...]
+                      # URL kwargs (common in DRF)
+                      - pattern: kwargs.get(...)
+                      - pattern: kwargs[...]
+                      # self.kwargs in viewsets
+                      - pattern: self.kwargs.get(...)
+                      - pattern: self.kwargs[...]
+      pattern-sinks:
+          - patterns:
+                - pattern-either:
+                      - patterns:
+                            - pattern-either:
+                                  - pattern: $MODEL.objects. ... .$METHOD(pk=$SINK, ...)
+                                  - pattern: $MODEL.objects. ... .$METHOD(id=$SINK, ...)
+                                  - pattern: $MODEL.objects. ... .$METHOD(pk__in=$SINK, ...)
+                                  - pattern: $MODEL.objects. ... .$METHOD(id__in=$SINK, ...)
+                            - metavariable-regex:
+                                  metavariable: $METHOD
+                                  regex: ^(get|filter|aget)$
+                      # get_object_or_404
+                      - pattern: get_object_or_404($MODEL, pk=$SINK, ...)
+                      - pattern: get_object_or_404($MODEL, id=$SINK, ...)
+                - metavariable-regex:
+                      metavariable: $MODEL
+                      regex: |
+                          (?x)(
+                              AccessControl
+                              |Action
+                              |AgentArtifact
+                              |Alert
+                              |AlertConfiguration
+                              |Annotation
+                              |ApprovalPolicy
+                              |BatchExport
+                              |BatchExportBackfill
+                              |BatchImport
+                              |ChangeRequest
+                              |Cohort
+                              |Comment
+                              |Conversation
+                              |CoreMemory
+                              |CustomerJourney
+                              |CustomerProfileConfig
+                              |Dashboard
+                              |DashboardTemplate
+                              |DataColorTheme
+                              |DataModelingJob
+                              |Dataset
+                              |DatasetItem
+                              |DataWarehouseCredential
+                              |DataWarehouseJoin
+                              |DataWarehouseManagedViewSet
+                              |DataWarehouseModelPath
+                              |DataWarehouseSavedQuery
+                              |DataWarehouseSavedQueryDraft
+                              |DataWarehouseTable
+                              |DesktopRecording
+                              |EarlyAccessFeature
+                              |Edge
+                              |Endpoint
+                              |EnterpriseEventDefinition
+                              |EnterprisePropertyDefinition
+                              |ErrorTrackingAssignmentRule
+                              |ErrorTrackingAutoCaptureControls
+                              |ErrorTrackingGroupingRule
+                              |ErrorTrackingIssue
+                              |ErrorTrackingIssueFingerprintV2
+                              |ErrorTrackingRelease
+                              |ErrorTrackingStackFrame
+                              |ErrorTrackingSuppressionRule
+                              |ErrorTrackingSymbolSet
+                              |Evaluation
+                              |Experiment
+                              |ExperimentHoldout
+                              |ExperimentSavedMetric
+                              |ExportedAsset
+                              |ExportedRecording
+                              |ExternalDataJob
+                              |ExternalDataSchema
+                              |ExternalDataSource
+                              |FeatureFlag
+                              |FileSystem
+                              |HealthIssue
+                              |HogFlow
+                              |HogFlowBatchJob
+                              |HogFlowTemplate
+                              |HogFunction
+                              |Hook
+                              |Insight
+                              |InsightVariable
+                              |Integration
+                              |Link
+                              |LiveDebuggerBreakpoint
+                              |LLMModelConfiguration
+                              |LLMPrompt
+                              |LLMProviderKey
+                              |LLMTraceSummary
+                              |MarketingAnalyticsGoalMapping
+                              |MessageCategory
+                              |MessageRecipientPreference
+                              |MessageTemplate
+                              |Node
+                              |Notebook
+                              |PluginConfig
+                              |ProductTour
+                              |ProjectSecretAPIKey
+                              |QueryTabState
+                              |QuickFilter
+                              |QuickFilterContext
+                              |SandboxEnvironment
+                              |SavedHeatmap
+                              |ScheduledChange
+                              |SessionGroupSummary
+                              |SessionRecording
+                              |SessionRecordingPlaylist
+                              |SharingConfiguration
+                              |SignalReport
+                              |SignalReportArtefact
+                              |SingleSessionSummary
+                              |Subscription
+                              |Survey
+                              |SurveyResponseArchive
+                              |Tag
+                              |Task
+                              |TaskRun
+                              |Text
+                              |Threshold
+                              |Ticket
+                              |UploadedMedia
+                              |UserInterview
+                              |WebAnalyticsFilterPreset
+                          )$
+                - focus-metavariable: $SINK
+      pattern-sanitizers:
+          - pattern: $M.objects. ... .$METHOD(..., team__project_id=$T, ...)
+          - pattern: $M.objects. ... .$METHOD(..., effective_project_id=$T, ...)
+          - pattern: $M.objects. ... .$METHOD(..., team=$T, ...)
+          - pattern: $M.objects. ... .$METHOD(..., team_id=$T, ...)
+          # get_object_or_404
+          - pattern: get_object_or_404($M, ..., team__project_id=$T, ...)
+          - pattern: get_object_or_404($M, ..., effective_project_id=$T, ...)
+          - pattern: get_object_or_404($M, ..., team=$T, ...)
+          - pattern: get_object_or_404($M, ..., team_id=$T, ...)
+      metadata:
+          category: security
+          cwe: 'CWE-639: Authorization Bypass Through User-Controlled Key'
+          owasp: 'A01:2021 - Broken Access Control'
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/test*/**'
+              - '**/migrations/**'
+              - '**/management/**'
+              - '**/.semgrep/**'
+              - '**/admin/admins/**'
+
+    # Combined pattern rule: any lookup without team filter
+    - id: idor-lookup-without-team
+      patterns:
+          - pattern-either:
+                - patterns:
+                      - pattern-either:
+                            - pattern: $MODEL.objects. ... .$METHOD(pk=$ID, ...)
+                            - pattern: $MODEL.objects. ... .$METHOD(id=$ID, ...)
+                            - pattern: $MODEL.objects. ... .$METHOD(pk__in=$IDS, ...)
+                            - pattern: $MODEL.objects. ... .$METHOD(id__in=$IDS, ...)
+                      - metavariable-regex:
+                            metavariable: $METHOD
+                            regex: ^(get|filter|aget)$
+                # get_or_create / update_or_create
+                - patterns:
+                      - pattern: $MODEL.objects.$GOC(...)
+                      - metavariable-regex:
+                            metavariable: $GOC
+                            regex: ^(get_or_create|update_or_create|aget_or_create)$
+                # get_object_or_404
+                - pattern: get_object_or_404($MODEL, pk=$ID, ...)
+                - pattern: get_object_or_404($MODEL, id=$ID, ...)
+          - metavariable-regex:
+                metavariable: $MODEL
+                regex: |
+                    (?x)(
+                        AccessControl
+                        |Action
+                        |AgentArtifact
+                        |Alert
+                        |AlertConfiguration
+                        |Annotation
+                        |ApprovalPolicy
+                        |BatchExport
+                        |BatchExportBackfill
+                        |BatchImport
+                        |ChangeRequest
+                        |Cohort
+                        |Comment
+                        |Conversation
+                        |CoreMemory
+                        |CustomerJourney
+                        |CustomerProfileConfig
+                        |Dashboard
+                        |DashboardTemplate
+                        |DataColorTheme
+                        |DataModelingJob
+                        |Dataset
+                        |DatasetItem
+                        |DataWarehouseCredential
+                        |DataWarehouseJoin
+                        |DataWarehouseManagedViewSet
+                        |DataWarehouseModelPath
+                        |DataWarehouseSavedQuery
+                        |DataWarehouseSavedQueryDraft
+                        |DataWarehouseTable
+                        |DesktopRecording
+                        |EarlyAccessFeature
+                        |Edge
+                        |Endpoint
+                        |EnterpriseEventDefinition
+                        |EnterprisePropertyDefinition
+                        |ErrorTrackingAssignmentRule
+                        |ErrorTrackingAutoCaptureControls
+                        |ErrorTrackingGroupingRule
+                        |ErrorTrackingIssue
+                        |ErrorTrackingIssueFingerprintV2
+                        |ErrorTrackingRelease
+                        |ErrorTrackingStackFrame
+                        |ErrorTrackingSuppressionRule
+                        |ErrorTrackingSymbolSet
+                        |Evaluation
+                        |Experiment
+                        |ExperimentHoldout
+                        |ExperimentSavedMetric
+                        |ExportedAsset
+                        |ExportedRecording
+                        |ExternalDataJob
+                        |ExternalDataSchema
+                        |ExternalDataSource
+                        |FeatureFlag
+                        |FileSystem
+                        |HealthIssue
+                        |HogFlow
+                        |HogFlowBatchJob
+                        |HogFlowTemplate
+                        |HogFunction
+                        |Hook
+                        |Insight
+                        |InsightVariable
+                        |Integration
+                        |Link
+                        |LiveDebuggerBreakpoint
+                        |LLMModelConfiguration
+                        |LLMPrompt
+                        |LLMProviderKey
+                        |LLMTraceSummary
+                        |MarketingAnalyticsGoalMapping
+                        |MessageCategory
+                        |MessageRecipientPreference
+                        |MessageTemplate
+                        |Node
+                        |Notebook
+                        |PluginConfig
+                        |ProductTour
+                        |ProjectSecretAPIKey
+                        |QueryTabState
+                        |QuickFilter
+                        |QuickFilterContext
+                        |SandboxEnvironment
+                        |SavedHeatmap
+                        |ScheduledChange
+                        |SessionGroupSummary
+                        |SessionRecording
+                        |SessionRecordingPlaylist
+                        |SharingConfiguration
+                        |SignalReport
+                        |SignalReportArtefact
+                        |SingleSessionSummary
+                        |Subscription
+                        |Survey
+                        |SurveyResponseArchive
+                        |Tag
+                        |Task
+                        |TaskRun
+                        |Text
+                        |Threshold
+                        |Ticket
+                        |UploadedMedia
+                        |UserInterview
+                        |WebAnalyticsFilterPreset
+                    )$
+          # Exclude when team filter is present
+          - pattern-not: $M.objects. ... .$METHOD2(..., team__project_id=$T, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., effective_project_id=$T, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., team=$T, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., team_id=$T, ...)
+          # get_object_or_404
+          - pattern-not: get_object_or_404($M, ..., team__project_id=$T, ...)
+          - pattern-not: get_object_or_404($M, ..., effective_project_id=$T, ...)
+          - pattern-not: get_object_or_404($M, ..., team=$T, ...)
+          - pattern-not: get_object_or_404($M, ..., team_id=$T, ...)
+          # Refetching an existing instance by its pk/id attribute
+          - pattern-not: $M.objects. ... .$METHOD2(pk=$X.pk, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(pk=$X.id, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(id=$X.pk, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(id=$X.id, ...)
+      message: |
+          IDOR risk: Lookup on team-scoped model without team filter.
+          Fix: Add team_id=team_id or team__project_id=team.project_id to the query.
+      languages: [python]
+      severity: WARNING
+      metadata:
+          category: security
+          cwe: 'CWE-639: Authorization Bypass Through User-Controlled Key'
+          confidence: MEDIUM
+          subcategory: audit
+      paths:
+          exclude:
+              - '**/test*/**'
+              - '**/migrations/**'
+              - '**/management/**'
+              - '**/.semgrep/**'
+              - '**/tasks/**'
+              - '**/temporal/**'
+              - '**/dags/**'
+              - '**/models/**'
+              - '**/signals.py'
+              - '**/admin/admins/**'
+
+    # Organization-scoped model taint rule
+    - id: idor-taint-user-input-to-org-model
+      mode: taint
+      languages: [python]
+      severity: ERROR
+      message: |
+          IDOR: User input flows to organization-scoped model lookup without organization filter.
+          Fix: Add organization=organization or organization_id=organization_id to the query.
+          For RoleMembership, use role__organization= or role__organization_id=.
+      pattern-sources:
+          - patterns:
+                - pattern-either:
+                      - pattern: $REQ.GET.get(...)
+                      - pattern: $REQ.POST.get(...)
+                      - pattern: $REQ.GET[...]
+                      - pattern: $REQ.POST[...]
+                      - pattern: $REQ.data.get(...)
+                      - pattern: $REQ.data[...]
+                      - pattern: $REQ.query_params.get(...)
+                      - pattern: $REQ.query_params[...]
+                      - pattern: $SER.validated_data.get(...)
+                      - pattern: $SER.validated_data[...]
+                      - pattern: kwargs.get(...)
+                      - pattern: kwargs[...]
+                      - pattern: self.kwargs.get(...)
+                      - pattern: self.kwargs[...]
+      pattern-sinks:
+          - patterns:
+                - pattern-either:
+                      - patterns:
+                            - pattern-either:
+                                  - pattern: $MODEL.objects. ... .$METHOD(pk=$SINK, ...)
+                                  - pattern: $MODEL.objects. ... .$METHOD(id=$SINK, ...)
+                                  - pattern: $MODEL.objects. ... .$METHOD(pk__in=$SINK, ...)
+                                  - pattern: $MODEL.objects. ... .$METHOD(id__in=$SINK, ...)
+                            - metavariable-regex:
+                                  metavariable: $METHOD
+                                  regex: ^(get|filter|aget)$
+                      # get_object_or_404
+                      - pattern: get_object_or_404($MODEL, pk=$SINK, ...)
+                      - pattern: get_object_or_404($MODEL, id=$SINK, ...)
+                - metavariable-regex:
+                      metavariable: $MODEL
+                      regex: |
+                          (?x)(
+                              OrganizationMembership
+                              |OrganizationDomain
+                              |OrganizationIntegration
+                              |OrganizationInvite
+                              |Plugin
+                              |Project
+                              |ProxyRecord
+                              |Role
+                              |RoleMembership
+                          )$
+                - focus-metavariable: $SINK
+      pattern-sanitizers:
+          - pattern: $M.objects. ... .$METHOD(..., organization=$O, ...)
+          - pattern: $M.objects. ... .$METHOD(..., organization_id=$O, ...)
+          - pattern: $M.objects. ... .$METHOD(..., organization__id=$O, ...)
+          - pattern: $M.objects. ... .$METHOD(..., role__organization=$O, ...)
+          - pattern: $M.objects. ... .$METHOD(..., role__organization_id=$O, ...)
+          # get_object_or_404
+          - pattern: get_object_or_404($M, ..., organization=$O, ...)
+          - pattern: get_object_or_404($M, ..., organization_id=$O, ...)
+          - pattern: get_object_or_404($M, ..., organization__id=$O, ...)
+          - pattern: get_object_or_404($M, ..., role__organization=$O, ...)
+          - pattern: get_object_or_404($M, ..., role__organization_id=$O, ...)
+      metadata:
+          category: security
+          cwe: 'CWE-639: Authorization Bypass Through User-Controlled Key'
+          owasp: 'A01:2021 - Broken Access Control'
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/test*/**'
+              - '**/migrations/**'
+              - '**/management/**'
+              - '**/.semgrep/**'
+              - '**/admin/admins/**'
+
+    # Organization-scoped model lookup rule
+    - id: idor-lookup-without-org
+      patterns:
+          - pattern-either:
+                - patterns:
+                      - pattern-either:
+                            - pattern: $MODEL.objects. ... .$METHOD(pk=$ID, ...)
+                            - pattern: $MODEL.objects. ... .$METHOD(id=$ID, ...)
+                            - pattern: $MODEL.objects. ... .$METHOD(pk__in=$IDS, ...)
+                            - pattern: $MODEL.objects. ... .$METHOD(id__in=$IDS, ...)
+                      - metavariable-regex:
+                            metavariable: $METHOD
+                            regex: ^(get|filter|aget)$
+                - patterns:
+                      - pattern: $MODEL.objects.$GOC(...)
+                      - metavariable-regex:
+                            metavariable: $GOC
+                            regex: ^(get_or_create|update_or_create|aget_or_create)$
+                # get_object_or_404
+                - pattern: get_object_or_404($MODEL, pk=$ID, ...)
+                - pattern: get_object_or_404($MODEL, id=$ID, ...)
+          - metavariable-regex:
+                metavariable: $MODEL
+                regex: |
+                    (?x)(
+                        OrganizationMembership
+                        |OrganizationDomain
+                        |OrganizationIntegration
+                        |OrganizationInvite
+                        |Plugin
+                        |Project
+                        |ProxyRecord
+                        |Role
+                        |RoleMembership
+                    )$
+          - pattern-not: $M.objects. ... .$METHOD2(..., organization=$O, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., organization_id=$O, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., organization__id=$O, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., role__organization=$O, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., role__organization_id=$O, ...)
+          # get_object_or_404
+          - pattern-not: get_object_or_404($M, ..., organization=$O, ...)
+          - pattern-not: get_object_or_404($M, ..., organization_id=$O, ...)
+          - pattern-not: get_object_or_404($M, ..., organization__id=$O, ...)
+          - pattern-not: get_object_or_404($M, ..., role__organization=$O, ...)
+          - pattern-not: get_object_or_404($M, ..., role__organization_id=$O, ...)
+          # Refetching an existing instance by its pk/id attribute
+          - pattern-not: $M.objects. ... .$METHOD2(pk=$X.pk, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(pk=$X.id, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(id=$X.pk, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(id=$X.id, ...)
+      message: |
+          IDOR risk: Lookup on organization-scoped model without organization filter.
+          Fix: Add organization_id=organization_id or organization=organization to the query.
+          For RoleMembership, use role__organization= or role__organization_id=.
+      languages: [python]
+      severity: WARNING
+      metadata:
+          category: security
+          cwe: 'CWE-639: Authorization Bypass Through User-Controlled Key'
+          confidence: MEDIUM
+          subcategory: audit
+      paths:
+          exclude:
+              - '**/test*/**'
+              - '**/migrations/**'
+              - '**/management/**'
+              - '**/.semgrep/**'
+              - '**/tasks/**'
+              - '**/temporal/**'
+              - '**/dags/**'
+              - '**/models/**'
+              - '**/signals.py'
+              - '**/admin/admins/**'
+
+    # User-scoped model taint rule
+    - id: idor-taint-user-input-to-user-model
+      mode: taint
+      languages: [python]
+      severity: ERROR
+      message: |
+          IDOR: User input flows to user-scoped model lookup without user filter.
+          Fix: Add user=user or user_id=user_id to the query.
+      pattern-sources:
+          - patterns:
+                - pattern-either:
+                      - pattern: $REQ.GET.get(...)
+                      - pattern: $REQ.POST.get(...)
+                      - pattern: $REQ.GET[...]
+                      - pattern: $REQ.POST[...]
+                      - pattern: $REQ.data.get(...)
+                      - pattern: $REQ.data[...]
+                      - pattern: $REQ.query_params.get(...)
+                      - pattern: $REQ.query_params[...]
+                      - pattern: $SER.validated_data.get(...)
+                      - pattern: $SER.validated_data[...]
+                      - pattern: kwargs.get(...)
+                      - pattern: kwargs[...]
+                      - pattern: self.kwargs.get(...)
+                      - pattern: self.kwargs[...]
+      pattern-sinks:
+          - patterns:
+                - pattern-either:
+                      - patterns:
+                            - pattern-either:
+                                  - pattern: $MODEL.objects. ... .$METHOD(pk=$SINK, ...)
+                                  - pattern: $MODEL.objects. ... .$METHOD(id=$SINK, ...)
+                                  - pattern: $MODEL.objects. ... .$METHOD(pk__in=$SINK, ...)
+                                  - pattern: $MODEL.objects. ... .$METHOD(id__in=$SINK, ...)
+                            - metavariable-regex:
+                                  metavariable: $METHOD
+                                  regex: ^(get|filter|aget)$
+                      # get_object_or_404
+                      - pattern: get_object_or_404($MODEL, pk=$SINK, ...)
+                      - pattern: get_object_or_404($MODEL, id=$SINK, ...)
+                - metavariable-regex:
+                      metavariable: $MODEL
+                      regex: |
+                          (?x)(
+                              DashboardPrivilege
+                              |PersonalAPIKey
+                              |WebauthnCredential
+                          )$
+                - focus-metavariable: $SINK
+      pattern-sanitizers:
+          - pattern: $M.objects. ... .$METHOD(..., user=$U, ...)
+          - pattern: $M.objects. ... .$METHOD(..., user_id=$U, ...)
+          # get_object_or_404
+          - pattern: get_object_or_404($M, ..., user=$U, ...)
+          - pattern: get_object_or_404($M, ..., user_id=$U, ...)
+      metadata:
+          category: security
+          cwe: 'CWE-639: Authorization Bypass Through User-Controlled Key'
+          owasp: 'A01:2021 - Broken Access Control'
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/test*/**'
+              - '**/migrations/**'
+              - '**/management/**'
+              - '**/.semgrep/**'
+              - '**/admin/admins/**'
+
+    # User-scoped model lookup rule
+    - id: idor-lookup-without-user
+      patterns:
+          - pattern-either:
+                - patterns:
+                      - pattern-either:
+                            - pattern: $MODEL.objects. ... .$METHOD(pk=$ID, ...)
+                            - pattern: $MODEL.objects. ... .$METHOD(id=$ID, ...)
+                            - pattern: $MODEL.objects. ... .$METHOD(pk__in=$IDS, ...)
+                            - pattern: $MODEL.objects. ... .$METHOD(id__in=$IDS, ...)
+                      - metavariable-regex:
+                            metavariable: $METHOD
+                            regex: ^(get|filter|aget)$
+                - patterns:
+                      - pattern: $MODEL.objects.$GOC(...)
+                      - metavariable-regex:
+                            metavariable: $GOC
+                            regex: ^(get_or_create|update_or_create|aget_or_create)$
+                # get_object_or_404
+                - pattern: get_object_or_404($MODEL, pk=$ID, ...)
+                - pattern: get_object_or_404($MODEL, id=$ID, ...)
+          - metavariable-regex:
+                metavariable: $MODEL
+                regex: |
+                    (?x)(
+                        DashboardPrivilege
+                        |PersonalAPIKey
+                        |WebauthnCredential
+                    )$
+          - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., user_id=$U, ...)
+          # get_object_or_404
+          - pattern-not: get_object_or_404($M, ..., user=$U, ...)
+          - pattern-not: get_object_or_404($M, ..., user_id=$U, ...)
+          # Refetching an existing instance by its pk/id attribute
+          - pattern-not: $M.objects. ... .$METHOD2(pk=$X.pk, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(pk=$X.id, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(id=$X.pk, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(id=$X.id, ...)
+      message: |
+          IDOR risk: Lookup on user-scoped model without user filter.
+          Fix: Add user_id=user_id or user=user to the query.
+      languages: [python]
+      severity: WARNING
+      metadata:
+          category: security
+          cwe: 'CWE-639: Authorization Bypass Through User-Controlled Key'
+          confidence: MEDIUM
+          subcategory: audit
+      paths:
+          exclude:
+              - '**/test*/**'
+              - '**/migrations/**'
+              - '**/management/**'
+              - '**/.semgrep/**'
+              - '**/tasks/**'
+              - '**/temporal/**'
+              - '**/dags/**'
+              - '**/models/**'
+              - '**/signals.py'
+              - '**/admin/admins/**'
+
+    # Composite user+team scoped model taint rule
+    - id: idor-taint-user-input-to-user-team-model
+      mode: taint
+      languages: [python]
+      severity: ERROR
+      message: |
+          IDOR: User input flows to user+team-scoped model lookup without both filters.
+          Fix: Add BOTH user= (or user_id=) AND team= (or team_id=) to the query.
+      pattern-sources:
+          - patterns:
+                - pattern-either:
+                      - pattern: $REQ.GET.get(...)
+                      - pattern: $REQ.POST.get(...)
+                      - pattern: $REQ.GET[...]
+                      - pattern: $REQ.POST[...]
+                      - pattern: $REQ.data.get(...)
+                      - pattern: $REQ.data[...]
+                      - pattern: $REQ.query_params.get(...)
+                      - pattern: $REQ.query_params[...]
+                      - pattern: $SER.validated_data.get(...)
+                      - pattern: $SER.validated_data[...]
+                      - pattern: kwargs.get(...)
+                      - pattern: kwargs[...]
+                      - pattern: self.kwargs.get(...)
+                      - pattern: self.kwargs[...]
+      pattern-sinks:
+          - patterns:
+                - pattern-either:
+                      - patterns:
+                            - pattern-either:
+                                  - pattern: $MODEL.objects. ... .$METHOD(pk=$SINK, ...)
+                                  - pattern: $MODEL.objects. ... .$METHOD(id=$SINK, ...)
+                                  - pattern: $MODEL.objects. ... .$METHOD(pk__in=$SINK, ...)
+                                  - pattern: $MODEL.objects. ... .$METHOD(id__in=$SINK, ...)
+                            - metavariable-regex:
+                                  metavariable: $METHOD
+                                  regex: ^(get|filter|aget)$
+                      # get_object_or_404
+                      - pattern: get_object_or_404($MODEL, pk=$SINK, ...)
+                      - pattern: get_object_or_404($MODEL, id=$SINK, ...)
+                - metavariable-regex:
+                      metavariable: $MODEL
+                      regex: |
+                          (?x)(
+                              AgentMemory
+                              |FileSystemShortcut
+                              |FileSystemViewLog
+                              |InsightViewed
+                              |KernelRuntime
+                              |PersistedFolder
+                              |SessionRecordingViewed
+                              |UserHomeSettings
+                              |UserProductList
+                              |UserScenePersonalisation
+                          )$
+                - focus-metavariable: $SINK
+      pattern-sanitizers:
+          # Must have BOTH user AND team filters (all orderings)
+          - pattern: $M.objects. ... .$METHOD(..., user=$U, ..., team=$T, ...)
+          - pattern: $M.objects. ... .$METHOD(..., user=$U, ..., team_id=$T, ...)
+          - pattern: $M.objects. ... .$METHOD(..., user_id=$U, ..., team=$T, ...)
+          - pattern: $M.objects. ... .$METHOD(..., user_id=$U, ..., team_id=$T, ...)
+          - pattern: $M.objects. ... .$METHOD(..., team=$T, ..., user=$U, ...)
+          - pattern: $M.objects. ... .$METHOD(..., team=$T, ..., user_id=$U, ...)
+          - pattern: $M.objects. ... .$METHOD(..., team_id=$T, ..., user=$U, ...)
+          - pattern: $M.objects. ... .$METHOD(..., team_id=$T, ..., user_id=$U, ...)
+          # get_object_or_404
+          - pattern: get_object_or_404($M, ..., user=$U, ..., team=$T, ...)
+          - pattern: get_object_or_404($M, ..., user=$U, ..., team_id=$T, ...)
+          - pattern: get_object_or_404($M, ..., user_id=$U, ..., team=$T, ...)
+          - pattern: get_object_or_404($M, ..., user_id=$U, ..., team_id=$T, ...)
+          - pattern: get_object_or_404($M, ..., team=$T, ..., user=$U, ...)
+          - pattern: get_object_or_404($M, ..., team=$T, ..., user_id=$U, ...)
+          - pattern: get_object_or_404($M, ..., team_id=$T, ..., user=$U, ...)
+          - pattern: get_object_or_404($M, ..., team_id=$T, ..., user_id=$U, ...)
+      metadata:
+          category: security
+          cwe: 'CWE-639: Authorization Bypass Through User-Controlled Key'
+          owasp: 'A01:2021 - Broken Access Control'
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/test*/**'
+              - '**/migrations/**'
+              - '**/management/**'
+              - '**/.semgrep/**'
+              - '**/admin/admins/**'
+
+    # Composite user+team scoped model lookup rule
+    - id: idor-lookup-without-user-and-team
+      patterns:
+          - pattern-either:
+                - patterns:
+                      - pattern-either:
+                            - pattern: $MODEL.objects. ... .$METHOD(pk=$ID, ...)
+                            - pattern: $MODEL.objects. ... .$METHOD(id=$ID, ...)
+                            - pattern: $MODEL.objects. ... .$METHOD(pk__in=$IDS, ...)
+                            - pattern: $MODEL.objects. ... .$METHOD(id__in=$IDS, ...)
+                      - metavariable-regex:
+                            metavariable: $METHOD
+                            regex: ^(get|filter|aget)$
+                - patterns:
+                      - pattern: $MODEL.objects.$GOC(...)
+                      - metavariable-regex:
+                            metavariable: $GOC
+                            regex: ^(get_or_create|update_or_create|aget_or_create)$
+                # get_object_or_404
+                - pattern: get_object_or_404($MODEL, pk=$ID, ...)
+                - pattern: get_object_or_404($MODEL, id=$ID, ...)
+          - metavariable-regex:
+                metavariable: $MODEL
+                regex: |
+                    (?x)(
+                        AgentMemory
+                        |FileSystemShortcut
+                        |FileSystemViewLog
+                        |InsightViewed
+                        |KernelRuntime
+                        |PersistedFolder
+                        |SessionRecordingViewed
+                        |UserHomeSettings
+                        |UserProductList
+                        |UserScenePersonalisation
+                    )$
+          # Exclude when BOTH user AND team filters are present
+          - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ..., team=$T, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ..., team_id=$T, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., user_id=$U, ..., team=$T, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., user_id=$U, ..., team_id=$T, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., team=$T, ..., user=$U, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., team=$T, ..., user_id=$U, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., team_id=$T, ..., user=$U, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., team_id=$T, ..., user_id=$U, ...)
+          # get_object_or_404
+          - pattern-not: get_object_or_404($M, ..., user=$U, ..., team=$T, ...)
+          - pattern-not: get_object_or_404($M, ..., user=$U, ..., team_id=$T, ...)
+          - pattern-not: get_object_or_404($M, ..., user_id=$U, ..., team=$T, ...)
+          - pattern-not: get_object_or_404($M, ..., user_id=$U, ..., team_id=$T, ...)
+          - pattern-not: get_object_or_404($M, ..., team=$T, ..., user=$U, ...)
+          - pattern-not: get_object_or_404($M, ..., team=$T, ..., user_id=$U, ...)
+          - pattern-not: get_object_or_404($M, ..., team_id=$T, ..., user=$U, ...)
+          - pattern-not: get_object_or_404($M, ..., team_id=$T, ..., user_id=$U, ...)
+          # Refetching an existing instance by its pk/id attribute
+          - pattern-not: $M.objects. ... .$METHOD2(pk=$X.pk, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(pk=$X.id, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(id=$X.pk, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(id=$X.id, ...)
+      message: |
+          IDOR risk: Lookup on user+team-scoped model without BOTH user AND team filters.
+          Fix: Add BOTH user_id= (or user=) AND team_id= (or team=) to the query.
+      languages: [python]
+      severity: WARNING
+      metadata:
+          category: security
+          cwe: 'CWE-639: Authorization Bypass Through User-Controlled Key'
+          confidence: MEDIUM
+          subcategory: audit
+      paths:
+          exclude:
+              - '**/test*/**'
+              - '**/migrations/**'
+              - '**/management/**'
+              - '**/.semgrep/**'
+              - '**/tasks/**'
+              - '**/temporal/**'
+              - '**/dags/**'
+              - '**/models/**'
+              - '**/signals.py'
+              - '**/admin/admins/**'

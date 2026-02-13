@@ -11,7 +11,6 @@ from posthog.schema import (
     IntervalType,
     LLMTrace,
     LLMTraceEvent,
-    LLMTracePerson,
     NodeKind,
     TraceQuery,
     TraceQueryResponse,
@@ -89,12 +88,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                 properties.$ai_trace_id AS id,
                 any(properties.$ai_session_id) AS ai_session_id,
                 min(timestamp) AS first_timestamp,
-                tuple(
-                    argMin(person.id, timestamp),
-                    argMin(distinct_id, timestamp),
-                    argMin(person.created_at, timestamp),
-                    argMin(person.properties, timestamp)
-                ) AS first_person,
+                argMin(distinct_id, timestamp) AS first_distinct_id,
                 round(
                     CASE
                         -- If all events with latency are generations, sum them all
@@ -172,7 +166,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 2,
+            "schema_version": 3,
         }
 
     @cached_property
@@ -202,7 +196,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             "id": "id",
             "ai_session_id": "aiSessionId",
             "created_at": "createdAt",
-            "person": "person",
+            "first_distinct_id": "distinctId",
             "total_latency": "totalLatency",
             "input_state_parsed": "inputState",
             "output_state_parsed": "outputState",
@@ -222,7 +216,6 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         trace_dict = {
             **result,
             "created_at": created_at.isoformat(),
-            "person": self._map_person(result["first_person"]),
             "events": generations,
         }
         try:
@@ -249,15 +242,6 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             "properties": orjson.loads(event_properties),
         }
         return LLMTraceEvent.model_validate(generation)
-
-    def _map_person(self, person: tuple[UUID, UUID, datetime, str]) -> LLMTracePerson:
-        uuid, distinct_id, created_at, properties = person
-        return LLMTracePerson(
-            uuid=str(uuid),
-            distinct_id=str(distinct_id),
-            created_at=created_at.isoformat(),
-            properties=orjson.loads(properties) if properties else {},
-        )
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:

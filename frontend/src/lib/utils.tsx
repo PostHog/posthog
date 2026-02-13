@@ -1159,8 +1159,9 @@ export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs):
 }
 
 /** Returns the start of the current week, respecting the team's week start day (0=Sunday, 1=Monday). */
-function startOfWeek(date: dayjs.Dayjs, weekStartDay: number = 0): dayjs.Dayjs {
-    return date.subtract((date.day() - weekStartDay + 7) % 7, 'day').startOf('day')
+function startOfWeek(date: dayjs.Dayjs, weekStartDay?: number | null): dayjs.Dayjs {
+    const start = weekStartDay === 1 ? 1 : 0
+    return date.subtract((date.day() - start + 7) % 7, 'day').startOf('day')
 }
 
 export const dateMapping: DateMappingOption[] = [
@@ -1307,7 +1308,11 @@ export function dateFilterToText(
             return formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
         }
         if (dateFrom?.includes('T') || dateTo?.includes('T')) {
-            return formatDateTimeRange(dayjs(dateFrom, 'YYYY-MM-DD HH:mm'), dayjs(dateTo, 'YYYY-MM-DD HH:mm'))
+            // Parse each date individually - ISO 8601 datetimes (with T) use native parsing
+            // to correctly handle seconds/milliseconds, plain dates use 'YYYY-MM-DD'
+            const parsedFrom = dateFrom?.includes('T') ? dayjs(dateFrom) : dayjs(dateFrom, 'YYYY-MM-DD')
+            const parsedTo = dateTo?.includes('T') ? dayjs(dateTo) : dayjs(dateTo, 'YYYY-MM-DD')
+            return formatDateTimeRange(parsedFrom, parsedTo)
         }
         return `${dateFrom} - ${dateTo}`
     }
@@ -2469,13 +2474,19 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
     }
 }
 
-export const formatPercentage = (x: number, options?: { precise?: boolean }): string => {
+export const formatPercentage = (x: number, options?: { precise?: boolean; compact?: boolean }): string => {
+    let result: string
     if (options?.precise) {
-        return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
+        result = (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
     } else if (x >= 1000) {
-        return humanFriendlyLargeNumber(x) + '%'
+        result = humanFriendlyLargeNumber(x) + '%'
+    } else {
+        result = (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
     }
-    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
+    if (options?.compact) {
+        result = result.replace(/\s+%/, '%')
+    }
+    return result
 }
 
 /**
