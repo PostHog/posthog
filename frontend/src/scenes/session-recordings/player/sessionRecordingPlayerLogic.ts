@@ -1342,7 +1342,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlayer: ({ player }) => {
             if (player) {
                 if (values.currentTimestamp !== undefined) {
-                    actions.seekToTimestamp(values.currentTimestamp)
+                    // Preserve play intent so autoPlay works when the player initializes after data loads
+                    const shouldPlay = values.playingState === SessionPlayerState.PLAY
+                    actions.seekToTimestamp(values.currentTimestamp, shouldPlay)
                 }
                 actions.syncPlayerSpeed()
                 // Ensure we respect the persisted playing state when the player is reinitialized
