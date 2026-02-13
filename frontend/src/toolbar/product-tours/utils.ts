@@ -26,15 +26,14 @@ function screenshotFilter(node: Node): boolean {
 /**
  * Capture a screenshot of the current page using modern-screenshot.
  * No user prompt required - captures DOM directly.
- * Returns base64-encoded JPEG without the data URL prefix.
+ * Returns a data URL (data:image/jpeg;base64,...) for the entire page.
  */
 export async function captureScreenshot(): Promise<string> {
-    const dataUrl = await domToJpeg(document.body, {
+    return await domToJpeg(document.documentElement, {
         quality: 0.7,
         scale: 0.5, // Reduce size for faster upload
         filter: screenshotFilter,
     })
-    return dataUrl.split(',')[1]
 }
 
 /**

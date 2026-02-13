@@ -3,9 +3,9 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
+import { captureScreenshot } from '~/toolbar/product-tours/utils'
 import { toolbarConfigLogic, toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { captureScreenshot } from '~/toolbar/utils/screenshot'
 import { EventDefinition } from '~/types'
 
 import type { screenshotUploadLogicType } from './screenshotUploadLogicType'
@@ -23,14 +23,14 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
         selectEvent: (definition: EventDefinition) => ({ definition }),
         setShowSuggestions: (show: boolean) => ({ show }),
         takeScreenshot: true,
-        openModal: (screenshot: Blob) => ({ screenshot }),
+        openModal: (screenshot: string) => ({ screenshot }),
         closeModal: true,
     }),
 
     reducers({
         isTakingScreenshot: [false, { takeScreenshot: () => true, openModal: () => false }],
         isModalOpen: [false, { openModal: () => true, closeModal: () => false }],
-        screenshot: [null as Blob | null, { openModal: (_, { screenshot }) => screenshot, closeModal: () => null }],
+        screenshot: [null as string | null, { openModal: (_, { screenshot }) => screenshot, closeModal: () => null }],
         eventName: [
             '',
             {
@@ -67,7 +67,7 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
                     }
                     await breakpoint(300)
                     const response = await toolbarFetch(
-                        `/api/projects/@current/event_definitions/?search=${encodeURIComponent(query)}&limit=20`
+                        `/api/projects/@current/event_definitions/?search=${encodeURIComponent(query)}&limit=20&event_type=event_custom`
                     )
 
                     if (response.status === 403) {
@@ -91,12 +91,14 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
                         return null
                     }
 
+                    const resp = await fetch(screenshot)
+                    const blob = await resp.blob()
                     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-                    const file = new File([screenshot], `screenshot-${timestamp}.png`, { type: 'image/png' })
+                    const file = new File([blob], `screenshot-${timestamp}.jpg`, { type: 'image/jpeg' })
                     const uploaded = await toolbarUploadMedia(file)
                     breakpoint()
 
-                    await toolbarFetch('/api/projects/@current/object_media_previews', 'POST', {
+                    await toolbarFetch('/api/projects/@current/object_media_previews/', 'POST', {
                         uploaded_media_id: uploaded.id,
                         event_definition_id: selectedDefinition.id,
                     })
@@ -109,18 +111,13 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
     }),
 
     selectors({
-        previewUrl: [
-            (s) => [s.screenshot],
-            (screenshot): string | null => (screenshot ? URL.createObjectURL(screenshot) : null),
-        ],
+        previewUrl: [(s) => [s.screenshot], (screenshot): string | null => screenshot],
     }),
 
     listeners(({ actions, props }) => ({
         takeScreenshot: async () => {
-            const blob = await captureScreenshot()
-            if (blob) {
-                actions.openModal(blob)
-            }
+            const base64 = await captureScreenshot()
+            actions.openModal(base64)
         },
         setEventName: ({ name }) => {
             actions.setShowSuggestions(name.length > 0)

@@ -4,6 +4,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import TemporaryTokenAuthentication
 from posthog.models import EventDefinition, ObjectMediaPreview, UploadedMedia
 
 
@@ -93,6 +94,7 @@ class ObjectMediaPreviewViewSet(
     scope_object = "event_definition"
     serializer_class = ObjectMediaPreviewSerializer
     queryset = ObjectMediaPreview.objects.all()
+    authentication_classes = [TemporaryTokenAuthentication]
 
     def safely_get_queryset(self, queryset):
         # Filter by event_definition if provided
