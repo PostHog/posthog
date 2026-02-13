@@ -76,6 +76,9 @@ pub const WATERMARK_CONSUMER_PARTITIONS_COMPLETED: &str =
     "kafka_watermark_consumer_partitions_completed_total";
 /// rdkafka consumption errors received by the watermark consumer
 pub const WATERMARK_CONSUMER_KAFKA_ERROR: &str = "kafka_watermark_consumer_kafka_error";
+/// Messages received from partitions not in the original assignment
+pub const WATERMARK_CONSUMER_UNEXPECTED_PARTITION: &str =
+    "kafka_watermark_consumer_unexpected_partition_total";
 
 // ==== Partition Worker metrics ====
 /// Counter for partition worker channel backpressure events

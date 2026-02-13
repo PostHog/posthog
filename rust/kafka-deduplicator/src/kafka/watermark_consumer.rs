@@ -5,7 +5,7 @@ use crate::kafka::batch_message::{Batch, BatchError, KafkaMessage};
 use crate::kafka::error_handling;
 use crate::kafka::metrics_consts::{
     WATERMARK_CONSUMER_KAFKA_ERROR, WATERMARK_CONSUMER_MESSAGES_RECEIVED,
-    WATERMARK_CONSUMER_PARTITIONS_COMPLETED,
+    WATERMARK_CONSUMER_PARTITIONS_COMPLETED, WATERMARK_CONSUMER_UNEXPECTED_PARTITION,
 };
 use crate::kafka::types::{Partition, PartitionOffset};
 
@@ -149,14 +149,27 @@ where
                                 );
                                 match KafkaMessage::<T>::from_borrowed_message(&borrowed_message) {
                                     Ok(kafka_message) => {
-                                        batch.push_message(kafka_message);
                                         kafka_error_count = 0;
                                         let offset = borrowed_message.offset();
-                                        let target = self.partition_targets.get(&partition).copied().unwrap_or(0);
-                                        if target > 0 && offset >= target - 1 {
-                                            self.completed_partitions.insert(partition);
-                                            metrics::counter!(WATERMARK_CONSUMER_PARTITIONS_COMPLETED)
-                                                .increment(1);
+                                        match self.partition_targets.get(&partition) {
+                                            Some(&target) => {
+                                                batch.push_message(kafka_message);
+                                                if target > 0 && offset >= target - 1 {
+                                                    self.completed_partitions.insert(partition);
+                                                    metrics::counter!(WATERMARK_CONSUMER_PARTITIONS_COMPLETED)
+                                                        .increment(1);
+                                                }
+                                            }
+                                            None => {
+                                                // Drop message from unassigned partition
+                                                warn!(
+                                                    partition = %partition,
+                                                    offset = offset,
+                                                    "Dropping message from unexpected partition not in assignment"
+                                                );
+                                                metrics::counter!(WATERMARK_CONSUMER_UNEXPECTED_PARTITION)
+                                                    .increment(1);
+                                            }
                                         }
                                     }
                                     Err(e) => {
@@ -233,12 +246,21 @@ mod tests {
 
     #[test]
     fn test_partition_done_after_message() {
+        // hwm == 0: never "done" regardless of offset (empty partition guard)
         assert!(!partition_done_after_message(0, 0));
+        assert!(!partition_done_after_message(5, 0));
+
+        // hwm == 1: only offset 0 (the single message) completes it
         assert!(partition_done_after_message(0, 1));
-        assert!(partition_done_after_message(0, 1));
+
+        // hwm == 2: offset must be >= 1
         assert!(!partition_done_after_message(0, 2));
         assert!(partition_done_after_message(1, 2));
+
+        // offset past hwm-1 still counts as done
         assert!(partition_done_after_message(2, 2));
+
+        // larger values: exact boundary and one short
         assert!(partition_done_after_message(99, 100));
         assert!(!partition_done_after_message(98, 100));
     }
