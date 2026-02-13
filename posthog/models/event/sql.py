@@ -312,7 +312,7 @@ def EVENTS_RECENT_TABLE_SQL(on_cluster=True):
         engine=Distributed(
             data_table=SHARDED_EVENTS_RECENT_DATA_TABLE(),
             sharding_key="sipHash64(distinct_id)",
-            cluster=settings.CLICKHOUSE_PRIMARY_REPLICA,
+            cluster=settings.CLICKHOUSE_PRIMARY_REPLICA_CLUSTER,
         ),
         extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
         dynamically_materialized_columns="",
@@ -328,7 +328,7 @@ def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
         engine=Distributed(
             data_table=SHARDED_EVENTS_RECENT_DATA_TABLE(),
             sharding_key="sipHash64(distinct_id)",
-            cluster=settings.CLICKHOUSE_PRIMARY_REPLICA,
+            cluster=settings.CLICKHOUSE_PRIMARY_REPLICA_CLUSTER,
         ),
         extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
         dynamically_materialized_columns="",
