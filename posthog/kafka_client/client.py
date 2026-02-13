@@ -341,13 +341,13 @@ _WarpStreamKafkaProducer = SingletonDecorator(_KafkaProducer)
 
 
 def get_warpstream_kafka_producer(
-    kafka_hosts: Optional[list[str] | str] = None,
-    kafka_security_protocol: Optional[str] = None,
+    kafka_hosts: list[str] | str,
+    kafka_security_protocol: str,
 ) -> _KafkaProducer:
     """Get a singleton Kafka producer configured for WarpStream/warehouse pipelines."""
     return _WarpStreamKafkaProducer(
-        kafka_hosts=kafka_hosts or settings.KAFKA_CYCLOTRON_WARPSTREAM_HOSTS,
-        kafka_security_protocol=kafka_security_protocol or settings.KAFKA_CYCLOTRON_WARPSTREAM_PROTOCOL,
+        kafka_hosts=kafka_hosts,
+        kafka_security_protocol=kafka_security_protocol,
     )
 
 

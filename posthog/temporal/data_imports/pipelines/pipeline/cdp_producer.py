@@ -132,7 +132,10 @@ class CDPProducer:
         )
 
     def _get_kafka_producer(self) -> _KafkaProducer:
-        return get_warpstream_kafka_producer()
+        return get_warpstream_kafka_producer(
+            kafka_hosts=settings.KAFKA_CYCLOTRON_WARPSTREAM_HOSTS,
+            kafka_security_protocol=settings.KAFKA_CYCLOTRON_WARPSTREAM_PROTOCOL or "PLAINTEXT",
+        )
 
     async def produce_to_kafka_from_s3(self) -> None:
         fs = self._get_fs()
