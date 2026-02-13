@@ -574,30 +574,26 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (filter === 'all') {
                     return runs
                 }
+                // Only consider completed runs for filtering
+                const completedRuns = runs.filter((r) => r.status === 'completed')
                 if (filter === 'pass') {
-                    return runs.filter((r) => r.status === 'completed' && r.result === true)
+                    return completedRuns.filter((r) => r.result === true)
                 }
                 if (filter === 'fail') {
-                    return runs.filter((r) => r.status === 'completed' && r.result === false)
+                    return completedRuns.filter((r) => r.result === false)
                 }
                 // na
-                return runs.filter((r) => r.status === 'completed' && r.result === null)
+                return completedRuns.filter((r) => r.result === null)
             },
         ],
 
         runsToSummarizeCount: [
-            (s) => [s.evaluationRuns, s.evaluationSummaryFilter],
-            (runs, filter) => {
-                // This is for UI display only - actual filtering happens server-side
-                let filteredRuns = runs.filter((r) => r.status === 'completed')
-                if (filter === 'pass') {
-                    filteredRuns = filteredRuns.filter((r) => r.result === true)
-                } else if (filter === 'fail') {
-                    filteredRuns = filteredRuns.filter((r) => r.result === false)
-                } else if (filter === 'na') {
-                    filteredRuns = filteredRuns.filter((r) => r.result === null)
-                }
-                return Math.min(filteredRuns.length, EVALUATION_SUMMARY_MAX_RUNS)
+            (s) => [s.filteredEvaluationRuns, s.evaluationSummaryFilter],
+            (filteredRuns: EvaluationRun[], filter: EvaluationSummaryFilter): number => {
+                // When 'all', filteredEvaluationRuns includes non-completed runs, but summarization only uses completed
+                const count =
+                    filter === 'all' ? filteredRuns.filter((r) => r.status === 'completed').length : filteredRuns.length
+                return Math.min(count, EVALUATION_SUMMARY_MAX_RUNS)
             },
         ],
 
