@@ -3,10 +3,11 @@
 from django.db import migrations, models
 
 
+# NOTE: this migration is a no op in the db but updates django state to see that DataModelingJobStatus
+# exists outside the model at the module level now.
 class Migration(migrations.Migration):
-
     dependencies = [
-        ("data_warehouse", "0019_fix_orphaned_tables"),
+        ("data_warehouse", "0020_migrate_github_job_inputs_to_auth_type"),
     ]
 
     operations = [
