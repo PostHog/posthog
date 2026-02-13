@@ -2456,3 +2456,96 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         # Test: 6 successes (events after exposure), 7 failures (4 before exposure + 3 incomplete)
         self.assertEqual(test_variant.sum, 6)
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_null_safe_step_filter(self):
+        """Regression test: the arrayFilter predicate for funnel step IDs must use
+        greater(x, 0) — compiled as ifNull(greater(x, 0), 0) — not notEquals(x, 0)
+        which compiles as ifNull(notEquals(x, 0), 1). The difference matters when
+        step_0 (exposure predicate) evaluates to NULL: multiply(1, NULL) = NULL
+        enters the step array, and the old predicate kept NULLs while the fix
+        drops them. This snapshot guards the compiled SQL pattern."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    ff_property: "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            if i < 8:
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:01:00Z",
+                    properties={ff_property: "control"},
+                )
+
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    ff_property: "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            if i < 6:
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:01:00Z",
+                    properties={ff_property: "test"},
+                )
+
+        flush_persons_and_events()
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="purchase"),
+            ],
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
+
+        self.assertEqual(control_variant.sum, 8)
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)
+        self.assertEqual(test_variant.sum, 6)
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)
