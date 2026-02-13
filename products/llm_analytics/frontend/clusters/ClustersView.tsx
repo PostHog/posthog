@@ -16,7 +16,7 @@ import { ClusterDistributionBar } from './ClusterDistributionBar'
 import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { ClusteringAdminModal } from './ClusteringAdminModal'
 import { ClusteringSettingsPanel } from './ClusteringSettingsPanel'
-import { clusteringConfigLogic } from './clusteringConfigLogic'
+import { clusteringConfigLogic, isValidFilter } from './clusteringConfigLogic'
 import { clustersAdminLogic } from './clustersAdminLogic'
 import { clustersLogic } from './clustersLogic'
 import { NOISE_CLUSTER_ID } from './constants'
@@ -91,9 +91,11 @@ export function ClustersView(): JSX.Element {
         useActions(clustersLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openModal } = useActions(clustersAdminLogic)
+    const { config } = useValues(clusteringConfigLogic)
     const { openSettingsPanel } = useActions(clusteringConfigLogic)
 
     const showAdminPanel = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERING_ADMIN]
+    const activeFilterCount = config.event_filters.filter(isValidFilter).length
 
     if (clusteringRunsLoading) {
         return (
@@ -229,10 +231,11 @@ export function ClustersView(): JSX.Element {
                         size="small"
                         icon={<IconFilter />}
                         onClick={openSettingsPanel}
-                        tooltip="Configure event filters for automated clustering"
+                        tooltip="Configure event filters applied to the next automated clustering run"
                         data-attr="clusters-settings-button"
+                        status={activeFilterCount > 0 ? 'danger' : 'default'}
                     >
-                        Filters
+                        {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}
                     </LemonButton>
 
                     {showAdminPanel && (

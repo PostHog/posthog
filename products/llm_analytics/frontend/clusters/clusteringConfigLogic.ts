@@ -8,6 +8,11 @@ import type { AnyPropertyFilter } from '~/types'
 
 import type { clusteringConfigLogicType } from './clusteringConfigLogicType'
 
+/** A filter is valid if it has a key set (not just an empty placeholder row). */
+export function isValidFilter(f: AnyPropertyFilter): boolean {
+    return 'key' in f && f.key !== undefined && f.key !== ''
+}
+
 export interface ClusteringConfig {
     event_filters: AnyPropertyFilter[]
     created_at: string

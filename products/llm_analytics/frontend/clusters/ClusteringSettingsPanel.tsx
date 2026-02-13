@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -38,8 +38,8 @@ export function ClusteringSettingsPanel(): JSX.Element {
                 <div>
                     <h4 className="font-semibold mb-3">Event filters</h4>
                     <div className="text-sm text-muted mb-3">
-                        Only include traces matching these criteria in automated summarization and clustering. Leave
-                        empty to include all traces.
+                        Only include traces and generations matching these criteria in automated summarization and
+                        clustering. Leave empty to include all.
                     </div>
                     <PropertyFilters
                         propertyFilters={localEventFilters}
@@ -54,10 +54,9 @@ export function ClusteringSettingsPanel(): JSX.Element {
                         sendAllKeyUpdates
                         allowRelativeDateOptions={false}
                     />
-                    <div className="text-xs text-muted mt-2">
-                        <strong>Examples:</strong> $ai_model = "gpt-4", $ai_provider = "openai", ai_product =
-                        "posthog_ai"
-                    </div>
+                    <LemonBanner type="info" className="mt-3">
+                        Saved filters will be applied on the next automated clustering and summarization run.
+                    </LemonBanner>
                 </div>
             </div>
         </LemonModal>
