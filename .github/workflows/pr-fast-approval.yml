@@ -1,0 +1,149 @@
+name: Fast Approval Slack Notifications
+
+on:
+    pull_request_target:
+        types: [labeled]
+    pull_request_review:
+        types: [submitted]
+
+env:
+    SLACK_CHANNEL: 'C0AEM55RJ77' # #dev-stamp-exchange
+
+permissions:
+    contents: read
+    pull-requests: read
+
+jobs:
+    # When a PR is labeled "fast-approval", post to #dev-stamp-exchange
+    notify-fast-approval:
+        runs-on: ubuntu-latest
+        if: >-
+            github.event.action == 'labeled'
+            && github.event.label.name == 'fast-approval'
+        steps:
+            - name: Escape PR title for YAML
+              id: pr
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  script: |
+                      const title = context.payload.pull_request.title;
+                      const escaped = title.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                      core.setOutput('title', escaped);
+
+            - name: Post to Slack
+              id: slack
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: "Fast approval requested: ${{ steps.pr.outputs.title }}"
+                      unfurl_links: false
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":rocket: *Fast approval requested*"
+                        - type: "section"
+                          fields:
+                            - type: "mrkdwn"
+                              text: "*PR*\n<${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }}> ${{ steps.pr.outputs.title }}"
+                            - type: "mrkdwn"
+                              text: "*Author*\n${{ github.event.pull_request.user.login }}"
+                        - type: "actions"
+                          elements:
+                            - type: "button"
+                              text:
+                                type: "plain_text"
+                                text: "Review PR"
+                              url: "${{ github.event.pull_request.html_url }}"
+                              style: "primary"
+
+            - name: Save Slack message info
+              run: |
+                  echo '{}' | jq \
+                    --arg channel "${{ steps.slack.outputs.channel_id }}" \
+                    --arg ts "${{ steps.slack.outputs.ts }}" \
+                    '{channel: $channel, ts: $ts}' > .fast-approval-slack
+
+            - name: Cache Slack message info
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: .fast-approval-slack
+                  key: fast-approval-slack-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
+
+    # When a fast-approval PR is approved, react and thread-reply on the Slack message
+    notify-approval:
+        runs-on: ubuntu-latest
+        if: >-
+            github.event.action == 'submitted'
+            && github.event.review.state == 'approved'
+            && contains(github.event.pull_request.labels.*.name, 'fast-approval')
+        steps:
+            - name: Restore Slack message info
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: .fast-approval-slack
+                  key: fast-approval-slack-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
+                  restore-keys: fast-approval-slack-pr-${{ github.event.pull_request.number }}-
+
+            - name: Read Slack message info
+              id: slack_msg
+              run: |
+                  if [ -f .fast-approval-slack ]; then
+                    echo "found=true" >> $GITHUB_OUTPUT
+                    echo "channel=$(jq -r '.channel' .fast-approval-slack)" >> $GITHUB_OUTPUT
+                    echo "ts=$(jq -r '.ts' .fast-approval-slack)" >> $GITHUB_OUTPUT
+                  else
+                    echo "found=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Add checkmark reaction
+              if: steps.slack_msg.outputs.found == 'true'
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: reactions.add
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.slack_msg.outputs.channel }}"
+                      timestamp: "${{ steps.slack_msg.outputs.ts }}"
+                      name: "white_check_mark"
+
+            - name: Build approval message
+              if: steps.slack_msg.outputs.found == 'true'
+              id: review
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  script: |
+                      const reviewer = context.payload.review.user.login;
+                      const body = (context.payload.review.body || '').trim();
+                      let text = `:white_check_mark: Approved by *${reviewer}*`;
+                      if (body) {
+                        const truncated = body.length > 500
+                          ? body.substring(0, 500) + '...'
+                          : body;
+                        const quoted = truncated.split('\n').map(l => `> ${l}`).join('\n');
+                        text += '\n\n' + quoted;
+                      }
+                      // Escape for embedding in a YAML double-quoted string
+                      const escaped = text
+                        .replace(/\\/g, '\\\\')
+                        .replace(/"/g, '\\"')
+                        .replace(/\n/g, '\\n');
+                      core.setOutput('text', escaped);
+
+            - name: Thread reply with approval
+              if: steps.slack_msg.outputs.found == 'true'
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.slack_msg.outputs.channel }}"
+                      thread_ts: "${{ steps.slack_msg.outputs.ts }}"
+                      text: "${{ steps.review.outputs.text }}"
+                      unfurl_links: false
