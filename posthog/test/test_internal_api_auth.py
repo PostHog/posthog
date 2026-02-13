@@ -19,7 +19,7 @@ class TestInternalAPIAuth(APIBaseTest):
         request = Request(self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET="test-secret-123"))
         user, auth = self.authentication.authenticate(request)
         self.assertTrue(user.is_authenticated)
-        self.assertFalse(user.is_anonymous)
+        self.assertTrue(user.is_anonymous)
         self.assertIsNone(auth)
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")

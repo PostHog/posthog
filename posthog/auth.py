@@ -612,6 +612,21 @@ class WidgetAuthentication(authentication.BaseAuthentication):
         return (None, team)
 
 
+class InternalAPIUser:
+    """Synthetic user for internal API authentication."""
+
+    is_authenticated = True
+    is_anonymous = True
+    is_active = True
+    pk = -2
+
+    def has_perm(self, perm, obj=None):
+        return False
+
+    def has_module_perms(self, app_label):
+        return False
+
+
 class InternalAPIAuthentication(authentication.BaseAuthentication):
     """DRF authentication backend for internal API calls."""
 
@@ -619,7 +634,11 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
     HEADER_NAME = "X-Internal-Api-Secret"
 
     def authenticate(self, request: Request) -> tuple[Any, Any]:
-        provided_secret = request.headers.get(self.HEADER_NAME)
+        provided_secret = (
+            request.headers.get(self.HEADER_NAME)
+            or request.headers.get(self.HEADER_NAME.lower())
+            or request.headers.get(self.HEADER_NAME.upper())
+        )
         configured_secret = settings.INTERNAL_API_SECRET
 
         if not configured_secret:
@@ -646,7 +665,7 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
             )
             raise AuthenticationFailed("Invalid internal API authentication.")
 
-        return (AnonymousUser(), None)
+        return (InternalAPIUser(), None)
 
     def authenticate_header(self, request: HttpRequest) -> str:
         return self.keyword
