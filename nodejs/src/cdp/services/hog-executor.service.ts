@@ -1,4 +1,3 @@
-import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { Counter, Histogram } from 'prom-client'
@@ -7,10 +6,6 @@ import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
-import {
-    CyclotronInvocationQueueParametersEmailSchema,
-    CyclotronInvocationQueueParametersFetchSchema,
-} from '~/schema/cyclotron'
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
@@ -18,6 +13,8 @@ import { Hub } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
+import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
+import '../async-functions'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -147,7 +144,7 @@ const hogFunctionStateMemory = new Histogram({
 
 export type HogExecutorExecuteOptions = {
     functions?: Record<string, (args: unknown[]) => unknown>
-    asyncFunctionsNames?: ('fetch' | 'sendEmail' | 'postHogGetTicket' | 'postHogUpdateTicket')[]
+    asyncFunctionsNames?: string[]
 }
 
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
@@ -402,12 +399,7 @@ export class HogExecutorService {
             try {
                 let hogLogs = 0
 
-                const asyncFunctionsNames = options.asyncFunctionsNames ?? [
-                    'fetch',
-                    'sendEmail',
-                    'postHogGetTicket',
-                    'postHogUpdateTicket',
-                ]
+                const asyncFunctionsNames = options.asyncFunctionsNames ?? getRegisteredAsyncFunctionNames()
                 const asyncFunctions = asyncFunctionsNames.reduce(
                     (acc, fn) => {
                         acc[fn] = async () => Promise.resolve()
@@ -532,95 +524,11 @@ export class HogExecutorService {
                 }
 
                 if (execRes.asyncFunctionName) {
-                    switch (execRes.asyncFunctionName) {
-                        case 'fetch': {
-                            // Sanitize the args
-                            const [url, fetchOptions] = args as [string | undefined, Record<string, any> | undefined]
-
-                            const method = fetchOptions?.method || 'POST'
-                            const headers = fetchOptions?.headers || {
-                                'Content-Type': 'application/json',
-                            }
-
-                            // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
-                            const body: string | undefined = fetchOptions?.body
-                                ? typeof fetchOptions.body === 'string'
-                                    ? fetchOptions.body
-                                    : JSON.stringify(fetchOptions.body)
-                                : fetchOptions?.body
-
-                            const fetchQueueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
-                                type: 'fetch',
-                                url,
-                                method,
-                                body,
-                                headers: pickBy(headers, (v) => typeof v == 'string'),
-                            })
-
-                            result.invocation.queueParameters = fetchQueueParameters
-                            break
-                        }
-
-                        case 'sendEmail': {
-                            result.invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse({
-                                ...args[0],
-                                type: 'email',
-                            })
-                            break
-                        }
-
-                        case 'postHogGetTicket': {
-                            const [opts] = args as [Record<string, any> | undefined]
-                            const ticketId = opts?.ticket_id
-
-                            if (!ticketId || typeof ticketId !== 'string') {
-                                throw new Error("[HogFunction] - postHogGetTicket call missing 'ticket_id' property")
-                            }
-
-                            const team = await this.hub.teamManager.getTeam(invocation.teamId)
-                            if (!team) {
-                                throw new Error(`Team ${invocation.teamId} not found`)
-                            }
-
-                            result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
-                                type: 'fetch',
-                                url: `${this.hub.SITE_URL}/api/conversations/external/ticket/${ticketId}`,
-                                method: 'GET',
-                                headers: { Authorization: `Bearer ${team.api_token}` },
-                            })
-                            break
-                        }
-
-                        case 'postHogUpdateTicket': {
-                            const [opts] = args as [Record<string, any> | undefined]
-                            const ticketId = opts?.ticket_id
-                            const updates = opts?.updates || {}
-
-                            if (!ticketId || typeof ticketId !== 'string') {
-                                throw new Error("[HogFunction] - postHogUpdateTicket call missing 'ticket_id' property")
-                            }
-
-                            const updateTeam = await this.hub.teamManager.getTeam(invocation.teamId)
-                            if (!updateTeam) {
-                                throw new Error(`Team ${invocation.teamId} not found`)
-                            }
-
-                            result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
-                                type: 'fetch',
-                                url: `${this.hub.SITE_URL}/api/conversations/external/ticket/${ticketId}`,
-                                method: 'PATCH',
-                                body: JSON.stringify(updates),
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    Authorization: `Bearer ${updateTeam.api_token}`,
-                                },
-                            })
-                            break
-                        }
-
-                        default:
-                            throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
+                    const handler = getAsyncFunctionHandler(execRes.asyncFunctionName)
+                    if (!handler) {
+                        throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
                     }
+                    await handler.execute(args, { invocation: result.invocation, globals, hub: this.hub }, result)
                 } else {
                     addLog('warn', `Function was not finished but also had no async function to execute.`)
                 }

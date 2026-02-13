@@ -9,11 +9,27 @@ from django.db import close_old_connections
 import structlog
 from temporalio import activity
 
+from posthog.schema import ReplayInactivityPeriod
+
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content_from_file
 from posthog.tasks.exports.video_exporter import RecordReplayToFileOptions
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
+
+
+def _validate_period(period: ReplayInactivityPeriod, index: int, inactivity_periods_count: int) -> bool:
+    """Check if an activity period is usable for later processing. Returns True if usable."""
+    if not period.active:
+        return False
+    if period.recording_ts_from_s is None:
+        return False
+    if period.ts_to_s is None and index != inactivity_periods_count - 1:
+        return False
+    if period.recording_ts_to_s is None:
+        logger.warning("Inactivity period has no recording_ts_to_s")
+        return False
+    return True
 
 
 @activity.defn
@@ -119,6 +135,12 @@ def record_and_persist_video_activity(build: dict[str, Any]) -> None:
             if asset.export_context is None:
                 asset.export_context = {}
             asset.export_context["inactivity_periods"] = [x.model_dump() for x in inactivity_periods]
+            # Validate inactivity periods - ensure at least one valid period exists
+            valid_period_count = sum(
+                1 for i, period in enumerate(inactivity_periods) if _validate_period(period, i, len(inactivity_periods))
+            )
+            if valid_period_count == 0 and build.get("use_puppeteer", False):
+                raise ValueError("No valid inactivity periods detected in the recording")
             asset.save(update_fields=["export_context"])
         # Check file size first to prevent OOM
         file_size = os.path.getsize(tmp_path)

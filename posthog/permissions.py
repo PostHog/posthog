@@ -342,6 +342,10 @@ class TimeSensitiveActionPermission(BasePermission):
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             return True
 
+        exclude_actions = getattr(view, "time_sensitive_exclude_actions", [])
+        if getattr(view, "action", None) in exclude_actions:
+            return True
+
         allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)
 
         allow_if_only_fields = getattr(view, "time_sensitive_allow_if_only_fields", None)

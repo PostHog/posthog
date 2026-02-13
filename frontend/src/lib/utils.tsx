@@ -2474,13 +2474,19 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
     }
 }
 
-export const formatPercentage = (x: number, options?: { precise?: boolean }): string => {
+export const formatPercentage = (x: number, options?: { precise?: boolean; compact?: boolean }): string => {
+    let result: string
     if (options?.precise) {
-        return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
+        result = (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
     } else if (x >= 1000) {
-        return humanFriendlyLargeNumber(x) + '%'
+        result = humanFriendlyLargeNumber(x) + '%'
+    } else {
+        result = (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
     }
-    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
+    if (options?.compact) {
+        result = result.replace(/\s+%/, '%')
+    }
+    return result
 }
 
 /**

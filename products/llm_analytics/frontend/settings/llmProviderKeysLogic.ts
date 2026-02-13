@@ -49,6 +49,7 @@ export interface CreateLLMProviderKeyPayload {
     provider: LLMProvider
     name: string
     api_key: string
+    set_as_active?: boolean
 }
 
 export interface UpdateLLMProviderKeyPayload {
@@ -207,6 +208,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         payload
                     )
                     actions.setNewKeyModalOpen(false)
+                    actions.loadEvaluationConfig()
                     return [...values.providerKeys, response]
                 },
                 updateProviderKey: async ({
