@@ -2072,13 +2072,11 @@ class TestPrinter(BaseTest):
 
         # Should generate: equals(mat_$ai_trace_id, 'trace123') without ifNull wrapper
         # Check that the WHERE clause contains the direct equals check for $ai_trace_id
-        self.assertIn("equals(events.`mat_$ai_trace_id`, %(hogql_val_4)s)", sql)
-        # Verify the equals for $ai_trace_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
-        self.assertIn("WHERE and(equals(events.team_id,", sql)
-        self.assertIn("equals(events.`mat_$ai_trace_id`, %(hogql_val_4)s))", sql)
-
-        # Verify the placeholder value (it's hogql_val_4 due to other parameters in the query)
-        self.assertEqual(context.values["hogql_val_4"], "trace123")
+        self.assertIn("equals(events.`mat_$ai_trace_id`,", sql)
+        # Verify the equals for $ai_trace_id is NOT wrapped in ifNull
+        self.assertNotIn("ifNull(equals(events.`mat_$ai_trace_id`", sql)
+        # Verify the placeholder value is present
+        self.assertIn("trace123", context.values.values())
 
         # With materialized column - no nullIf wrapping
         context = HogQLContext(team_id=self.team.pk)
@@ -2094,12 +2092,12 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id IN ('trace1', 'trace2')", context)
 
         # Should generate clean IN without ifNull wrapper
-        self.assertIn("in(events.`mat_$ai_trace_id`, tuple(%(hogql_val_4)s, %(hogql_val_5)s))", sql)
+        self.assertIn("in(events.`mat_$ai_trace_id`, tuple(", sql)
         self.assertNotIn("ifNull(in", sql)
 
-        # Verify the placeholder values
-        self.assertEqual(context.values["hogql_val_4"], "trace1")
-        self.assertEqual(context.values["hogql_val_5"], "trace2")
+        # Verify the placeholder values are present
+        self.assertIn("trace1", context.values.values())
+        self.assertIn("trace2", context.values.values())
 
         # Verify other properties still get normal treatment
         mock_get_mat_col.return_value = None  # No materialized column for other props
@@ -2108,10 +2106,10 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.other_prop = 'value'", context)
 
         # Other properties should still have null handling with ifNull wrapping
-        self.assertIn(
-            "ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_7)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_8)s), 0)",
-            sql,
-        )
+        # Check for the general pattern without specific placeholder indices
+        self.assertIn("ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties,", sql)
+        self.assertIn("other_prop", context.values.values())
+        self.assertIn("value", context.values.values())
 
     @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
     def test_ai_session_id_optimizations(self, mock_get_mat_col):
@@ -2134,14 +2132,12 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id = 'session123'", context)
 
         # Should generate: equals(mat_$ai_session_id, 'session123') without ifNull wrapper
-        # Check that the WHERE clause contains the direct equals check for $ai_session_id
-        self.assertIn("equals(events.`mat_$ai_session_id`, %(hogql_val_4)s)", sql)
-        # Verify the equals for $ai_session_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
-        self.assertIn("WHERE and(equals(events.team_id,", sql)
-        self.assertIn("equals(events.`mat_$ai_session_id`, %(hogql_val_4)s))", sql)
-
-        # Verify the placeholder value (it's hogql_val_4 due to other parameters in the query)
-        self.assertEqual(context.values["hogql_val_4"], "session123")
+        # Check that the SQL contains direct equals check for $ai_session_id
+        self.assertIn("equals(events.`mat_$ai_session_id`,", sql)
+        # Verify the comparison is NOT wrapped in ifNull
+        self.assertNotIn("ifNull(equals(events.`mat_$ai_session_id`", sql)
+        # Verify the session123 value appears in context values
+        self.assertIn("session123", context.values.values())
 
         # With materialized column - no nullIf wrapping
         context = HogQLContext(team_id=self.team.pk)
@@ -2157,12 +2153,12 @@ class TestPrinter(BaseTest):
         sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id IN ('session1', 'session2')", context)
 
         # Should generate clean IN without ifNull wrapper
-        self.assertIn("in(events.`mat_$ai_session_id`, tuple(%(hogql_val_4)s, %(hogql_val_5)s))", sql)
+        self.assertIn("in(events.`mat_$ai_session_id`, tuple(", sql)
         self.assertNotIn("ifNull(in", sql)
 
-        # Verify the placeholder values
-        self.assertEqual(context.values["hogql_val_4"], "session1")
-        self.assertEqual(context.values["hogql_val_5"], "session2")
+        # Verify the placeholder values exist in context
+        self.assertIn("session1", context.values.values())
+        self.assertIn("session2", context.values.values())
 
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())

@@ -104,7 +104,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, '$pageview'), 1, 0) AS step_0,
                      0 AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.distinct_id AS distinct_id,
+                        events.event AS event,
+                        events.person_id AS person_id,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('$pageview')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -112,7 +121,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview'))), ifNull(equals(step_0, 1), 0))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview'))), ifNull(equals(step_0, 1), 0))
               UNION ALL SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                                accurateCastOrNull(e.user_id, 'UUID') AS aggregation_target,
                                tupleElement(tuple(throwIf(isNull(e.uuid), 'Encountered a null value in posthog_test_test_table_1.uuid, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.uuid, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_0_', ifNull(toString(e.uuid), ''))))))), 2) AS uuid,

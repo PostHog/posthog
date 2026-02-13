@@ -5282,6 +5282,7 @@ class HogQLQueryModifiers(BaseModel):
     personsJoinMode: PersonsJoinMode | None = None
     personsOnEventsMode: PersonsOnEventsMode | None = None
     propertyGroupsMode: PropertyGroupsMode | None = None
+    pushDownPredicates: bool | None = None
     s3TableUseInvalidColumns: bool | None = None
     sessionTableVersion: SessionTableVersion | None = None
     sessionsV2JoinMode: SessionsV2JoinMode | None = None

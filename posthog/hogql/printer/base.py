@@ -336,7 +336,6 @@ class HogQLPrinter(Visitor[str]):
                 raise QueryError(f"Table '{table_type.table.to_printed_hogql()}' does not accept arguments")
 
             join_strings.append(sql)
-
             if isinstance(node.type, ast.TableAliasType) and node.alias is not None and node.alias != sql:
                 join_strings.append(f"AS {self._print_identifier(node.alias)}")
 

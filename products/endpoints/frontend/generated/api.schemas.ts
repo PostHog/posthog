@@ -589,6 +589,8 @@ export interface HogQLQueryModifiersApi {
     personsOnEventsMode?: PersonsOnEventsModeApi | null
     propertyGroupsMode?: PropertyGroupsModeApi | null
     /** @nullable */
+    pushDownPredicates?: boolean | null
+    /** @nullable */
     s3TableUseInvalidColumns?: boolean | null
     sessionTableVersion?: SessionTableVersionApi | null
     sessionsV2JoinMode?: SessionsV2JoinModeApi | null

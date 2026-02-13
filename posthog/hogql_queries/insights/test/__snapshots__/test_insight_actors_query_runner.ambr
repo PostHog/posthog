@@ -49,7 +49,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, '$pageview'), 1, 0) AS step_0,
                      if(equals(e.event, '$pageview'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.distinct_id AS distinct_id,
+                        events.event AS event,
+                        events.person_id AS person_id,
+                        toTimeZone(events.timestamp, 'US/Pacific') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), lessOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), in(events.event, tuple('$pageview')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -57,7 +66,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 1)
@@ -350,7 +359,14 @@
                   toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
                   e.uuid AS uuid,
                   e.distinct_id AS distinct_id
-           FROM events AS e
+           FROM
+             (SELECT events.distinct_id AS distinct_id,
+                     events.event AS event,
+                     events.person_id AS person_id,
+                     toTimeZone(events.timestamp, 'US/Pacific') AS timestamp,
+                     events.uuid AS uuid
+              FROM events
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(events.event, '$pageview'))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -365,7 +381,7 @@
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
               HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'US/Pacific')), person.version), 1), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 99999), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(e.event, '$pageview')))
+           WHERE and(ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      INNER JOIN
        (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
@@ -377,7 +393,10 @@
                                                          (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, max(timestamp) AS last_seen
                                                           FROM
                                                             (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid, e.distinct_id AS distinct_id
-                                                             FROM events AS e
+                                                             FROM
+                                                               (SELECT events.distinct_id AS distinct_id, events.event AS event, events.person_id AS person_id, toTimeZone(events.timestamp, 'US/Pacific') AS timestamp, events.uuid AS uuid
+                                                                FROM events
+                                                                WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(events.event, '$pageview'))) AS e
                                                              LEFT OUTER JOIN
                                                                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
                                                                 FROM person_distinct_id_overrides
@@ -390,7 +409,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'US/Pacific')), person.version), 1), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                                                             WHERE and(equals(e.team_id, 99999), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(e.event, '$pageview')))
+                                                             WHERE and(ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(e.event, '$pageview')))
                                                           GROUP BY actor_id) AS source)))
         GROUP BY person.id
         HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'US/Pacific')), person.version), 1), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -426,7 +445,14 @@
                   toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
                   e.uuid AS uuid,
                   e.distinct_id AS distinct_id
-           FROM events AS e
+           FROM
+             (SELECT events.distinct_id AS distinct_id,
+                     events.event AS event,
+                     events.person_id AS person_id,
+                     toTimeZone(events.timestamp, 'US/Pacific') AS timestamp,
+                     events.uuid AS uuid
+              FROM events
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(events.event, '$pageview'))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -444,7 +470,7 @@
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 99999), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(e.event, '$pageview')))
+           WHERE and(ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      INNER JOIN
        (SELECT person.id AS id,
@@ -459,7 +485,10 @@
                                                                                                         (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, max(timestamp) AS last_seen
                                                                                                          FROM
                                                                                                            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid, e.distinct_id AS distinct_id
-                                                                                                            FROM events AS e
+                                                                                                            FROM
+                                                                                                              (SELECT events.distinct_id AS distinct_id, events.event AS event, events.person_id AS person_id, toTimeZone(events.timestamp, 'US/Pacific') AS timestamp, events.uuid AS uuid
+                                                                                                               FROM events
+                                                                                                               WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(events.event, '$pageview'))) AS e
                                                                                                             LEFT OUTER JOIN
                                                                                                               (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
                                                                                                                FROM person_distinct_id_overrides
@@ -475,7 +504,7 @@
                                                                                                                                                               WHERE equals(person.team_id, 99999)
                                                                                                                                                               GROUP BY person.id
                                                                                                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                                                                                                            WHERE and(equals(e.team_id, 99999), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(e.event, '$pageview')))
+                                                                                                            WHERE and(ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(e.event, '$pageview')))
                                                                                                          GROUP BY actor_id) AS source)))
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)

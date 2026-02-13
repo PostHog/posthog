@@ -17472,6 +17472,9 @@
                     "enum": ["enabled", "disabled", "optimized"],
                     "type": "string"
                 },
+                "pushDownPredicates": {
+                    "type": "boolean"
+                },
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
                 },
