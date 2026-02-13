@@ -85,7 +85,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
     connect((props: InfiniteListLogicProps) => ({
         values: [
             taxonomicFilterLogic(props),
-            ['searchQuery', 'value', 'groupType', 'taxonomicGroups'],
+            ['searchQuery', 'value', 'groupType', 'taxonomicGroups', 'exactMatchItems'],
             teamLogic,
             ['currentTeamId'],
         ],
@@ -403,12 +403,29 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return createEmptyListStorage()
             },
         ],
+        exactMatchForQuery: [
+            (s) => [s.localItems, s.remoteItems, s.swappedInQuery, s.searchQuery, s.group],
+            (localItems, remoteItems, swappedInQuery, searchQuery, group): TaxonomicDefinitionTypes | undefined => {
+                if (!searchQuery) {
+                    return undefined
+                }
+                const lowerQuery = searchQuery.toLowerCase()
+                const remoteIsFresh = remoteItems.searchQuery === (swappedInQuery || searchQuery)
+                const results = remoteIsFresh ? [...localItems.results, ...remoteItems.results] : localItems.results
+                const count = remoteIsFresh ? localItems.count + remoteItems.count : localItems.count
+
+                const exactMatch = results.find((item) => group?.getName?.(item)?.toLowerCase() === lowerQuery)
+                const singleMatch = count === 1 ? results[0] : undefined
+                return exactMatch ?? singleMatch
+            },
+        ],
         items: [
-            (s) => [s.remoteItems, s.localItems],
-            (remoteItems, localItems) => {
+            (s) => [s.remoteItems, s.localItems, s.listGroupType, s.exactMatchItems],
+            (remoteItems, localItems, listGroupType, exactMatchItems) => {
+                const exactMatches = listGroupType === TaxonomicFilterGroupType.QuickFilters ? exactMatchItems : []
                 return {
-                    results: [...localItems.results, ...remoteItems.results],
-                    count: localItems.count + remoteItems.count,
+                    results: [...localItems.results, ...remoteItems.results, ...exactMatches],
+                    count: localItems.count + remoteItems.count + exactMatches.length,
                     searchQuery: remoteItems.searchQuery || localItems.searchQuery,
                     originalQuery: remoteItems.originalQuery || localItems.originalQuery,
                     expandedCount: remoteItems.expandedCount,
@@ -488,13 +505,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 actions.expand()
             } else {
                 const selectedItem = values.selectedItem
-                // Prevent selection of disabled items using the group's getIsDisabled function
-                const isDisabledItem = selectedItem && values.group?.getIsDisabled?.(selectedItem)
+                const itemGroup = getItemGroup(selectedItem, values.taxonomicGroups, values.group)
+                const isDisabledItem = selectedItem && itemGroup?.getIsDisabled?.(selectedItem)
 
                 if (!isDisabledItem) {
+                    const itemValue = selectedItem ? itemGroup?.getValue?.(selectedItem) : null
                     actions.selectItem(
-                        values.group,
-                        values.selectedItemValue,
+                        itemGroup,
+                        itemValue ?? null,
                         selectedItem,
                         values.swappedInQuery ? values.searchQuery : undefined
                     )
