@@ -101,6 +101,9 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         },
 
         [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {
+            console.warn(
+                `[DASH-DEBUG] addDashboardSuccess: dashboard.id=${dashboard.id} t=${performance.now().toFixed(1)}`
+            )
             actions.reportCreatedDashboardFromModal()
             actions.setDashboardToNavigateTo(dashboard.id)
             actions.addToDashboard(dashboard.id)
@@ -108,6 +111,9 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         },
 
         addToDashboard: async ({ dashboardId }) => {
+            console.warn(
+                `[DASH-DEBUG] addToDashboard: dashboardId=${dashboardId} insightDashboards=${JSON.stringify(values.insight.dashboards)} t=${performance.now().toFixed(1)}`
+            )
             // TODO be able to update not by patching `dashboards` against insight
             // either patch dashboard_tiles on the insight or add a dashboard_tiles API
             actions.updateInsight(
@@ -115,12 +121,23 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
                     dashboards: [...(values.insight.dashboards || []), dashboardId],
                 },
                 () => {
+                    console.warn(
+                        `[DASH-DEBUG] updateInsight callback START: dashboardId=${dashboardId} _dashboardToNavigateTo=${values._dashboardToNavigateTo} t=${performance.now().toFixed(1)}`
+                    )
                     actions.reportSavedInsightToDashboard(values.insight, dashboardId)
+                    console.warn(`[DASH-DEBUG] dispatching tileAddedToDashboard t=${performance.now().toFixed(1)}`)
                     dashboardsModel.actions.tileAddedToDashboard(dashboardId)
                     if (values._dashboardToNavigateTo === dashboardId) {
                         actions.setDashboardToNavigateTo(null)
+                        console.warn(
+                            `[DASH-DEBUG] navigating to dashboard ${dashboardId} via router.push t=${performance.now().toFixed(1)}`
+                        )
                         router.actions.push(urls.dashboard(dashboardId))
+                        console.warn(`[DASH-DEBUG] router.push returned t=${performance.now().toFixed(1)}`)
                     } else {
+                        console.warn(
+                            `[DASH-DEBUG] NOT navigating, showing toast instead. _dashboardToNavigateTo=${values._dashboardToNavigateTo} t=${performance.now().toFixed(1)}`
+                        )
                         lemonToast.success('Insight added to dashboard', {
                             button: {
                                 label: 'View dashboard',
@@ -128,6 +145,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
                             },
                         })
                     }
+                    console.warn(`[DASH-DEBUG] updateInsight callback END t=${performance.now().toFixed(1)}`)
                 }
             )
         },

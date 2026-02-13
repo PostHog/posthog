@@ -294,9 +294,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as DashboardType<QueryBasedInsightModel> | null,
             {
                 loadDashboard: async ({ action }, breakpoint) => {
+                    console.warn(
+                        `[DASH-DEBUG] loadDashboard STARTED: dashId=${props.id} action=${action} t=${performance.now().toFixed(1)}`
+                    )
                     actions.loadingDashboardItemsStarted(action)
 
+                    console.warn(
+                        `[DASH-DEBUG] loadDashboard: entering breakpoint(200) t=${performance.now().toFixed(1)}`
+                    )
                     await breakpoint(200)
+                    console.warn(
+                        `[DASH-DEBUG] loadDashboard: breakpoint(200) passed, making GET request t=${performance.now().toFixed(1)}`
+                    )
 
                     try {
                         const apiUrl = values.apiUrl('force_cache', values.filtersOverrideForLoad, values.urlVariables)
@@ -305,8 +314,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
 
-                        return getQueryBasedDashboard(dashboard)
+                        const result = getQueryBasedDashboard(dashboard)
+                        console.warn(
+                            `[DASH-DEBUG] loadDashboard: GET complete, tileCount=${result?.tiles?.length ?? 'null'} dashId=${result?.id} t=${performance.now().toFixed(1)}`
+                        )
+                        return result
                     } catch (error: any) {
+                        console.warn(
+                            `[DASH-DEBUG] loadDashboard: ERROR status=${error.status} message=${error.message} t=${performance.now().toFixed(1)}`
+                        )
                         if (error.status === 404) {
                             return null
                         }
@@ -317,8 +333,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 },
                 loadDashboardStreaming: async ({ action }, breakpoint) => {
+                    console.warn(
+                        `[DASH-DEBUG] loadDashboardStreaming STARTED: dashId=${props.id} action=${action} t=${performance.now().toFixed(1)}`
+                    )
                     actions.loadingDashboardItemsStarted(action)
                     await breakpoint(200)
+                    console.warn(
+                        `[DASH-DEBUG] loadDashboardStreaming: breakpoint passed, starting SSE t=${performance.now().toFixed(1)}`
+                    )
                     actions.resetIntermittentFilters()
 
                     // Start unified streaming - metadata followed by tiles
@@ -331,6 +353,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         },
                         // onMessage callback - handles both metadata and tiles
                         (data) => {
+                            console.warn(
+                                `[DASH-DEBUG] streamTiles onMessage: type=${data.type} t=${performance.now().toFixed(1)}`
+                            )
                             if (data.type === 'metadata') {
                                 actions.loadDashboardMetadataSuccess(
                                     getQueryBasedDashboard(data.dashboard as DashboardType<InsightModel>)
@@ -341,16 +366,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         },
                         // onComplete callback
                         () => {
+                            console.warn(`[DASH-DEBUG] streamTiles onComplete t=${performance.now().toFixed(1)}`)
                             actions.tileStreamingComplete()
                         },
                         // onError callback
                         (error) => {
                             console.error('❌ Tile streaming error:', error)
+                            console.warn(`[DASH-DEBUG] streamTiles onError: ${error} t=${performance.now().toFixed(1)}`)
                             actions.tileStreamingFailure(error)
                         }
                     )
 
                     // Return null - metadata will update the dashboard
+                    console.warn(
+                        `[DASH-DEBUG] loadDashboardStreaming: returning null t=${performance.now().toFixed(1)}`
+                    )
                     return null
                 },
                 saveEditModeChanges: async (_, breakpoint) => {
@@ -474,9 +504,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboardLoading: [
             false,
             {
-                loadDashboard: () => true,
-                loadDashboardSuccess: () => false,
-                loadDashboardFailure: () => false,
+                loadDashboard: () => {
+                    console.warn(
+                        `[DASH-DEBUG] REDUCER dashboardLoading: loadDashboard → true t=${performance.now().toFixed(1)}`
+                    )
+                    return true
+                },
+                loadDashboardSuccess: () => {
+                    console.warn(
+                        `[DASH-DEBUG] REDUCER dashboardLoading: loadDashboardSuccess → false t=${performance.now().toFixed(1)}`
+                    )
+                    return false
+                },
+                loadDashboardFailure: () => {
+                    console.warn(
+                        `[DASH-DEBUG] REDUCER dashboardLoading: loadDashboardFailure → false t=${performance.now().toFixed(1)}`
+                    )
+                    return false
+                },
             },
         ],
         dashboardStreaming: [
@@ -587,13 +632,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         .map((tile) => tile.dashboard_id)
                         .concat(extraDashboardIds || [])
                     if (!targetDashboards.includes(props.id)) {
-                        // this update is not for this dashboard
+                        console.warn(
+                            `[DASH-DEBUG] REDUCER updateDashboardInsight: NOT for this dashboard (props.id=${props.id} targetDashboards=${JSON.stringify(targetDashboards)}) t=${performance.now().toFixed(1)}`
+                        )
                         return state
                     }
+
+                    console.warn(
+                        `[DASH-DEBUG] REDUCER updateDashboardInsight: IS for this dashboard (props.id=${props.id}) state=${state ? `has ${state.tiles?.length} tiles` : 'null'} t=${performance.now().toFixed(1)}`
+                    )
 
                     if (state) {
                         const tileIndex = state.tiles.findIndex(
                             (t) => !!t.insight && t.insight.short_id === insight.short_id
+                        )
+
+                        console.warn(
+                            `[DASH-DEBUG] REDUCER updateDashboardInsight: tileIndex=${tileIndex} insightShortId=${insight.short_id} t=${performance.now().toFixed(1)}`
                         )
 
                         const newTiles = state.tiles.slice()
@@ -608,16 +663,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 newTiles.splice(tileIndex, 1)
                             }
                         } else {
-                            // we can't create tiles in this reducer
-                            // will reload all items in a listener to pick up the new tile
+                            console.warn(
+                                `[DASH-DEBUG] REDUCER updateDashboardInsight: tile NOT found in state, cannot create in reducer t=${performance.now().toFixed(1)}`
+                            )
                         }
 
-                        return {
+                        const result = {
                             ...state,
                             tiles: newTiles.filter((t) => !t.deleted || !t.insight?.deleted),
                         } as DashboardType<QueryBasedInsightModel>
+                        console.warn(
+                            `[DASH-DEBUG] REDUCER updateDashboardInsight: returning state with ${result.tiles.length} tiles t=${performance.now().toFixed(1)}`
+                        )
+                        return result
                     }
 
+                    console.warn(
+                        `[DASH-DEBUG] REDUCER updateDashboardInsight: state is null, returning null t=${performance.now().toFixed(1)}`
+                    )
                     return null
                 },
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
@@ -649,6 +712,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } as DashboardType<QueryBasedInsightModel>
                 },
                 loadDashboardMetadataSuccess: (state, { dashboard }) => {
+                    console.warn(
+                        `[DASH-DEBUG] REDUCER loadDashboardMetadataSuccess: dashboardId=${dashboard?.id ?? 'null'} tilesInMetadata=${dashboard?.tiles?.length ?? 'undefined'} prevState=${state ? `has ${state.tiles?.length} tiles` : 'null'} t=${performance.now().toFixed(1)}`
+                    )
                     if (!dashboard) {
                         return state
                     }
@@ -656,6 +722,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 receiveTileFromStream: (state, { tile }) => {
                     if (!state || !state.tiles) {
+                        console.warn(
+                            `[DASH-DEBUG] REDUCER receiveTileFromStream: DROPPING tile because state=${state ? 'exists' : 'null'} state.tiles=${state?.tiles ? 'exists' : 'undefined'} t=${performance.now().toFixed(1)}`
+                        )
                         return state
                     }
 
@@ -665,6 +734,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
 
                     let newTiles = [...state.tiles, transformedTile]
+                    console.warn(
+                        `[DASH-DEBUG] REDUCER receiveTileFromStream: added tile, now ${newTiles.length} tiles t=${performance.now().toFixed(1)}`
+                    )
 
                     return {
                         ...state,
@@ -1115,7 +1187,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return estimatedContainerWidth > BREAKPOINTS.sm ? 'sm' : 'xs'
             },
         ],
-        tiles: [(s) => [s.dashboard], (dashboard) => dashboard?.tiles?.filter((t) => !t.deleted) || []],
+        tiles: [
+            (s) => [s.dashboard],
+            (dashboard) => {
+                const result = dashboard?.tiles?.filter((t) => !t.deleted) || []
+                console.warn(
+                    `[DASH-DEBUG] SELECTOR tiles: dashboardId=${dashboard?.id ?? 'null'} rawTiles=${dashboard?.tiles?.length ?? 'undefined'} filteredTiles=${result.length} t=${performance.now().toFixed(1)}`
+                )
+                return result
+            },
+        ],
         insightTiles: [
             (s) => [s.tiles],
             (tiles) => tiles.filter((t) => !!t.insight).filter((i) => !i.insight?.deleted),
@@ -1306,32 +1387,49 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
     events(({ actions, props, values }) => ({
         afterMount: () => {
+            console.warn(
+                `[DASH-DEBUG] afterMount: dashId=${props.id} hasPropsDashboard=${!!props.dashboard} shouldUseStreaming=${values.shouldUseStreaming} t=${performance.now().toFixed(1)}`
+            )
             // NOTE: initial dashboard load is done after variables are loaded in initialVariablesLoaded
             if (props.id) {
                 if (props.dashboard) {
                     // If we already have dashboard data, use it. Should the data turn out to be stale,
                     // the loadDashboardSuccess listener will initiate a refresh
                     // Ensure loading state is properly initialized for shared dashboards
+                    console.warn(
+                        `[DASH-DEBUG] afterMount: using props.dashboard (pre-seeded) t=${performance.now().toFixed(1)}`
+                    )
                     actions.loadingDashboardItemsStarted(DashboardLoadAction.InitialLoad)
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     if (!(SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams)) {
                         if (values.shouldUseStreaming) {
+                            console.warn(
+                                `[DASH-DEBUG] afterMount: calling loadDashboardStreaming t=${performance.now().toFixed(1)}`
+                            )
                             // Streaming loading: load metadata + stream tiles
                             actions.loadDashboardStreaming({
                                 action: DashboardLoadAction.InitialLoad,
                             })
                         } else {
+                            console.warn(
+                                `[DASH-DEBUG] afterMount: calling loadDashboard t=${performance.now().toFixed(1)}`
+                            )
                             // Regular loading
                             actions.loadDashboard({
                                 action: DashboardLoadAction.InitialLoad,
                             })
                         }
+                    } else {
+                        console.warn(
+                            `[DASH-DEBUG] afterMount: SKIPPING load due to query variables in URL t=${performance.now().toFixed(1)}`
+                        )
                     }
                 }
             }
         },
         beforeUnmount: () => {
+            console.warn(`[DASH-DEBUG] beforeUnmount: dashId=${props.id} t=${performance.now().toFixed(1)}`)
             actions.abortAnyRunningQuery()
         },
     })),
@@ -1351,11 +1449,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         handleDashboardLoadComplete: () => {
+            console.warn(
+                `[DASH-DEBUG] handleDashboardLoadComplete: dashId=${props.id} tileCount=${values.tiles.length} placement=${values.placement} t=${performance.now().toFixed(1)}`
+            )
             // Shared logic for refreshing dashboard items after load (used by both regular and streaming loads)
             if (values.placement !== DashboardPlacement.Export) {
                 // access stored values from dashboardLoadData
                 // as we can't pass them down to this listener
                 const loadAction = values.dashboardLoadData.action!
+                console.warn(
+                    `[DASH-DEBUG] handleDashboardLoadComplete: calling refreshDashboardItems action=${loadAction} t=${performance.now().toFixed(1)}`
+                )
                 actions.refreshDashboardItems({ action: loadAction, forceRefresh: false })
             }
 
@@ -1376,7 +1480,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.resetInterval()
             }
         },
-        loadDashboardFailure: () => {
+        loadDashboardFailure: (_, error) => {
+            console.warn(
+                `[DASH-DEBUG] loadDashboardFailure: dashId=${props.id} error=${JSON.stringify(error)} t=${performance.now().toFixed(1)}`
+            )
             const { action, dashboardQueryId, startTime } = values.dashboardLoadData
 
             eventUsageLogic.actions.reportTimeToSeeData({
@@ -1408,8 +1515,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.loadDashboard({ action: DashboardLoadAction.Update })
         },
         [dashboardsModel.actionTypes.tileAddedToDashboard]: ({ dashboardId }) => {
+            console.warn(
+                `[DASH-DEBUG] LISTENER tileAddedToDashboard: dashboardId=${dashboardId} props.id=${props.id} match=${dashboardId === props.id} t=${performance.now().toFixed(1)}`
+            )
             // when adding an insight to a dashboard, we need to reload the dashboard to get the new insight
             if (dashboardId === props.id) {
+                console.warn(
+                    `[DASH-DEBUG] LISTENER tileAddedToDashboard: dispatching loadDashboard(Update) t=${performance.now().toFixed(1)}`
+                )
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
@@ -1418,14 +1531,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 .map((tile) => tile.dashboard_id)
                 .concat(extraDashboardIds || [])
             if (!targetDashboards.includes(props.id)) {
-                // this update is not for this dashboard
+                console.warn(
+                    `[DASH-DEBUG] LISTENER updateDashboardInsight: NOT for this dashboard (props.id=${props.id}) t=${performance.now().toFixed(1)}`
+                )
                 return
             }
 
             const tileIndex = values.tiles.findIndex((t) => !!t.insight && t.insight.short_id === insight.short_id)
+            console.warn(
+                `[DASH-DEBUG] LISTENER updateDashboardInsight: props.id=${props.id} tileIndex=${tileIndex} tilesLength=${values.tiles.length} dashboardState=${values.dashboard ? 'loaded' : 'null'} t=${performance.now().toFixed(1)}`
+            )
 
             if (tileIndex === -1) {
-                // this is a new tile created from an insight context we need to reload the dashboard
+                console.warn(
+                    `[DASH-DEBUG] LISTENER updateDashboardInsight: tile NOT found, dispatching loadDashboard(Update) — THIS MAY CANCEL AN IN-FLIGHT LOAD t=${performance.now().toFixed(1)}`
+                )
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
@@ -1754,7 +1874,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadDashboardSuccess: [
             sharedListeners.reportLoadTiming,
             () => {
+                console.warn(
+                    `[DASH-DEBUG] loadDashboardSuccess: dashId=${props.id} dashboardExists=${!!values.dashboard} tileCount=${values.dashboard?.tiles?.length ?? 'N/A'} dashboardLoading=${values.dashboardLoading} t=${performance.now().toFixed(1)}`
+                )
                 if (!values.dashboard) {
+                    console.warn(
+                        `[DASH-DEBUG] loadDashboardSuccess: dashboard is null! calling dashboardNotFound t=${performance.now().toFixed(1)}`
+                    )
                     actions.dashboardNotFound()
                     return // We hit a 404
                 }

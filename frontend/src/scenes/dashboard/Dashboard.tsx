@@ -88,6 +88,21 @@ function DashboardScene(): JSX.Element {
         return () => abortAnyRunningQuery()
     })
 
+    // [DASH-DEBUG] Log every render decision
+    const renderBranch =
+        !dashboard && !itemsLoading && !dashboardFailedToLoad
+            ? 'NotFound'
+            : accessDeniedToDashboard
+              ? 'AccessDenied'
+              : dashboardFailedToLoad
+                ? 'ErrorState'
+                : !tiles || tiles.length === 0
+                  ? 'EmptyDashboard'
+                  : 'DashboardItems'
+    console.warn(
+        `[DASH-DEBUG] DashboardScene RENDER: branch=${renderBranch} dashboardId=${dashboard?.id ?? 'null'} tileCount=${tiles?.length ?? 'null'} itemsLoading=${itemsLoading} dashboardFailedToLoad=${dashboardFailedToLoad} t=${performance.now().toFixed(1)}`
+    )
+
     if (!dashboard && !itemsLoading && !dashboardFailedToLoad) {
         return <NotFound object="dashboard" />
     }

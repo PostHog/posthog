@@ -63,6 +63,15 @@ test.describe('Dashboards', () => {
         const dashboard = new DashboardPage(page)
         const insightName = randomString('add-to-dash')
 
+        // Capture [DASH-DEBUG] console logs for flaky test investigation
+        const dashDebugLogs: string[] = []
+        page.on('console', (msg) => {
+            const text = msg.text()
+            if (text.includes('[DASH-DEBUG]')) {
+                dashDebugLogs.push(text)
+            }
+        })
+
         await test.step('create and save a Trends insight', async () => {
             await insight.goToNewTrends()
             await insight.trends.waitForChart()
@@ -78,7 +87,29 @@ test.describe('Dashboards', () => {
         await test.step('verify insight is visible on the new dashboard', async () => {
             await expect(page).toHaveURL(/\/dashboard\//)
             const card = page.locator('.InsightCard').filter({ hasText: insightName })
-            await expect(card).toBeVisible()
+            try {
+                await expect(card).toBeVisible()
+            } catch (e) {
+                // On failure, dump all debug logs for investigation
+                console.error('=== [DASH-DEBUG] FULL LOG DUMP ON FAILURE ===')
+                for (const log of dashDebugLogs) {
+                    console.error(log)
+                }
+                console.error(`=== [DASH-DEBUG] Total log lines: ${dashDebugLogs.length} ===`)
+                console.error(`=== [DASH-DEBUG] Current URL: ${page.url()} ===`)
+
+                // Also capture final page state
+                const insightCards = await page.locator('.InsightCard').count()
+                const emptyDashboard = await page
+                    .locator('.EmptyDashboardComponent, [data-attr="dashboard-empty"]')
+                    .count()
+                const dashboardWrapper = await page.locator('.dashboard-items-wrapper').count()
+                console.error(
+                    `=== [DASH-DEBUG] Page state: InsightCards=${insightCards} EmptyDashboard=${emptyDashboard} DashboardWrapper=${dashboardWrapper} ===`
+                )
+
+                throw e
+            }
             await expect(card.locator('canvas')).toBeVisible()
         })
     })

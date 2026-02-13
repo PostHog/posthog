@@ -87,6 +87,10 @@ export function DashboardItems(): JSX.Element {
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
     const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
 
+    console.warn(
+        `[DASH-DEBUG] DashboardItems RENDER: gridWrapperWidth=${gridWrapperWidth ?? 'null'} tileCount=${tiles?.length ?? 'null'} t=${performance.now().toFixed(1)}`
+    )
+
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
             {gridWrapperWidth && (
