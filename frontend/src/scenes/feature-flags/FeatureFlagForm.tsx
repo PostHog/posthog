@@ -32,6 +32,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -44,13 +45,13 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
-import { FeatureFlagEvaluationRuntime } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, FeatureFlagEvaluationRuntime } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 import { FeatureFlagTemplates } from './FeatureFlagTemplates'
-import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { FeatureFlagLogicProps, featureFlagDeleteDisabledReason, featureFlagLogic } from './featureFlagLogic'
 
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
@@ -72,6 +73,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         addVariant,
         removeVariant,
         distributeVariantsEqually,
+        deleteFeatureFlag,
         setFeatureFlagFilters,
         editFeatureFlag,
         loadFeatureFlag,
@@ -168,6 +170,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                     resourceType={{
                         type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                     }}
+                    forceBackTo={
+                        isEditingFlag && featureFlag.id
+                            ? { key: 'feature-flag', name: featureFlag.key, path: urls.featureFlag(featureFlag.id) }
+                            : undefined
+                    }
                     actions={
                         <>
                             <LemonButton
@@ -414,6 +421,48 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         />
                                     )}
                                 </LemonField>
+
+                                {isEditingFlag && (
+                                    <>
+                                        <LemonDivider className="my-1" />
+                                        <LemonLabel className="text-danger">Danger zone</LemonLabel>
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.FeatureFlag}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                        >
+                                            {({ disabledReason }) => (
+                                                <LemonButton
+                                                    type="secondary"
+                                                    status="danger"
+                                                    icon={<IconTrash />}
+                                                    disabledReason={
+                                                        disabledReason || featureFlagDeleteDisabledReason(featureFlag)
+                                                    }
+                                                    onClick={() => {
+                                                        LemonDialog.open({
+                                                            title: 'Delete feature flag?',
+                                                            description: `Are you sure you want to delete "${featureFlag.key}"?`,
+                                                            primaryButton: {
+                                                                children: 'Delete',
+                                                                status: 'danger',
+                                                                onClick: () => deleteFeatureFlag(featureFlag),
+                                                                size: 'small',
+                                                            },
+                                                            secondaryButton: {
+                                                                children: 'Cancel',
+                                                                type: 'tertiary',
+                                                                size: 'small',
+                                                            },
+                                                        })
+                                                    }}
+                                                    data-attr="delete-feature-flag"
+                                                >
+                                                    Delete feature flag
+                                                </LemonButton>
+                                            )}
+                                        </AccessControlAction>
+                                    </>
+                                )}
                             </div>
                         </div>
 

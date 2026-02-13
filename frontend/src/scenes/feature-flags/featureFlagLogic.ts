@@ -240,6 +240,19 @@ export const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagTy
     return flag
 }
 
+export function featureFlagDeleteDisabledReason(featureFlag: Partial<FeatureFlagType>): string | undefined {
+    if ((featureFlag.features?.length || 0) > 0) {
+        return 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+    }
+    if ((featureFlag.experiment_set?.length || 0) > 0) {
+        return 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+    }
+    if ((featureFlag.surveys?.length || 0) > 0) {
+        return 'This feature flag is linked to a survey. Delete the survey to delete this flag'
+    }
+    return undefined
+}
+
 export const getRecordingFilterForFlagVariant = (
     flagKey: string,
     variantKey: string | null,
