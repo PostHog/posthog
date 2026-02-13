@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 
-import { IconPlusSmall, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 
 import { EventsQuery } from '~/queries/schema/schema-general'
-
-import { EventName as EventNameComponent } from 'products/actions/frontend/components/EventName'
+import { EventDefinitionType } from '~/types'
 
 interface EventsFilterProps {
     query: EventsQuery
@@ -13,77 +14,61 @@ interface EventsFilterProps {
 }
 
 export function EventsFilter({ query, setQuery }: EventsFilterProps): JSX.Element {
-    const events = query.events || []
-    const [isAdding, setIsAdding] = useState(false)
+    const selectedEvents = query.events ?? []
+    const [searchOptions, setSearchOptions] = useState<LemonInputSelectOption[]>([])
+    const [loading, setLoading] = useState(false)
 
-    const handleAddEvent = (value: string | null): void => {
-        if (value) {
-            setQuery?.({ ...query, events: [...events, value] })
+    const loadEvents = useCallback(async (search?: string): Promise<void> => {
+        setLoading(true)
+        try {
+            const response = await api.eventDefinitions.list({
+                search: search || undefined,
+                event_type: EventDefinitionType.Event,
+                limit: 50,
+            })
+            setSearchOptions(
+                response.results.map((event) => ({
+                    key: event.name,
+                    label: event.name,
+                }))
+            )
+        } finally {
+            setLoading(false)
         }
-        setIsAdding(false)
-    }
+    }, [])
 
-    const handleRemoveEvent = (index: number): void => {
-        const newEvents = events.filter((_, i) => i !== index)
-        setQuery?.({ ...query, events: newEvents.length > 0 ? newEvents : null })
-    }
+    const debouncedLoadEvents = useDebouncedCallback(loadEvents, 300)
 
-    const handleUpdateEvent = (index: number, value: string | null): void => {
-        if (value) {
-            const newEvents = [...events]
-            newEvents[index] = value
-            setQuery?.({ ...query, events: newEvents })
-        } else {
-            handleRemoveEvent(index)
-        }
-    }
+    useEffect(() => {
+        void loadEvents()
+    }, [loadEvents])
+
+    const options = useMemo(() => {
+        const optionKeys = new Set(searchOptions.map((o) => o.key))
+        const selectedOptions: LemonInputSelectOption[] = selectedEvents
+            .filter((event) => !optionKeys.has(event))
+            .map((event) => ({ key: event, label: event }))
+        return [...selectedOptions, ...searchOptions]
+    }, [searchOptions, selectedEvents])
 
     return (
-        <div className="flex items-center gap-1 flex-wrap">
-            {events.map((event, index) => (
-                <div key={index} className="flex items-center gap-1">
-                    <EventNameComponent
-                        value={event}
-                        disabled={!setQuery}
-                        onChange={(value) => handleUpdateEvent(index, value)}
-                        allEventsOption="clear"
-                        placeholder="Select event"
-                    />
-                    <LemonButton
-                        icon={<IconX />}
-                        size="small"
-                        type="tertiary"
-                        onClick={() => handleRemoveEvent(index)}
-                        tooltip="Remove event filter"
-                    />
-                </div>
-            ))}
-            {isAdding ? (
-                <div className="flex items-center gap-1">
-                    <EventNameComponent
-                        value={null}
-                        disabled={!setQuery}
-                        onChange={handleAddEvent}
-                        allEventsOption="clear"
-                        placeholder="Select event"
-                    />
-                    <LemonButton
-                        icon={<IconX />}
-                        size="small"
-                        type="tertiary"
-                        onClick={() => setIsAdding(false)}
-                        tooltip="Cancel"
-                    />
-                </div>
-            ) : (
-                <LemonButton
-                    icon={<IconPlusSmall />}
-                    size="small"
-                    type="secondary"
-                    onClick={() => setIsAdding(true)}
-                    tooltip="Add event filter"
-                />
-            )}
-        </div>
+        <LemonInputSelect
+            mode="multiple"
+            value={selectedEvents}
+            options={options}
+            onChange={(newEvents) => {
+                setQuery?.({
+                    ...query,
+                    events: newEvents.length > 0 ? newEvents : null,
+                })
+            }}
+            onInputChange={(value) => debouncedLoadEvents(value)}
+            loading={loading}
+            disabled={!setQuery}
+            placeholder="Search for events"
+            disableFiltering
+            size="small"
+            data-attr="events-filter-select"
+        />
     )
 }

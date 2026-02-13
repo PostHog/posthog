@@ -47,6 +47,7 @@ function createInitialEventsPayload(personId: string): DataTableNode {
     return {
         kind: NodeKind.DataTableNode,
         full: true,
+        showEventFilter: false,
         showEventsFilter: true,
         showTableViews: true,
         contextKey: PERSON_EVENTS_CONTEXT_KEY,
