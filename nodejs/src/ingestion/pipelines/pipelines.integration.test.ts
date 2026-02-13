@@ -1668,7 +1668,7 @@ describe('Pipeline Integration Tests', () => {
         })
     })
 
-    describe('Builder API with filterOk, map, and teamAware', () => {
+    describe('Builder API with filterMap and teamAware', () => {
         it('should filter OK results, map context to include team, and process team-aware steps', async () => {
             const messages: Message[] = [
                 {
@@ -1760,64 +1760,42 @@ describe('Pipeline Integration Tests', () => {
                 ],
             ])
 
-            const batchStepMap = new Map([
-                [
-                    0,
-                    ok({
-                        message: messages[0],
-                        headers: { token: 'test-token' },
-                        event: {
-                            uuid: 'event1',
-                            event: 'validated-event',
-                            token: 'test-token',
-                            batch_result: 'processed',
-                        },
-                        team: createTestTeam({ id: 1, name: 'Test Team 1' }),
-                    }),
-                ],
-                [
-                    1,
-                    ok({
-                        message: messages[2],
-                        headers: { token: 'test-token' },
-                        event: {
-                            uuid: 'event3',
-                            event: 'validated-event',
-                            token: 'test-token',
-                            batch_result: 'processed',
-                        },
-                        team: createTestTeam({ id: 2, name: 'Test Team 2' }),
-                    }),
-                ],
-            ])
-
             // Define steps
             const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }>(step1Map)
             const step2 = createMockStep<{ message: Message; headers: TestHeaders }, TestEventWithTeam>(step2Map)
             const step3 = createMockStep<TestEventWithTeam, TestEventWithTeam>(step3Map)
-            const batchStep = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStepMap)
+            // Batch step adds batch_result to each event - uses input content instead of index
+            // because filterMap feeds events in separate batches (not gathered)
+            const batchStep: jest.MockedFunction<BatchProcessingStep<TestEventWithTeam, TestEventWithTeam>> = jest.fn(
+                (events) =>
+                    Promise.resolve(
+                        events.map((event) => ok({ ...event, event: { ...event.event, batch_result: 'processed' } }))
+                    )
+            )
 
             // Create pipeline using builder API
             const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
-                .messageAware((builder) => builder.concurrently((b) => b.pipe(step1).pipe(step2)))
-                .handleResults(pipelineConfig)
-                .handleSideEffects(mockPromiseScheduler, { await: false })
-                .filterOk()
-                .map((element) => ({
-                    result: element.result,
-                    context: {
-                        ...element.context,
-                        team: element.result.value.team,
-                    },
-                }))
-                .gather()
                 .messageAware((builder) =>
-                    builder.teamAware((b) =>
-                        b
-                            .concurrently((c) => c.pipe(step3))
-                            .gather()
-                            .pipeBatch(batchStep)
-                    )
+                    builder
+                        .concurrently((b) => b.pipe(step1).pipe(step2))
+                        .filterMap(
+                            (element) => ({
+                                result: element.result,
+                                context: {
+                                    ...element.context,
+                                    team: element.result.value.team,
+                                },
+                            }),
+                            (b) =>
+                                b
+                                    .teamAware((b) =>
+                                        b
+                                            .concurrently((c) => c.pipe(step3))
+                                            .gather()
+                                            .pipeBatch(batchStep)
+                                    )
+                                    .handleIngestionWarnings(mockKafkaProducer)
+                        )
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: false })
@@ -1839,7 +1817,7 @@ describe('Pipeline Integration Tests', () => {
             expect(step1).toHaveBeenCalledTimes(3) // All 3 events
             expect(step2).toHaveBeenCalledTimes(2) // Only non-dropped events
             expect(step3).toHaveBeenCalledTimes(2) // Only team-aware events
-            expect(batchStep).toHaveBeenCalledTimes(1) // Batch processed once
+            expect(batchStep).toHaveBeenCalledTimes(2) // Batch processed per concurrent result batch
 
             // Should only return the OK events (drop-event filtered out)
             expect(allResults).toHaveLength(2)

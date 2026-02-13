@@ -1,59 +1,99 @@
 from datetime import UTC, datetime
+from textwrap import dedent
 from typing import Any, Literal
 
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 
-from posthog.schema import MaxExperimentSummaryContext
+from posthog.schema import MaxExperimentMetricResult
 
+from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Experiment, FeatureFlag
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
 from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.context.experiment.context import ExperimentContext
 from ee.hogai.tool import MaxTool
 
-from .experiment_summary_data_service import ExperimentSummaryDataService
-from .prompts import EXPERIMENT_SUMMARY_BAYESIAN_PROMPT, EXPERIMENT_SUMMARY_FREQUENTIST_PROMPT
+CREATE_EXPERIMENT_TOOL_DESCRIPTION = dedent("""
+    Use this tool to create A/B test experiments that measure the impact of changes.
+
+    # When to use
+    - The user wants to create a new A/B test or experiment
+    - The user wants to test variants of a feature with controlled measurement
+    - The user wants to set up a controlled experiment to measure impact
+
+    # Prerequisites
+    **IMPORTANT**: Before creating an experiment, you must first create a multivariate feature flag
+    using the `create_feature_flag` tool with at least two variants (control and test).
+    The first variant MUST be named "control".
+
+    # Experiment Types
+    - **product**: For backend/API changes, server-side experiments
+    - **web**: For frontend UI changes, client-side experiments
+
+    # Workflow
+    1. Create a multivariate feature flag with `create_feature_flag` (variants: control + test)
+    2. Create the experiment with this tool, linking it to the feature flag
+    3. Configure metrics in the PostHog UI
+    4. Launch the experiment when ready
+    """).strip()
 
 
-class CreateExperimentArgs(BaseModel):
-    name: str = Field(description="Experiment name - should clearly describe what is being tested")
+class CreateExperimentToolArgs(BaseModel):
+    name: str = Field(
+        description=dedent("""
+        The experiment name - should clearly describe what is being tested.
+
+        Examples:
+        - "Pricing Page Redesign Test"
+        - "New Checkout Flow Experiment"
+        - "Homepage CTA Button A/B Test"
+        """).strip()
+    )
     feature_flag_key: str = Field(
-        description="Feature flag key (letters, numbers, hyphens, underscores only). Will create a new flag if it doesn't exist."
+        description=dedent("""
+        The key of an existing multivariate feature flag to use for this experiment.
+
+        Requirements:
+        - The flag must already exist (create it first with create_feature_flag)
+        - The flag must have multivariate variants defined
+        - The flag must have at least 2 variants
+        - The first variant MUST be named "control"
+        - The flag cannot already be used by another experiment
+
+        Example: "pricing-page-experiment"
+        """).strip()
     )
     description: str | None = Field(
         default=None,
-        description="Detailed description of the experiment hypothesis, what changes are being tested, and expected outcomes",
+        description=dedent("""
+        Optional detailed description of the experiment.
+
+        Should include:
+        - The hypothesis being tested
+        - What changes are being made in each variant
+        - Expected outcomes or success criteria
+
+        Example: "Testing whether a simplified checkout flow increases conversion rates.
+        Control shows existing 3-step checkout, test shows new 1-page checkout."
+        """).strip(),
     )
     type: Literal["product", "web"] = Field(
         default="product",
-        description="Experiment type: 'product' for backend/API changes, 'web' for frontend UI changes",
+        description=dedent("""
+        The experiment type:
+        - "product": For backend/API changes, server-side experiments (default)
+        - "web": For frontend UI changes, client-side experiments
+        """).strip(),
     )
 
 
 class CreateExperimentTool(MaxTool):
     name: Literal["create_experiment"] = "create_experiment"
-    description: str = """
-Create a new A/B test experiment in the current project.
-
-Experiments allow you to test changes with a controlled rollout and measure their impact.
-
-Use this tool when the user wants to:
-- Create a new A/B test experiment
-- Set up a controlled experiment to test changes
-- Test variants of a feature with users
-
-Examples:
-- "Create an experiment to test the new checkout flow"
-- "Set up an A/B test for our pricing page redesign"
-- "Create an experiment called 'homepage-cta-test' to test different call-to-action buttons
-
-**IMPORTANT**: You must first find or create a multivariate feature flag using `create_feature_flag`, with at least two variants (control and test)."
-    """.strip()
-    context_prompt_template: str = "Creates a new A/B test experiment in the project"
-    args_schema: type[BaseModel] = CreateExperimentArgs
+    description: str = CREATE_EXPERIMENT_TOOL_DESCRIPTION
+    args_schema: type[BaseModel] = CreateExperimentToolArgs
 
     def get_required_resource_access(self):
         return [("experiment", "editor")]
@@ -163,259 +203,96 @@ Examples:
             return f"Failed to create experiment: {str(e)}", {"error": "creation_failed"}
 
 
+EXPERIMENT_SUMMARY_TOOL_DESCRIPTION = dedent("""
+    Use this tool to retrieve experiment results data for analysis.
+
+    # When to use
+    - The user wants to understand their experiment results
+    - The user asks about A/B test performance or metrics
+    - The user wants to know if their experiment is statistically significant
+    - The user asks for insights or recommendations based on experiment data
+
+    # What this tool returns
+    Returns formatted experiment data including:
+    - Experiment metadata (name, description, variants)
+    - Exposure data (sample sizes per variant)
+    - Primary and secondary metrics results with statistical measures
+    - For Bayesian experiments: chance to win, credible intervals, significance
+    - For Frequentist experiments: p-values, confidence intervals, significance
+
+    # Data interpretation
+    The data returned includes all information needed to analyze the experiment:
+    - **Exposures**: Sample size per variant, quality warnings for multiple exposures
+    - **Metrics**: Each metric shows results per variant with statistical measures
+    - **Significance**: Whether results are statistically significant
+    - **Effect size (delta)**: The percentage change from control
+
+    # Important notes
+    - Analyze each metric separately - different metrics may favor different variants
+    - Consider sample size when interpreting results
+    - Check for setup issues like users exposed to multiple variants
+    """).strip()
+
+
 class ExperimentSummaryArgs(BaseModel):
-    """
-    Analyze experiment results to generate an executive summary with key insights and recommendations.
-    The tool fetches experiment data directly from the backend using the experiment ID.
-    """
-
-    experiment_id: int = Field(description="The ID of the experiment to summarize")
-
-
-class ExperimentSummaryOutput(BaseModel):
-    """Structured output for experiment summary"""
-
-    key_metrics: list[str] = Field(description="Summary of key metric performance", max_length=20)
-    freshness_warning: str | None = Field(default=None, description="Warning if data has been updated since page load")
-
-
-EXPERIMENT_SUMMARY_TOOL_DESCRIPTION = """
-Use this tool to analyze experiment results and generate an executive summary with key insights and recommendations.
-The tool processes experiment data including metrics, statistical significance, and variant performance to provide actionable insights.
-It works with both Bayesian and Frequentist statistical methods and automatically adapts to the experiment's configuration.
-
-**Important:** When presenting results to the user, include any data freshness notices from the tool output. These notices inform the user if the data has been updated since they loaded the page.
-
-# Examples of when to use the experiment_results_summary tool
-
-<example>
-User: Can you summarize the results of my experiment?
-Assistant: I'll analyze your experiment results and provide a summary with key insights.
-*Uses experiment_results_summary tool*
-Assistant: Based on the analysis of your experiment results...
-
-<reasoning>
-The assistant used the experiment_results_summary tool because:
-1. The user is asking for a summary of experiment results
-2. The tool can analyze the statistical data and provide actionable insights
-</reasoning>
-</example>
-
-<example>
-User: What are the key takeaways from this A/B test?
-Assistant: Let me analyze the experiment results to identify the key takeaways.
-*Uses experiment_results_summary tool*
-Assistant: The key takeaways from your A/B test are...
-
-<reasoning>
-The assistant used the experiment_results_summary tool because:
-1. The user wants to understand the main findings from their experiment
-2. The tool can extract and summarize the most important metrics and outcomes
-</reasoning>
-</example>
-""".strip()
+    experiment_id: int | None = Field(
+        default=None,
+        description="The ID of the experiment to summarize. Only required when results context is not already available (e.g. when the user asks about an experiment from chat).",
+    )
 
 
 class ExperimentSummaryTool(MaxTool):
     name: str = "experiment_results_summary"
     description: str = EXPERIMENT_SUMMARY_TOOL_DESCRIPTION
-    context_prompt_template: str = "Analyzes experiment results and generates executive summaries with key insights."
-
     args_schema: type[BaseModel] = ExperimentSummaryArgs
 
     def get_required_resource_access(self):
         return [("experiment", "viewer")]
 
-    def _data_service(self) -> "ExperimentSummaryDataService":
-        return ExperimentSummaryDataService(self._team)
+    async def _arun_impl(self, experiment_id: int | None = None) -> tuple[str, dict[str, Any]]:
+        """Retrieve experiment data and format it for the agent."""
 
-    async def _analyze_experiment(self, context: MaxExperimentSummaryContext) -> ExperimentSummaryOutput:
-        """Analyze experiment and generate summary."""
         try:
-            if context.stats_method not in ("bayesian", "frequentist"):
-                raise ValueError(f"Unsupported statistical method: {context.stats_method}")
+            context = self.context
 
-            prompt_template = (
-                EXPERIMENT_SUMMARY_BAYESIAN_PROMPT
-                if context.stats_method == "bayesian"
-                else EXPERIMENT_SUMMARY_FREQUENTIST_PROMPT
-            )
+            resolved_experiment_id = context.get("experiment_id") or experiment_id
 
-            formatted_data = self._format_experiment_for_llm(context)
+            if resolved_experiment_id is None:
+                return "No experiment specified. Please provide an experiment_id.", {"error": "invalid_context"}
 
-            llm = MaxChatOpenAI(
-                user=self._user,
-                team=self._team,
-                model="gpt-4.1",
-                temperature=0.1,
-                billable=True,
-            ).with_structured_output(ExperimentSummaryOutput)
+            resolved_experiment_id = int(resolved_experiment_id)
 
-            formatted_prompt = prompt_template.replace("{{{experiment_data}}}", formatted_data)
+            # When frontend context has metrics data, use it directly
+            if (
+                context.get("primary_metrics_results") is not None
+                or context.get("secondary_metrics_results") is not None
+            ):
+                return await self._format_from_context(resolved_experiment_id, context)
 
-            analysis_result = await llm.ainvoke([{"role": "system", "content": formatted_prompt}])
-
-            if isinstance(analysis_result, dict):
-                return ExperimentSummaryOutput(**analysis_result)
-            return analysis_result
+            # Otherwise, fetch data via the data service (agent-initiated call)
+            return await self._fetch_and_format(resolved_experiment_id)
 
         except Exception as e:
             capture_exception(
                 e,
-                properties={"team_id": self._team.id, "user_id": self._user.id, "experiment_id": context.experiment_id},
+                properties={
+                    "team_id": self._team.id,
+                    "user_id": self._user.id,
+                    "experiment_id": self.context.get("experiment_id") if isinstance(self.context, dict) else None,
+                },
             )
-            return ExperimentSummaryOutput(key_metrics=[f"Analysis failed: {str(e)}"])
+            return f"Failed to summarize experiment: {str(e)}", {"error": "summary_failed", "details": str(e)}
 
-    def _format_experiment_for_llm(self, context: MaxExperimentSummaryContext) -> str:
-        """Format experiment data for LLM consumption."""
-        lines = []
-
-        lines.append(f"Statistical method: {context.stats_method.title()}")
-        lines.append(f"Experiment: {context.experiment_name}")
-
-        if context.description:
-            lines.append(f"Hypothesis: {context.description}")
-
-        if context.variants:
-            lines.append(f"\nVariants: {', '.join(context.variants)}")
-
-        if context.exposures:
-            exposures = context.exposures
-            lines.append("\nExposures:")
-            total = sum(exposures.values())
-            lines.append(f"  Total: {int(total)}")
-
-            for variant_key, count in exposures.items():
-                if variant_key == "$multiple":
-                    continue
-                percentage = (count / total * 100) if total > 0 else 0
-                lines.append(f"  {variant_key}: {int(count)} ({percentage:.1f}%)")
-
-            if "$multiple" in exposures:
-                multiple_count = exposures.get("$multiple", 0)
-                lines.append(f"  $multiple: {int(multiple_count)} ({multiple_count / total * 100:.1f}%)")
-                lines.append("  [Quality Warning: Users exposed to multiple variants detected]")
-
-        if not context.primary_metrics_results and not context.secondary_metrics_results:
-            return "\n".join(lines)
-
-        lines.append("\nResults:")
-
-        def format_metrics_section(metrics: list, section_name: str) -> None:
-            """Helper to format a section of metrics (primary or secondary)."""
-            if not metrics:
-                return
-
-            lines.append(f"\n{section_name}:")
-            for metric in metrics:
-                lines.append(f"\nMetric: {metric.name}")
-                if metric.goal:
-                    # Handle enum and string goal representations
-                    goal_str = metric.goal.value if hasattr(metric.goal, "value") else str(metric.goal)
-                    lines.append(f"  Goal: {goal_str.title()}")
-
-                if not metric.variant_results:
-                    continue
-
-                for variant in metric.variant_results:
-                    lines.append(f"  {variant.key}:")
-
-                    if context.stats_method == "bayesian":
-                        if hasattr(variant, "chance_to_win") and variant.chance_to_win is not None:
-                            lines.append(f"    Chance to win: {variant.chance_to_win:.1%}")
-
-                        if hasattr(variant, "credible_interval") and variant.credible_interval:
-                            ci_low, ci_high = variant.credible_interval[:2]
-                            lines.append(f"    95% credible interval: {ci_low:.1%} - {ci_high:.1%}")
-
-                        if hasattr(variant, "delta") and variant.delta is not None:
-                            lines.append(f"    Delta (effect size): {variant.delta:.1%}")
-
-                        lines.append(f"    Significant: {'Yes' if variant.significant else 'No'}")
-                    else:
-                        if hasattr(variant, "p_value") and variant.p_value is not None:
-                            lines.append(f"    P-value: {variant.p_value:.4f}")
-
-                        if hasattr(variant, "confidence_interval") and variant.confidence_interval:
-                            ci_low, ci_high = variant.confidence_interval[:2]
-                            lines.append(f"    95% confidence interval: {ci_low:.1%} - {ci_high:.1%}")
-
-                        if hasattr(variant, "delta") and variant.delta is not None:
-                            lines.append(f"    Delta (effect size): {variant.delta:.1%}")
-
-                        lines.append(f"    Significant: {'Yes' if variant.significant else 'No'}")
-
-        format_metrics_section(context.primary_metrics_results[:10], "Primary Metrics")
-        format_metrics_section(context.secondary_metrics_results[:10], "Secondary Metrics")
-
-        return "\n".join(lines)
-
-    def _format_summary_for_user(self, summary: ExperimentSummaryOutput, experiment_name: str) -> str:
-        """Format the structured summary into a user-friendly message."""
-        lines = []
-
-        if summary.freshness_warning:
-            lines.append("[IMPORTANT: Include this data freshness notice when presenting results to the user]")
-            lines.append(summary.freshness_warning)
-            lines.append("[End of notice]")
-            lines.append("")
-
-        lines.append(f"✅ **Experiment Summary: '{experiment_name}'**")
-
-        if summary.key_metrics:
-            lines.append("\n**📊 Key Metrics:**")
-            for metric in summary.key_metrics:
-                lines.append(f"• {metric}")
-
-        return "\n".join(lines)
-
-    async def _arun_impl(
-        self,
-        experiment_id: int,
-    ) -> tuple[str, dict[str, Any]]:
-        # Get frontend_last_refresh from the tool's registered context (set by frontend)
-        frontend_last_refresh = self.context.get("frontend_last_refresh")
+    async def _format_from_context(self, experiment_id: int, context: dict) -> tuple[str, dict[str, Any]]:
+        """Format experiment data using pre-computed context from the frontend."""
+        experiment_context = ExperimentContext(team=self._team, experiment_id=experiment_id)
+        experiment = await experiment_context.aget_experiment()
+        if experiment is None:
+            return f"Experiment {experiment_id} not found", {"error": "not_found"}
 
         try:
-            # Fetch experiment data from the backend
-            try:
-                data_service = self._data_service()
-                context, backend_last_refresh, pending_calculation = await data_service.fetch_experiment_data(
-                    experiment_id
-                )
-            except ValueError as e:
-                return f"❌ {str(e)}", {"error": "fetch_failed", "details": str(e)}
-
-            if pending_calculation:
-                return "⏳ Experiment results are still computing. Please try again in a minute.", {
-                    "error": "results_pending",
-                    "experiment_id": experiment_id,
-                }
-
-            if not context.primary_metrics_results and not context.secondary_metrics_results:
-                return "❌ No experiment results to analyze. The experiment may not have collected enough data yet.", {
-                    "error": "no_results",
-                    "experiment_id": experiment_id,
-                }
-
-            # Analyze the experiment
-            summary_result = await self._analyze_experiment(context)
-
-            # Add freshness warning if applicable
-            freshness_warning = self._data_service().check_data_freshness(frontend_last_refresh, backend_last_refresh)
-            if freshness_warning:
-                summary_result.freshness_warning = freshness_warning
-
-            user_message = self._format_summary_for_user(summary_result, context.experiment_name)
-
-            return user_message, {
-                "experiment_id": context.experiment_id,
-                "experiment_name": context.experiment_name,
-                "summary": summary_result.model_dump(),
-                "data_refreshed_at": backend_last_refresh.isoformat() if backend_last_refresh else None,
-                "freshness_warning": freshness_warning,
-            }
-
+            primary_metrics = [MaxExperimentMetricResult(**m) for m in context.get("primary_metrics_results", [])]
+            secondary_metrics = [MaxExperimentMetricResult(**m) for m in context.get("secondary_metrics_results", [])]
         except Exception as e:
             capture_exception(
                 e,
@@ -425,7 +302,71 @@ class ExperimentSummaryTool(MaxTool):
                     "experiment_id": experiment_id,
                 },
             )
-            return f"❌ Failed to summarize experiment: {str(e)}", {"error": "summary_failed", "details": str(e)}
+            return f"Invalid experiment context: {str(e)}", {"error": "invalid_context", "details": str(e)}
+
+        exposures = context.get("exposures")
+
+        formatted_data = await experiment_context.format_experiment_results_data(
+            experiment,
+            exposures=exposures,
+            primary_metrics_results=primary_metrics,
+            secondary_metrics_results=secondary_metrics,
+        )
+
+        return self._build_result(experiment, formatted_data, primary_metrics, secondary_metrics)
+
+    async def _fetch_and_format(self, experiment_id: int) -> tuple[str, dict[str, Any]]:
+        """Fetch experiment data from query runners and format it."""
+        from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryDataService
+
+        data_service = ExperimentSummaryDataService(self._team)
+
+        try:
+            summary_context, _last_refresh, pending = await data_service.fetch_experiment_data(experiment_id)
+        except ValueError as e:
+            return str(e), {"error": "not_found"}
+
+        experiment_context = ExperimentContext(team=self._team, experiment_id=experiment_id)
+        experiment = await experiment_context.aget_experiment()
+        if experiment is None:
+            return f"Experiment {experiment_id} not found", {"error": "not_found"}
+
+        formatted_data = await experiment_context.format_experiment_results_data(
+            experiment,
+            exposures=summary_context.exposures,
+            primary_metrics_results=summary_context.primary_metrics_results,
+            secondary_metrics_results=summary_context.secondary_metrics_results,
+        )
+
+        if pending:
+            formatted_data += "\n\n**Note:** Some metrics are still being calculated. Results may be incomplete."
+
+        return self._build_result(
+            experiment,
+            formatted_data,
+            summary_context.primary_metrics_results,
+            summary_context.secondary_metrics_results,
+        )
+
+    def _build_result(
+        self,
+        experiment: Experiment,
+        formatted_data: str,
+        primary_metrics: list,
+        secondary_metrics: list,
+    ) -> tuple[str, dict[str, Any]]:
+        """Build the final result tuple with artifact metadata."""
+        stats_method = get_experiment_stats_method(experiment)
+        multivariate = experiment.feature_flag.filters.get("multivariate", {})
+        variants = [v.get("key") for v in multivariate.get("variants", []) if v.get("key")]
+
+        return formatted_data, {
+            "experiment_id": experiment.id,
+            "experiment_name": experiment.name,
+            "stats_method": stats_method,
+            "variants": variants,
+            "has_results": bool(primary_metrics or secondary_metrics),
+        }
 
 
 # Session Replay Summary Tool

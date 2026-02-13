@@ -1,7 +1,6 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
-import { PersonProfiles } from './_snippets/person-profiles'
 
 export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
@@ -39,6 +38,8 @@ export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                                 language: 'ruby',
                                 file: 'Ruby',
                                 code: dedent`
+                                require 'posthog'
+                                
                                 posthog = PostHog::Client.new({
                                     api_key: "<ph_project_api_key>",
                                     host: "<ph_client_api_host>",
@@ -74,7 +75,6 @@ export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                             },
                         ]}
                     />
-                    <PersonProfiles language="ruby" />
                 </>
             ),
         },

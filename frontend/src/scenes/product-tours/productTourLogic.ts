@@ -146,9 +146,9 @@ export const productTourLogic = kea<productTourLogicType>([
         launchProductTour: true,
         stopProductTour: true,
         resumeProductTour: true,
-        openToolbarModal: true,
+        openToolbarModal: (toolbarMode?: 'preview' | 'edit') => ({ toolbarMode: toolbarMode ?? 'edit' }),
         closeToolbarModal: true,
-        submitAndOpenToolbar: true,
+        submitAndOpenToolbar: (toolbarMode?: 'preview' | 'edit') => ({ toolbarMode: toolbarMode ?? 'edit' }),
     }),
     loaders(({ props, values }) => ({
         productTour: {
@@ -337,9 +337,10 @@ export const productTourLogic = kea<productTourLogicType>([
                     }
 
                     if (hasIncompleteTargeting(step)) {
-                        error = step.useManualSelector
-                            ? `Step ${index + 1} missing element selector`
-                            : `Select an element for step ${index + 1}`
+                        error =
+                            step.elementTargeting === 'manual'
+                                ? `Step ${index + 1} missing element selector`
+                                : `Select an element for step ${index + 1}`
                     }
 
                     if (error) {
@@ -420,6 +421,14 @@ export const productTourLogic = kea<productTourLogicType>([
             {
                 openToolbarModal: () => true,
                 closeToolbarModal: () => false,
+            },
+        ],
+        toolbarMode: [
+            'edit' as 'preview' | 'edit',
+            {
+                openToolbarModal: (_, { toolbarMode }) => toolbarMode,
+
+                submitAndOpenToolbar: (_, { toolbarMode }) => toolbarMode,
             },
         ],
     }),

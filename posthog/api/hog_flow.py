@@ -67,6 +67,8 @@ class HogFlowActionSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     def validate(self, data):
+        is_draft = self.context.get("is_draft")
+
         trigger_is_function = False
         if data.get("type") == "trigger":
             if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel", "schedule"]:
@@ -78,46 +80,57 @@ class HogFlowActionSerializer(serializers.Serializer):
                     filters["filter_test_accounts"] = data["config"].pop("filter_test_accounts")
                 if filters:
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                    serializer.is_valid(raise_exception=True)
-                    data["config"]["filters"] = serializer.validated_data
+                    if is_draft:
+                        if serializer.is_valid():
+                            data["config"]["filters"] = serializer.validated_data
+                    else:
+                        serializer.is_valid(raise_exception=True)
+                        data["config"]["filters"] = serializer.validated_data
             elif data.get("config", {}).get("type") == "batch":
-                filters = data.get("config", {}).get("filters", {})
-                if not filters:
-                    raise serializers.ValidationError({"filters": "Filters are required for batch triggers."})
-                if not isinstance(filters, dict):
-                    raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
-                properties = filters.get("properties", None)
-                if properties is not None and not isinstance(properties, list):
-                    raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
+                if not is_draft:
+                    filters = data.get("config", {}).get("filters", {})
+                    if not filters:
+                        raise serializers.ValidationError({"filters": "Filters are required for batch triggers."})
+                    if not isinstance(filters, dict):
+                        raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
+                    properties = filters.get("properties", None)
+                    if properties is not None and not isinstance(properties, list):
+                        raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
             else:
-                raise serializers.ValidationError({"config": "Invalid trigger type"})
+                if not is_draft:
+                    raise serializers.ValidationError({"config": "Invalid trigger type"})
 
         if "function" in data.get("type", "") or trigger_is_function:
             template_id = data.get("config", {}).get("template_id", "")
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
-                raise serializers.ValidationError({"template_id": "Template not found"})
+                if not is_draft:
+                    raise serializers.ValidationError({"template_id": "Template not found"})
+            else:
+                input_schema = template.inputs_schema
+                inputs = data.get("config", {}).get("inputs", {})
 
-            input_schema = template.inputs_schema
-            inputs = data.get("config", {}).get("inputs", {})
+                function_config_serializer = HogFlowConfigFunctionInputsSerializer(
+                    data={
+                        "inputs_schema": input_schema,
+                        "inputs": inputs,
+                    },
+                    context={"function_type": template.type},
+                )
 
-            function_config_serializer = HogFlowConfigFunctionInputsSerializer(
-                data={
-                    "inputs_schema": input_schema,
-                    "inputs": inputs,
-                },
-                context={"function_type": template.type},
-            )
-
-            function_config_serializer.is_valid(raise_exception=True)
-
-            data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+                if is_draft:
+                    if function_config_serializer.is_valid():
+                        data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+                else:
+                    function_config_serializer.is_valid(raise_exception=True)
+                    data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
 
         conditions = data.get("config", {}).get("conditions", [])
 
         single_condition = data.get("config", {}).get("condition", None)
         if conditions and single_condition:
-            raise serializers.ValidationError({"config": "Cannot specify both 'conditions' and 'condition' fields"})
+            if not is_draft:
+                raise serializers.ValidationError({"config": "Cannot specify both 'conditions' and 'condition' fields"})
         if single_condition:
             conditions = [single_condition]
 
@@ -126,11 +139,16 @@ class HogFlowActionSerializer(serializers.Serializer):
                 filters = condition.get("filters")
                 if filters is not None:
                     if "events" in filters:
-                        raise serializers.ValidationError("Event filters are not allowed in conditionals")
-
-                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                    serializer.is_valid(raise_exception=True)
-                    condition["filters"] = serializer.validated_data
+                        if not is_draft:
+                            raise serializers.ValidationError("Event filters are not allowed in conditionals")
+                    else:
+                        serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                        if is_draft:
+                            if serializer.is_valid():
+                                condition["filters"] = serializer.validated_data
+                        else:
+                            serializer.is_valid(raise_exception=True)
+                            condition["filters"] = serializer.validated_data
 
         return data
 
@@ -200,6 +218,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     trigger_masking = HogFlowMaskingSerializer(required=False, allow_null=True)
     variables = HogFlowVariableSerializer(required=False)
 
+    def to_internal_value(self, data):
+        status = data.get("status")
+        if status is None and self.instance:
+            status = self.instance.status
+        if status != "active":
+            self.context["is_draft"] = True
+        return super().to_internal_value(data)
+
     class Meta:
         model = HogFlow
         fields = [
@@ -233,6 +259,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def validate(self, data):
         instance = cast(Optional[HogFlow], self.instance)
         actions = data.get("actions", instance.actions if instance else [])
+
+        # When activating a draft, re-validate actions from the instance with full (non-draft) checks
+        status = data.get("status", instance.status if instance else "draft")
+        if status == "active" and instance and instance.status != "active" and "actions" not in data:
+            action_serializer = HogFlowActionSerializer(data=instance.actions, many=True, context=self.context)
+            action_serializer.is_valid(raise_exception=True)
+            actions = action_serializer.validated_data
+
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
         trigger_actions = [action for action in actions if action.get("type") == "trigger"]
 
@@ -339,6 +373,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         instance_id = serializer.instance.id
 
         try:
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance_id)
         except HogFlow.DoesNotExist:
             before_update = None
