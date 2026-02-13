@@ -158,19 +158,19 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
         // To prevent adding bloat to the other topic headers, only add add dlq headers when present.
         if let Some(ref reason) = headers.dlq_reason {
             owned = owned.insert(Header {
-                key: "dlq-reason",
+                key: "dlq_reason",
                 value: Some(reason.as_str()),
             });
         }
         if let Some(ref step) = headers.dlq_step {
             owned = owned.insert(Header {
-                key: "dlq-step",
+                key: "dlq_step",
                 value: Some(step.as_str()),
             });
         }
         if let Some(ref timestamp) = headers.dlq_timestamp {
             owned = owned.insert(Header {
-                key: "dlq-timestamp",
+                key: "dlq_timestamp",
                 value: Some(timestamp.as_str()),
             });
         }
@@ -204,9 +204,9 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
             historical_migration: headers_map
                 .get("historical_migration")
                 .and_then(|v| v.parse::<bool>().ok()),
-            dlq_reason: headers_map.get("dlq-reason").cloned(),
-            dlq_step: headers_map.get("dlq-step").cloned(),
-            dlq_timestamp: headers_map.get("dlq-timestamp").cloned(),
+            dlq_reason: headers_map.get("dlq_reason").cloned(),
+            dlq_step: headers_map.get("dlq_step").cloned(),
+            dlq_timestamp: headers_map.get("dlq_timestamp").cloned(),
         }
     }
 }
@@ -668,7 +668,7 @@ mod tests {
         // Verify the dlq keys are present in the raw Kafka headers
         let dlq_keys: Vec<&str> = owned
             .iter()
-            .filter(|h| h.key.starts_with("dlq-"))
+            .filter(|h| h.key.starts_with("dlq_"))
             .map(|h| h.key)
             .collect();
         assert_eq!(dlq_keys.len(), 3);
@@ -709,7 +709,7 @@ mod tests {
         // Verify the dlq keys are not present in the raw Kafka headers at all
         let dlq_keys: Vec<&str> = owned
             .iter()
-            .filter(|h| h.key.starts_with("dlq-"))
+            .filter(|h| h.key.starts_with("dlq_"))
             .map(|h| h.key)
             .collect();
         assert!(
