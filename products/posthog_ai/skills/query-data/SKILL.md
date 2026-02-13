@@ -7,11 +7,11 @@ description: 'MANDATORY first step before any PostHog data retrieval. Must be in
 
 Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We use terms "HogQL" and "SQL" interchangeably.
 
-Do not assume that data exists. Use the SQL tool proactively to find right data.
+Do not assume that data exists. Use the SQL tool proactively to find the right data.
 
 ## Search types
 
-Proactively use differnt search types depending on a task:
+Proactively use different search types depending on a task:
 
 - Grep-like (regex search) with `match()`, `LIKE`, `ILIKE`, `position`, `multiMatch`, etc.
 - Full-text search with `hasToken`, `hasTokenCaseInsensitive`, etc. Make sure you pass string constants to `hasToken*` functions.
@@ -123,7 +123,7 @@ Before writing analytical queries, always verify that:
 Follow this workflow:
 
 1. **Fetch the tool schema** - Use `posthog:read-data-schema` to get the latest schema from the MCP.
-1. **Verify data exist** - Use `posthog:read-data-schema` with differrent data types to check if the data you need is captured
+1. **Verify data exist** - Use `posthog:read-data-schema` with different data types to check if the data you need is captured
 1. **Only then write the query** - Once you've confirmed the data exists, write and execute your analytical query
 
 <example>
@@ -147,7 +147,7 @@ You should use the skipping index signature to write optimized analytical querie
 
 ### Time ranges
 
-All analytical queries and subqueries must always have time ranges set for supported tables (events). If the user doesn't state it, Assume default time range based on the data volume, like a day, week, or month.
+All analytical queries and subqueries must always have time ranges set for supported tables (events). If the user doesn't state it, assume default time range based on the data volume, like a day, week, or month.
 
 #### How you should use time ranges
 
@@ -201,7 +201,7 @@ WHERE
   AND g.event = '$ai_generation'
   AND trace_id IN (SELECT properties.$ai_trace_id FROM events WHERE event = '$ai_feedback' AND timestamp >= now() - INTERVAL 1 WEEK)
 ```
-<reasoning>A subquery is used instead a JOIN clause. Both queries have the timestamp filters.</reasoning>
+<reasoning>A subquery is used instead of a JOIN clause. Both queries have the timestamp filters.</reasoning>
 </example>
 
 ##### How you should NOT join data
@@ -263,7 +263,7 @@ CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at
 
 ### Syntax extensions and HogQL functions
 
-Find the reference for [Sparkline, SemVer, Session replays, Actions, Translation, HTML tags and links, Text effects, and other](./references/hogql-extensions.md).
+Find the reference for [Sparkline, SemVer, Session replays, Actions, Translation, HTML tags and links, Text effects, and more](./references/hogql-extensions.md).
 
 ### Other rules
 
