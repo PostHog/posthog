@@ -1530,8 +1530,8 @@ export interface BatchExportBackfillApi {
     readonly last_updated_at: string
     /**
      * The total number of records to export. Initially estimated, updated with actual count after completion.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * @minimum -9223372036854776000
+     * @maximum 9223372036854776000
      * @nullable
      */
     total_records_count?: number | null
