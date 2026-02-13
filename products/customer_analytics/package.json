@@ -1,10 +1,11 @@
 {
     "name": "@posthog/products-customer-analytics",
     "dependencies": {
-        "kea": "^3.1.7",
-        "kea-loaders": "^3.1.1",
-        "kea-router": "^3.4.1",
-        "kea-test-utils": "^0.2.4"
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "kea-test-utils": "catalog:",
+        "posthog-js": "1.347.2"
     },
     "peerDependencies": {
         "@posthog/icons": "*",

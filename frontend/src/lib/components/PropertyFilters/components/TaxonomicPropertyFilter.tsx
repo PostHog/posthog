@@ -23,6 +23,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isOperatorMulti, isOperatorRegex, toParams } from 'lib/utils'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -79,7 +80,9 @@ export function TaxonomicPropertyFilter({
     endpointFilters,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
-    const groupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
+    const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
+    const baseGroupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
+    const groupTypes = showQuickFilters ? [TaxonomicFilterGroupType.QuickFilters, ...baseGroupTypes] : baseGroupTypes
     const taxonomicOnChange: (
         group: TaxonomicFilterGroup,
         value: TaxonomicFilterValue,
@@ -87,7 +90,10 @@ export function TaxonomicPropertyFilter({
         originalQuery?: string
     ) => void = (taxonomicGroup, value, item, originalQuery) => {
         selectItem(taxonomicGroup, value, item?.propertyFilterType, item, originalQuery)
-        if (taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression) {
+        if (
+            taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression ||
+            taxonomicGroup.type === TaxonomicFilterGroupType.QuickFilters
+        ) {
             onComplete?.()
         }
     }

@@ -627,6 +627,19 @@ async def materialize_model(
             await mark_job_as_failed(job, error_message, logger)
             await logger.ainfo("Paused temporal schedule for query: saved_query_id=%s", saved_query.id)
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
+        elif "query returned no results" in error_message.lower():
+            await logger.awarning(
+                "Query returned no results: saved_query_id=%s saved_query_name=%s", saved_query.id, saved_query.name
+            )
+            # succeed the job but leave the error on the saved_query and the job and raise for temporal
+            saved_query.latest_error = str(e)
+            await database_sync_to_async(saved_query.save)()
+            job.error = str(e)
+            job.rows_materialized = 0
+            job.status = DataModelingJob.Status.COMPLETED
+            job.last_run_at = dt.datetime.now(dt.UTC)
+            await database_sync_to_async(job.save)()
+            raise
         else:
             saved_query.latest_error = f"Query failed to materialize: {error_message}"
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
@@ -652,7 +665,7 @@ async def materialize_model(
         saved_query_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
 
     await logger.adebug("Copying query files in S3")
-    folder_path = prepare_s3_files_for_querying(
+    folder_path = await prepare_s3_files_for_querying(
         folder_path=saved_query.folder_path,
         table_name=saved_query.normalized_name,
         file_uris=file_uris,

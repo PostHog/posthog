@@ -21,6 +21,20 @@ import { DateMappingOption } from '~/types'
 
 import type { dateFilterLogicType } from './dateFilterLogicType'
 
+/** Check if a date value has time precision (non-midnight time component) */
+function hasTimePrecision(dateValue: string | Dayjs | null | undefined): boolean {
+    if (!dateValue) {
+        return false
+    }
+    if (dayjs.isDayjs(dateValue)) {
+        return dateValue.format('HH:mm:ss') !== '00:00:00'
+    }
+    if (typeof dateValue === 'string' && isDate.test(dateValue)) {
+        return dayjs(dateValue).format('HH:mm:ss') !== '00:00:00'
+    }
+    return false
+}
+
 export const dateFilterLogic = kea<dateFilterLogicType>([
     path(['lib', 'components', 'DateFilter', 'DateFilterLogic']),
     props({} as DateFilterLogicProps),
@@ -91,11 +105,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             },
         ],
         explicitDate: [
-            props.explicitDate ??
-                !!(
-                    props.dateFrom &&
-                    (dayjs.isDayjs(props.dateFrom) || dayjs(props.dateFrom).format('HH:mm:ss') !== '00:00:00')
-                ),
+            props.explicitDate ?? hasTimePrecision(props.dateFrom),
             {
                 setExplicitDate: (_, { explicitDate }) => explicitDate,
                 setDate: (_, { explicitDate }) => explicitDate,
@@ -103,9 +113,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
         ],
         fixedRangeGranularity: [
             // Default based on whether the current dateFrom has time precision
-            (props.dateFrom && !dayjs.isDayjs(props.dateFrom) && dayjs(props.dateFrom).format('HH:mm:ss') !== '00:00:00'
-                ? 'minute'
-                : 'day') as 'day' | 'minute',
+            (hasTimePrecision(props.dateFrom) ? 'minute' : 'day') as 'day' | 'minute',
             {
                 setFixedRangeGranularity: (_, { granularity }) => granularity,
             },
@@ -148,24 +156,8 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                         (option.values[1] ?? null) === (dateTo ?? null)
                 ),
         ],
-        dateFromHasTimePrecision: [
-            (s) => [s.dateFrom],
-            (dateFrom) => {
-                if (dateFrom) {
-                    return dayjs(dateFrom).format('HH:mm:ss') !== '00:00:00'
-                }
-                return false
-            },
-        ],
-        dateToHasTimePrecision: [
-            (s) => [s.dateTo],
-            (dateTo) => {
-                if (dateTo) {
-                    return dayjs(dateTo).format('HH:mm:ss') !== '00:00:00'
-                }
-                return false
-            },
-        ],
+        dateFromHasTimePrecision: [(s) => [s.dateFrom], (dateFrom) => hasTimePrecision(dateFrom)],
+        dateToHasTimePrecision: [(s) => [s.dateTo], (dateTo) => hasTimePrecision(dateTo)],
         label: [
             (s) => [
                 s.dateFrom,

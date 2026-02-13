@@ -659,6 +659,22 @@ describe('Hog Executor', () => {
                 "Function completed in REPLACEDms. Sync: 0ms. Mem: 0.17kb. Ops: 28. Event: 'http://localhost:8000/events/1'",
             ])
         })
+
+        it('sets execResult when VM returns an object synchronously', async () => {
+            // This tests a simple return statement without any async functions
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_return_object,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const res = await executor.execute(createExampleInvocation(fn))
+            expect(res.finished).toBe(true)
+            expect(res.execResult).toEqual({
+                status: 'pending',
+                priority: 'high',
+                ticket_number: 42,
+            })
+        })
     })
 
     describe('posthogCaptue', () => {
@@ -739,6 +755,128 @@ describe('Hog Executor', () => {
                   "Function completed in REPLACEDms. Sync: 0ms. Mem: 0.1kb. Ops: 15. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
+        })
+    })
+
+    describe('postHogGetTicket and postHogUpdateTicket', () => {
+        const mockExecHogForAsyncFunction = (asyncFunctionName: string, asyncFunctionArgs: any[]) => {
+            const hogExecModule = require('../utils/hog-exec')
+            jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
+                execResult: {
+                    finished: false,
+                    asyncFunctionName,
+                    asyncFunctionArgs,
+                    state: { syncDuration: 1, maxMemUsed: 100, ops: 10, stack: [] },
+                },
+                error: undefined,
+                durationMs: 1,
+                waitedForThreadRelief: false,
+            })
+        }
+
+        // Provide pre-built inputs so buildInputsWithGlobals is skipped
+        const createTicketInvocation = () =>
+            createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                }),
+                { inputs: {} }
+            )
+
+        it('postHogGetTicket queues internal fetch with correct params', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                api_token: 'test-api-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: 'test-ticket-123' }])
+
+            const result = await executor.execute(createTicketInvocation())
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: `${hub.SITE_URL}/api/conversations/external/ticket/test-ticket-123`,
+                method: 'GET',
+                headers: { Authorization: 'Bearer test-api-token' },
+            })
+        })
+
+        it('postHogUpdateTicket queues internal fetch with correct params', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                api_token: 'test-api-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateTicket', [
+                { ticket_id: 'test-ticket-456', updates: { status: 'resolved', priority: 'high' } },
+            ])
+
+            const result = await executor.execute(createTicketInvocation())
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: `${hub.SITE_URL}/api/conversations/external/ticket/test-ticket-456`,
+                method: 'PATCH',
+                body: JSON.stringify({ status: 'resolved', priority: 'high' }),
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: 'Bearer test-api-token',
+                },
+            })
+        })
+
+        it('postHogGetTicket errors when ticket_id is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                api_token: 'test-api-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetTicket', [{}])
+
+            const result = await executor.execute(createTicketInvocation())
+            expect(result.error).toContain("missing 'ticket_id'")
+        })
+
+        it('postHogUpdateTicket errors when ticket_id is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                api_token: 'test-api-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateTicket', [{ updates: { status: 'resolved' } }])
+
+            const result = await executor.execute(createTicketInvocation())
+            expect(result.error).toContain("missing 'ticket_id'")
+        })
+
+        it('postHogGetTicket errors when team is not found', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(null)
+
+            mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: 'test-ticket-123' }])
+
+            const result = await executor.execute(createTicketInvocation())
+            expect(result.error).toContain('Team 1 not found')
+        })
+    })
+
+    describe('fetch does not allow internal flag', () => {
+        it('regular fetch call does not pass through internal flag', async () => {
+            const invocation = createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+            )
+
+            const result = await executor.execute(invocation)
+
+            // The fetch case handler only picks url/method/body/headers — internal is never passed
+            expect(result.invocation.queueParameters).toBeDefined()
+            expect((result.invocation.queueParameters as any).type).toBe('fetch')
+            expect((result.invocation.queueParameters as any).internal).toBeUndefined()
         })
     })
 

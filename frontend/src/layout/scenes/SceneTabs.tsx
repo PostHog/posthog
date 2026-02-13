@@ -15,6 +15,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { SceneTab } from 'scenes/sceneTypes'
@@ -35,6 +36,7 @@ export function SceneTabs(): JSX.Element {
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
+    const { sqlEditorNewTabPreference } = useValues(userPreferencesLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
@@ -123,10 +125,10 @@ export function SceneTabs(): JSX.Element {
                                 onClick={(e) => {
                                     e.preventDefault()
                                     const currentPath = router.values.location.pathname
-                                    // If on /sql route, open a new /sql tab, otherwise default to /search
                                     const isSqlRoute = currentPath.endsWith('/sql')
+                                    const openSqlTab = isSqlRoute && sqlEditorNewTabPreference === 'editor'
                                     const source = e.detail === 0 ? 'keyboard_shortcut' : 'new_tab_button'
-                                    newTab(isSqlRoute ? '/sql' : null, { source })
+                                    newTab(openSqlTab ? '/sql' : null, { source })
                                 }}
                                 tooltip="New tab"
                                 tooltipCloseDelayMs={0}

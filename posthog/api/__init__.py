@@ -70,6 +70,7 @@ from products.llm_analytics.backend.api import (
 from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
+from products.signals.backend.views import SignalViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
@@ -164,7 +165,7 @@ router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
 router.register(r"oauth_application/metadata", OAuthApplicationPublicMetadataViewSet, "oauth_application_metadata")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
-projects_router.register(r"environments", team.TeamViewSet, "project_environments", ["project_id"])
+projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
 environments_router = router.register(r"environments", team.RootTeamViewSet, "environments")
 
 
@@ -311,6 +312,13 @@ environments_router.register(
     r"customer_profile_configs",
     customer_analytics.CustomerProfileConfigViewSet,
     "environment_customer_profile_configs",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"customer_journeys",
+    customer_analytics.CustomerJourneyViewSet,
+    "environment_customer_journeys",
     ["team_id"],
 )
 
@@ -888,6 +896,13 @@ environments_router.register(
     r"error_tracking/autocapture_controls",
     ErrorTrackingAutoCaptureControlsViewSet,
     "environment_error_tracking_autocapture_controls",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"signals",
+    SignalViewSet,
+    "environment_signals",
     ["team_id"],
 )
 

@@ -2044,8 +2044,15 @@
                     "type": "string"
                 },
                 "ui_payload": {
-                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
-                    "type": "object"
+                    "anyOf": [
+                        {
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend."
                 }
             },
             "required": ["type", "content", "tool_call_id"],
@@ -15637,6 +15644,7 @@
                 "workflows",
                 "notebook",
                 "action",
+                "activity",
                 "comment",
                 "annotation",
                 "event",
@@ -15666,6 +15674,7 @@
                 "toolbar",
                 "settings",
                 "health",
+                "inbox",
                 "sdk_doctor",
                 "pipeline_status",
                 "llm_evaluations",
@@ -16428,6 +16437,10 @@
                     },
                     "description": "Customizations for the appearance of result datasets.",
                     "type": "object"
+                },
+                "showTrendLines": {
+                    "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
+                    "type": "boolean"
                 },
                 "showValuesOnSeries": {
                     "default": false,
@@ -18551,6 +18564,9 @@
                 "createdAt": {
                     "type": "string"
                 },
+                "distinctId": {
+                    "type": "string"
+                },
                 "errorCount": {
                     "type": "number"
                 },
@@ -18593,7 +18609,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "createdAt", "person", "events"],
+            "required": ["id", "createdAt", "distinctId", "events"],
             "type": "object"
         },
         "LLMTraceEvent": {
@@ -18632,6 +18648,7 @@
                     "type": "string"
                 },
                 "properties": {
+                    "additionalProperties": {},
                     "type": "object"
                 },
                 "uuid": {
@@ -30605,6 +30622,9 @@
         "SourceFieldInputConfig": {
             "additionalProperties": false,
             "properties": {
+                "caption": {
+                    "type": "string"
+                },
                 "label": {
                     "type": "string"
                 },
@@ -31636,6 +31656,7 @@
                 "activity_log_properties",
                 "max_ai_context",
                 "workflow_variables",
+                "quick_filters",
                 "empty"
             ],
             "type": "string"
@@ -33327,6 +33348,9 @@
                 },
                 {
                     "$ref": "#/definitions/SessionPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/CohortPropertyFilter"
                 }
             ]
         },

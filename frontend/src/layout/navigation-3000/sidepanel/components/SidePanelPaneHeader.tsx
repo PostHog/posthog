@@ -34,7 +34,7 @@ export function SidePanelPaneHeader({
                 'border-b shrink-0 flex items-center justify-end',
                 !modalMode ? 'sticky top-0 z-10 bg-surface-secondary p-1 h-10' : 'pb-2 mt-2 mx-3',
                 isRemovingSidePanelFlag &&
-                    'sticky top-0 h-[50px] bg-primary border-b-0 py-0 px-4 pb-px rounded justify-between m-0 mb-5',
+                    'sticky top-0 h-[40px] bg-primary border-b-0 py-0 px-2 pb-px rounded justify-between m-0 mb-5 z-60 border',
                 className
             )}
         >
@@ -42,7 +42,7 @@ export function SidePanelPaneHeader({
                 <h3
                     className={cn('flex-1 flex items-center gap-1 font-semibold mb-0 truncate', {
                         'text-sm px-2': !modalMode,
-                        'pr-1 flex-none pl-0': isRemovingSidePanelFlag,
+                        'pr-1 flex-none pl-2': isRemovingSidePanelFlag,
                     })}
                 >
                     {title}

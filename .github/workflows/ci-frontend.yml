@@ -87,9 +87,7 @@ jobs:
                   cache: 'pnpm'
 
             - name: Setup Emscripten for WASM build
-              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
-              with:
-                  version: '4.0.23'
+              uses: ./.github/actions/setup-emsdk
 
             - name: Install Ninja
               run: sudo apt-get install -y ninja-build
@@ -137,9 +135,7 @@ jobs:
                   cache: 'pnpm'
 
             - name: Setup Emscripten for WASM build
-              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
-              with:
-                  version: '4.0.23'
+              uses: ./.github/actions/setup-emsdk
 
             - name: Install Ninja
               run: sudo apt-get install -y ninja-build
@@ -161,9 +157,7 @@ jobs:
                   # Check all JS bundles in the dist folder
                   pattern: 'frontend/dist/**/*.js'
                   # Exclude source maps and chunk files (chunk hashes change every build)
-                  exclude: |
-                      **/*.js.map
-                      **/chunk*.js
+                  exclude: '{**/*.js.map,**/chunk*.js}'
                   # Only show large changes
                   minimum-change-threshold: 1000
                   order-by: 'Size:desc'
@@ -217,9 +211,7 @@ jobs:
                   cache: 'pnpm'
 
             - name: Setup Emscripten for WASM build
-              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
-              with:
-                  version: '4.0.23'
+              uses: ./.github/actions/setup-emsdk
 
             - name: Install Ninja
               run: sudo apt-get install -y ninja-build
@@ -299,9 +291,7 @@ jobs:
                   cache: pnpm
 
             - name: Setup Emscripten for WASM build
-              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
-              with:
-                  version: '4.0.23'
+              uses: ./.github/actions/setup-emsdk
 
             - name: Install Ninja
               run: sudo apt-get install -y ninja-build
@@ -320,8 +310,8 @@ jobs:
         name: Calculate running time
         needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, changes]
         runs-on: ubuntu-latest
-        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
-            always() &&
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
+            always() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))

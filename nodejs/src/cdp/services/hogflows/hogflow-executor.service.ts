@@ -524,9 +524,24 @@ export class HogFlowExecutorService {
                 result.invocation.state.variables = {}
             }
 
-            result.invocation.state.variables[action.output_variable.key] = action.output_variable?.result_path
+            const resolvedResult = action.output_variable?.result_path
                 ? get(actionResult, action.output_variable.result_path)
                 : actionResult
+
+            // When spread is true, store each property of the result as a separate variable
+            if (
+                action.output_variable.spread &&
+                typeof resolvedResult === 'object' &&
+                resolvedResult !== null &&
+                !Array.isArray(resolvedResult)
+            ) {
+                const prefix = action.output_variable.key
+                for (const [prop, value] of Object.entries(resolvedResult)) {
+                    result.invocation.state.variables[`${prefix}_${prop}`] = value
+                }
+            } else {
+                result.invocation.state.variables[action.output_variable.key] = resolvedResult
+            }
 
             // Check that result to be stored is below 1kb
             const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
@@ -536,15 +551,26 @@ export class HogFlowExecutorService {
                     'warn',
                     `Total variable size after updating '${action.output_variable.key}' is larger than 1KB, this result will not be stored and won't be available in subsequent actions.`
                 )
-                delete result.invocation.state.variables[action.output_variable.key]
+                // Clean up all spread variables
+                if (action.output_variable.spread) {
+                    for (const key of Object.keys(result.invocation.state.variables)) {
+                        if (key.startsWith(`${action.output_variable.key}_`)) {
+                            delete result.invocation.state.variables[key]
+                        }
+                    }
+                } else {
+                    delete result.invocation.state.variables[action.output_variable.key]
+                }
                 return
             }
 
-            this.log(
-                result,
-                'debug',
-                `Stored action result in variable '${action.output_variable.key}': ${JSON.stringify(result.invocation.state.variables[action.output_variable.key])}`
-            )
+            const storedKeys = action.output_variable.spread
+                ? Object.keys(result.invocation.state.variables)
+                      .filter((k) => k.startsWith(`${action.output_variable!.key}_`))
+                      .join(', ')
+                : action.output_variable.key
+
+            this.log(result, 'debug', `Stored action result in variable(s) '${storedKeys}'`)
         }
     }
 

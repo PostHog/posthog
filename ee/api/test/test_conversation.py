@@ -865,6 +865,8 @@ class TestConversation(APIBaseTest):
 
                 # Verify is_agent_billable=False for research mode
                 self.assertEqual(workflow_inputs.is_agent_billable, False)
+                # Verify is_impersonated is False (not an impersonated session)
+                self.assertEqual(workflow_inputs.is_impersonated, False)
 
                 # Verify agent_mode and contextual_tools are NOT passed in research mode
                 self.assertFalse(hasattr(workflow_inputs, "agent_mode"))

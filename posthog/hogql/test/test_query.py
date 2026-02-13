@@ -22,6 +22,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -1192,7 +1193,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_43)s, %(hogql_val_44)s, %(hogql_val_45)s), ''), 'null'), '^\"|\"$', '') "
                 f"FROM events "
                 f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
-                f"LIMIT 100 "
+                f"LIMIT {DEFAULT_RETURNED_ROWS} "
                 f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
                 response.clickhouse,
             )
@@ -1610,7 +1611,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             pretty=False,
         )
-        self.assertEqual(response.hogql, "SELECT event FROM events WHERE true LIMIT 100")
+        self.assertEqual(response.hogql, f"SELECT event FROM events WHERE true LIMIT {DEFAULT_RETURNED_ROWS}")
 
     def test_hogql_query_filters_double_error(self):
         query = "SELECT event from events where {filters}"
@@ -1648,7 +1649,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                f"SELECT event, distinct_id FROM events AS e WHERE equals(properties.random_uuid, '{random_uuid}') LIMIT 100",
+                f"SELECT event, distinct_id FROM events AS e WHERE equals(properties.random_uuid, '{random_uuid}') LIMIT {DEFAULT_RETURNED_ROWS}",
             )
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(len(response.results), 2)
@@ -1663,7 +1664,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             response.hogql,
-            f"SELECT event FROM events LIMIT 100 UNION ALL SELECT event FROM events LIMIT 100",
+            f"SELECT event FROM events LIMIT {DEFAULT_RETURNED_ROWS} UNION ALL SELECT event FROM events LIMIT {DEFAULT_RETURNED_ROWS}",
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 

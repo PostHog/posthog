@@ -91,13 +91,47 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 return value ? String(value) : undefined
             },
         ],
+        surveyId: [
+            (s) => [s.configuration],
+            (configuration: HogFunctionType | null): string | undefined => {
+                for (const event of configuration?.filters?.events ?? []) {
+                    const surveyIdProp = event.properties?.find((p) => p.key === '$survey_id')
+                    if (surveyIdProp?.value) {
+                        return String(surveyIdProp.value)
+                    }
+                }
+                return undefined
+            },
+        ],
+        isSurveyNotification: [
+            (s) => [s.configuration],
+            (configuration: HogFunctionType | null): boolean => {
+                return (configuration?.filters?.events ?? []).some((e) => e.id === 'survey sent')
+            },
+        ],
+        returnTo: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, string>): string | undefined => searchParams?.returnTo,
+        ],
         breadcrumbs: [
-            (s) => [s.type, s.loading, s.configuration, s.alertId, (_, props) => props.id ?? null],
+            (s) => [
+                s.type,
+                s.loading,
+                s.configuration,
+                s.alertId,
+                s.surveyId,
+                s.isSurveyNotification,
+                s.returnTo,
+                (_, props) => props.id ?? null,
+            ],
             (
                 type: HogFunctionTypeType,
                 loading: boolean,
                 configuration: HogFunctionType | null,
                 alertId: string | undefined,
+                surveyId: string | undefined,
+                isSurveyNotification: boolean,
+                returnTo: string | undefined,
                 id: string | null
             ): Breadcrumb[] => {
                 if (loading) {
@@ -116,22 +150,46 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     iconType: 'data_pipeline',
                 }
 
-                if (type === 'internal_destination' && alertId) {
+                if (type === 'internal_destination' && (alertId || returnTo)) {
+                    // returnTo contains the full path back to the alert edit view
+                    // Strip the alert_id param for the insight breadcrumb
+                    const alertPath = returnTo ?? urls.alert(alertId!)
+                    const insightPath = returnTo ? returnTo.split('?')[0] : urls.alerts()
+
                     return [
                         {
                             key: Scene.Insight,
                             name: 'Insight',
-                            path: urls.alerts(),
+                            path: insightPath,
                             iconType: 'data_pipeline',
                         },
                         {
                             key: 'alert',
                             name: 'Alert',
-                            path: urls.alert(alertId),
+                            path: alertPath,
                             iconType: 'data_pipeline',
                         },
                         finalCrumb,
                     ]
+                }
+
+                if (isSurveyNotification) {
+                    const crumbs: Breadcrumb[] = [
+                        {
+                            key: Scene.Surveys,
+                            name: 'surveys',
+                            path: urls.surveys(),
+                        },
+                    ]
+                    if (surveyId) {
+                        crumbs.push({
+                            key: Scene.Survey,
+                            name: 'survey',
+                            path: urls.survey(surveyId),
+                        })
+                    }
+                    crumbs.push(finalCrumb)
+                    return crumbs
                 }
 
                 if (type === 'site_app') {
