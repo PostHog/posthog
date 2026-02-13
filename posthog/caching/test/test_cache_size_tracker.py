@@ -55,14 +55,11 @@ class TestTeamCacheSizeTracker(BaseTest):
         self.assertEqual(self.tracker.get_total_size(), 600)
 
     def test_evict_until_under_limit_removes_oldest(self):
-        # Add entries with small delays to ensure different timestamps
         self.tracker.track_cache_write("test_key_1", 100)
-        cache.set("test_key_1", "data1")
-
         self.tracker.track_cache_write("test_key_2", 200)
-        cache.set("test_key_2", "data2")
-
         self.tracker.track_cache_write("test_key_3", 300)
+        cache.set("test_key_1", "data1")
+        cache.set("test_key_2", "data2")
         cache.set("test_key_3", "data3")
 
         self.assertEqual(self.tracker.get_total_size(), 600)
@@ -74,6 +71,10 @@ class TestTeamCacheSizeTracker(BaseTest):
         # Should have evicted oldest entries
         self.assertIn("test_key_1", evicted)
         self.assertIn("test_key_2", evicted)
+        self.assertIsNone(self.tracker._get_key_size("test_key_1"))
+        self.assertIsNone(self.tracker._get_key_size("test_key_2"))
+        self.assertIsNone(self.tracker.redis_client.zscore(self.tracker.entries_key, "test_key_1"))
+        self.assertIsNone(self.tracker.redis_client.zscore(self.tracker.entries_key, "test_key_2"))
         # Total should now be under limit + new entry size
         self.assertLessEqual(self.tracker.get_total_size() + 200, 500)
         # Newest entry should still exist
@@ -147,6 +148,8 @@ class TestTeamCacheSizeTracker(BaseTest):
 
         self.assertIn("test_key_1", evicted)
         self.assertIsNone(cache.get("test_key_1"))
+        self.assertIsNone(self.tracker._get_key_size("test_key_1"))
+        self.assertIsNone(self.tracker.redis_client.zscore(self.tracker.entries_key, "test_key_1"))
         self.assertIsNotNone(cache.get("test_key_3"))
 
     def test_remove_tracking_is_idempotent(self):
@@ -215,7 +218,28 @@ class TestTeamCacheSizeTracker(BaseTest):
         self.assertIn("test_key_1", evicted)
         self.assertIn("test_key_2", evicted)
         self.assertEqual(cache.get("large_key"), large_data)
+        self.assertIsNone(self.tracker._get_key_size("test_key_1"))
+        self.assertIsNone(self.tracker._get_key_size("test_key_2"))
+        self.assertIsNone(self.tracker.redis_client.zscore(self.tracker.entries_key, "test_key_1"))
+        self.assertIsNone(self.tracker.redis_client.zscore(self.tracker.entries_key, "test_key_2"))
         self.assertEqual(self.tracker.get_total_size(), 600)
+
+    def test_set_and_read_through_injected_cache_backend(self):
+        from django.core.cache.backends.locmem import LocMemCache
+
+        cluster_cache = LocMemCache("query-cache-test", {})
+        tracker = TeamCacheSizeTracker(self.team.pk, cache_backend=cluster_cache)
+        tracker.purge()
+
+        data = b"test_data_content"
+        tracker.set("test_key", data, len(data), 300)
+
+        # Readable from the injected backend, not the default
+        self.assertEqual(cluster_cache.get("test_key"), data)
+        self.assertIsNone(cache.get("test_key"))
+        self.assertEqual(tracker.get_total_size(), len(data))
+
+        tracker.purge()
 
 
 class TestGetTeamCacheLimit(BaseTest):

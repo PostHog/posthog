@@ -477,6 +477,20 @@ if FLAGS_REDIS_URL:
         "KEY_PREFIX": "posthog",
     }
 
+QUERY_CACHE_REDIS_CLUSTER_URL: str | None = os.getenv("QUERY_CACHE_REDIS_CLUSTER_URL", None)
+
+if QUERY_CACHE_REDIS_CLUSTER_URL:
+    CACHES["query_cache"] = {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": QUERY_CACHE_REDIS_CLUSTER_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "CONNECTION_FACTORY": "posthog.caching.redis_cluster_connection_factory.RedisClusterConnectionFactory",
+            "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
+        },
+        "KEY_PREFIX": "posthog",
+    }
+
 if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
 

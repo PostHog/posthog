@@ -10,22 +10,26 @@ from prometheus_client import Counter, Histogram
 
 from posthog import redis
 from posthog.cache_utils import cache_for
+from posthog.caching.query_cache_routing import BACKEND_CLUSTER, BACKEND_DEFAULT
 
 logger = structlog.get_logger(__name__)
 
 CACHE_EVICTION_COUNTER = Counter(
     "query_cache_size_limit_evictions_total",
     "Cache entries evicted due to per-team size limits",
+    labelnames=["backend"],
 )
 
 CACHE_EVICTION_BYTES_COUNTER = Counter(
     "query_cache_size_limit_evicted_bytes_total",
     "Bytes evicted due to per-team size limits",
+    labelnames=["backend"],
 )
 
 CACHE_SIZE_HISTOGRAM = Histogram(
     "query_cache_team_size_bytes",
     "Distribution of per-team cache sizes in bytes",
+    labelnames=["backend"],
     buckets=[
         1_000_000,  # 1MB
         10_000_000,  # 10MB
@@ -119,12 +123,23 @@ class TeamCacheSizeTracker:
     - posthog:cache_total:{team_id} - String counter: total bytes (for O(1) total size lookup)
     """
 
-    def __init__(self, team_id: int):
+    def __init__(self, team_id: int, cache_backend=None, redis_client=None):
         self.team_id = team_id
-        self.entries_key = f"posthog:cache_sizes:{team_id}"
-        self.sizes_key = f"posthog:cache_entry_sizes:{team_id}"
-        self.total_key = f"posthog:cache_total:{team_id}"
-        self.redis_client = redis.get_client()
+        self._cache = cache_backend or cache
+        self.redis_client = redis_client or redis.get_client()
+
+        self._is_cluster = cache_backend is not None and cache_backend is not cache
+        if self._is_cluster:
+            # Redis Cluster requires all keys in a multi-key Lua script to be on the same shard
+            # Wrap in braces to only hash on team_id
+            self.entries_key = f"posthog:cache_sizes:{{{team_id}}}"
+            self.sizes_key = f"posthog:cache_entry_sizes:{{{team_id}}}"
+            self.total_key = f"posthog:cache_total:{{{team_id}}}"
+        else:
+            self.entries_key = f"posthog:cache_sizes:{team_id}"
+            self.sizes_key = f"posthog:cache_entry_sizes:{team_id}"
+            self.total_key = f"posthog:cache_total:{team_id}"
+
         self._track_write_script = self.redis_client.register_script(TRACK_CACHE_WRITE_SCRIPT)
         self._remove_tracking_script = self.redis_client.register_script(REMOVE_TRACKING_SCRIPT)
 
@@ -147,12 +162,13 @@ class TeamCacheSizeTracker:
         if size_before + data_size > limit:
             evicted = self.evict_until_under_limit(limit, data_size)
 
-        cache.set(cache_key, data, ttl)
+        self._cache.set(cache_key, data, ttl)
         self.track_cache_write(cache_key, data_size)
 
         total_size = self.get_total_size()
         entry_count = self.redis_client.zcard(self.entries_key)
-        CACHE_SIZE_HISTOGRAM.observe(total_size)
+        backend = BACKEND_CLUSTER if self._is_cluster else BACKEND_DEFAULT
+        CACHE_SIZE_HISTOGRAM.labels(backend=backend).observe(total_size)
 
         logger.info(
             "query_cache_write",
@@ -198,21 +214,21 @@ class TeamCacheSizeTracker:
                 cache_key = cache_key.decode()
 
             # Check if key still exists in cache (lazy cleanup for TTL-expired keys)
-            if cache_key not in cache:
+            if self._cache.get(cache_key) is None:
                 # Already expired via TTL, just clean up tracking
                 removed_size = self._remove_tracking(cache_key)
                 current_size -= removed_size
                 continue
 
-            cache.delete(cache_key)
+            self._cache.delete(cache_key)
             removed_size = self._remove_tracking(cache_key)
 
             current_size -= removed_size
             evicted_keys.append(cache_key)
 
-            # Update metrics
-            CACHE_EVICTION_COUNTER.inc()
-            CACHE_EVICTION_BYTES_COUNTER.inc(removed_size)
+            backend = BACKEND_CLUSTER if self._is_cluster else BACKEND_DEFAULT
+            CACHE_EVICTION_COUNTER.labels(backend=backend).inc()
+            CACHE_EVICTION_BYTES_COUNTER.labels(backend=backend).inc(removed_size)
 
         return evicted_keys
 
