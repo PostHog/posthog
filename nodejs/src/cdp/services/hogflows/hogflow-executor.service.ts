@@ -590,7 +590,14 @@ export class HogFlowExecutorService {
             return
         }
 
-        this.log(result, 'debug', `Stored action result in variable(s) '${allStoredKeys.join(', ')}'`)
+        const details = allStoredKeys
+            .map((k) => {
+                const v = result.invocation.state.variables![k]
+                const str = JSON.stringify(v)
+                return `${k}=${str && str.length > 100 ? str.slice(0, 100) + '…' : str}`
+            })
+            .join(', ')
+        this.log(result, 'debug', `Stored action result in variable(s): ${details}`)
     }
 
     private logExecutionTriggerInfo(invocation: CyclotronJobInvocationHogFlow): MinimalLogEntry {
