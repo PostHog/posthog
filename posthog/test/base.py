@@ -5,7 +5,6 @@ import uuid
 import inspect
 import datetime as dt
 import resource
-import threading
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
@@ -18,6 +17,7 @@ import freezegun
 from unittest.mock import patch
 
 from django.apps import apps
+from django.conf import settings
 from django.core.cache import cache
 from django.core.management import call_command
 from django.db import connection, connections
@@ -1407,57 +1407,19 @@ class ClickhouseTestMixin(QueryMatchingTest):
             yield queries
 
 
-@contextmanager
-def failhard_threadhook_context():
-    """
-    Context manager to ensure that exceptions raised by threads are treated as a
-    test failure.
-
-    Collects thread exceptions silently, then re-raises in the main thread after
-    context exit. Raising inside the hook itself just causes Python to print
-    "Exception in threading.excepthook:" with a full traceback per thread.
-    """
-    thread_exceptions: list[BaseException] = []
-
-    def collect_hook(args: threading.ExceptHookArgs):
-        exc = args.exc_value
-        if exc is None:
-            return
-
-        # Filter out UNKNOWN_TABLE errors (code 60) in the test database.
-        # Tables may not exist during setup/teardown depending on test configuration.
-        if hasattr(exc, "code") and exc.code == 60 and "posthog_test" in str(exc):
-            return
-
-        thread_exceptions.append(exc)
-
-    old_hook, threading.excepthook = threading.excepthook, collect_hook
-    try:
-        yield old_hook
-    finally:
-        was_ours = threading.excepthook is collect_hook
-        threading.excepthook = old_hook
-        assert was_ours, "something else replaced threading.excepthook while we held it"
-        if thread_exceptions:
-            unique_errors = {f"{type(e).__name__}: {e}" for e in thread_exceptions}
-            summary = "; ".join(sorted(unique_errors))
-            raise AssertionError(
-                f"{len(thread_exceptions)} thread(s) raised exceptions: {summary}"
-            ) from thread_exceptions[0]
-
-
 def run_clickhouse_statement_in_parallel(statements: list[str]):
     def _execute_with_retry(stmt: str) -> None:
-        for attempt in range(20):
+        max_attempts = 5
+        for attempt in range(max_attempts):
             try:
                 sync_execute(stmt)
                 return
             except TooManyConnections:
-                if attempt == 19:
+                if attempt + 1 == max_attempts:
                     raise
-                time.sleep(0.05 * (attempt**2))
+                time.sleep(0.1 * (2**attempt))
 
-    with ThreadPoolExecutor() as pool:
+    with ThreadPoolExecutor(max_workers=settings.CLICKHOUSE_CONN_POOL_MAX) as pool:
         futures = [pool.submit(_execute_with_retry, stmt) for stmt in statements]
 
         exceptions: list[BaseException] = []
@@ -1470,9 +1432,7 @@ def run_clickhouse_statement_in_parallel(statements: list[str]):
                 exceptions.append(exc)
 
         if exceptions:
-            unique_errors = {f"{type(e).__name__}: {e}" for e in exceptions}
-            summary = "; ".join(sorted(unique_errors))
-            raise AssertionError(f"{len(exceptions)} statement(s) failed: {summary}") from exceptions[0]
+            raise exceptions[0]
 
 
 def reset_clickhouse_database() -> None:
