@@ -386,12 +386,16 @@ ORDER BY event_time DESC;
 
 # Create a copy of the sessions backfill job to be used for backfilling experimental setups
 
+EXPERIMENTAL_CONCURRENCY_TAG = {
+    "experimental_sessions_backfill_concurrency": "experimental_sessions_v3",
+}
+
 
 @asset(
     partitions_def=daily_partitions,
     name="experimental_sessions_v3_backfill",
     backfill_policy=BackfillPolicy.multi_run(max_partitions_per_run=MAX_PARTITIONS_PER_RUN),
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **EXPERIMENTAL_CONCURRENCY_TAG},
 )
 def experimental_sessions_v3_backfill(
     context: AssetExecutionContext, config: ExperimentalSessionsBackfillConfig
@@ -405,7 +409,7 @@ experimental_sessions_backfill_job = define_asset_job(
     name="experimental_sessions_v3_backfill_job",
     selection=["experimental_sessions_v3_backfill"],
     config=sessions_backfill_partitioned_config,
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **EXPERIMENTAL_CONCURRENCY_TAG},
 )
 
 
@@ -459,7 +463,7 @@ def _do_experimental_backfill(
                 backfill_sql = sql_template(
                     where=chunk_where_clause,
                     target_table=DISTRIBUTED_RAW_SESSIONS_TABLE_V3(),  # this is just what the table is called in the experimental cluster, it's not actually distributed
-                    include_session_timestamp=False,
+                    include_session_timestamp=True,
                 )
                 context.log.info(backfill_sql)
                 sync_execute(backfill_sql, settings=merged_settings, sync_client=client)

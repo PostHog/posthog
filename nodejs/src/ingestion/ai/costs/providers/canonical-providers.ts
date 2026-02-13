@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-02-10 20:11:16 UTC
+// Generated at: 2026-02-12 10:15:28 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -43,7 +43,6 @@ export type CanonicalProvider =
     | 'deepseek'
     | 'featherless'
     | 'fireworks'
-    | 'fireworks-fp16'
     | 'fireworks-fp8'
     | 'friendli'
     | 'gmicloud-fp8'
@@ -59,6 +58,7 @@ export type CanonicalProvider =
     | 'hyperbolic-fp8'
     | 'inception'
     | 'inceptron-fp8'
+    | 'inceptron-int4'
     | 'infermatic'
     | 'infermatic-bf16'
     | 'inflection'
@@ -115,7 +115,6 @@ export type CanonicalProvider =
     | 'streamlake-fp16'
     | 'switchpoint'
     | 'together'
-    | 'together-bf16'
     | 'together-fp8'
     | 'together-int4'
     | 'together-turbo'

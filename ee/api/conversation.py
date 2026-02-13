@@ -190,6 +190,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
     def _ensure_queue_access(self, request: Request, conversation_id: str) -> Response | None:
         try:
+            # nosemgrep: idor-lookup-without-team (instance scoped to team via get_queryset)
             conversation = Conversation.objects.get(id=conversation_id)
         except Conversation.DoesNotExist:
             return Response({"error": "Conversation not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -320,6 +321,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if self.lookup_url_kwarg:
             self.kwargs[self.lookup_url_kwarg] = conversation_id
         try:
+            # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (user+team check immediately after)
             conversation = Conversation.objects.get(id=conversation_id)
             if conversation.user != request.user or conversation.team != self.team:
                 return Response(

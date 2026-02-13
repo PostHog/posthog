@@ -371,7 +371,7 @@ impl CheckpointManager {
                                         if e.downcast_ref::<UploadCancelledError>().is_some() {
                                             "cancelled"
                                         } else {
-                                            error!(partition = partition_tag, "Checkpoint worker thread: attempt failed: {}", e);
+                                            error!(partition = partition_tag, "Checkpoint worker thread: attempt failed: {e:#}");
                                             "error"
                                         }
                                     },

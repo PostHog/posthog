@@ -716,7 +716,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-approvals',
         title: 'Approvals',
-        flag: 'APPROVALS',
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         settings: [
             {

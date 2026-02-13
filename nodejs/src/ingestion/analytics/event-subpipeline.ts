@@ -1,8 +1,10 @@
 import { Message } from 'node-rdkafka'
 
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { EventHeaders, PipelineEvent, Team } from '../../types'
+import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
@@ -17,7 +19,7 @@ import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pip
 
 export interface EventSubpipelineInput {
     message: Message
-    event: PipelineEvent
+    event: PluginEvent
     team: Team
     headers: EventHeaders
     groupStoreForBatch: GroupStoreForBatch
