@@ -74,7 +74,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
         # Emit analytics events for workflow triggers
         try:
-            ticket = Ticket.objects.get(id=item_id, team_id=team_id)
+            ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
             if is_team_message:
                 capture_message_sent(ticket, comment_id, content or "", created_by_id)
             else:
