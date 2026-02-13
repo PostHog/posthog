@@ -73,6 +73,7 @@ jobs:
                   DATABASE_URL: 'postgres://localhost:5432/posthog'
                   REDIS_URL: 'redis://localhost'
                   TEST: 1
+                  DEBUG: 1
               run: ./bin/hogli build:skills
 
     release-skills:
@@ -109,6 +110,7 @@ jobs:
                   DATABASE_URL: 'postgres://localhost:5432/posthog'
                   REDIS_URL: 'redis://localhost'
                   TEST: 1
+                  DEBUG: 1
               run: ./bin/hogli build:skills
 
             - name: Determine next version
