@@ -43,23 +43,8 @@ fun isValidLog(obj) {
     return typeof(obj) == 'object' and notEmpty(obj.id) and notEmpty(obj.deploymentId)
 }
 
-fun isAllowedSource(source) {
-    if (empty(inputs.allowed_sources)) {
-        return true
-    }
-    for (let _, allowed in inputs.allowed_sources) {
-        if (source == allowed) {
-            return true
-        }
-    }
-    return false
-}
-
 fun pushLog(obj) {
     if (not isValidLog(obj)) {
-        return
-    }
-    if (not isAllowedSource(obj.source)) {
         return
     }
     logs := arrayPushBack(logs, obj)
@@ -114,13 +99,7 @@ fun truncateIfNeeded(s) {
     return substring(s, 1, limit)
 }
 
-// Use first log for distinct_id (deploymentId:requestId)
-let firstLog := logs[1]
-let distinctId := concat(
-    firstLog.deploymentId ?? 'dpl_unknown',
-    ':',
-    firstLog.requestId ?? firstLog.id ?? 'log'
-)
+let distinctId := generateUUIDv4()
 
 // Build array of log entries
 let logEntries := []
@@ -184,24 +163,6 @@ return {
             description:
                 'If set, the incoming Authorization header must match this value exactly. e.g. "Bearer SECRET_TOKEN"',
             secret: true,
-            required: false,
-        },
-        {
-            key: 'allowed_sources',
-            type: 'choice',
-            label: 'Allowed sources',
-            description: 'Only capture logs from these sources. Leave empty to capture all.',
-            choices: [
-                { label: 'Build', value: 'build' },
-                { label: 'Edge', value: 'edge' },
-                { label: 'Lambda', value: 'lambda' },
-                { label: 'Static', value: 'static' },
-                { label: 'External', value: 'external' },
-                { label: 'Firewall', value: 'firewall' },
-                { label: 'Redirect', value: 'redirect' },
-            ],
-            default: '',
-            secret: false,
             required: false,
         },
         {
