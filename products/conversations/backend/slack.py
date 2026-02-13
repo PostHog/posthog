@@ -57,19 +57,39 @@ def get_slack_client(team: Team) -> WebClient:
 
 def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
     """Resolve a Slack user ID to name, email, and avatar."""
+    if not slack_user_id:
+        logger.warning("slack_support_user_resolve_empty_id")
+        return {"name": "Unknown", "email": None, "avatar": None}
+
     try:
-        user_info = client.users_info(user=slack_user_id)
-        user_data = user_info.get("user") if isinstance(user_info, dict) else None
-        profile = user_data.get("profile") if isinstance(user_data, dict) else None
-        if not isinstance(profile, dict):
-            profile = {}
+        response = client.users_info(user=slack_user_id)
+        # SlackResponse stores data in .data attribute
+        data = response.data if hasattr(response, "data") else response
+        logger.info(
+            "slack_support_user_resolve_raw",
+            slack_user_id=slack_user_id,
+            response_type=type(response).__name__,
+            data_keys=list(data.keys()) if isinstance(data, dict) else None,
+        )
+
+        if not data.get("ok"):
+            logger.warning(
+                "slack_support_user_resolve_not_ok",
+                slack_user_id=slack_user_id,
+                error=data.get("error"),
+            )
+            return {"name": "Unknown", "email": None, "avatar": None}
+
+        user_data = data.get("user") or {}
+        profile = user_data.get("profile") or {}
+        name = profile.get("display_name") or profile.get("real_name") or "Unknown"
         return {
-            "name": profile.get("display_name") or profile.get("real_name") or "Unknown",
+            "name": name,
             "email": profile.get("email"),
-            "avatar": profile.get("image_72"),  # 72x72 avatar URL
+            "avatar": profile.get("image_72"),
         }
-    except Exception:
-        logger.warning("slack_support_user_resolve_failed", slack_user_id=slack_user_id)
+    except Exception as e:
+        logger.warning("slack_support_user_resolve_failed", slack_user_id=slack_user_id, error=str(e))
         return {"name": "Unknown", "email": None, "avatar": None}
 
 

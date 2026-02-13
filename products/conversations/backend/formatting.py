@@ -6,6 +6,26 @@ from typing import Any
 
 JSON = dict[str, Any]
 
+# Pre-compiled regexes for performance (compiled once at module load)
+# Slack mrkdwn patterns - negated character classes are safe from ReDoS
+_RE_SLACK_USER_MENTION = re.compile(r"<@[A-Z0-9]+>")
+_RE_SLACK_LINK_WITH_LABEL = re.compile(r"<([^|>]+)\|([^>]+)>")
+_RE_SLACK_LINK_BARE = re.compile(r"<([^>]+)>")
+_RE_SLACK_BOLD_ITALIC = re.compile(r"\*_([^_]+)_\*")
+_RE_SLACK_BOLD = re.compile(r"(?<!\*)\*([^*\n]+)\*(?!\*)")
+_RE_SLACK_ITALIC = re.compile(r"(?<!_)_([^_\n]+)_(?!_)")
+
+# Markdown patterns
+_RE_MD_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+_RE_MD_BOLD_ITALIC = re.compile(r"\*\*\*(.+?)\*\*\*")
+_RE_MD_BOLD = re.compile(r"\*\*(.+?)\*\*")
+_RE_MD_ITALIC = re.compile(r"(?<!\*)\*([^*]+?)\*(?!\*)")
+_RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
+_RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
+_RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
+_RE_ALT_ESCAPE = re.compile(r"([\\\]])")
+
 
 def content_to_slack_mrkdwn(content: str) -> str:
     """Convert markdown comment content to Slack mrkdwn text."""
@@ -14,7 +34,7 @@ def content_to_slack_mrkdwn(content: str) -> str:
 
     text = content
 
-    text = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"<\2|\1>", text)
+    text = _RE_MD_IMAGE.sub(r"<\2|\1>", text)
 
     bold_italic_matches: list[str] = []
 
@@ -22,10 +42,10 @@ def content_to_slack_mrkdwn(content: str) -> str:
         bold_italic_matches.append(match.group(1))
         return f"\x00BI{len(bold_italic_matches) - 1}\x00"
 
-    text = re.sub(r"\*\*\*(.+?)\*\*\*", capture_bold_italic, text)
-    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
-    text = re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", r"_\1_", text)
-    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"<\2|\1>", text)
+    text = _RE_MD_BOLD_ITALIC.sub(capture_bold_italic, text)
+    text = _RE_MD_BOLD.sub(r"*\1*", text)
+    text = _RE_MD_ITALIC.sub(r"_\1_", text)
+    text = _RE_MD_LINK.sub(r"<\2|\1>", text)
 
     for index, value in enumerate(bold_italic_matches):
         text = text.replace(f"\x00BI{index}\x00", f"*_{value}_*")
@@ -43,7 +63,7 @@ def content_to_slack_mrkdwn(content: str) -> str:
             pass
         return "@teammate"
 
-    return re.sub(r"@member:([a-f0-9-]+)", resolve_mention, text)
+    return _RE_MD_MENTION.sub(resolve_mention, text)
 
 
 def slack_mrkdwn_to_content(text: str) -> str:
@@ -51,12 +71,16 @@ def slack_mrkdwn_to_content(text: str) -> str:
     if not text:
         return ""
 
-    text = re.sub(r"<@[A-Z0-9]+>", "", text)
-    text = re.sub(r"<([^|>]+)\|([^>]+)>", r"[\2](\1)", text)
-    text = re.sub(r"<([^>]+)>", r"\1", text)
-    text = re.sub(r"\*_([^_]+)_\*", r"***\1***", text)
-    text = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"**\1**", text)
-    text = re.sub(r"(?<!_)_([^_\n]+)_(?!_)", r"*\1*", text)
+    # Remove user mentions (e.g., <@U123ABC>)
+    text = _RE_SLACK_USER_MENTION.sub("", text)
+    # Convert labeled links <url|label> to [label](url)
+    text = _RE_SLACK_LINK_WITH_LABEL.sub(r"[\2](\1)", text)
+    # Convert bare links <url> to just url
+    text = _RE_SLACK_LINK_BARE.sub(r"\1", text)
+    # Convert Slack formatting to markdown
+    text = _RE_SLACK_BOLD_ITALIC.sub(r"***\1***", text)
+    text = _RE_SLACK_BOLD.sub(r"**\1**", text)
+    text = _RE_SLACK_ITALIC.sub(r"*\1*", text)
 
     return text
 
@@ -64,15 +88,15 @@ def slack_mrkdwn_to_content(text: str) -> str:
 def _normalize_single_newlines_to_markdown(text: str) -> str:
     if not text:
         return ""
-    return re.sub(r"(?<!\n)\n(?!\n)", "  \n", text)
+    return _RE_SINGLE_NEWLINE.sub("  \n", text)
 
 
 def _escape_markdown(text: str) -> str:
-    return re.sub(r"([\\`*_{}\[\]()#+\-.!|])", r"\\\1", text)
+    return _RE_MD_ESCAPE.sub(r"\\\1", text)
 
 
 def _escape_alt_text(text: str) -> str:
-    return re.sub(r"([\\\]])", r"\\\1", text)
+    return _RE_ALT_ESCAPE.sub(r"\\\1", text)
 
 
 def _style_to_marks(style: JSON | None) -> list[JSON]:
