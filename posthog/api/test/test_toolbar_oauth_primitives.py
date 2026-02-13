@@ -70,6 +70,38 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_start_rejects_insecure_non_loopback_app_url(self):
+        response = self.client.post(
+            "/api/user/toolbar_oauth_start/",
+            data=json.dumps(
+                {
+                    "app_url": "http://example.com",
+                    "code_challenge": "test_challenge_value",
+                    "code_challenge_method": "S256",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "invalid_app_url")
+
+    def test_start_allows_http_loopback_app_url(self):
+        self.team.app_urls = [*self.team.app_urls, "http://localhost:3000"]
+        self.team.save(update_fields=["app_urls"])
+
+        response = self.client.post(
+            "/api/user/toolbar_oauth_start/",
+            data=json.dumps(
+                {
+                    "app_url": "http://localhost:3000",
+                    "code_challenge": "test_challenge_value",
+                    "code_challenge_method": "S256",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
     def test_start_rejects_invalid_json_body(self):
         response = self.client.post(
             "/api/user/toolbar_oauth_start/",
@@ -148,6 +180,11 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         self.assertContains(response, '"error": "access_denied"')
         self.assertContains(response, '"error_description": "user cancelled"')
         self.assertContains(response, '"state": "test_state"')
+
+    @override_settings(TOOLBAR_OAUTH_ENABLED=False)
+    def test_callback_disabled(self):
+        response = self.client.get("/toolbar_oauth/callback?code=test_code&state=test_state")
+        self.assertEqual(response.status_code, 404)
 
     @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_exchange_success(self, mock_post):
