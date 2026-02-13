@@ -211,7 +211,7 @@ async def setup_row_tracking_with_billing_check(
     resource: SourceResponse,
     source: "ExternalDataSource",
     logger: FilteringBoundLogger,
-    billable: bool = True,
+    billable: bool | None = True,
 ) -> None:
     if resource.rows_to_sync:
         await increment_rows(team_id, schema.id, resource.rows_to_sync)
