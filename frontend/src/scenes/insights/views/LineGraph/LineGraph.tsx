@@ -7,7 +7,7 @@ import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 
 import {
     ActiveElement,
@@ -1046,22 +1046,48 @@ export function LineGraph_({
         ],
     })
 
-    // Only observe canvas size when annotations are shown - avoids unnecessary ResizeObservers on dashboards
-    const noRef = useRef<HTMLCanvasElement>(null)
-    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: showAnnotations ? canvasRef : noRef })
-
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>
             <canvas ref={canvasRef} />
-            {showAnnotations && chartRef.current && chartWidth && chartHeight ? (
-                <AnnotationsOverlay
+            {showAnnotations && chartRef.current ? (
+                <ChartAnnotations
+                    canvasRef={canvasRef}
                     chart={chartRef.current}
                     dates={datasets[0]?.days || []}
-                    chartWidth={chartWidth}
-                    chartHeight={chartHeight}
                     insightNumericId={insight.id || 'new'}
                 />
             ) : null}
         </div>
+    )
+}
+
+/** Separated so the ResizeObserver hook only mounts when annotations are actually shown. */
+function ChartAnnotations({
+    canvasRef,
+    chart,
+    dates,
+    insightNumericId,
+}: {
+    canvasRef: React.RefObject<HTMLCanvasElement | null>
+    chart: Chart
+    dates: string[]
+    insightNumericId: number | 'new'
+}): JSX.Element | null {
+    const { width: chartWidth, height: chartHeight } = useResizeObserver({
+        ref: canvasRef as React.RefObject<HTMLElement>,
+    })
+
+    if (!chartWidth || !chartHeight) {
+        return null
+    }
+
+    return (
+        <AnnotationsOverlay
+            chart={chart}
+            dates={dates}
+            chartWidth={chartWidth}
+            chartHeight={chartHeight}
+            insightNumericId={insightNumericId}
+        />
     )
 }
