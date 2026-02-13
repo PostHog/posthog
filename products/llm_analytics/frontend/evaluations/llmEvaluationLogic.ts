@@ -1,9 +1,10 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -32,12 +33,16 @@ export interface AvailableModel {
 export interface LLMEvaluationLogicProps {
     evaluationId: string
     templateKey?: EvaluationTemplateKey
+    tabId?: string
 }
 
 export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     path(['products', 'llm_analytics', 'evaluations', 'llmEvaluationLogic']),
     props({} as LLMEvaluationLogicProps),
-    key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
+    key(
+        (props) =>
+            `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}::${props.tabId ?? 'default'}`
+    ),
 
     connect(() => ({
         values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
@@ -602,7 +607,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
     }),
 
-    urlToAction(({ actions, props }) => ({
+    tabAwareUrlToAction(({ actions, props }) => ({
         '/llm-analytics/evaluations/:id': ({ id }, _, __, { method }) => {
             // Only reload when navigating to a different evaluation, not on search param changes (e.g., pagination)
             const newEvaluationId = id && id !== 'new' ? id : 'new'
