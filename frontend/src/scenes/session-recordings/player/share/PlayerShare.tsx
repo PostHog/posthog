@@ -123,8 +123,7 @@ function IntegrationNudgeBanner({
                 type="info"
                 dismissKey={`share-integration-nudge-${kind}-configured`}
                 action={{
-                    children: 'Use linked issues',
-                    center: true,
+                    children: <span className="w-full text-center">Use linked issues</span>,
                     onClick: () => {
                         posthog.capture('session_replay_share_integration_nudge_clicked', {
                             kind,
@@ -147,8 +146,7 @@ function IntegrationNudgeBanner({
             type="info"
             dismissKey={`share-integration-nudge-${kind}-not-configured`}
             action={{
-                children: 'Set up integration',
-                center: true,
+                children: <span className="w-full text-center">Set up integration</span>,
                 onClick: () => {
                     posthog.capture('session_replay_share_integration_nudge_clicked', {
                         kind,
