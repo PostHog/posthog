@@ -93,7 +93,9 @@ def fetch_eligible_trace_ids(
                 "start_dt": ast.Constant(value=window_start),
                 "end_dt": ast.Constant(value=window_end),
                 "property_filters": property_filter_expr,
-                "max_samples": ast.Constant(value=max_samples * 2),  # Oversample to account for missing embeddings
+                "max_samples": ast.Constant(
+                    value=min(max_samples * 50, constants.MAX_ELIGIBLE_IDS)
+                ),  # Oversample generously but cap to avoid oversized IN-clause queries
             },
             team=team,
         )
