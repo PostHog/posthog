@@ -6606,15 +6606,30 @@ export interface QuickFilterOption {
     operator: PropertyOperator
 }
 
+export interface QuickFilterAutoDiscoveryConfig {
+    operator: PropertyOperator
+    regex_pattern: string | null
+}
+
 export interface QuickFilter {
     id: string
     name: string
     property_name: string
     type: QuickFilterType
-    options: QuickFilterOption[]
+    options: QuickFilterOption[] | QuickFilterAutoDiscoveryConfig
     contexts: QuickFilterContext[]
     created_at: string
     updated_at: string
+}
+
+export function isManualQuickFilter(filter: QuickFilter): filter is QuickFilter & { options: QuickFilterOption[] } {
+    return filter.type === 'manual-options'
+}
+
+export function isAutoDiscoveryQuickFilter(
+    filter: QuickFilter
+): filter is QuickFilter & { options: QuickFilterAutoDiscoveryConfig } {
+    return filter.type === 'auto-discovery'
 }
 
 // Approval Workflows

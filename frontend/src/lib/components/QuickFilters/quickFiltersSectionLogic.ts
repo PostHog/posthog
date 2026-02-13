@@ -4,7 +4,12 @@ import posthog from 'posthog-js'
 import { quickFiltersLogic } from 'lib/components/QuickFilters'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
-import { PropertyOperator, QuickFilterOption } from '~/types'
+import {
+    PropertyOperator,
+    QuickFilterAutoDiscoveryConfig,
+    QuickFilterOption,
+    isAutoDiscoveryQuickFilter,
+} from '~/types'
 
 import { QuickFiltersEvents } from './consts'
 import type { quickFiltersSectionLogicType } from './quickFiltersSectionLogicType'
@@ -73,7 +78,20 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
                 return
             }
 
-            const updatedOption = filter.options.find((o) => o.id === currentSelection.optionId)
+            if (isAutoDiscoveryQuickFilter(filter)) {
+                const config = filter.options as QuickFilterAutoDiscoveryConfig
+                actions.setQuickFilterValue(filter.property_name, {
+                    id: currentSelection.optionId,
+                    value: currentSelection.value,
+                    label: String(currentSelection.value ?? ''),
+                    operator: config.operator as PropertyOperator,
+                })
+                return
+            }
+
+            const updatedOption = (filter.options as QuickFilterOption[]).find(
+                (o) => o.id === currentSelection.optionId
+            )
             if (updatedOption) {
                 actions.setQuickFilterValue(filter.property_name, updatedOption)
             } else {

@@ -1,10 +1,17 @@
+import re
+
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import QuickFilterContext as QuickFilterContextEnum
+from posthog.schema import (
+    QuickFilterContext as QuickFilterContextEnum,
+    QuickFilterType,
+)
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.quick_filter import QuickFilter, QuickFilterContext
+
+ALLOWED_OPERATORS = ["exact", "is_not", "icontains", "not_icontains", "regex", "is_set", "is_not_set"]
 
 
 class QuickFilterSerializer(serializers.ModelSerializer):
@@ -33,36 +40,73 @@ class QuickFilterSerializer(serializers.ModelSerializer):
     def get_contexts(self, obj):
         return list(obj.context_memberships.values_list("context", flat=True))
 
-    def validate_options(self, value):
+    def validate(self, attrs):
+        filter_type = attrs.get("type", self.instance.type if self.instance else QuickFilterType.MANUAL_OPTIONS.value)
+
+        if "options" in attrs:
+            if filter_type == QuickFilterType.AUTO_DISCOVERY.value:
+                attrs["options"] = self._validate_auto_discovery_options(attrs["options"])
+            else:
+                attrs["options"] = self._validate_manual_options(attrs["options"])
+
+        return attrs
+
+    def _validate_manual_options(self, value):
         if not isinstance(value, list):
-            raise ValidationError("Options must be a list")
+            raise ValidationError({"options": "Options must be a list"})
 
         if len(value) == 0:
-            raise ValidationError("Options must contain at least one item")
+            raise ValidationError({"options": "Options must contain at least one item"})
 
         for option in value:
             if not isinstance(option, dict):
                 raise ValidationError(
-                    "Each option must be an object with 'id', 'value', 'label', and 'operator' fields"
+                    {"options": "Each option must be an object with 'id', 'value', 'label', and 'operator' fields"}
                 )
             if "id" not in option or "value" not in option or "label" not in option or "operator" not in option:
-                raise ValidationError("Each option must have 'id', 'value', 'label', and 'operator' fields")
+                raise ValidationError(
+                    {"options": "Each option must have 'id', 'value', 'label', and 'operator' fields"}
+                )
 
             if not isinstance(option["id"], str):
-                raise ValidationError("Option 'id' must be a string")
+                raise ValidationError({"options": "Option 'id' must be a string"})
 
             opt_value = option["value"]
             if opt_value is not None:
                 if isinstance(opt_value, list):
                     if not all(isinstance(v, str) for v in opt_value):
-                        raise ValidationError("Option 'value' array must contain only strings")
+                        raise ValidationError({"options": "Option 'value' array must contain only strings"})
                 elif not isinstance(opt_value, str):
-                    raise ValidationError("Option 'value' must be a string, array of strings, or null")
+                    raise ValidationError({"options": "Option 'value' must be a string, array of strings, or null"})
 
             if not isinstance(option["label"], str) or not isinstance(option["operator"], str):
-                raise ValidationError("Option 'label' and 'operator' must be strings")
+                raise ValidationError({"options": "Option 'label' and 'operator' must be strings"})
 
         return value
+
+    def _validate_auto_discovery_options(self, value):
+        if not isinstance(value, dict):
+            raise ValidationError({"options": "Auto-discovery options must be an object with 'operator' field"})
+
+        if "operator" not in value:
+            raise ValidationError({"options": "Auto-discovery options must have an 'operator' field"})
+
+        if not isinstance(value["operator"], str):
+            raise ValidationError({"options": "'operator' must be a string"})
+
+        if value["operator"] not in ALLOWED_OPERATORS:
+            raise ValidationError({"options": f"'operator' must be one of: {', '.join(ALLOWED_OPERATORS)}"})
+
+        regex_pattern = value.get("regex_pattern")
+        if regex_pattern is not None:
+            if not isinstance(regex_pattern, str):
+                raise ValidationError({"options": "'regex_pattern' must be a string or null"})
+            try:
+                re.compile(regex_pattern)
+            except re.error:
+                raise ValidationError({"options": f"Invalid regex pattern: '{regex_pattern}'"})
+
+        return {"operator": value["operator"], "regex_pattern": regex_pattern}
 
     def validate_contexts(self, value):
         if not isinstance(value, list):

@@ -5,7 +5,7 @@ import { LemonButton, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lem
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { QuickFilter, QuickFilterOption } from '~/types'
+import { QuickFilter, QuickFilterAutoDiscoveryConfig, QuickFilterOption, isAutoDiscoveryQuickFilter } from '~/types'
 
 import { QuickFiltersLogicProps, quickFiltersLogic } from './quickFiltersLogic'
 import { quickFiltersModalLogic } from './quickFiltersModalLogic'
@@ -53,28 +53,45 @@ export function QuickFiltersModalContent({ context }: QuickFiltersLogicProps): J
                                 },
                                 {
                                     title: 'Options',
-                                    dataIndex: 'options',
-                                    render: (options: QuickFilterOption[]) => (
-                                        <div className="flex gap-1 flex-wrap">
-                                            {options.slice(0, 3).map((opt, index) => (
-                                                <span key={index} className="px-2 py-0.5 bg-border rounded text-xs">
-                                                    {opt.label}
-                                                </span>
-                                            ))}
-                                            {options.length > 3 && (
-                                                <Tooltip
-                                                    title={options
-                                                        .slice(3)
-                                                        .map((o) => o.label)
-                                                        .join(', ')}
-                                                >
-                                                    <span className="px-2 py-0.5 bg-border rounded text-xs">
-                                                        +{options.length - 3} more
+                                    render: (_, filter: QuickFilter) => {
+                                        if (isAutoDiscoveryQuickFilter(filter)) {
+                                            const config = filter.options as QuickFilterAutoDiscoveryConfig
+                                            return (
+                                                <div className="flex gap-1 items-center flex-wrap">
+                                                    <span className="px-2 py-0.5 bg-primary-highlight rounded text-xs font-medium">
+                                                        Dynamic
                                                     </span>
-                                                </Tooltip>
-                                            )}
-                                        </div>
-                                    ),
+                                                    {config.regex_pattern && (
+                                                        <code className="text-xs text-muted">
+                                                            /{config.regex_pattern}/
+                                                        </code>
+                                                    )}
+                                                </div>
+                                            )
+                                        }
+                                        const options = filter.options as QuickFilterOption[]
+                                        return (
+                                            <div className="flex gap-1 flex-wrap">
+                                                {options.slice(0, 3).map((opt, index) => (
+                                                    <span key={index} className="px-2 py-0.5 bg-border rounded text-xs">
+                                                        {opt.label}
+                                                    </span>
+                                                ))}
+                                                {options.length > 3 && (
+                                                    <Tooltip
+                                                        title={options
+                                                            .slice(3)
+                                                            .map((o) => o.label)
+                                                            .join(', ')}
+                                                    >
+                                                        <span className="px-2 py-0.5 bg-border rounded text-xs">
+                                                            +{options.length - 3} more
+                                                        </span>
+                                                    </Tooltip>
+                                                )}
+                                            </div>
+                                        )
+                                    },
                                 },
                                 {
                                     title: 'Updated',

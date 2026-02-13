@@ -11,8 +11,15 @@ import {
 } from 'lib/components/QuickFilters'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
-import { QuickFilter } from '~/types'
+import {
+    PropertyOperator,
+    QuickFilter,
+    QuickFilterOption,
+    isAutoDiscoveryQuickFilter,
+    isManualQuickFilter,
+} from '~/types'
 
+import { DynamicQuickFilterSelector } from './DynamicQuickFilterSelector'
 import { quickFiltersSectionLogic } from './quickFiltersSectionLogic'
 
 export interface QuickFiltersSectionProps {
@@ -30,21 +37,50 @@ export function QuickFiltersSection({ context }: QuickFiltersSectionProps): JSX.
             {quickFilters.map((filter: QuickFilter) => {
                 const selectedFilter = selectedQuickFilters[filter.property_name]
 
-                return (
-                    <QuickFilterSelector
-                        key={filter.id}
-                        label={filter.name}
-                        options={filter.options}
-                        selectedOptionId={selectedFilter?.optionId || null}
-                        onChange={(option) => {
-                            if (option === null) {
-                                clearQuickFilter(filter.property_name)
-                            } else {
-                                setQuickFilterValue(filter.property_name, option)
-                            }
-                        }}
-                    />
-                )
+                if (isAutoDiscoveryQuickFilter(filter)) {
+                    return (
+                        <DynamicQuickFilterSelector
+                            key={filter.id}
+                            label={filter.name}
+                            propertyName={filter.property_name}
+                            regexPattern={filter.options.regex_pattern}
+                            operator={filter.options.operator as PropertyOperator}
+                            selectedValue={(selectedFilter?.value as string) ?? null}
+                            onChange={(value, operator) => {
+                                if (value === null) {
+                                    clearQuickFilter(filter.property_name)
+                                } else {
+                                    setQuickFilterValue(filter.property_name, {
+                                        id: value,
+                                        value,
+                                        label: value,
+                                        operator,
+                                    })
+                                }
+                            }}
+                        />
+                    )
+                }
+
+                if (isManualQuickFilter(filter)) {
+                    return (
+                        <QuickFilterSelector
+                            key={filter.id}
+                            label={filter.name}
+                            options={filter.options as QuickFilterOption[]}
+                            selectedOptionId={selectedFilter?.optionId || null}
+                            onChange={(option) => {
+                                if (option === null) {
+                                    clearQuickFilter(filter.property_name)
+                                } else {
+                                    setQuickFilterValue(filter.property_name, option)
+                                }
+                            }}
+                        />
+                    )
+                }
+
+                return null
             })}
             <LemonButton size="small" icon={<IconGear />} onClick={openModal}>
                 Configure quick filters
