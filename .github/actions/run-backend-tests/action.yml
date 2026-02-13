@@ -236,7 +236,7 @@ runs:
               else
                   extra_targets=""
               fi
-              pytest $pytest_targets $extra_targets -m "not async_migrations" \
+              pytest $pytest_targets $extra_targets -m "not async_migrations and not ch_replication" \
                   --ignore=posthog/temporal \
                   --ignore=common/hogvm/python/test \
                   --splits "$CONCURRENCY" --group "$GROUP" \
@@ -258,7 +258,7 @@ runs:
               CONCURRENCY: ${{ inputs.concurrency }}
               GROUP: ${{ inputs.group }}
           run: |
-              pytest posthog/temporal -m "not async_migrations" \
+              pytest posthog/temporal -m "not async_migrations and not ch_replication" \
                   --splits "$CONCURRENCY" --group "$GROUP" \
                   --durations=100 --durations-min=1.0 --store-durations --clean-durations \
                   $PYTEST_ARGS

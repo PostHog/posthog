@@ -1,0 +1,92 @@
+#
+# docker-compose file used ONLY for testing ClickHouse replication lag scenarios.
+# Provides two CH replicas on the same shard so tests can pause/resume replication.
+#
+# Usage:
+#   docker compose -f docker-compose.dev-replication.yml up -d
+#   CH_REPLICATION_ENABLED=1 pytest -m ch_replication -v
+#
+
+services:
+    db:
+        extends:
+            file: docker-compose.base.yml
+            service: db
+        ports:
+            - '5432:5432'
+        volumes:
+            - postgres-15-data:/var/lib/postgresql/data
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
+
+    redis7:
+        extends:
+            file: docker-compose.base.yml
+            service: redis7
+        ports:
+            - '6379:6379'
+
+    clickhouse:
+        extends:
+            file: docker-compose.base.yml
+            service: clickhouse
+        hostname: clickhouse
+        ports:
+            - '8123:8123'
+            - '9000:9000'
+            - '9009:9009'
+        volumes:
+            - ./posthog/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/config.d/replica1.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
+        depends_on:
+            - kafka
+            - zookeeper
+
+    clickhouse-replica:
+        extends:
+            file: docker-compose.base.yml
+            service: clickhouse
+        hostname: clickhouse-replica
+        ports:
+            - '8124:8123'
+            - '9001:9000'
+            - '9010:9009'
+        volumes:
+            - ./posthog/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/config.d/replica2.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
+        depends_on:
+            - kafka
+            - zookeeper
+
+    zookeeper:
+        extends:
+            file: docker-compose.base.yml
+            service: zookeeper
+        ports:
+            - '2181:2181'
+
+    kafka:
+        extends:
+            file: docker-compose.base.yml
+            service: kafka
+        ports:
+            - '9092:9092'
+        depends_on:
+            - zookeeper
+
+volumes:
+    postgres-15-data:
+    redpanda-data:
