@@ -14,6 +14,7 @@ import {
     chooseOperatorMap,
     isMobile,
     isOperatorCohort,
+    isOperatorDate,
     isOperatorFlag,
     isOperatorMulti,
     isOperatorRange,
@@ -219,6 +220,13 @@ export function OperatorValueSelect({
                                 onChange(newOperator, value || null)
                             } else if (isOperatorRange(newOperator) && isNaN(value as any)) {
                                 // If the new operator is range and the value is not a number, we want to set the new value to null
+                                onChange(newOperator, null)
+                            } else if (
+                                isOperatorDate(newOperator) !==
+                                isOperatorDate(currentOperator || PropertyOperator.Exact)
+                            ) {
+                                // Switching between date and non-date operators — clear the value
+                                // since the value types are incompatible
                                 onChange(newOperator, null)
                             } else if (isOperatorFlag(newOperator)) {
                                 onChange(newOperator, newOperator)
