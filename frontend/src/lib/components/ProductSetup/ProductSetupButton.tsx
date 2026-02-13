@@ -153,6 +153,7 @@ const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(functi
                             <IconTarget />
                             {showBadge && remainingCount > 0 && (
             <div className="block @4xl/main-content:hidden">
+            <div className="block @4xl/main-content:hidden">
                 <LemonButton
                     ref={ref}
                     icon={<IconTarget />}
@@ -160,7 +161,7 @@ const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(functi
                     type="secondary"
                     onClick={onClick}
                     active={isActive}
-                    tooltip="Quick start"
+                    data-attr="global-product-setup-button-compact"
                 />
             </div>
         </>
