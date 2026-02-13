@@ -35,9 +35,10 @@ export const scene: SceneExport = {
 
 export function SupportTicketsScene(): JSX.Element {
     const logic = supportTicketsSceneLogic()
-    const { filteredTickets, statusFilter, priorityFilter, assigneeFilter, dateFrom, dateTo, ticketsLoading } =
+    const { filteredTickets, statusFilter, priorityFilter, assigneeFilter, dateFrom, dateTo, ticketsLoading, sorting } =
         useValues(logic)
-    const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, loadTickets } = useActions(logic)
+    const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, loadTickets, setSorting } =
+        useActions(logic)
     const { push } = useActions(router)
 
     return (
@@ -171,6 +172,10 @@ export function SupportTicketsScene(): JSX.Element {
                 dataSource={filteredTickets}
                 rowKey="id"
                 loading={ticketsLoading}
+                sorting={sorting}
+                onSort={(newSorting) => setSorting(newSorting)}
+                useURLForSorting={false}
+                noSortingCancellation
                 onRow={(ticket) => ({
                     onClick: () => push(urls.supportTicketDetail(ticket.id)),
                 })}
@@ -182,8 +187,9 @@ export function SupportTicketsScene(): JSX.Element {
                 columns={[
                     {
                         title: 'Ticket',
-                        key: 'key',
+                        key: 'ticket_number',
                         width: 80,
+                        sorter: true,
                         render: (_, ticket) => (
                             <span className="text-xs font-mono text-muted-alt">{ticket.ticket_number}</span>
                         ),
@@ -242,6 +248,7 @@ export function SupportTicketsScene(): JSX.Element {
                     {
                         title: 'Status',
                         key: 'status',
+                        sorter: true,
                         render: (_, ticket) => (
                             <LemonTag
                                 type={
@@ -259,6 +266,7 @@ export function SupportTicketsScene(): JSX.Element {
                     {
                         title: 'Priority',
                         key: 'priority',
+                        sorter: true,
                         render: (_, ticket) =>
                             ticket.priority ? (
                                 <LemonTag
@@ -287,12 +295,14 @@ export function SupportTicketsScene(): JSX.Element {
                     },
                     {
                         title: 'Channel',
-                        key: 'channel',
+                        key: 'channel_source',
+                        sorter: true,
                         render: (_, ticket) => <ChannelsTag channel={ticket.channel_source} />,
                     },
                     {
                         title: 'Created',
                         key: 'created_at',
+                        sorter: true,
                         render: (_, ticket) => {
                             return (
                                 <span className="text-xs text-muted-alt">
@@ -307,6 +317,7 @@ export function SupportTicketsScene(): JSX.Element {
                         title: 'Updated',
                         key: 'updated_at',
                         align: 'right',
+                        sorter: true,
                         render: (_, ticket) => {
                             return (
                                 <span className="text-xs text-muted-alt">

@@ -3,6 +3,7 @@ import { actions, afterMount, kea, listeners, path, reducers, selectors } from '
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 
 import type {
     AssigneeFilterValue,
@@ -23,6 +24,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setPriorityFilter: (priorities: TicketPriority[]) => ({ priorities }),
         setAssigneeFilter: (assignee: AssigneeFilterValue) => ({ assignee }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setSorting: (sorting: Sorting | null) => ({ sorting }),
         loadTickets: true,
         setTickets: (tickets: Ticket[]) => ({ tickets }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
@@ -87,6 +89,12 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 setDateRange: (_, { dateTo }) => dateTo,
             },
         ],
+        sorting: [
+            { columnKey: 'updated_at', order: -1 } as Sorting | null,
+            {
+                setSorting: (_, { sorting }) => sorting,
+            },
+        ],
     }),
     selectors({
         filteredTickets: [(s) => [s.tickets], (tickets: Ticket[]) => tickets],
@@ -117,6 +125,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.dateTo) {
                 params.date_to = values.dateTo
             }
+            if (values.sorting) {
+                params.ordering = `${values.sorting.order === -1 ? '-' : ''}${values.sorting.columnKey}`
+            }
 
             try {
                 const response = await api.conversationsTickets.list(params)
@@ -139,6 +150,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.loadTickets()
         },
         setDateRange: () => {
+            actions.loadTickets()
+        },
+        setSorting: () => {
             actions.loadTickets()
         },
     })),

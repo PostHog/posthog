@@ -178,7 +178,16 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     Q(anonymous_traits__name__icontains=search) | Q(anonymous_traits__email__icontains=search)
                 )
 
-        return queryset.order_by("-updated_at")
+        # Apply ordering from query param, validated against allowlist
+        ordering = "-updated_at"
+        ordering_param = self.request.query_params.get("ordering")
+        if ordering_param:
+            sortable_fields = {"ticket_number", "status", "priority", "channel_source", "created_at", "updated_at"}
+            field = ordering_param.lstrip("-")
+            if field in sortable_fields:
+                ordering = ordering_param
+
+        return queryset.order_by(ordering)
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
