@@ -362,6 +362,7 @@ class WidgetTicketsView(APIView):
             ticket_list.append(
                 {
                     "id": str(ticket.id),
+                    "ticket_number": ticket.ticket_number,
                     "status": ticket.status,
                     "unread_count": ticket.unread_customer_count,  # Unread messages for customer
                     "last_message": ticket.last_message_text,  # Now from denormalized field

@@ -512,7 +512,10 @@ def get_context_for_template(
                 )
                 posthog_app_context["current_project"] = project_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
-                posthog_app_context["default_event_name"] = get_default_event_name(user.team)
+                event_info = get_default_event_info(user.team)
+                posthog_app_context["default_event_name"] = event_info["default_event_name"]
+                posthog_app_context["has_pageview"] = event_info["has_pageview"]
+                posthog_app_context["has_screen"] = event_info["has_screen"]
 
                 user_product_list = UserProductListSerializer(
                     UserProductList.objects.filter(team=user.team, user=user, enabled=True).order_by(
@@ -618,23 +621,33 @@ async def initialize_self_capture_api_token():
         posthoganalytics.host = settings.SITE_URL
 
 
-def get_default_event_name(team: "Team") -> str | None:
+def get_default_event_info(team: "Team") -> dict:
     from posthog.models import EventDefinition
 
-    if EventDefinition.objects.filter(team=team, name="$pageview").exists():
-        return "$pageview"
-    elif EventDefinition.objects.filter(team=team, name="$screen").exists():
-        return "$screen"
+    existing_names = set(
+        EventDefinition.objects.filter(team=team, name__in=["$pageview", "$screen"]).values_list("name", flat=True)
+    )
+    has_pageview = "$pageview" in existing_names
+    has_screen = "$screen" in existing_names
 
-    # Only default to "all events" (None) if the team has other events
-    # This avoids the race condition where a new user sends their first pageview
-    # but we've already computed the default as "all events"
-    has_any_events = EventDefinition.objects.filter(team=team).exists()
-    if has_any_events:
-        return None  # None means "all events"
+    if has_pageview:
+        default_event_name = "$pageview"
+    elif has_screen:
+        default_event_name = "$screen"
+    elif EventDefinition.objects.filter(team=team).exists():
+        default_event_name = None
+    else:
+        default_event_name = "$pageview"
 
-    # No events at all - default to $pageview (most common case for new teams)
-    return "$pageview"
+    return {
+        "default_event_name": default_event_name,
+        "has_pageview": has_pageview,
+        "has_screen": has_screen,
+    }
+
+
+def get_default_event_name(team: "Team") -> str | None:
+    return get_default_event_info(team)["default_event_name"]
 
 
 def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
