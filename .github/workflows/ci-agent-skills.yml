@@ -83,7 +83,7 @@ jobs:
                   DEBUG: 1
               run: |
                   python manage.py migrate --noinput
-                  python manage.py setup_dev
+                  python manage.py setup_dev --no-data
 
             - name: Build skills
               env:
@@ -138,7 +138,7 @@ jobs:
                   DEBUG: 1
               run: |
                   python manage.py migrate --noinput
-                  python manage.py setup_dev
+                  python manage.py setup_dev --no-data
 
             - name: Build skills ZIP
               env:
