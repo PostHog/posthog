@@ -402,6 +402,64 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         })
     })
 
+    describe('traffic preview with uneven splits', () => {
+        it.each([
+            {
+                name: '30/70 split at 50% rollout',
+                variants: [
+                    { key: 'control', rollout_percentage: 30 },
+                    { key: 'test', rollout_percentage: 70 },
+                ],
+                rolloutPercentage: 50,
+                expectedSlotWidths: ['30%', '70%'],
+                expectedLabels: ['15%', '35%'],
+            },
+            {
+                name: '90/10 split at 50% rollout',
+                variants: [
+                    { key: 'control', rollout_percentage: 90 },
+                    { key: 'test', rollout_percentage: 10 },
+                ],
+                rolloutPercentage: 50,
+                expectedSlotWidths: ['90%', '10%'],
+                expectedLabels: ['45%', '5%'],
+            },
+            {
+                name: '90/10 split at 80% rollout',
+                variants: [
+                    { key: 'control', rollout_percentage: 90 },
+                    { key: 'test', rollout_percentage: 10 },
+                ],
+                rolloutPercentage: 80,
+                expectedSlotWidths: ['90%', '10%'],
+                expectedLabels: ['72%', '8%'],
+            },
+        ])(
+            'renders correct slot widths and labels for $name',
+            ({ variants, rolloutPercentage, expectedSlotWidths, expectedLabels }) => {
+                const experiment = {
+                    ...defaultExperiment,
+                    parameters: {
+                        feature_flag_variants: variants,
+                        rollout_percentage: rolloutPercentage,
+                    },
+                }
+
+                const { container } = renderComponent(experiment)
+
+                const barSlots = container.querySelectorAll('.h-10 > .h-full.flex')
+                expect(barSlots).toHaveLength(variants.length)
+                expectedSlotWidths.forEach((width, i) => {
+                    expect((barSlots[i] as HTMLElement).style.width).toBe(width)
+                })
+
+                expectedLabels.forEach((label) => {
+                    expect(screen.getByText(label)).toBeInTheDocument()
+                })
+            }
+        )
+    })
+
     describe('edge cases', () => {
         it('handles experiment without parameters', () => {
             const experimentWithoutParams = {
