@@ -305,7 +305,7 @@ def TRUNCATE_EVENTS_RECENT_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {EVENTS_RECENT_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 
 
-def EVENTS_RECENT_TABLE_SQL(on_cluster=True):
+def EVENTS_RECENT_TABLE_SQL(on_cluster=False):
     return EVENTS_TABLE_BASE_SQL.format(
         table_name=EVENTS_RECENT_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
@@ -321,7 +321,7 @@ def EVENTS_RECENT_TABLE_SQL(on_cluster=True):
     )
 
 
-def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
+def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=False):
     return EVENTS_TABLE_BASE_SQL.format(
         table_name="distributed_events_recent",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
@@ -337,7 +337,7 @@ def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
     )
 
 
-def WRITABLE_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
+def WRITABLE_EVENTS_RECENT_TABLE_SQL(on_cluster=False):
     return EVENTS_TABLE_BASE_SQL.format(
         table_name=WRITABLE_EVENTS_RECENT_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
