@@ -28,12 +28,6 @@ import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { captureIngestionWarning } from '../worker/ingestion/utils'
-import {
-    KAFKA_CONSUMER_GROUP_ID,
-    KAFKA_CONSUMER_GROUP_ID_OVERFLOW,
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
-} from './constants'
 import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
@@ -109,11 +103,9 @@ export class SessionRecordingIngester {
         kafkaMessageProducer: KafkaProducerWrapper,
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
-        this.topic = consumeOverflow
-            ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
-            : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
-        this.overflowTopic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
-        this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
+        this.topic = hub.INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC
+        this.overflowTopic = hub.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC
+        this.consumerGroupId = hub.INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID
         this.isDebugLoggingEnabled = buildIntegerMatcher(hub.SESSION_RECORDING_DEBUG_PARTITION, true)
 
         this.promiseScheduler = new PromiseScheduler()
