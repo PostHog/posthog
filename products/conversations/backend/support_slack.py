@@ -45,7 +45,9 @@ def validate_support_request(request: HttpRequest | Request) -> None:
         raise SlackIntegrationError("Invalid")
 
     try:
-        if time.time() - float(slack_time) > 300:
+        timestamp_diff = time.time() - float(slack_time)
+        # Reject requests older than 5 minutes OR from the future (with 60s tolerance for clock skew)
+        if timestamp_diff > 300 or timestamp_diff < -60:
             raise SlackIntegrationError("Expired")
     except ValueError:
         raise SlackIntegrationError("Invalid")
