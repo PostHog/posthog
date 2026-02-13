@@ -62,7 +62,7 @@ export class KafkaMessageParser {
         return parsedMessages.filter((msg): msg is ParsedMessageData => msg !== null)
     }
 
-    private async parseMessage(message: Message): Promise<ParsedMessageData | null> {
+    public async parseMessage(message: Message): Promise<ParsedMessageData | null> {
         const parseStartTime = performance.now()
         const dropMessage = (reason: string, extra?: Record<string, any>) => {
             KafkaMetrics.incrementMessageDropped('session_recordings_blob_ingestion_v2', reason)
