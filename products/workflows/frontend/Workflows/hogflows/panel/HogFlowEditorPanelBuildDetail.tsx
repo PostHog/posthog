@@ -133,7 +133,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
 
             const variableDefaults =
                 workflow.variables?.reduce(
-                    (acc: Record<string, any>, v) => {
+                    (acc: Record<string, any>, v: { key: string; default: any }) => {
                         acc[v.key] = v.default
                         return acc
                     },
@@ -225,7 +225,10 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 ...action.config,
                                                 message_category_id: categoryId,
                                                 message_category_type: categoryId
-                                                    ? categories.find((cat) => cat.id === categoryId)?.category_type
+                                                    ? categories.find(
+                                                          (cat: { id: string; category_type: string }) =>
+                                                              cat.id === categoryId
+                                                      )?.category_type
                                                     : undefined,
                                             },
                                         } as Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }>)
@@ -269,10 +272,12 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                             <LemonSelect
                                                                 options={[
                                                                     { value: '', label: 'Select variable...' },
-                                                                    ...(workflow.variables || []).map(({ key }) => ({
-                                                                        value: key,
-                                                                        label: key,
-                                                                    })),
+                                                                    ...(workflow.variables || []).map(
+                                                                        ({ key }: { key: string }) => ({
+                                                                            value: key,
+                                                                            label: key,
+                                                                        })
+                                                                    ),
                                                                 ]}
                                                                 value={mapping.key || ''}
                                                                 onChange={(value) => {

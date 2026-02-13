@@ -2,7 +2,7 @@ import { useReactFlow } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconTrash } from '@posthog/icons'
+import { IconArrowLeft, IconCollapse, IconExpand45, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -19,8 +19,8 @@ import { EmailActionTestContent } from './testing/HogFlowEditorNotificationPanel
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 
 export function HogFlowEditorPanel(): JSX.Element | null {
-    const { selectedNode, mode, selectedNodeCanBeDeleted, workflow } = useValues(hogFlowEditorLogic)
-    const { setMode, setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const { selectedNode, mode, selectedNodeCanBeDeleted, workflow, isPanelFullscreen } = useValues(hogFlowEditorLogic)
+    const { setMode, setSelectedNodeId, togglePanelFullscreen } = useActions(hogFlowEditorLogic)
     const { deleteElements } = useReactFlow()
 
     const variablesCount = workflow?.variables?.length || 0
@@ -37,7 +37,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
         key: mode,
     }))
 
-    const width = mode !== 'build' ? '37rem' : selectedNode ? '37rem' : '25rem'
+    const width = isPanelFullscreen ? '100%' : mode !== 'build' ? '42rem' : selectedNode ? '42rem' : '30rem'
 
     const Step = useHogFlowStep(selectedNode?.data)
     const { actionValidationErrorsById } = useValues(workflowLogic)
@@ -45,8 +45,11 @@ export function HogFlowEditorPanel(): JSX.Element | null {
 
     return (
         <div
-            className="absolute flex flex-col m-0 p-2 overflow-hidden transition-[width] max-h-full right-0 justify-end"
-            style={{ width }}
+            className={clsx(
+                'absolute flex flex-col m-0 p-2 overflow-hidden max-h-full right-0 justify-end',
+                isPanelFullscreen ? 'inset-0 z-20' : 'transition-[width]'
+            )}
+            style={isPanelFullscreen ? undefined : { width }}
         >
             <div
                 className="relative flex flex-col rounded-md overflow-hidden bg-surface-primary max-h-full z-10"
@@ -78,6 +81,20 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                             barClassName="-mb-px "
                         />
                     </div>
+
+                    <Tooltip
+                        title={
+                            isPanelFullscreen
+                                ? 'Exit full screen (Esc)'
+                                : `Full screen (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+⇧+F)`
+                        }
+                    >
+                        <LemonButton
+                            size="small"
+                            icon={isPanelFullscreen ? <IconCollapse /> : <IconExpand45 />}
+                            onClick={togglePanelFullscreen}
+                        />
+                    </Tooltip>
 
                     {selectedNode && (
                         <span className="flex gap-1 items-center font-medium rounded-md mr-3 min-w-0">
