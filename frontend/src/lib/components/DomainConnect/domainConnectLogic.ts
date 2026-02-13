@@ -108,6 +108,9 @@ export const domainConnectLogic = kea<domainConnectLogicType>([
         // Handle return from Domain Connect redirect
         const searchParams = new URLSearchParams(window.location.search)
         if (searchParams.get('domain_connect') === props.context) {
+            lemonToast.success('DNS records have been submitted. It may take a few minutes for changes to propagate.')
+
+            // Remove key to avoid showing the banner again if the user returns to the page before DNS changes have propagated. The user can always trigger the banner again by adding ?domain_connect=email or ?domain_connect=proxy to the URL.
             const url = new URL(window.location.href)
             url.searchParams.delete('domain_connect')
             router.actions.replace(url.pathname + url.search)

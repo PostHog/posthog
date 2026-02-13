@@ -44,7 +44,7 @@ Two paths for provider detection:
 Single module with all Domain Connect logic:
 
 - **Discovery**: `discover_domain_connect()` — DNS TXT lookup + provider settings fetch, cached 1 hour
-- **URL building**: `build_sync_apply_url()` / `build_provider_apply_url()` — constructs the redirect URL
+- **URL building**: `build_sync_apply_url()` — constructs the redirect URL
 - **Signing**: `sign_query_string()` — RSA-SHA256 signs the query string (required by Cloudflare)
 - **Domain parsing**: `extract_root_domain_and_host()` — splits FQDNs handling multi-part TLDs
 - **Context resolvers**: `resolve_email_context()` / `resolve_proxy_context()` — extracts template variables from the relevant PostHog resource
@@ -71,7 +71,7 @@ Two endpoints on `IntegrationViewSet`:
 Two env vars in `posthog/settings/web.py`:
 
 - `DOMAIN_CONNECT_PRIVATE_KEY` — PEM-encoded RSA private key for signing apply URLs
-- `DOMAIN_CONNECT_KEY_ID` — Key identifier published via DNS (default: `_dck1`)
+- `DOMAIN_CONNECT_KEY_ID` — Key identifier published via DNS (default: `_dcpubkeyv1`)
 
 ## Usage
 

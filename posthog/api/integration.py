@@ -530,6 +530,7 @@ class IntegrationViewSet(
         """
         from posthog.domain_connect import (
             DOMAIN_CONNECT_PROVIDERS,
+            DomainConnectSigningKeyMissing,
             generate_apply_url,
             resolve_email_context,
             resolve_proxy_context,
@@ -581,6 +582,12 @@ class IntegrationViewSet(
                 host=host,
                 provider_endpoint=provider_endpoint,
                 redirect_uri=redirect_uri,
+            )
+        except DomainConnectSigningKeyMissing as e:
+            capture_exception(e, {"context": context, "domain": domain, "provider_endpoint": provider_endpoint})
+            raise ValidationError(
+                "Automatic DNS configuration is temporarily unavailable for this provider. "
+                "Please configure your DNS records manually."
             )
         except ValueError as e:
             capture_exception(

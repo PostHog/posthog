@@ -9,6 +9,7 @@ See https://www.domainconnect.org/ for the protocol specification.
 
 import base64
 import logging
+from typing import cast
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -32,11 +33,23 @@ logger = logging.getLogger(__name__)
 # To add a provider: submit templates to github.com/Domain-Connect/Templates,
 # contact the provider, and add their endpoint here once confirmed.
 #
-# TODO: This is intentionally empty for now while we haven't been accepted
-# to the program for any providers.
 DOMAIN_CONNECT_PROVIDERS: dict[str, DomainConnectProviderName] = {
-    # "api.cloudflare.com/client/v4/dns/domainconnect": "Cloudflare",
+    "api.cloudflare.com/client/v4/dns/domainconnect": cast(DomainConnectProviderName, "Cloudflare"),
 }
+
+# Providers that reject unsigned apply requests.  When a provider is in this
+# set, generate_apply_url() will refuse to build a URL unless
+# DOMAIN_CONNECT_PRIVATE_KEY is configured — surfacing a clear error instead
+# of silently redirecting the user to a page that will fail at the provider.
+PROVIDERS_REQUIRING_SIGNING: set[str] = {
+    "api.cloudflare.com/client/v4/dns/domainconnect",
+}
+
+
+class DomainConnectSigningKeyMissing(Exception):
+    """Raised when a provider requires request signing but no key is configured."""
+
+    pass
 
 
 def discover_domain_connect(domain: str) -> dict | None:
@@ -111,52 +124,19 @@ def build_sync_apply_url(
 
     if private_key and key_id:
         signature = sign_query_string(query_string, private_key)
-        query_string += f"&sig={signature}&key={key_id}"
+        query_string += "&" + urlencode({"sig": signature, "key": key_id})
 
     return f"{base}?{query_string}"
 
 
-def build_provider_apply_url(
-    provider_endpoint: str,
-    provider_id: str,
-    service_id: str,
-    domain: str,
-    variables: dict[str, str],
-    host: str | None = None,
-    redirect_uri: str | None = None,
-    private_key: RSAPrivateKey | None = None,
-    key_id: str | None = None,
-) -> str:
-    """Build a Domain Connect apply URL for a specific provider, bypassing discovery.
-
-    Used when the user manually selects a provider (e.g. "I use Cloudflare")
-    and we skip the auto-detection step.
-    """
-    provider_settings = _fetch_provider_settings(provider_endpoint, domain)
-    if not provider_settings:
-        raise ValueError(f"Could not fetch settings from provider: {provider_endpoint}")
-
-    return build_sync_apply_url(
-        url_sync_ux=provider_settings["urlSyncUX"],
-        provider_id=provider_id,
-        service_id=service_id,
-        domain=domain,
-        variables=variables,
-        host=host,
-        redirect_uri=redirect_uri,
-        private_key=private_key,
-        key_id=key_id,
-    )
-
-
 def sign_query_string(query_string: str, private_key: RSAPrivateKey) -> str:
-    """RSA-SHA256 sign a query string and return the base64url-encoded signature."""
+    """RSA-SHA256 sign a query string and return the base64-encoded signature."""
     signature_bytes = private_key.sign(
         query_string.encode("utf-8"),
         padding.PKCS1v15(),
         hashes.SHA256(),
     )
-    return base64.urlsafe_b64encode(signature_bytes).decode("ascii")
+    return base64.b64encode(signature_bytes).decode("ascii")
 
 
 def get_signing_key() -> RSAPrivateKey | None:
@@ -175,7 +155,7 @@ def get_signing_key() -> RSAPrivateKey | None:
 
 def get_key_id() -> str:
     """Return the key identifier used for DNS-based public key publication."""
-    return getattr(settings, "DOMAIN_CONNECT_KEY_ID", "_dck1")
+    return getattr(settings, "DOMAIN_CONNECT_KEY_ID", "_dcpubkeyv1")
 
 
 def extract_root_domain_and_host(full_domain: str) -> tuple[str, str]:
@@ -296,31 +276,35 @@ def generate_apply_url(
 
     Handles signing automatically if a private key is configured.
     """
-    if provider_endpoint and provider_endpoint not in DOMAIN_CONNECT_PROVIDERS:
-        raise ValueError(f"Unsupported provider endpoint: {provider_endpoint}")
+    # 1. Resolve the provider endpoint
+    if provider_endpoint:
+        endpoint = provider_endpoint
+    else:
+        discovery = discover_domain_connect(domain)
+        if not discovery:
+            raise ValueError("Domain Connect is not available for this domain's DNS provider")
+        endpoint = discovery["endpoint"]
 
+    if endpoint not in DOMAIN_CONNECT_PROVIDERS:
+        raise ValueError(f"Unsupported provider endpoint: {endpoint}")
+
+    # 2. Check signing requirements
     signing_key = get_signing_key()
     key_id = get_key_id() if signing_key else None
 
-    if provider_endpoint:
-        return build_provider_apply_url(
-            provider_endpoint=provider_endpoint,
-            provider_id="posthog.com",
-            service_id=service_id,
-            domain=domain,
-            variables=variables,
-            host=host,
-            redirect_uri=redirect_uri,
-            private_key=signing_key,
-            key_id=key_id,
+    if endpoint in PROVIDERS_REQUIRING_SIGNING and not signing_key:
+        raise DomainConnectSigningKeyMissing(
+            f"Provider {DOMAIN_CONNECT_PROVIDERS.get(endpoint, endpoint)} "
+            "requires request signing but DOMAIN_CONNECT_PRIVATE_KEY is not configured"
         )
 
-    discovery = discover_domain_connect(domain)
-    if not discovery:
-        raise ValueError("Domain Connect is not available for this domain's DNS provider")
+    # 3. Fetch provider settings to get urlSyncUX (cached by _fetch_provider_settings)
+    provider_settings = _fetch_provider_settings(endpoint, domain)
+    if not provider_settings:
+        raise ValueError(f"Could not fetch settings from provider: {endpoint}")
 
     return build_sync_apply_url(
-        url_sync_ux=discovery["url_sync_ux"],
+        url_sync_ux=provider_settings["urlSyncUX"],
         provider_id="posthog.com",
         service_id=service_id,
         domain=domain,

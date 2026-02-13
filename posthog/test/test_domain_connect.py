@@ -17,6 +17,7 @@ from parameterized import parameterized
 
 from posthog.domain_connect import (
     DOMAIN_CONNECT_PROVIDERS,
+    DomainConnectSigningKeyMissing,
     build_sync_apply_url,
     discover_domain_connect,
     extract_root_domain_and_host,
@@ -138,11 +139,11 @@ class TestBuildSyncApplyUrl(BaseTest):
             variables={"target": "abc.proxy.posthog.com"},
             host="ph",
             private_key=private_key,
-            key_id="_dck1",
+            key_id="_dcpubkeyv1",
         )
 
         self.assertIn("sig=", url)
-        self.assertIn("key=_dck1", url)
+        self.assertIn("key=_dcpubkeyv1", url)
 
     def test_url_without_signing_key_has_no_sig(self) -> None:
         url = build_sync_apply_url(
@@ -166,7 +167,7 @@ class TestSignQueryString(BaseTest):
         query = "domain=example.com&host=ph&target=abc.proxy.posthog.com"
         signature_b64 = sign_query_string(query, private_key)
 
-        signature_bytes = base64.urlsafe_b64decode(signature_b64)
+        signature_bytes = base64.b64decode(signature_b64)
         # Should not raise
         public_key.verify(
             signature_bytes,
@@ -256,19 +257,51 @@ class TestGenerateApplyUrl(BaseTest):
             )
 
     @patch("posthog.domain_connect._fetch_provider_settings")
-    def test_allows_known_provider_endpoint(self, mock_settings: MagicMock) -> None:
+    @patch("posthog.domain_connect.get_signing_key")
+    def test_allows_known_provider_endpoint(self, mock_key: MagicMock, mock_settings: MagicMock) -> None:
+        mock_key.return_value = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         mock_settings.return_value = {"urlSyncUX": "https://dash.cloudflare.com/domainconnect"}
 
-        # TODO: Remove patch once Cloudflare is in DOMAIN_CONNECT_PROVIDERS
-        with patch.dict(DOMAIN_CONNECT_PROVIDERS, {"api.cloudflare.com/dc": "Cloudflare"}):
-            url = generate_apply_url(
+        url = generate_apply_url(
+            domain="example.com",
+            service_id="reverse-proxy-us",
+            variables={"target": "abc.proxy.posthog.com"},
+            provider_endpoint="api.cloudflare.com/client/v4/dns/domainconnect",
+        )
+
+        self.assertIn("domain=example.com", url)
+        self.assertIn("sig=", url)
+
+    @patch("posthog.domain_connect.get_signing_key")
+    def test_rejects_signing_required_provider_without_key(self, mock_key: MagicMock) -> None:
+        mock_key.return_value = None
+
+        with self.assertRaises(DomainConnectSigningKeyMissing):
+            generate_apply_url(
                 domain="example.com",
                 service_id="reverse-proxy-us",
                 variables={"target": "abc.proxy.posthog.com"},
-                provider_endpoint="api.cloudflare.com/dc",
+                provider_endpoint="api.cloudflare.com/client/v4/dns/domainconnect",
             )
 
-        self.assertIn("domain=example.com", url)
+    @patch("posthog.domain_connect.discover_domain_connect")
+    @patch("posthog.domain_connect.get_signing_key")
+    def test_rejects_discovered_signing_required_provider_without_key(
+        self, mock_key: MagicMock, mock_discover: MagicMock
+    ) -> None:
+        mock_key.return_value = None
+        mock_discover.return_value = {
+            "provider_name": "Cloudflare",
+            "endpoint": "api.cloudflare.com/client/v4/dns/domainconnect",
+            "url_sync_ux": "https://dash.cloudflare.com/domainconnect",
+        }
+
+        with self.assertRaises(DomainConnectSigningKeyMissing):
+            generate_apply_url(
+                domain="example.com",
+                service_id="reverse-proxy-us",
+                variables={"target": "abc.proxy.posthog.com"},
+            )
 
 
 class TestTemplateResolverAlignment(BaseTest):
