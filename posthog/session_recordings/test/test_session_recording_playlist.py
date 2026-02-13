@@ -15,18 +15,30 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog import redis
-from posthog.models import Organization, PersonalAPIKey, SessionRecording, SessionRecordingPlaylistItem, Team
+from posthog.models import (
+    Organization,
+    PersonalAPIKey,
+    SessionRecording,
+    SessionRecordingPlaylistItem,
+    Team,
+)
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
-from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.models.session_recording_event import (
+    SessionRecordingViewed,
+)
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
     SessionRecordingPlaylistViewed,
 )
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
+from posthog.session_recordings.session_recording_playlist_api import (
+    PLAYLIST_COUNT_REDIS_PREFIX,
+)
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -71,7 +83,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         return post_response
 
-    def _get_non_synthetic_playlists(self, query_params: str = "", expected_synthetic_count: int = 6) -> list[dict]:
+    def _get_non_synthetic_playlists(
+        self, query_params: str = "", expected_synthetic_count: int = 6
+    ) -> list[dict]:
         url = f"/api/projects/{self.team.id}/session_recording_playlists{query_params}"
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
@@ -85,13 +99,17 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         return non_synthetic_results
 
     def test_list_playlists_when_there_are_no_playlists(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists"
+        )
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
 
         # When there are no user-created playlists, we should only get synthetic playlists
         assert len(results) > 0, "Should have synthetic playlists"
-        assert all(p.get("is_synthetic") for p in results), "All playlists should be synthetic"
+        assert all(
+            p.get("is_synthetic") for p in results
+        ), "All playlists should be synthetic"
 
     def test_list_playlists_when_there_are_some_playlists(self):
         playlist_one = self._create_playlist({"name": "test", "type": "collection"})
@@ -105,10 +123,14 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
         redis.get_client().set(
             f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist_two.json()['short_id']}",
-            json.dumps({"session_ids": ["a", "b"], "has_more": False, "previous_ids": ["b"]}),
+            json.dumps(
+                {"session_ids": ["a", "b"], "has_more": False, "previous_ids": ["b"]}
+            ),
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
@@ -222,7 +244,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             ["with_unknown_type", {"name": "test", "type": "tomato"}],
         ]
     )
-    def test_rejects_invalid_playlist_type(self, _name: str, playlist_data: dict) -> None:
+    def test_rejects_invalid_playlist_type(
+        self, _name: str, playlist_data: dict
+    ) -> None:
         self._create_playlist(
             playlist_data,
             status.HTTP_400_BAD_REQUEST,
@@ -248,7 +272,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             ],
         ]
     )
-    def test_creates_playlist_with_type(self, _name: str, playlist_data: dict, expected_type: str) -> None:
+    def test_creates_playlist_with_type(
+        self, _name: str, playlist_data: dict, expected_type: str
+    ) -> None:
         response = self._create_playlist(playlist_data)
 
         playlist_id = response.json()["id"]
@@ -273,7 +299,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             ],
         ]
     )
-    def test_rejects_invalid_filter_combinations(self, _name: str, playlist_data: dict, expected_error: str) -> None:
+    def test_rejects_invalid_filter_combinations(
+        self, _name: str, playlist_data: dict, expected_error: str
+    ) -> None:
         self._create_playlist(
             playlist_data,
             status.HTTP_400_BAD_REQUEST,
@@ -306,7 +334,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert response.json()["short_id"] == create_response.json()["short_id"]
 
     def test_marks_playlist_as_viewed(self):
-        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}, "type": "filters"})
+        create_response = self._create_playlist(
+            {"filters": {"events": [{"id": "test"}]}, "type": "filters"}
+        )
         short_id = create_response.json()["short_id"]
 
         assert SessionRecordingPlaylistViewed.objects.count() == 0
@@ -326,7 +356,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert viewed_record.viewed_at == mock.ANY
 
     def test_can_marks_playlist_as_viewed_more_than_once(self):
-        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}, "type": "filters"})
+        create_response = self._create_playlist(
+            {"filters": {"events": [{"id": "test"}]}, "type": "filters"}
+        )
         short_id = create_response.json()["short_id"]
 
         assert SessionRecordingPlaylistViewed.objects.count() == 0
@@ -342,7 +374,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert SessionRecordingPlaylistViewed.objects.count() == 2
 
     def test_cannot_mark_playlist_as_viewed_more_than_once_at_the_same_time(self):
-        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}, "type": "filters"})
+        create_response = self._create_playlist(
+            {"filters": {"events": [{"id": "test"}]}, "type": "filters"}
+        )
         short_id = create_response.json()["short_id"]
 
         assert SessionRecordingPlaylistViewed.objects.count() == 0
@@ -364,7 +398,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert SessionRecordingPlaylistViewed.objects.count() == 1
 
     def test_cannot_mark_playlist_as_viewed_in_different_team(self):
-        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}, "type": "filters"})
+        create_response = self._create_playlist(
+            {"filters": {"events": [{"id": "test"}]}, "type": "filters"}
+        )
         short_id = create_response.json()["short_id"]
 
         another_team = Team.objects.create(organization=self.organization)
@@ -421,7 +457,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
     @parameterized.expand([["empty_dict", {}], ["none", None]])
-    def test_cannot_update_saved_filter_to_have_no_filters(self, _name: str, updated_filters: dict | None) -> None:
+    def test_cannot_update_saved_filter_to_have_no_filters(
+        self, _name: str, updated_filters: dict | None
+    ) -> None:
         create_response = self._create_playlist(
             {
                 "type": "filters",
@@ -470,14 +508,19 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     def test_rejects_updates_to_readonly_playlist_properties(self):
         # Create a playlist with a specific initial type
         initial_type = SessionRecordingPlaylist.PlaylistType.COLLECTION
-        create_response = self._create_playlist({"name": "initial for readonly test", "type": initial_type})
+        create_response = self._create_playlist(
+            {"name": "initial for readonly test", "type": initial_type}
+        )
         created_data = create_response.json()
         short_id = created_data["short_id"]
         assert created_data["type"] == initial_type  # Verify initial type
 
         new_type_attempt = SessionRecordingPlaylist.PlaylistType.FILTERS
         # Ensure we're trying to change to a different, valid type
-        assert new_type_attempt != initial_type and new_type_attempt in SessionRecordingPlaylist.PlaylistType.values
+        assert (
+            new_type_attempt != initial_type
+            and new_type_attempt in SessionRecordingPlaylist.PlaylistType.values
+        )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}",
@@ -495,7 +538,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert updated_data["short_id"] == short_id  # short_id should not have changed
         assert updated_data["type"] == initial_type  # type should not have changed
-        assert updated_data["name"] == "updated name for readonly test"  # name should have been updated
+        assert (
+            updated_data["name"] == "updated name for readonly test"
+        )  # name should have been updated
         assert updated_data["pinned"] is True  # pinned should have been updated
 
     @parameterized.expand(
@@ -510,15 +555,25 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     def test_filters_based_on_params(
         self, _name: str, query_template: str, expected_playlist_indices: list[int]
     ) -> None:
-        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        other_user = User.objects.create_and_join(
+            self.organization, "other@posthog.com", "password"
+        )
         playlists = [
-            SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user),
-            SessionRecordingPlaylist.objects.create(team=self.team, pinned=True, created_by=self.user),
-            SessionRecordingPlaylist.objects.create(team=self.team, name="my playlist", created_by=other_user),
+            SessionRecordingPlaylist.objects.create(
+                team=self.team, name="playlist", created_by=self.user
+            ),
+            SessionRecordingPlaylist.objects.create(
+                team=self.team, pinned=True, created_by=self.user
+            ),
+            SessionRecordingPlaylist.objects.create(
+                team=self.team, name="my playlist", created_by=other_user
+            ),
         ]
 
         query_params = f"?{query_template.format(other_user_id=other_user.id)}"
-        results = self._get_non_synthetic_playlists(query_params, expected_synthetic_count=0)
+        results = self._get_non_synthetic_playlists(
+            query_params, expected_synthetic_count=0
+        )
 
         assert len(results) == len(expected_playlist_indices)
         for i, playlist_idx in enumerate(expected_playlist_indices):
@@ -529,8 +584,12 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         playlist1 = SessionRecordingPlaylist.objects.create(
             team=self.team, name="pinned only", created_by=self.user, type="collection"
         )
-        recording1 = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
-        SessionRecordingPlaylistItem.objects.create(playlist=playlist1, recording=recording1)
+        recording1 = SessionRecording.objects.create(
+            team=self.team, session_id=str(uuid4())
+        )
+        SessionRecordingPlaylistItem.objects.create(
+            playlist=playlist1, recording=recording1
+        )
 
         # Create a playlist with both pinned recordings and filters
         playlist2 = SessionRecordingPlaylist.objects.create(
@@ -540,8 +599,12 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             filters={"events": [{"id": "test"}]},
             type="collection",
         )
-        recording2 = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
-        SessionRecordingPlaylistItem.objects.create(playlist=playlist2, recording=recording2)
+        recording2 = SessionRecording.objects.create(
+            team=self.team, session_id=str(uuid4())
+        )
+        SessionRecordingPlaylistItem.objects.create(
+            playlist=playlist2, recording=recording2
+        )
 
         # Create a playlist with only filters
         playlist3 = SessionRecordingPlaylist.objects.create(
@@ -559,9 +622,15 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
             type="collection",
         )
-        recording4 = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
-        SessionRecordingPlaylistItem.objects.create(playlist=playlist4, recording=recording4)
-        SessionRecordingPlaylistItem.objects.filter(playlist=playlist4, recording=recording4).update(deleted=True)
+        recording4 = SessionRecording.objects.create(
+            team=self.team, session_id=str(uuid4())
+        )
+        SessionRecordingPlaylistItem.objects.create(
+            playlist=playlist4, recording=recording4
+        )
+        SessionRecordingPlaylistItem.objects.filter(
+            playlist=playlist4, recording=recording4
+        ).update(deleted=True)
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recording_playlists?type=filters",
@@ -582,7 +651,11 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         """
         # Create a playlist explicitly marked as filters type
         response = self._create_playlist(
-            {"name": "test filters only", "type": "filters", "filters": {"wat": "am filter"}}
+            {
+                "name": "test filters only",
+                "type": "filters",
+                "filters": {"wat": "am filter"},
+            }
         )
         playlist_id = response.json()["id"]
         playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
@@ -604,10 +677,14 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         }
 
         # Verify no item was actually added
-        assert SessionRecordingPlaylistItem.objects.filter(playlist=playlist).count() == 0
+        assert (
+            SessionRecordingPlaylistItem.objects.filter(playlist=playlist).count() == 0
+        )
 
     def test_get_pinned_recordings_for_playlist(self) -> None:
-        playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user)
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="playlist", created_by=self.user
+        )
 
         session_one = f"test_fetch_playlist_recordings-session1-{uuid4()}"
         session_two = f"test_fetch_playlist_recordings-session2-{uuid4()}"
@@ -749,10 +826,14 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
         assert playlist_item is not None
 
-        session_recording_obj_1 = SessionRecording.get_or_build(team=self.team, session_id=recording1_session_id)
+        session_recording_obj_1 = SessionRecording.get_or_build(
+            team=self.team, session_id=recording1_session_id
+        )
         assert session_recording_obj_1
 
-        session_recording_obj_2 = SessionRecording.get_or_build(team=self.team, session_id=recording2_session_id)
+        session_recording_obj_2 = SessionRecording.get_or_build(
+            team=self.team, session_id=recording2_session_id
+        )
         assert session_recording_obj_2
 
         # Delete playlist items
@@ -787,7 +868,10 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             == 0
         )
 
-    @patch("posthog.hogql.database.database.posthoganalytics.feature_enabled", new=MagicMock(return_value=True))
+    @patch(
+        "posthog.hogql.database.database.posthoganalytics.feature_enabled",
+        new=MagicMock(return_value=False),
+    )
     @snapshot_postgres_queries
     @freeze_time("2025-01-01T12:00:00Z")
     def test_filters_playlist_by_type(self):
@@ -811,12 +895,20 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
 
         # Add items to relevant playlists
-        recording = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
-        SessionRecordingPlaylistItem.objects.create(playlist=p_collection_explicit_items, recording=recording)
-        SessionRecordingPlaylistItem.objects.create(playlist=p_collection_explicit_no_filters, recording=recording)
+        recording = SessionRecording.objects.create(
+            team=self.team, session_id=str(uuid4())
+        )
+        SessionRecordingPlaylistItem.objects.create(
+            playlist=p_collection_explicit_items, recording=recording
+        )
+        SessionRecordingPlaylistItem.objects.create(
+            playlist=p_collection_explicit_no_filters, recording=recording
+        )
 
         # Test filtering by type=filters
-        response_filters = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists?type=filters")
+        response_filters = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists?type=filters"
+        )
         assert response_filters.status_code == status.HTTP_200_OK
         results_filters = response_filters.json()["results"]
         assert len(results_filters) == 1
@@ -860,7 +952,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists{query_params}")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists{query_params}"
+        )
         assert response.status_code == status.HTTP_200_OK
 
         results = response.json()["results"]
@@ -871,7 +965,10 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert len(custom_results) == expected_custom_count
 
         if expected_custom_count > 0:
-            assert {p["id"] for p in custom_results} == {p_collection_one.id, p_collection_two.id}
+            assert {p["id"] for p in custom_results} == {
+                p_collection_one.id,
+                p_collection_two.id,
+            }
 
     def test_create_playlist_in_specific_folder(self):
         response = self._create_playlist(
@@ -957,7 +1054,10 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         ]
     )
     def test_bulk_add_validation_errors(
-        self, _name: str, session_recording_ids: list | str, expected_error_substring: str | None
+        self,
+        _name: str,
+        session_recording_ids: list | str,
+        expected_error_substring: str | None,
     ) -> None:
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team,
@@ -990,7 +1090,10 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Cannot add recordings to a playlist that is type 'filters'" in response.json()["detail"]
+        assert (
+            "Cannot add recordings to a playlist that is type 'filters'"
+            in response.json()["detail"]
+        )
 
     def test_bulk_add_partial_success(self):
         playlist = SessionRecordingPlaylist.objects.create(
@@ -1022,7 +1125,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
 
 class TestSessionRecordingPlaylistPersonalAPIKey(APIBaseTest):
-    def _create_personal_api_key(self, scopes: list[str], scoped_teams: list[int] | None = None) -> str:
+    def _create_personal_api_key(
+        self, scopes: list[str], scoped_teams: list[int] | None = None
+    ) -> str:
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="Test Key",
@@ -1050,12 +1155,14 @@ class TestSessionRecordingPlaylistPersonalAPIKey(APIBaseTest):
             created_by=self.user,
             type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
         )
-        personal_api_key = self._create_personal_api_key(["session_recording_playlist:read"])
-        url = (
-            f"/api/projects/{self.team.pk}/session_recording_playlists{path_suffix.format(short_id=playlist.short_id)}"
+        personal_api_key = self._create_personal_api_key(
+            ["session_recording_playlist:read"]
         )
+        url = f"/api/projects/{self.team.pk}/session_recording_playlists{path_suffix.format(short_id=playlist.short_id)}"
 
-        response = self.client.get(url, headers={"authorization": f"Bearer {personal_api_key}"})
+        response = self.client.get(
+            url, headers={"authorization": f"Bearer {personal_api_key}"}
+        )
 
         assert response.status_code == expected_status
 
@@ -1068,7 +1175,9 @@ class TestSessionRecordingPlaylistPersonalAPIKey(APIBaseTest):
     def test_personal_api_key_denied_without_correct_scope_or_team(
         self, _name: str, scopes: list[str], scoped_team: str | None
     ) -> None:
-        other_team = Team.objects.create(organization=self.organization, name="other team")
+        other_team = Team.objects.create(
+            organization=self.organization, name="other team"
+        )
         SessionRecordingPlaylist.objects.create(
             team=self.team,
             name="test playlist",
@@ -1088,15 +1197,25 @@ class TestSessionRecordingPlaylistPersonalAPIKey(APIBaseTest):
 
 class TestSessionRecordingPlaylistTeamIsolation(APIBaseTest):
     def test_list_only_returns_own_team_playlists(self) -> None:
-        other_team = Team.objects.create(organization=self.organization, name="other team")
-        SessionRecordingPlaylist.objects.create(
-            team=other_team, name="other team playlist", created_by=self.user, type="collection"
+        other_team = Team.objects.create(
+            organization=self.organization, name="other team"
         )
         SessionRecordingPlaylist.objects.create(
-            team=self.team, name="my team playlist", created_by=self.user, type="collection"
+            team=other_team,
+            name="other team playlist",
+            created_by=self.user,
+            type="collection",
+        )
+        SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="my team playlist",
+            created_by=self.user,
+            type="collection",
         )
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/session_recording_playlists")
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/session_recording_playlists"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         results = [r for r in response.json()["results"] if not r.get("is_synthetic")]
@@ -1114,15 +1233,22 @@ class TestSessionRecordingPlaylistTeamIsolation(APIBaseTest):
     def test_cannot_access_playlist_from_another_team(
         self, _name: str, method: str, path_suffix: str, data: dict | None
     ) -> None:
-        other_team = Team.objects.create(organization=self.organization, name="other team")
+        other_team = Team.objects.create(
+            organization=self.organization, name="other team"
+        )
         playlist = SessionRecordingPlaylist.objects.create(
-            team=other_team, name="other team playlist", created_by=self.user, type="collection"
+            team=other_team,
+            name="other team playlist",
+            created_by=self.user,
+            type="collection",
         )
-        url = (
-            f"/api/projects/{self.team.pk}/session_recording_playlists{path_suffix.format(short_id=playlist.short_id)}"
-        )
+        url = f"/api/projects/{self.team.pk}/session_recording_playlists{path_suffix.format(short_id=playlist.short_id)}"
 
-        response = getattr(self.client, method)(url, data) if data else getattr(self.client, method)(url)
+        response = (
+            getattr(self.client, method)(url, data)
+            if data
+            else getattr(self.client, method)(url)
+        )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
@@ -1130,6 +1256,8 @@ class TestSessionRecordingPlaylistTeamIsolation(APIBaseTest):
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="other org team")
 
-        response = self.client.get(f"/api/projects/{other_team.pk}/session_recording_playlists")
+        response = self.client.get(
+            f"/api/projects/{other_team.pk}/session_recording_playlists"
+        )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
