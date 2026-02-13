@@ -430,7 +430,8 @@ if not CDP_API_URL:
     CDP_API_URL = "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
 
 # Shared secret for internal API authentication between Django and Node.js services
-INTERNAL_API_SECRET = get_from_env("INTERNAL_API_SECRET", "")
+LOCAL_DEV_INTERNAL_API_SECRET = "posthog123"
+INTERNAL_API_SECRET = get_from_env("INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET)
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 

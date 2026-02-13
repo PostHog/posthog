@@ -463,7 +463,6 @@ export interface PluginsServerConfig
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the service can go without ingesting events before the healthcheck fails
     SITE_URL: string
-    POSTHOG_INTERNAL_SERVICE_TOKEN: string | null // Internal service-to-service authentication token for calling Django internal endpoints
     TEMPORAL_HOST: string
     TEMPORAL_PORT: string | undefined
     TEMPORAL_NAMESPACE: string

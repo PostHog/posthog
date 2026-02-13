@@ -246,8 +246,6 @@ services:
             DEPLOYMENT: hobby
             CDP_API_URL: 'http://plugins:6738'
             FLAGS_REDIS_ENABLED: false
-            # Internal service token for Node.js -> Django calls (generate a secure random token for production)
-            POSTHOG_INTERNAL_SERVICE_TOKEN: '${POSTHOG_INTERNAL_SERVICE_TOKEN:-}'
 
     web:
         <<: *worker
@@ -384,8 +382,6 @@ services:
             CLICKHOUSE_VERIFY: 'false'
             COOKIELESS_REDIS_HOST: redis7
             COOKIELESS_REDIS_PORT: 6379
-            # Internal service token for Node.js -> Django calls (generate a secure random token for production)
-            POSTHOG_INTERNAL_SERVICE_TOKEN: '${POSTHOG_INTERNAL_SERVICE_TOKEN:-}'
 
     livestream:
         image: 'ghcr.io/posthog/posthog/livestream:master'

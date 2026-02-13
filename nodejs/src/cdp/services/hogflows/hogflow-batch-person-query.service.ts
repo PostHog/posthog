@@ -1,7 +1,6 @@
-import { Team } from '~/types'
+import { Hub, Team } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
 import { logger } from '~/utils/logger'
-import { fetch } from '~/utils/request'
 
 import { HogFunctionFilters } from '../../types'
 
@@ -21,16 +20,16 @@ export interface BlastRadiusPersonsResponse {
 
 export interface HogFlowBatchPersonQueryServiceHub {
     SITE_URL: string
-    POSTHOG_INTERNAL_SERVICE_TOKEN: string | null
+    INTERNAL_API_SECRET?: string
 }
 
 /**
  * Service for querying persons via Django internal API for batch HogFlow processing.
- * Calls internal endpoints authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN.
+ * Calls internal endpoints authenticated with INTERNAL_API_SECRET.
  * Endpoints: /internal/hog_flows/user_blast_radius and /internal/hog_flows/user_blast_radius_persons
  */
 export class HogFlowBatchPersonQueryService {
-    constructor(private hub: HogFlowBatchPersonQueryServiceHub) {}
+    constructor(private hub: Pick<Hub, 'SITE_URL' | 'INTERNAL_API_SECRET' | 'internalFetchService'>) {}
 
     /**
      * Get count of users affected by filters
@@ -47,31 +46,39 @@ export class HogFlowBatchPersonQueryService {
         }
 
         // Add internal service token if configured
-        if (this.hub.POSTHOG_INTERNAL_SERVICE_TOKEN) {
-            headers['Authorization'] = `Bearer ${this.hub.POSTHOG_INTERNAL_SERVICE_TOKEN}`
+        if (this.hub.INTERNAL_API_SECRET) {
+            headers['Authorization'] = `Bearer ${this.hub.INTERNAL_API_SECRET}`
         }
 
         try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify({
-                    filters,
-                    group_type_index: groupTypeIndex,
-                }),
+            const { fetchResponse, fetchError } = await this.hub.internalFetchService.fetch({
+                url,
+                fetchParams: {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        filters,
+                        group_type_index: groupTypeIndex,
+                    }),
+                },
             })
 
-            if (response.status !== 200) {
-                const errorText = await response.text()
+            if (!fetchResponse || fetchError) {
+                logger.error('Error fetching blast radius from Django', { error: fetchError, url })
+                throw fetchError
+            }
+
+            if (fetchResponse.status !== 200) {
+                const errorText = await fetchResponse.text()
                 logger.error('Failed to fetch blast radius from Django', {
-                    status: response.status,
+                    status: fetchResponse.status,
                     error: errorText,
                     url,
                 })
-                throw new Error(`Failed to fetch blast radius: ${response.status} ${response.statusText}`)
+                throw new Error(`Failed to fetch blast radius: ${fetchResponse.status} ${errorText}`)
             }
 
-            const data = parseJSON(await response.text()) as BlastRadiusResponse
+            const data = parseJSON(await fetchResponse.text()) as BlastRadiusResponse
 
             return data
         } catch (error) {
@@ -99,32 +106,40 @@ export class HogFlowBatchPersonQueryService {
         }
 
         // Add internal service token if configured
-        if (this.hub.POSTHOG_INTERNAL_SERVICE_TOKEN) {
-            headers['Authorization'] = `Bearer ${this.hub.POSTHOG_INTERNAL_SERVICE_TOKEN}`
+        if (this.hub.INTERNAL_API_SECRET) {
+            headers['Authorization'] = `Bearer ${this.hub.INTERNAL_API_SECRET}`
         }
 
         try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify({
-                    filters,
-                    group_type_index: groupTypeIndex,
-                    cursor: cursor || null,
-                }),
+            const { fetchResponse, fetchError } = await this.hub.internalFetchService.fetch({
+                url,
+                fetchParams: {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        filters,
+                        group_type_index: groupTypeIndex,
+                        cursor: cursor || null,
+                    }),
+                },
             })
 
-            if (response.status !== 200) {
-                const errorText = await response.text()
+            if (!fetchResponse || fetchError) {
+                logger.error('Error fetching blast radius persons from Django', { error: fetchError, url })
+                throw fetchError
+            }
+
+            if (fetchResponse.status !== 200) {
+                const errorText = await fetchResponse.text()
                 logger.error('Failed to fetch blast radius persons from Django', {
-                    status: response.status,
+                    status: fetchResponse.status,
                     error: errorText,
                     url,
                 })
-                throw new Error(`Failed to fetch blast radius persons: ${response.status} ${response.statusText}`)
+                throw new Error(`Failed to fetch blast radius persons: ${fetchResponse.status} ${errorText}`)
             }
 
-            const data = parseJSON(await response.text()) as BlastRadiusPersonsResponse
+            const data = parseJSON(await fetchResponse.text()) as BlastRadiusPersonsResponse
 
             return data
         } catch (error) {

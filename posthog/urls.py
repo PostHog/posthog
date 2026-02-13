@@ -219,11 +219,11 @@ urlpatterns = [
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius",
-        csrf_exempt(hog_flow.internal_user_blast_radius),
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius"})),
     ),
     path(
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius_persons",
-        csrf_exempt(hog_flow.internal_user_blast_radius_persons),
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius_persons"})),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),

@@ -2,7 +2,6 @@ import json
 from typing import Optional, cast
 
 from django.db.models import QuerySet
-from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 import posthoganalytics
@@ -20,17 +19,18 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
+from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
     generate_template_bytecode,
 )
+from posthog.models import Team
 from posthog.models.feature_flag.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
 from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
-from posthog.settings import POSTHOG_INTERNAL_SERVICE_TOKEN
 
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
@@ -489,102 +489,76 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             return Response(serializer.data)
 
 
-def _validate_internal_service_token(request: Request) -> Optional[Response]:
+class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     """
-    Validate the internal service token from the Authorization header.
-    Returns None if valid, or an error Response if invalid.
+    Internal endpoints for Node.js services to query user blast radius.
+    These endpoints require Bearer token authentication via INTERNAL_API_SECRET and are not exposed to Contour ingress
     """
-    if not POSTHOG_INTERNAL_SERVICE_TOKEN:
-        # If no token is configured, we're in dev/test mode - allow the request
-        return None
 
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return Response({"error": "Missing or invalid Authorization header"}, status=401)
+    authentication_classes = [InternalAPIAuthentication]
 
-    token = auth_header[7:]  # Remove "Bearer " prefix
-    if token != POSTHOG_INTERNAL_SERVICE_TOKEN:
-        return Response({"error": "Invalid service token"}, status=401)
+    # Internal service-to-service endpoints (authenticated with INTERNAL_API_SECRET)
+    def internal_user_blast_radius(self, request: Request, team_id: str) -> Response:
+        """
+        Internal endpoint for Node.js services to query user blast radius.
+        Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
 
-    return None
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
 
+        try:
+            from posthog.models import Team
 
-# Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
-@csrf_exempt
-def internal_user_blast_radius(request: Request, team_id: str) -> Response:
-    """
-    Internal endpoint for Node.js services to query user blast radius.
-    Requires Bearer token authentication via POSTHOG_INTERNAL_SERVICE_TOKEN.
-    """
-    # Validate service token
-    auth_error = _validate_internal_service_token(request)
-    if auth_error:
-        return auth_error
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
 
-    if request.method != "POST":
-        return Response({"error": "Method not allowed"}, status=405)
+        if "filters" not in request.data:
+            return Response({"error": "Missing filters for which to get blast radius"}, status=400)
 
-    try:
-        from posthog.models import Team
+        filters = request.data.get("filters", {})
+        group_type_index = request.data.get("group_type_index", None)
 
-        team = Team.objects.get(id=int(team_id))
-    except (Team.DoesNotExist, ValueError):
-        return Response({"error": "Team not found"}, status=404)
+        try:
+            users_affected, total_users = get_user_blast_radius(team, filters, group_type_index)
+            return Response(
+                {
+                    "users_affected": users_affected,
+                    "total_users": total_users,
+                }
+            )
+        except Exception as e:
+            logger.exception("Error in internal_user_blast_radius", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)
 
-    if "filters" not in request.data:
-        return Response({"error": "Missing filters for which to get blast radius"}, status=400)
+    def internal_user_blast_radius_persons(self, request: Request, team_id: str) -> Response:
+        """
+        Internal endpoint for Node.js services to query user blast radius persons with pagination.
+        Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
 
-    filters = request.data.get("filters", {})
-    group_type_index = request.data.get("group_type_index", None)
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
 
-    try:
-        users_affected, total_users = get_user_blast_radius(team, filters, group_type_index)
-        return Response(
-            {
-                "users_affected": users_affected,
-                "total_users": total_users,
-            }
-        )
-    except Exception as e:
-        logger.exception("Error in internal_user_blast_radius", error=str(e), team_id=team_id)
-        return Response({"error": "Internal server error"}, status=500)
+        if "filters" not in request.data:
+            return Response({"error": "Missing filters for which to get blast radius"}, status=400)
 
+        filters = request.data.get("filters", {}) or {}
+        group_type_index = request.data.get("group_type_index", None)
+        cursor = request.data.get("cursor", None)
 
-@csrf_exempt
-def internal_user_blast_radius_persons(request: Request, team_id: str) -> Response:
-    """
-    Internal endpoint for Node.js services to query user blast radius persons with pagination.
-    Requires Bearer token authentication via POSTHOG_INTERNAL_SERVICE_TOKEN.
-    """
-    # Validate service token
-    auth_error = _validate_internal_service_token(request)
-    if auth_error:
-        return auth_error
-
-    if request.method != "POST":
-        return Response({"error": "Method not allowed"}, status=405)
-
-    try:
-        from posthog.models import Team
-
-        team = Team.objects.get(id=int(team_id))
-    except (Team.DoesNotExist, ValueError):
-        return Response({"error": "Team not found"}, status=404)
-
-    if "filters" not in request.data:
-        return Response({"error": "Missing filters for which to get blast radius"}, status=400)
-
-    filters = request.data.get("filters", {}) or {}
-    group_type_index = request.data.get("group_type_index", None)
-    cursor = request.data.get("cursor", None)
-
-    try:
-        users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
-        return Response(
-            {
-                "users_affected": users_affected,
-            }
-        )
-    except Exception as e:
-        logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
-        return Response({"error": "Internal server error"}, status=500)
+        try:
+            users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+            return Response(
+                {
+                    "users_affected": users_affected,
+                }
+            )
+        except Exception as e:
+            logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)

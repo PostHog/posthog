@@ -33,6 +33,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
+from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -640,6 +641,13 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
             or request.headers.get(self.HEADER_NAME.upper())
         )
         configured_secret = settings.INTERNAL_API_SECRET
+
+        if not settings.DEBUG and not settings.TEST and configured_secret == LOCAL_DEV_INTERNAL_API_SECRET:
+            logger.error(
+                "Internal API authentication attempted with default development secret in production environment",
+                extra={"path": request.path, "method": request.method},
+            )
+            raise AuthenticationFailed("Internal API authentication is not properly configured.")
 
         if not configured_secret:
             logger.error(

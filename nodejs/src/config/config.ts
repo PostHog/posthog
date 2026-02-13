@@ -120,7 +120,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_PROPERTY_LRU_SIZE: 10000,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         SITE_URL: isDevEnv() ? 'http://localhost:8000' : '',
-        POSTHOG_INTERNAL_SERVICE_TOKEN: null, // Internal service token for calling Django internal endpoints
         TEMPORAL_HOST: 'localhost',
         TEMPORAL_PORT: '7233',
         TEMPORAL_NAMESPACE: 'default',
@@ -157,7 +156,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_HOST_URL: 'http://localhost:8010',
 
         // Internal API authentication
-        INTERNAL_API_SECRET: '',
+        INTERNAL_API_SECRET: isProdEnv() ? '' : 'posthog123',
 
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
