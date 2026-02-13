@@ -1425,7 +1425,31 @@ describe('Hogflow Executor', () => {
             expect(result.invocation.state.variables).toBeUndefined()
         })
 
-        it('cleans up variables when total size exceeds 1KB', async () => {
+        it('errors and exits when total variable size exceeds 5KB with on_error=abort', async () => {
+            const hogFlow = await hogFlowBuilder({ key: 'response', result_path: null })
+            // Set action to abort on error
+            const action = hogFlow.actions.find((a) => a.id === 'action_1')!
+            action.on_error = 'abort'
+
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    properties: { name: 'Test' },
+                },
+            })
+            invocation.state.variables = { existing: 'x'.repeat(5100) }
+
+            let result = await executor.execute(invocation)
+            while (!result.finished) {
+                result = await executor.execute(result.invocation)
+            }
+
+            expect(result.error).toContain('exceeds 5KB limit')
+            expect(result.invocation.state.variables?.response).toBeUndefined()
+            expect(result.invocation.state.variables?.existing).toBe('x'.repeat(5100))
+        })
+
+        it('errors but continues when total variable size exceeds 5KB with on_error=continue', async () => {
             const hogFlow = await hogFlowBuilder({ key: 'response', result_path: null })
             const invocation = createExampleHogFlowInvocation(hogFlow, {
                 event: {
@@ -1433,18 +1457,18 @@ describe('Hogflow Executor', () => {
                     properties: { name: 'Test' },
                 },
             })
-            // Pre-fill with enough data that adding the fetch result pushes over 1KB
-            invocation.state.variables = { existing: 'x'.repeat(1000) }
+            invocation.state.variables = { existing: 'x'.repeat(5100) }
 
             let result = await executor.execute(invocation)
             while (!result.finished) {
                 result = await executor.execute(result.invocation)
             }
 
-            // response should have been cleaned up, existing preserved
+            // on_error=continue (default), so workflow finishes but variables are cleaned up
+            expect(result.finished).toBe(true)
             expect(result.invocation.state.variables?.response).toBeUndefined()
-            expect(result.invocation.state.variables?.existing).toBe('x'.repeat(1000))
-            expect(result.logs.some((l) => l.message.includes('larger than 1KB'))).toBe(true)
+            expect(result.invocation.state.variables?.existing).toBe('x'.repeat(5100))
+            expect(result.logs.some((l) => l.message.includes('exceeds 5KB limit'))).toBe(true)
         })
 
         it('warns when output variable specified but no result returned', async () => {
