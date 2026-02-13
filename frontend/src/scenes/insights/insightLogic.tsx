@@ -193,10 +193,19 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     if (!Object.entries(insightUpdate).length) {
                         return values.insight
                     }
+                    // Resolve the numeric ID. When updateInsight races with loadInsight
+                    // (e.g. adding to a dashboard right after save), values.insight.id
+                    // may still be undefined. Fall back to resolving via short_id.
+                    const insightId =
+                        values.insight.id ||
+                        (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
+                    if (!insightId) {
+                        throw new Error('Cannot update insight: unable to resolve insight id')
+                    }
                     console.warn(
-                        `[DASH-DEBUG] insightLogic.updateInsight: PATCH started insightId=${values.insight.id} t=${performance.now().toFixed(1)}`
+                        `[DASH-DEBUG] insightLogic.updateInsight: PATCH started insightId=${insightId} t=${performance.now().toFixed(1)}`
                     )
-                    const response = await insightsApi.update(values.insight.id as number, insightUpdate)
+                    const response = await insightsApi.update(insightId, insightUpdate)
                     console.warn(
                         `[DASH-DEBUG] insightLogic.updateInsight: PATCH completed insightId=${values.insight.id} dashboards=${JSON.stringify(response.dashboards)} t=${performance.now().toFixed(1)}`
                     )
