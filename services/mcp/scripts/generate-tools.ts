@@ -19,10 +19,13 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parse as parseYaml } from 'yaml'
 
-const DEFINITIONS_DIR = path.resolve(__dirname, '../definitions')
-const GENERATED_DIR = path.resolve(__dirname, '../src/tools/generated')
-const DEFINITIONS_JSON_PATH = path.resolve(__dirname, '../schema/generated-tool-definitions.json')
-const OPENAPI_PATH = path.resolve(__dirname, '../../../frontend/tmp/openapi.json')
+const MCP_ROOT = path.resolve(__dirname, '..')
+const REPO_ROOT = path.resolve(MCP_ROOT, '../..')
+const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
+const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
+const GENERATED_DIR = path.resolve(MCP_ROOT, 'src/tools/generated')
+const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
+const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
 
 // ------------------------------------------------------------------
 // Types
@@ -114,15 +117,34 @@ function loadOpenApi(): OpenApiSpec {
     return JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
 }
 
+/**
+ * Find an operation by operationId. When the same endpoint exists at both
+ * /api/environments/ and /api/projects/, prefers /api/projects/.
+ * Also matches _N deduplicated variants (e.g. issues_list matches issues_list_2).
+ */
 function findOperation(spec: OpenApiSpec, operationId: string): ResolvedOperation | undefined {
+    const base = operationId.replace(/_\d+$/, '')
+    let fallback: ResolvedOperation | undefined
+
     for (const [urlPath, methods] of Object.entries(spec.paths)) {
         for (const [method, op] of Object.entries(methods)) {
-            if (op?.operationId === operationId) {
-                return { method: method.toUpperCase(), path: urlPath, operation: op }
+            if (!op?.operationId) {
+                continue
+            }
+            const opBase = op.operationId.replace(/_\d+$/, '')
+            if (opBase !== base) {
+                continue
+            }
+            const resolved = { method: method.toUpperCase(), path: urlPath, operation: op }
+            if (urlPath.startsWith('/api/projects/')) {
+                return resolved
+            }
+            if (!fallback) {
+                fallback = resolved
             }
         }
     }
-    return undefined
+    return fallback
 }
 
 function resolveSchema(spec: OpenApiSpec, schemaOrRef: OpenApiSchema | { $ref: string }): OpenApiSchema | undefined {
@@ -424,7 +446,7 @@ function generateCategoryFile(
             ? `\nimport { ${[...allOrvalImports].sort().join(', ')} } from '@/generated/api'\n`
             : ''
 
-    const code = `// AUTO-GENERATED from definitions/${fileName} + OpenAPI — do not edit
+    const code = `// AUTO-GENERATED from ${fileName} + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -469,16 +491,75 @@ function generateDefinitionsJson(
 }
 
 // ------------------------------------------------------------------
+// Definition discovery — scan services/mcp/definitions/ + products/*/mcp/
+// ------------------------------------------------------------------
+
+interface DefinitionSource {
+    /** Module name used for the generated .ts file (e.g. "actions", "error_tracking") */
+    moduleName: string
+    /** Absolute path to the YAML file */
+    filePath: string
+    /** Relative label for the generated comment header */
+    label: string
+}
+
+function discoverDefinitions(): DefinitionSource[] {
+    const sources: DefinitionSource[] = []
+
+    // Core definitions: services/mcp/definitions/*.yaml
+    if (fs.existsSync(DEFINITIONS_DIR)) {
+        for (const file of fs.readdirSync(DEFINITIONS_DIR)) {
+            if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
+                continue
+            }
+            sources.push({
+                moduleName: file.replace(/\.ya?ml$/, ''),
+                filePath: path.join(DEFINITIONS_DIR, file),
+                label: `definitions/${file}`,
+            })
+        }
+    }
+
+    // Product definitions: products/*/mcp/tools.yaml (or any .yaml in mcp/)
+    if (fs.existsSync(PRODUCTS_DIR)) {
+        for (const product of fs.readdirSync(PRODUCTS_DIR, { withFileTypes: true })) {
+            if (!product.isDirectory() || product.name.startsWith('_')) {
+                continue
+            }
+            const mcpDir = path.join(PRODUCTS_DIR, product.name, 'mcp')
+            if (!fs.existsSync(mcpDir)) {
+                continue
+            }
+            for (const file of fs.readdirSync(mcpDir)) {
+                if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
+                    continue
+                }
+                // Use product name as module name (tools.yaml → error_tracking)
+                const moduleName =
+                    file === 'tools.yaml' || file === 'tools.yml' ? product.name : file.replace(/\.ya?ml$/, '')
+                sources.push({
+                    moduleName,
+                    filePath: path.join(mcpDir, file),
+                    label: `products/${product.name}/mcp/${file}`,
+                })
+            }
+        }
+    }
+
+    return sources
+}
+
+// ------------------------------------------------------------------
 // Main
 // ------------------------------------------------------------------
 
 function main(): void {
     const spec = loadOpenApi()
 
-    const yamlFiles = fs.readdirSync(DEFINITIONS_DIR).filter((f) => f.endsWith('.yaml') || f.endsWith('.yml'))
+    const definitionSources = discoverDefinitions()
 
-    if (yamlFiles.length === 0) {
-        console.error('No YAML definitions found in', DEFINITIONS_DIR)
+    if (definitionSources.length === 0) {
+        console.error('No YAML definitions found in definitions/ or products/*/mcp/')
         process.exit(1)
     }
 
@@ -487,17 +568,16 @@ function main(): void {
     const allCategories: { config: CategoryConfig; enabledTools: [string, ToolConfig, ResolvedOperation][] }[] = []
     const generatedModules: string[] = []
 
-    for (const file of yamlFiles) {
-        const content = fs.readFileSync(path.join(DEFINITIONS_DIR, file), 'utf-8')
+    for (const def of definitionSources) {
+        const content = fs.readFileSync(def.filePath, 'utf-8')
         const config = parseYaml(content) as CategoryConfig
 
-        const moduleName = file.replace(/\.ya?ml$/, '')
-        const { code, enabledTools } = generateCategoryFile(config, file, spec)
+        const { code, enabledTools } = generateCategoryFile(config, def.label, spec)
 
         if (enabledTools.length > 0) {
-            generatedModules.push(moduleName)
+            generatedModules.push(def.moduleName)
             allCategories.push({ config, enabledTools })
-            fs.writeFileSync(path.join(GENERATED_DIR, `${moduleName}.ts`), code)
+            fs.writeFileSync(path.join(GENERATED_DIR, `${def.moduleName}.ts`), code)
         }
     }
 

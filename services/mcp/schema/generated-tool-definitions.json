@@ -1,19 +1,4 @@
 {
-    "action-get": {
-        "description": "Get a specific action by ID. Returns the action configuration including all steps and their trigger conditions.",
-        "category": "Actions",
-        "feature": "actions",
-        "summary": "Get action",
-        "title": "Get action",
-        "required_scopes": ["action:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "actions-get-all": {
         "description": "Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels.",
         "category": "Actions",
@@ -42,6 +27,21 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "action-get": {
+        "description": "Get a specific action by ID. Returns the action configuration including all steps and their trigger conditions.",
+        "category": "Actions",
+        "feature": "actions",
+        "summary": "Get action",
+        "title": "Get action",
+        "required_scopes": ["action:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "action-update": {

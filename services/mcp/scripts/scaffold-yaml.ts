@@ -3,20 +3,22 @@
  * Scaffolds YAML tool definitions from the OpenAPI schema.
  *
  * Reads the OpenAPI spec and generates starter YAML files with
- * all discovered operations set to `enabled: false`. Developers
- * then enable the ones they want and add MCP-specific config.
+ * all discovered operations set to `enabled: false`. Idempotent:
+ * re-running on an existing file only adds newly discovered operations.
  *
  * Usage:
  *   pnpm scaffold-yaml --tag actions
+ *   pnpm scaffold-yaml --tag error_tracking --output ../../products/error_tracking/mcp/tools.yaml
  *   pnpm scaffold-yaml --path /api/projects/{project_id}/actions/
- *   pnpm scaffold-yaml --tag actions --update definitions/actions.yaml
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
-const OPENAPI_PATH = path.resolve(__dirname, '../../../frontend/tmp/openapi.json')
-const DEFINITIONS_DIR = path.resolve(__dirname, '../definitions')
+const MCP_ROOT = path.resolve(__dirname, '..')
+const REPO_ROOT = path.resolve(MCP_ROOT, '../..')
+const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
+const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 
 // ------------------------------------------------------------------
 // Types
@@ -42,19 +44,6 @@ interface DiscoveredOperation {
     description?: string | undefined
 }
 
-interface ExistingTool {
-    operation: string
-    enabled: boolean
-    [key: string]: unknown
-}
-
-interface ExistingYaml {
-    category?: string
-    feature?: string
-    url_prefix?: string
-    tools?: Record<string, ExistingTool>
-}
-
 // ------------------------------------------------------------------
 // Helpers
 // ------------------------------------------------------------------
@@ -68,7 +57,6 @@ function loadOpenApi(): OpenApiSpec {
 }
 
 function operationIdToToolName(operationId: string): string {
-    // actions_list → actions-list, actions_retrieve → actions-retrieve
     return operationId.replace(/_/g, '-')
 }
 
@@ -123,7 +111,35 @@ function findOperationsByPath(spec: OpenApiSpec, pathPrefix: string): Discovered
     return ops
 }
 
-function generateYaml(ops: DiscoveredOperation[], tag: string): string {
+/**
+ * Deduplicate operations mounted at both /api/environments/ and /api/projects/.
+ * Prefers /api/projects/ paths. Uses the clean base operationId (strips _N suffix).
+ */
+function deduplicateOperations(ops: DiscoveredOperation[]): DiscoveredOperation[] {
+    const groups = new Map<string, DiscoveredOperation[]>()
+    for (const op of ops) {
+        const base = op.operationId.replace(/_\d+$/, '')
+        const group = groups.get(base) ?? []
+        group.push(op)
+        groups.set(base, group)
+    }
+
+    const result: DiscoveredOperation[] = []
+    for (const [base, group] of groups) {
+        if (group.length === 1) {
+            result.push(group[0]!)
+            continue
+        }
+        // Prefer /api/projects/ over /api/environments/
+        const preferred = group.find((op) => op.path.startsWith('/api/projects/')) ?? group[0]!
+        // Use clean base operationId for the tool name
+        result.push({ ...preferred, operationId: base })
+    }
+
+    return result
+}
+
+function generateFreshYaml(ops: DiscoveredOperation[], tag: string): string {
     const tools: Record<string, unknown> = {}
 
     for (const op of ops) {
@@ -131,10 +147,6 @@ function generateYaml(ops: DiscoveredOperation[], tag: string): string {
         tools[toolName] = {
             operation: op.operationId,
             enabled: false,
-            // title: '',
-            // description: '',
-            // scopes: [],
-            // annotations: { readOnly: true, destructive: false, idempotent: true },
         }
     }
 
@@ -148,32 +160,61 @@ function generateYaml(ops: DiscoveredOperation[], tag: string): string {
     return stringifyYaml(yaml, { lineWidth: 120 })
 }
 
-function updateYaml(existingPath: string, ops: DiscoveredOperation[]): string {
-    const existingContent = fs.readFileSync(existingPath, 'utf-8')
-    const existing = parseYaml(existingContent) as ExistingYaml
-    const existingTools = existing.tools ?? {}
-    const existingOperations = new Set(Object.values(existingTools).map((t) => t.operation))
+/**
+ * Merge OpenAPI operations into existing YAML. Preserves all MCP-specific
+ * config (enabled, scopes, annotations, descriptions, enrich_url, etc.)
+ * for operations already in the file. Adds new operations with enabled: false.
+ * Removes operations no longer in OpenAPI.
+ */
+function mergeWithExisting(
+    existingPath: string,
+    ops: DiscoveredOperation[],
+    tag: string
+): { content: string; added: number; removed: number } {
+    const existing = parseYaml(fs.readFileSync(existingPath, 'utf-8')) as Record<string, unknown>
+    const existingTools = (existing.tools ?? {}) as Record<string, Record<string, unknown>>
 
-    const newOps = ops.filter((op) => !existingOperations.has(op.operationId))
-
-    if (newOps.length === 0) {
-        return existingContent
-    }
-
-    // Append new operations as YAML comments (enabled: false)
-    let updated = existingContent.trimEnd() + '\n\n    # New operations discovered by scaffold:\n'
-    for (const op of newOps) {
-        const toolName = operationIdToToolName(op.operationId)
-        updated += `    # ${toolName}:\n`
-        updated += `    #     operation: ${op.operationId}\n`
-        updated += `    #     enabled: false\n`
-        if (op.description) {
-            updated += `    #     # ${op.description}\n`
+    // Map base operationId → existing tool entry (name + config)
+    // Uses base (strip _N suffix) so dedup changes don't lose existing config
+    const byBaseOperationId = new Map<string, { name: string; config: Record<string, unknown> }>()
+    for (const [name, config] of Object.entries(existingTools)) {
+        if (config.operation) {
+            const base = (config.operation as string).replace(/_\d+$/, '')
+            byBaseOperationId.set(base, { name, config })
         }
-        updated += `\n`
     }
 
-    return updated
+    const openApiBaseIds = new Set(ops.map((op) => op.operationId.replace(/_\d+$/, '')))
+    const mergedTools: Record<string, unknown> = {}
+    let added = 0
+
+    // Add operations in OpenAPI order
+    for (const op of ops) {
+        const base = op.operationId.replace(/_\d+$/, '')
+        const existing = byBaseOperationId.get(base)
+        if (existing) {
+            // Preserve MCP-specific config, update operationId to the deduplicated one
+            mergedTools[existing.name] = { ...existing.config, operation: op.operationId }
+        } else {
+            mergedTools[operationIdToToolName(op.operationId)] = {
+                operation: op.operationId,
+                enabled: false,
+            }
+            added++
+        }
+    }
+
+    // Count removed (in old YAML but not in OpenAPI anymore)
+    const removed = [...byBaseOperationId.keys()].filter((id) => !openApiBaseIds.has(id)).length
+
+    const merged = {
+        category: existing.category ?? tag.charAt(0).toUpperCase() + tag.slice(1),
+        feature: existing.feature ?? tag.replace(/-/g, '_'),
+        url_prefix: existing.url_prefix ?? `/${tag.replace(/_/g, '-')}`,
+        tools: mergedTools,
+    }
+
+    return { content: stringifyYaml(merged, { lineWidth: 120 }), added, removed }
 }
 
 // ------------------------------------------------------------------
@@ -184,23 +225,22 @@ function main(): void {
     const args = process.argv.slice(2)
     let tag: string | undefined
     let pathPrefix: string | undefined
-    let updatePath: string | undefined
+    let outputPath: string | undefined
 
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--tag' && args[i + 1]) {
             tag = args[++i]
         } else if (args[i] === '--path' && args[i + 1]) {
             pathPrefix = args[++i]
-        } else if (args[i] === '--update' && args[i + 1]) {
-            updatePath = args[++i]
+        } else if (args[i] === '--output' && args[i + 1]) {
+            outputPath = args[++i]
         }
     }
 
     if (!tag && !pathPrefix) {
-        console.error('Usage: scaffold-yaml --tag <tag> [--update <file>]')
-        console.error('       scaffold-yaml --path <prefix> [--update <file>]')
+        console.error('Usage: scaffold-yaml --tag <tag> [--output <file>]')
+        console.error('       scaffold-yaml --path <prefix> [--output <file>]')
 
-        // List available tags
         const spec = loadOpenApi()
         const tagCounts = new Map<string, number>()
         for (const methods of Object.values(spec.paths)) {
@@ -223,27 +263,37 @@ function main(): void {
     }
 
     const spec = loadOpenApi()
-
-    const ops = tag ? findOperationsByTag(spec, tag) : findOperationsByPath(spec, pathPrefix!)
+    const rawOps = tag ? findOperationsByTag(spec, tag) : findOperationsByPath(spec, pathPrefix!)
+    const ops = deduplicateOperations(rawOps)
 
     if (ops.length === 0) {
         console.error(`No operations found for ${tag ? `tag "${tag}"` : `path "${pathPrefix}"`}`)
         process.exit(1)
     }
 
-    process.stdout.write(`Found ${ops.length} operation(s)\n`)
+    // Default output: services/mcp/definitions/<tag>.yaml
+    const resolvedOutput = outputPath
+        ? path.resolve(MCP_ROOT, outputPath)
+        : path.join(DEFINITIONS_DIR, `${(tag ?? 'unknown').replace(/-/g, '_')}.yaml`)
 
-    if (updatePath) {
-        const fullPath = path.resolve(DEFINITIONS_DIR, updatePath)
-        if (!fs.existsSync(fullPath)) {
-            console.error(`File not found: ${fullPath}`)
-            process.exit(1)
+    if (fs.existsSync(resolvedOutput)) {
+        const { content, added, removed } = mergeWithExisting(resolvedOutput, ops, tag ?? 'unknown')
+        fs.writeFileSync(resolvedOutput, content)
+        const parts = [`${ops.length} operation(s)`]
+        if (added > 0) {
+            parts.push(`${added} new`)
         }
-        const result = updateYaml(fullPath, ops)
-        fs.writeFileSync(fullPath, result)
-        process.stdout.write(`Updated ${fullPath}\n`)
+        if (removed > 0) {
+            parts.push(`${removed} removed`)
+        }
+        if (added === 0 && removed === 0) {
+            parts.push('no changes')
+        }
+        process.stdout.write(`${parts.join(', ')} — ${resolvedOutput}\n`)
     } else {
-        process.stdout.write(generateYaml(ops, tag ?? 'unknown') + '\n')
+        fs.mkdirSync(path.dirname(resolvedOutput), { recursive: true })
+        fs.writeFileSync(resolvedOutput, generateFreshYaml(ops, tag ?? 'unknown'))
+        process.stdout.write(`${ops.length} operation(s) — created ${resolvedOutput}\n`)
     }
 }
 

@@ -1,72 +1,89 @@
 category: Actions
 feature: actions
 url_prefix: /data-management/actions
-
 tools:
-    action-get:
-        operation: actions_retrieve
-        enabled: true
-        title: Get action
-        description: >
-            Get a specific action by ID. Returns the action configuration
-            including all steps and their trigger conditions.
-        scopes: [action:read]
-        annotations: { readOnly: true, destructive: false, idempotent: true }
-        enrich_url: '{id}'
-
     actions-get-all:
         operation: actions_list
         enabled: true
         title: Get all actions
         description: >
-            Get all actions in the project. Actions are reusable event
-            definitions that can combine multiple trigger conditions
-            (page views, clicks, form submissions) into a single
-            trackable event for use in insights and funnels.
-        scopes: [action:read]
-        annotations: { readOnly: true, destructive: false, idempotent: true }
+            Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger
+            conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels.
+        scopes:
+            - action:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
         enrich_url: '{id}'
         list: true
-
     action-create:
         operation: actions_create
         enabled: true
         title: Create action
         description: >
-            Create a new action in the project. Actions define reusable
-            event triggers based on page views, clicks, form submissions,
-            or custom events. At least one step is required.
-        scopes: [action:write]
-        annotations: { readOnly: false, destructive: false, idempotent: false }
+            Create a new action in the project. Actions define reusable event triggers based on page views, clicks, form
+            submissions, or custom events. At least one step is required.
+        scopes:
+            - action:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
         enrich_url: '{id}'
-        exclude_params: [deleted, is_calculating, bytecode_error, creation_context, last_calculated_at]
+        exclude_params:
+            - deleted
+            - is_calculating
+            - bytecode_error
+            - creation_context
+            - last_calculated_at
         param_overrides:
             name:
-                description: 'Name of the action (must be unique within the project)'
-
+                description: Name of the action (must be unique within the project)
+    action-get:
+        operation: actions_retrieve
+        enabled: true
+        title: Get action
+        description: |
+            Get a specific action by ID. Returns the action configuration including all steps and their trigger conditions.
+        scopes:
+            - action:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+    actions-update:
+        operation: actions_update
+        enabled: false
     action-update:
         operation: actions_partial_update
         enabled: true
         title: Update action
-        description: >
-            Update an existing action by ID. Can update name, description,
-            steps, tags, and Slack notification settings.
-        scopes: [action:write]
-        annotations: { readOnly: false, destructive: false, idempotent: true }
+        description: |
+            Update an existing action by ID. Can update name, description, steps, tags, and Slack notification settings.
+        scopes:
+            - action:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
         enrich_url: '{id}'
-        exclude_params: [deleted, is_calculating, bytecode_error, creation_context, last_calculated_at]
-
+        exclude_params:
+            - deleted
+            - is_calculating
+            - bytecode_error
+            - creation_context
+            - last_calculated_at
     action-delete:
         operation: actions_destroy
         enabled: true
         title: Delete action
-        description: >
-            Delete an action by ID. The action will no longer appear
-            in lists but historical data is preserved.
-        scopes: [action:write]
-        annotations: { readOnly: false, destructive: true, idempotent: false }
-
-    # Scaffold-discovered, not yet enabled:
-    # action-update-full:
-    #     operation: actions_update
-    #     enabled: false
+        description: |
+            Delete an action by ID. The action will no longer appear in lists but historical data is preserved.
+        scopes:
+            - action:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false

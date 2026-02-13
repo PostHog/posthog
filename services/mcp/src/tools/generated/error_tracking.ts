@@ -1,4 +1,4 @@
-// AUTO-GENERATED from definitions/error_tracking.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from products/error_tracking/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import {

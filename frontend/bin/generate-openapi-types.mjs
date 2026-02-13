@@ -402,21 +402,40 @@ function filterSchemaByOperationIds(fullSchema, operationIds) {
  * Read MCP YAML definitions and extract all operationIds.
  * Returns a Set of operationIds referenced by any tool (enabled or not).
  */
-function collectMcpOperationIds(definitionsDir) {
+function collectOperationIdsFromDir(dir) {
     const operationIds = new Set()
-    if (!fs.existsSync(definitionsDir)) {
+    if (!fs.existsSync(dir)) {
         return operationIds
     }
-
-    for (const file of fs.readdirSync(definitionsDir)) {
+    for (const file of fs.readdirSync(dir)) {
         if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
             continue
         }
-        const content = fs.readFileSync(path.join(definitionsDir, file), 'utf-8')
+        const content = fs.readFileSync(path.join(dir, file), 'utf-8')
         for (const match of content.matchAll(/^\s+operation:\s+(\S+)/gm)) {
             operationIds.add(match[1])
         }
     }
+    return operationIds
+}
+
+// Scan services/mcp/definitions/ and products/{name}/mcp/ for operation IDs.
+function collectMcpOperationIds() {
+    const operationIds = collectOperationIdsFromDir(path.resolve(repoRoot, 'services', 'mcp', 'definitions'))
+
+    // Product definitions: products/*/mcp/*.yaml
+    if (fs.existsSync(productsDir)) {
+        for (const entry of fs.readdirSync(productsDir, { withFileTypes: true })) {
+            if (!entry.isDirectory() || entry.name.startsWith('_')) {
+                continue
+            }
+            const mcpDir = path.join(productsDir, entry.name, 'mcp')
+            for (const id of collectOperationIdsFromDir(mcpDir)) {
+                operationIds.add(id)
+            }
+        }
+    }
+
     return operationIds
 }
 
@@ -491,8 +510,7 @@ const jobs = entries.map(([outputDir, groupedSchema]) => {
 })
 
 // Add MCP Zod schemas job — filtered to only operations referenced in YAML definitions
-const mcpDefinitionsDir = path.resolve(repoRoot, 'services', 'mcp', 'definitions')
-const mcpOperationIds = collectMcpOperationIds(mcpDefinitionsDir)
+const mcpOperationIds = collectMcpOperationIds()
 
 if (mcpOperationIds.size > 0) {
     const mcpSchema = filterSchemaByOperationIds(schema, mcpOperationIds)
@@ -506,7 +524,7 @@ if (mcpOperationIds.size > 0) {
     )
     jobs.push({ tempFile: mcpTempFile, outputDir: mcpOutputDir, label: 'mcp', isMcp: true })
 } else {
-    console.log(`⚠️  mcp: no YAML definitions found in ${path.relative(repoRoot, mcpDefinitionsDir)}, skipping`)
+    console.log(`⚠️  mcp: no YAML definitions found in definitions/ or products/*/mcp/, skipping`)
 }
 
 console.log('')

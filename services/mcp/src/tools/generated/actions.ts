@@ -11,24 +11,6 @@ import {
 } from '@/generated/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ActionGetSchema = ActionsRetrieveParams.omit({ project_id: true })
-
-const actionGet = (): ToolBase<typeof ActionGetSchema> => ({
-    name: 'action-get',
-    schema: ActionGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ActionGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request({
-            method: 'GET',
-            path: `/api/projects/${projectId}/actions/${params.id}/`,
-        })
-        return {
-            ...(result as any),
-            url: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${(result as any).id}`,
-        }
-    },
-})
-
 const ActionsGetAllSchema = ActionsListQueryParams.omit({ format: true })
 
 const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema> => ({
@@ -85,6 +67,24 @@ const actionCreate = (): ToolBase<typeof ActionCreateSchema> => ({
             method: 'POST',
             path: `/api/projects/${projectId}/actions/`,
             body,
+        })
+        return {
+            ...(result as any),
+            url: `${context.api.getProjectBaseUrl(projectId)}/data-management/actions/${(result as any).id}`,
+        }
+    },
+})
+
+const ActionGetSchema = ActionsRetrieveParams.omit({ project_id: true })
+
+const actionGet = (): ToolBase<typeof ActionGetSchema> => ({
+    name: 'action-get',
+    schema: ActionGetSchema,
+    handler: async (context: Context, params: z.infer<typeof ActionGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request({
+            method: 'GET',
+            path: `/api/projects/${projectId}/actions/${params.id}/`,
         })
         return {
             ...(result as any),
@@ -152,9 +152,9 @@ const actionDelete = (): ToolBase<typeof ActionDeleteSchema> => ({
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'action-get': actionGet,
     'actions-get-all': actionsGetAll,
     'action-create': actionCreate,
+    'action-get': actionGet,
     'action-update': actionUpdate,
     'action-delete': actionDelete,
 }
