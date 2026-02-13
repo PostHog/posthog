@@ -152,14 +152,15 @@ const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(functi
                         <span className="relative">
                             <IconTarget />
                             {showBadge && remainingCount > 0 && (
-                                <LemonBadge.Number count={remainingCount} status="warning" size="small" position="top-right" />
-                            )}
-                        </span>
-                    }
+            <div className="block @4xl/main-content:hidden">
+                <LemonButton
+                    ref={ref}
+                    icon={<IconTarget />}
                     size="small"
                     type="secondary"
                     onClick={onClick}
                     active={isActive}
+                    tooltip="Quick start"
                 />
             </div>
         </>
