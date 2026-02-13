@@ -8,7 +8,12 @@ from django.test import override_settings
 
 from rest_framework import status
 
-from posthog.api.oauth.toolbar_service import CALLBACK_PATH, get_or_create_toolbar_oauth_application
+from posthog.api.oauth.toolbar_service import (
+    CALLBACK_PATH,
+    ToolbarOAuthError,
+    get_or_create_toolbar_oauth_application,
+    toolbar_oauth_state_cache,
+)
 from posthog.models import Organization, Team, User
 
 
@@ -322,3 +327,35 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         )
         self.assertEqual(second.status_code, 400)
         self.assertEqual(second.json()["code"], "state_replay")
+
+
+@override_settings(TOOLBAR_OAUTH_ENABLED=True)
+class TestToolbarOAuthStateCache(APIBaseTest):
+    def test_mark_pending_then_claim_succeeds(self):
+        nonce = "test-nonce-claim-ok"
+        toolbar_oauth_state_cache.mark_pending(nonce)
+        toolbar_oauth_state_cache.claim_or_raise(nonce)
+
+    def test_claim_without_pending_raises_state_not_found(self):
+        with self.assertRaises(ToolbarOAuthError) as cm:
+            toolbar_oauth_state_cache.claim_or_raise("nonce-never-pending")
+        assert cm.exception.code == "state_not_found"
+        assert cm.exception.status_code == 400
+
+    def test_claim_twice_raises_state_replay_on_second(self):
+        nonce = "test-nonce-replay"
+        toolbar_oauth_state_cache.mark_pending(nonce)
+        toolbar_oauth_state_cache.claim_or_raise(nonce)
+        with self.assertRaises(ToolbarOAuthError) as cm:
+            toolbar_oauth_state_cache.claim_or_raise(nonce)
+        assert cm.exception.code == "state_replay"
+        assert cm.exception.status_code == 400
+
+    def test_different_nonces_do_not_interfere(self):
+        toolbar_oauth_state_cache.mark_pending("nonce-a")
+        toolbar_oauth_state_cache.mark_pending("nonce-b")
+        toolbar_oauth_state_cache.claim_or_raise("nonce-a")
+        toolbar_oauth_state_cache.claim_or_raise("nonce-b")
+        with self.assertRaises(ToolbarOAuthError) as cm:
+            toolbar_oauth_state_cache.claim_or_raise("nonce-a")
+        assert cm.exception.code == "state_replay"
