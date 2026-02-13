@@ -9,6 +9,7 @@ import dataclasses
 import collections.abc
 
 from django.conf import settings
+from django.db.models import Sum
 
 import pyarrow as pa
 import aiokafka
@@ -27,7 +28,7 @@ from posthog.batch_exports.service import (
     create_batch_export_backfill,
     create_batch_export_run,
     running_backfills_for_batch_export,
-    update_batch_export_backfill_status,
+    update_batch_export_backfill,
     update_batch_export_run,
 )
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
@@ -813,20 +814,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
     Intended to be used in all batch export backfill workflows, usually at the start, to create a
     model instance to represent them in our database.
     """
-    bind_contextvars(
-        team_id=inputs.team_id,
-        batch_export_id=inputs.batch_export_id,
-        status=inputs.status,
-        start_at=inputs.start_at,
-        end_at=inputs.end_at,
-    )
-    logger = LOGGER.bind()
 
-    logger.info(
-        "Creating historical export for batches in range %s - %s",
-        inputs.start_at,
-        inputs.end_at,
-    )
     backfill = await database_sync_to_async(create_batch_export_backfill)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
@@ -839,41 +827,69 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
 
 
 @dataclasses.dataclass
-class UpdateBatchExportBackfillStatusInputs:
-    """Inputs to the update_batch_export_backfill_status activity."""
+class UpdateBatchExportBackfillInputs:
+    """Inputs for updating a BatchExportBackfill."""
 
     id: str
-    status: str
+    adjusted_start_at: str | None = None
+    total_records_count: int | None = None
+    status: str | None = None
+    finished: bool = False
 
 
 @activity.defn
-async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs) -> None:
-    """Activity that updates the status of an BatchExportBackfill."""
-    bind_contextvars(
-        id=inputs.id,
-        status=inputs.status,
-    )
+async def update_batch_export_backfill_activity(inputs: UpdateBatchExportBackfillInputs) -> None:
+    """Activity that updates a BatchExportBackfill.
+
+    When finished=True, this also sets finished_at and calculates the actual
+    total_records_count from completed runs if total_records_count is not provided.
+    """
+    bind_contextvars(id=inputs.id, status=inputs.status)
     logger = LOGGER.bind()
 
-    backfill = await database_sync_to_async(update_batch_export_backfill_status)(
+    finished_at = None
+    total_records_count = inputs.total_records_count
+
+    if inputs.finished:
+        # Calculate actual total from completed runs when finished successfully or not,
+        # but only if total_records_count was not explicitly provided (e.g. early exit with 0 records)
+        if inputs.status in (
+            BatchExportBackfill.Status.COMPLETED,
+            BatchExportBackfill.Status.FAILED,
+            BatchExportBackfill.Status.CANCELLED,
+        ):
+            if inputs.total_records_count is None:
+                result = await database_sync_to_async(
+                    lambda: BatchExportRun.objects.filter(
+                        backfill_id=inputs.id,
+                        status=BatchExportRun.Status.COMPLETED,
+                    ).aggregate(total=Sum("records_completed"))
+                )()
+                total_records_count = result["total"]
+            else:
+                total_records_count = inputs.total_records_count
+
+        finished_at = dt.datetime.now(dt.UTC)
+
+    backfill = await database_sync_to_async(update_batch_export_backfill)(
         backfill_id=uuid.UUID(inputs.id),
+        adjusted_start_at=inputs.adjusted_start_at,
+        total_records_count=total_records_count,
         status=inputs.status,
-        # we currently only call this once the backfill is finished, so we can set the finished_at here
-        finished_at=dt.datetime.now(dt.UTC),
+        finished_at=finished_at,
     )
 
-    if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
-        logger.error("Historical export failed")
-
-    elif backfill.status == BatchExportBackfill.Status.CANCELLED:
-        logger.warning("Historical export was cancelled.")
-
-    else:
-        logger.info(
-            "Successfully finished exporting historical batches in %s - %s",
-            backfill.start_at,
-            backfill.end_at,
-        )
+    if inputs.finished:
+        if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
+            logger.error("Historical export failed")
+        elif backfill.status == BatchExportBackfill.Status.CANCELLED:
+            logger.warning("Historical export was cancelled.")
+        else:
+            logger.info(
+                "Successfully finished exporting historical batches in %s - %s",
+                backfill.adjusted_start_at or backfill.start_at,
+                backfill.end_at,
+            )
 
 
 BatchExportActivity = collections.abc.Callable[..., collections.abc.Awaitable[BatchExportResult]]
