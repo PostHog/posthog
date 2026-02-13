@@ -43,6 +43,9 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
 
     from freezegun import freeze_time
 
+    from posthog.schema import HogQLFilters
+
+    from posthog.hogql.filters import replace_filters
     from posthog.hogql.printer.utils import to_printed_hogql
 
     from posthog.hogql_queries.query_runner import get_query_runner
@@ -50,4 +53,15 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
     with freeze_time(FROZEN_TIME):
         runner = get_query_runner(query_dict, _cached_team)
         ast_query = runner.to_query()
+
+        from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+
+        hogql_filters = HogQLFilters()
+        if isinstance(runner, ErrorTrackingQueryRunner):
+            hogql_filters = HogQLFilters(
+                filterTestAccounts=runner.query.filterTestAccounts,
+                properties=runner.hogql_properties,
+            )
+        ast_query = replace_filters(ast_query, hogql_filters, _cached_team)
+
         return to_printed_hogql(ast_query, _cached_team)

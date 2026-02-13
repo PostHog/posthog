@@ -30,21 +30,25 @@ def test_raises_when_no_team(_mock_first: MagicMock) -> None:
 
 
 @patch("posthog.hogql.printer.utils.to_printed_hogql")
+@patch("posthog.hogql.filters.replace_filters")
 @patch("posthog.hogql_queries.query_runner.get_query_runner")
 @patch("posthog.models.team.Team.objects.first")
 @patch("django.conf.settings.DEBUG", True)
 def test_returns_hogql_string(
     mock_first: MagicMock,
     mock_get_runner: MagicMock,
+    mock_replace_filters: MagicMock,
     mock_to_hogql: MagicMock,
 ) -> None:
     fake_team = MagicMock()
     mock_first.return_value = fake_team
 
     fake_ast = MagicMock()
+    filtered_ast = MagicMock()
     fake_runner = MagicMock()
     fake_runner.to_query.return_value = fake_ast
     mock_get_runner.return_value = fake_runner
+    mock_replace_filters.return_value = filtered_ast
 
     mock_to_hogql.return_value = "SELECT count() FROM events"
 
@@ -53,16 +57,19 @@ def test_returns_hogql_string(
     assert result == "SELECT count() FROM events"
     mock_get_runner.assert_called_once_with(SAMPLE_QUERY, fake_team)
     fake_runner.to_query.assert_called_once()
-    mock_to_hogql.assert_called_once_with(fake_ast, fake_team)
+    mock_replace_filters.assert_called_once()
+    mock_to_hogql.assert_called_once_with(filtered_ast, fake_team)
 
 
 @patch("posthog.hogql.printer.utils.to_printed_hogql", return_value="SELECT 1")
+@patch("posthog.hogql.filters.replace_filters")
 @patch("posthog.hogql_queries.query_runner.get_query_runner")
 @patch("posthog.models.team.Team.objects.first")
 @patch("django.conf.settings.DEBUG", True)
 def test_caches_team_across_calls(
     mock_first: MagicMock,
     mock_get_runner: MagicMock,
+    _mock_replace_filters: MagicMock,
     _mock_to_hogql: MagicMock,
 ) -> None:
     fake_team = MagicMock()
