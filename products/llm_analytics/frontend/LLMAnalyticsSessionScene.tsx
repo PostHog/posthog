@@ -33,11 +33,12 @@ export const scene: SceneExport = {
     logic: llmAnalyticsSessionLogic,
 }
 
-export function LLMAnalyticsSessionScene(): JSX.Element {
-    const { sessionId, query } = useValues(llmAnalyticsSessionLogic)
+export function LLMAnalyticsSessionScene({ tabId }: { tabId?: string }): JSX.Element {
+    const sessionLogic = llmAnalyticsSessionLogic({ tabId })
+    const { sessionId, query } = useValues(sessionLogic)
     const sessionDataLogic = llmAnalyticsSessionDataLogic({ sessionId, query })
 
-    useAttachedLogic(sessionDataLogic, llmAnalyticsSessionLogic)
+    useAttachedLogic(sessionDataLogic, sessionLogic)
 
     return (
         <BindLogic logic={llmAnalyticsSessionDataLogic} props={{ sessionId, query }}>
