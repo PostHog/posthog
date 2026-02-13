@@ -86,20 +86,31 @@ A clearer name would be `enrollment_condition` or `early_access_gate`.
 
 Using `FeatureFlagGroupType` implies you can:
 
-- Add multiple properties (behavior is constrained—see below)
+- Add multiple properties (in practice, there's never more than one)
 - Use any property key (only `$feature_enrollment/*` makes sense)
 - Use different operators (only `exact` with `["true"]` is meaningful)
 - Set different rollout percentages (it's always 100% for enrolled users)
 
-While multiple properties are technically allowed, the behavior varies by implementation:
-
-- **Python**: The first property's key determines whether to evaluate and is used for `is_set` checks, but condition evaluation can still include multiple properties
-- **Rust**: Evaluation can be triggered by any property key present in the person's properties
+The Django code that creates super groups always produces exactly one property:
 
 ```python
-# From flag_matching.py - first property key used to decide which super group to consider
-prop_key = (condition.get("properties") or [{}])[0].get("key")
+# From products/early_access_features/backend/api.py
+super_conditions = lambda feature_flag_key: [
+    {
+        "properties": [
+            {
+                "key": f"$feature_enrollment/{feature_flag_key}",
+                "type": "person",
+                "operator": "exact",
+                "value": ["true"],
+            },
+        ],
+        "rollout_percentage": 100,
+    },
+]
 ```
+
+While the type system allows an array of properties, this is the only code path that creates super groups, so there's always exactly one property in practice.
 
 ### It's not group-based at all
 
