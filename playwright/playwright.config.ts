@@ -51,7 +51,7 @@ export default defineConfig({
         baseURL: process.env.CI ? 'http://localhost:8000' : process.env.BASE_URL || 'http://localhost:8080',
 
         /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-        trace: 'on-first-retry',
+        trace: 'retain-on-failure',
 
         /* Locate elements defined by `data-attr-something` with `page.getByTestId('something')` */
         testIdAttribute: 'data-attr',
