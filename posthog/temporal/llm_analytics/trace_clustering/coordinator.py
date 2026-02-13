@@ -110,6 +110,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                 fetch_all_clustering_filters_activity,
                 FetchAllClusteringFiltersInput(team_ids=team_ids),
                 start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
             )
         except Exception:
             logger.warning("Failed to fetch clustering filters, proceeding without filters", exc_info=True)
