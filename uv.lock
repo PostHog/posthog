@@ -2297,7 +2297,7 @@ wheels = [
 
 [[package]]
 name = "google-ads"
-version = "26.1.0"
+version = "29.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-core" },
@@ -2309,9 +2309,9 @@ dependencies = [
     { name = "protobuf" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/23/0e483d236f0f47cecd9b866614186a5845ad6fb03cfc265edcd962d500bf/google_ads-26.1.0.tar.gz", hash = "sha256:3ec4cc8ad07f71c923433bd2a783afc59acd5d428ed75bcc64f8ecaa5b3d8691", size = 7045268, upload-time = "2025-04-16T19:21:46.876Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2c/d5/bdc19aa181af685fa17b904d69440ad8821ace603aae704004882db984dc/google_ads-29.0.0.tar.gz", hash = "sha256:f0ac0ac1cbe52c3387dd13fd337cf72667751d4474240b85b1eb0dd1ebc9f9e8", size = 9427948, upload-time = "2026-01-28T22:27:37.164Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ab/de/ecceaa4de5c344fabe6d9a739f92cda1de19889af1dd1aa372841d84b52c/google_ads-26.1.0-py3-none-any.whl", hash = "sha256:5fd2a7ac7216d45c6f7b8cadd765ea2670fda4a05aa280ea849ecc28f1aa7fd0", size = 13655250, upload-time = "2025-04-16T19:21:44.377Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/de/5e3b5f3260bde4e54e7d8360ba2e9ee0faa3b326c8d3bfc9343a269bfb12/google_ads-29.0.0-py3-none-any.whl", hash = "sha256:133652c0bafc92591b06a991bc3500b188cdaeb046be2b3193c9ca1cb30f86df", size = 18109098, upload-time = "2026-01-28T22:27:34.306Z" },
 ]
 
 [[package]]
@@ -4740,7 +4740,7 @@ requires-dist = [
     { name = "geoip2", specifier = "==4.6.0" },
     { name = "gitpython", specifier = "~=3.1.44" },
     { name = "glom", specifier = "~=24.11.0" },
-    { name = "google-ads", specifier = "==26.1.0" },
+    { name = "google-ads", specifier = "==29.0.0" },
     { name = "google-cloud-bigquery", specifier = "==3.26" },
     { name = "google-genai", specifier = "==1.46.0" },
     { name = "granian", extras = ["uvloop", "reload", "pname"], specifier = "==2.5.5" },
