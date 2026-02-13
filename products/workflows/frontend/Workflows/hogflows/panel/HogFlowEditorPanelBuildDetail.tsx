@@ -162,9 +162,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
             } else if (result.execResult != null) {
                 setTestResultData(result.execResult)
             } else {
-                setTestError(
-                    'Test succeeded but no response data was returned. Make sure the Node.js server has been restarted.'
-                )
+                setTestError('Test succeeded but no response data was returned.')
             }
         } catch (e: any) {
             if (e.data) {
