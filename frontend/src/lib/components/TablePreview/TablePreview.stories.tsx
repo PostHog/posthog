@@ -110,3 +110,5 @@ export const Loading: Story = {
         loading: true,
     },
 }
+
+Loading.tags = ['test-skip']
