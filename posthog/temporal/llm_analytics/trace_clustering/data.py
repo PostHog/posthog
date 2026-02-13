@@ -93,7 +93,9 @@ def fetch_eligible_trace_ids(
                 "start_dt": ast.Constant(value=window_start),
                 "end_dt": ast.Constant(value=window_end),
                 "property_filters": property_filter_expr,
-                "max_samples": ast.Constant(value=max_samples * 2),  # Oversample to account for missing embeddings
+                "max_samples": ast.Constant(
+                    value=max_samples * 50
+                ),  # Oversample generously: filters may match many events but few have embeddings
             },
             team=team,
         )
