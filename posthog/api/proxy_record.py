@@ -70,6 +70,8 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     def max_proxy_records(self) -> int:
         feature = self.organization.get_available_feature(AvailableFeature.MANAGED_REVERSE_PROXY)
         if feature is None:
+            # Allow a default quota even without the billing feature so existing
+            # orgs aren't broken if they haven't migrated to a plan that includes it
             return self.DEFAULT_MAX_PROXY_RECORDS
         limit = feature.get("limit")
         return limit if limit is not None else self.DEFAULT_MAX_PROXY_RECORDS
