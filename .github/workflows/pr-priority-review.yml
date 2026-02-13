@@ -21,13 +21,20 @@ jobs:
             github.event.action == 'labeled'
             && github.event.label.name == 'priority-review'
         steps:
-            - name: Escape PR title for YAML
+            - name: Escape PR title
               id: pr
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   script: |
                       const title = context.payload.pull_request.title;
-                      const escaped = title.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                      // Escape for Slack mrkdwn link text, then for YAML embedding
+                      const escaped = title
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/\|/g, '-')
+                        .replace(/\\/g, '\\\\')
+                        .replace(/"/g, '\\"');
                       core.setOutput('title', escaped);
 
             - name: Post to Slack
@@ -45,21 +52,7 @@ jobs:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":eyes: *Priority review requested*"
-                        - type: "section"
-                          fields:
-                            - type: "mrkdwn"
-                              text: "*PR*\n<${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }}> ${{ steps.pr.outputs.title }}"
-                            - type: "mrkdwn"
-                              text: "*Author*\n${{ github.event.pull_request.user.login }}"
-                        - type: "actions"
-                          elements:
-                            - type: "button"
-                              text:
-                                type: "plain_text"
-                                text: "Review PR"
-                              url: "${{ github.event.pull_request.html_url }}"
-                              style: "primary"
+                            text: ":eyes: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}> by ${{ github.event.pull_request.user.login }}"
 
             - name: Save Slack message info
               run: |
@@ -74,7 +67,7 @@ jobs:
                   path: .priority-review-slack
                   key: priority-review-slack-pr-${{ github.event.pull_request.number }}
 
-    # When a priority-review PR is approved, react and thread-reply on the Slack message
+    # When a priority-review PR is approved, update the Slack message and thread-reply
     notify-reviewed:
         runs-on: ubuntu-latest
         if: >-
@@ -99,6 +92,22 @@ jobs:
                     echo "found=false" >> $GITHUB_OUTPUT
                   fi
 
+            - name: Escape PR title
+              if: steps.slack_msg.outputs.found == 'true'
+              id: pr
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  script: |
+                      const title = context.payload.pull_request.title;
+                      const escaped = title
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/\|/g, '-')
+                        .replace(/\\/g, '\\\\')
+                        .replace(/"/g, '\\"');
+                      core.setOutput('title', escaped);
+
             - name: Add checkmark reaction
               if: steps.slack_msg.outputs.found == 'true'
               continue-on-error: true # already_reacted is expected on multi-approval PRs
@@ -111,6 +120,24 @@ jobs:
                       channel: "${{ steps.slack_msg.outputs.channel }}"
                       timestamp: "${{ steps.slack_msg.outputs.ts }}"
                       name: "white_check_mark"
+
+            - name: Update main message
+              if: steps.slack_msg.outputs.found == 'true'
+              continue-on-error: true
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.update
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.slack_msg.outputs.channel }}"
+                      ts: "${{ steps.slack_msg.outputs.ts }}"
+                      text: "Approved: ${{ steps.pr.outputs.title }}"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":white_check_mark: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}> by ${{ github.event.pull_request.user.login }} — approved by ${{ github.event.review.user.login }}"
 
             - name: Build approval message
               if: steps.slack_msg.outputs.found == 'true'
