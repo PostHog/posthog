@@ -10,7 +10,7 @@ from posthog.temporal.ai.session_summary.activities import (
     capture_timing_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
-    export_session_video_activity,
+    prep_session_video_asset_activity,
     store_video_session_summary_activity,
     upload_video_to_gemini_activity,
 )
@@ -69,25 +69,35 @@ from .video_segment_clustering.coordinator_workflow import (
     get_proactive_tasks_enabled_team_ids_activity,
 )
 
-WORKFLOWS = [
+AI_WORKFLOWS = [
     SyncVectorsWorkflow,
-    SummarizeSingleSessionStreamWorkflow,
-    SummarizeSingleSessionWorkflow,
-    SummarizeSessionGroupWorkflow,
     AssistantConversationRunnerWorkflow,
     ChatAgentWorkflow,
     ResearchAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
-    # Video segment clustering workflows
+]
+
+AI_ACTIVITIES = [
+    get_approximate_actions_count,
+    batch_summarize_actions,
+    batch_embed_and_sync_actions,
+    process_conversation_activity,
+    process_chat_agent_activity,
+    process_research_agent_activity,
+    summarize_llm_traces_activity,
+    process_slack_conversation_activity,
+]
+
+SIGNALS_WORKFLOWS = [
+    SummarizeSingleSessionStreamWorkflow,
+    SummarizeSingleSessionWorkflow,
+    SummarizeSessionGroupWorkflow,
     VideoSegmentClusteringWorkflow,
     VideoSegmentClusteringCoordinatorWorkflow,
 ]
 
-ACTIVITIES = [
-    get_approximate_actions_count,
-    batch_summarize_actions,
-    batch_embed_and_sync_actions,
+SIGNALS_ACTIVITIES = [
     stream_llm_single_session_summary_activity,
     get_llm_single_session_summary_activity,
     fetch_session_batch_events_activity,
@@ -96,21 +106,14 @@ ACTIVITIES = [
     fetch_session_data_activity,
     combine_patterns_from_chunks_activity,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
-    process_conversation_activity,
-    process_chat_agent_activity,
-    process_research_agent_activity,
     validate_llm_single_session_summary_with_videos_activity,
-    summarize_llm_traces_activity,
-    process_slack_conversation_activity,
-    # Video analysis activities
-    export_session_video_activity,
+    prep_session_video_asset_activity,
     upload_video_to_gemini_activity,
     analyze_video_segment_activity,
     embed_and_store_segments_activity,
     store_video_session_summary_activity,
     consolidate_video_segments_activity,
     capture_timing_activity,
-    # Video segment clustering activities
     get_sessions_to_prime_activity,
     fetch_segments_activity,
     cluster_segments_activity,
