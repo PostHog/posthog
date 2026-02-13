@@ -19,7 +19,6 @@ class LLMPrompt(UUIDModel):
     # The prompt content as JSON (currently a string, may expand to array of objects)
     prompt = models.JSONField()
 
-    # TODO: Auto-increment version on updates when versioning feature is implemented
     version = models.PositiveIntegerField(default=1)
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -34,3 +33,14 @@ class LLMPrompt(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     deleted = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            # Check if prompt has changed before incrementing version
+            try:
+                old_instance = LLMPrompt.objects.get(pk=self.pk)
+                if old_instance.prompt != self.prompt:
+                    self.version += 1
+            except LLMPrompt.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
