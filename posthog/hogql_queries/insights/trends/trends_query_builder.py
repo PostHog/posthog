@@ -561,6 +561,23 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return default_query
 
     def _get_date_subqueries(self) -> ast.Expr:
+        placeholders = self.query_date_range.to_placeholders()
+
+        # When num_intervals is set (compare mode previous period), use it instead of
+        # dateDiff to ensure both periods produce the same number of data points.
+        # DST transitions can cause dateDiff to return different counts for periods
+        # of the same wall-clock duration.
+        if "num_intervals" in placeholders:
+            return parse_expr(
+                """
+                arrayMap(
+                    number -> {date_from_start_of_interval} + {number_interval_period},
+                    range(0, {num_intervals})
+                ) as date
+            """,
+                placeholders=placeholders,
+            )
+
         return parse_expr(
             """
             arrayMap(
@@ -577,7 +594,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 )
             ) as date
         """,
-            placeholders=self.query_date_range.to_placeholders(),
+            placeholders=placeholders,
         )
 
     def _get_session_property_select_expr(self) -> list[ast.Expr]:
