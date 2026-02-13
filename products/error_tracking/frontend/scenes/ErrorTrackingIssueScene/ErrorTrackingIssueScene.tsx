@@ -246,7 +246,7 @@ const ExceptionsTab = (): JSX.Element => {
 
     return (
         <div className="flex flex-col h-full min-h-0">
-            <div className="px-2 py-3">
+            <div className="px-2 py-3 shrink-0">
                 <ErrorFilters.Root>
                     <div className="flex gap-2 justify-between flex-wrap">
                         <ErrorFilters.DateRange />
@@ -255,7 +255,7 @@ const ExceptionsTab = (): JSX.Element => {
                     <ErrorFilters.FilterGroup />
                 </ErrorFilters.Root>
             </div>
-            <LemonDivider className="my-0" />
+            <LemonDivider className="my-0 shrink-0" />
             <Metadata className="flex flex-col flex-1 min-h-0 overflow-y-auto">
                 <EventsTable
                     query={eventsQuery}
