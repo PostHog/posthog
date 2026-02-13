@@ -68,6 +68,18 @@ pub const BATCH_CONSUMER_BATCH_COLLECTION_DURATION_MS: &str =
 pub const BATCH_CONSUMER_SEEK_ERROR: &str = "kafka_batch_consumer_seek_error";
 pub const BATCH_CONSUMER_SEEK_DURATION_MS: &str = "kafka_batch_consumer_seek_duration_ms";
 
+// ==== Watermark Consumer metrics ====
+/// Counter for messages received by the watermark consumer, tagged by deserialization status
+pub const WATERMARK_CONSUMER_MESSAGES_RECEIVED: &str = "kafka_watermark_consumer_messages_received";
+/// Counter for partitions that have reached high-watermark
+pub const WATERMARK_CONSUMER_PARTITIONS_COMPLETED: &str =
+    "kafka_watermark_consumer_partitions_completed_total";
+/// rdkafka consumption errors received by the watermark consumer
+pub const WATERMARK_CONSUMER_KAFKA_ERROR: &str = "kafka_watermark_consumer_kafka_error";
+/// Messages received from partitions not in the original assignment
+pub const WATERMARK_CONSUMER_UNEXPECTED_PARTITION: &str =
+    "kafka_watermark_consumer_unexpected_partition_total";
+
 // ==== Partition Worker metrics ====
 /// Counter for partition worker channel backpressure events
 /// Incremented when route_batch has to wait because the worker channel is full

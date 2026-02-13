@@ -466,6 +466,49 @@ impl Config {
         Duration::from_secs(self.checkpoint_partition_import_timeout_secs)
     }
 
+    /// Build Kafka consumer configuration for the group-based batch consumer.
+    /// Applies all relevant env-configured settings (connection, TLS, fetch/queued,
+    /// group membership, sticky assignment, offset reset).
+    pub fn build_batch_consumer_config(&self) -> rdkafka::ClientConfig {
+        use crate::kafka::config::ConsumerConfigBuilder;
+
+        ConsumerConfigBuilder::for_batch_consumer(&self.kafka_hosts, &self.kafka_consumer_group)
+            .with_tls(self.kafka_tls)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_topic_metadata_refresh_interval_ms(self.kafka_topic_metadata_refresh_interval_ms)
+            .with_metadata_max_age_ms(self.kafka_metadata_max_age_ms)
+            .with_sticky_partition_assignment(self.pod_hostname.as_deref())
+            .with_offset_reset(&self.kafka_consumer_offset_reset)
+            .with_fetch_min_bytes(self.kafka_consumer_fetch_min_bytes)
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
+            .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
+            .with_max_poll_interval_ms(self.kafka_max_poll_interval_ms)
+            .with_session_timeout_ms(self.kafka_session_timeout_ms)
+            .with_heartbeat_interval_ms(self.kafka_heartbeat_interval_ms)
+            .build()
+    }
+
+    /// Build Kafka consumer configuration for the assign-only watermark consumer.
+    /// Applies only connection, TLS, and fetch/queued settings — no group-coordination
+    /// options (session, heartbeat, max.poll, sticky, offset reset).
+    pub fn build_watermark_consumer_config(&self, group_id: &str) -> rdkafka::ClientConfig {
+        use crate::kafka::config::ConsumerConfigBuilder;
+
+        ConsumerConfigBuilder::for_watermark_consumer(&self.kafka_hosts, group_id)
+            .with_tls(self.kafka_tls)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_topic_metadata_refresh_interval_ms(self.kafka_topic_metadata_refresh_interval_ms)
+            .with_metadata_max_age_ms(self.kafka_metadata_max_age_ms)
+            .with_fetch_min_bytes(self.kafka_consumer_fetch_min_bytes)
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
+            .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
+            .build()
+    }
+
     /// Build Kafka producer configuration
     pub fn build_producer_config(&self) -> rdkafka::ClientConfig {
         let mut config = rdkafka::ClientConfig::new();
