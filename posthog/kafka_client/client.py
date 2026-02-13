@@ -337,6 +337,18 @@ def can_connect():
 
 KafkaProducer = SingletonDecorator(_KafkaProducer)
 SessionRecordingKafkaProducer = SingletonDecorator(_KafkaProducer)
+_WarpStreamKafkaProducer = SingletonDecorator(_KafkaProducer)
+
+
+def get_warpstream_kafka_producer(
+    kafka_hosts: Optional[list[str] | str] = None,
+    kafka_security_protocol: Optional[str] = None,
+) -> _KafkaProducer:
+    """Get a singleton Kafka producer configured for WarpStream/warehouse pipelines."""
+    return _WarpStreamKafkaProducer(
+        kafka_hosts=kafka_hosts or settings.KAFKA_CYCLOTRON_WARPSTREAM_HOSTS,
+        kafka_security_protocol=kafka_security_protocol or settings.KAFKA_CYCLOTRON_WARPSTREAM_PROTOCOL,
+    )
 
 
 def session_recording_kafka_producer() -> _KafkaProducer:

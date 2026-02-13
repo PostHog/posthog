@@ -1,5 +1,4 @@
 import re
-import json
 import uuid
 import functools
 from concurrent.futures import ThreadPoolExecutor
@@ -3023,13 +3022,12 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
         filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "stripe.customer"}]},
     )
 
-    mock_kafka_producer = mock.AsyncMock()
-    mock_kafka_producer.start = mock.AsyncMock()
-    mock_kafka_producer.stop = mock.AsyncMock()
-    mock_kafka_producer.send_and_wait = mock.AsyncMock()
+    mock_kafka_producer = mock.MagicMock()
+    mock_kafka_producer.produce = mock.MagicMock()
+    mock_kafka_producer.flush = mock.MagicMock()
 
     with (
-        mock.patch.object(CDPProducer, "_create_kafka_producer", return_value=mock_kafka_producer),
+        mock.patch.object(CDPProducer, "_get_kafka_producer", return_value=mock_kafka_producer),
         mock.patch(
             "posthog.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns", return_value=1768828644858352000
         ),
@@ -3043,10 +3041,9 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
             mock_data_response=stripe_customer["data"],
         )
 
-    mock_kafka_producer.send_and_wait.assert_called()
-    call_kwargs = mock_kafka_producer.send_and_wait.call_args[1]
-    sent_value = json.loads(call_kwargs["value"])
-    assert sent_value == {
+    mock_kafka_producer.produce.assert_called()
+    call_kwargs = mock_kafka_producer.produce.call_args[1]
+    assert call_kwargs["data"] == {
         "team_id": team.id,
         "properties": {
             "delinquent": False,
