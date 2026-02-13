@@ -6,11 +6,11 @@ import { routerPlugin } from 'kea-router'
 import { subscriptionsPlugin } from 'kea-subscriptions'
 import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
-import posthog, { PostHog } from 'posthog-js'
+import posthog from 'posthog-js'
 import { posthogKeaLogger } from 'posthog-js/lib/src/customizations'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { hashCodeForString, identifierToHuman } from 'lib/utils'
+import { identifierToHuman } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -129,21 +129,6 @@ export function initKea({
         waitForPlugin,
     ]
 
-    if (window.APP_STATE_LOGGING_SAMPLE_RATE) {
-        try {
-            const ph: PostHog | undefined = window.posthog
-            const session_id = ph?.get_session_id()
-            const sample_rate = parseFloat(window.APP_STATE_LOGGING_SAMPLE_RATE)
-            if (session_id) {
-                const sessionIdHash = hashCodeForString(session_id)
-                if (sessionIdHash % 100 < sample_rate * 100) {
-                    window.JS_KEA_VERBOSE_LOGGING = true
-                }
-            }
-        } catch (e) {
-            window.posthog.captureException(e)
-        }
-    }
     // To enable logging, run localStorage.setItem("ph-kea-debug", true) in the console
     // to explicitly disable the logging, run localStorage.setItem("ph-kea-debug", false)
     const localStorageLoggingFlag = 'localStorage' in window && window.localStorage.getItem('ph-kea-debug')
