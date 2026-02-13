@@ -1,7 +1,9 @@
 import os
 import json
+import uuid
+import asyncio
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from django.db import transaction
@@ -10,6 +12,9 @@ from django.utils import timezone
 import structlog
 import temporalio
 from asgiref.sync import sync_to_async
+from temporalio import workflow
+from temporalio.common import RetryPolicy
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.schema import EmbeddingModelName
 
@@ -20,13 +25,13 @@ from posthog.api.embedding_worker import emit_embedding_request, generate_embedd
 from posthog.models import Team
 
 from products.signals.backend.models import SignalReport
-from products.signals.backend.temporal.llm import generate_search_queries, match_signal_with_llm, summarize_signals
+from products.signals.backend.temporal.llm import generate_search_queries, match_signal_with_llm
 from products.signals.backend.temporal.types import (
+    EmitSignalInputs,
     ExistingReportMatch,
     MatchResult,
     NewReportMatch,
     SignalCandidate,
-    SignalData,
     SignalTypeExample,
 )
 
@@ -34,6 +39,11 @@ logger = structlog.get_logger(__name__)
 
 EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 WEIGHT_THRESHOLD = float(os.getenv("SIGNAL_WEIGHT_THRESHOLD", "1.0"))
+
+
+# ============================================================================
+# Activities
+# ============================================================================
 
 
 @dataclass
@@ -440,224 +450,163 @@ async def emit_to_clickhouse_activity(input: EmitToClickHouseInput) -> None:
 
 
 # ============================================================================
-# Research Workflow Activities
+# Workflow
 # ============================================================================
 
 
-@dataclass
-class FetchSignalsForReportInput:
-    team_id: int
-    report_id: str
-
-
-@dataclass
-class FetchSignalsForReportOutput:
-    signals: list[SignalData]
-
-
-@temporalio.activity.defn
-async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
+# TODO: Not idempotent on source_id - re-running with the same source_id will create duplicate signals.
+# Need to check ClickHouse for existing signal before processing.
+@temporalio.workflow.defn(name="emit-signal")
+class EmitSignalWorkflow:
     """
-    Fetch all signals associated with a report from ClickHouse.
-    Note: fetches 100 signals at most. This may exceed useful LLM input size - we should consider limiting it in the future.
+    Workflow for processing a new signal.
+
+    Flow:
+    1. Generate embedding for signal content
+    2. Find nearest signals already assigned to reports
+    3. LLM determines if new signal matches an existing report
+    4. Create or update report, check for promotion
+    5. Emit signal to ClickHouse with correct report_id
     """
-    try:
-        team = await Team.objects.aget(pk=input.team_id)
 
-        query = """
-            SELECT
-                document_id,
-                content,
-                metadata,
-                toString(timestamp) as timestamp
-            FROM (
-                SELECT
-                    document_id,
-                    argMax(content, inserted_at) as content,
-                    argMax(metadata, inserted_at) as metadata,
-                    argMax(timestamp, inserted_at) as timestamp
-                FROM document_embeddings
-                WHERE model_name = {model_name}
-                  AND product = 'signals'
-                  AND document_type = 'signal'
-                GROUP BY document_id
-            )
-            WHERE JSONExtractString(metadata, 'report_id') = {report_id}
-            ORDER BY timestamp ASC
-        """
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> EmitSignalInputs:
+        loaded = json.loads(inputs[0])
+        return EmitSignalInputs(**loaded)
 
-        result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
-            query_type="SignalsFetchForReport",
-            query=query,
-            team=team,
-            placeholders={
-                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-                "report_id": ast.Constant(value=input.report_id),
-            },
+    @staticmethod
+    def workflow_id_for(team_id: int, source_product: str, source_type: str, source_id: str) -> str:
+        # Prevents the same signal from being processed simultaneously, but does NOT
+        # prevent re-running the workflow for the same source_id (see TODO above).
+        return f"{team_id}:{source_product}:{source_type}:{source_id}"
+
+    @temporalio.workflow.run
+    async def run(self, inputs: EmitSignalInputs) -> str:
+        # Import here to avoid circular imports (summary imports are only needed for child workflow spawn)
+        from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
+
+        with workflow.unsafe.imports_passed_through():
+            from django.conf import settings
+
+        signal_id = str(uuid.uuid4())
+
+        # Fetch signal type examples and embedding in parallel (examples needed for query generation)
+        embedding_result, type_examples_result = await asyncio.gather(
+            workflow.execute_activity(
+                get_embedding_activity,
+                GenerateEmbeddingInput(team_id=inputs.team_id, content=inputs.description),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            ),
+            workflow.execute_activity(
+                fetch_signal_type_examples_activity,
+                FetchSignalTypeExamplesInput(team_id=inputs.team_id),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            ),
         )
 
-        signals = []
-        for row in result.results or []:
-            document_id, content, metadata_str, timestamp = row
-            # Purposefully throw here if we fail - we rely on metadata being correct, and it's not llm generated, so
-            # no defensive parsing, we want to fail loudly.
-            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str or {}
-            signals.append(
-                SignalData(
-                    signal_id=document_id,
-                    content=content,
-                    source_product=metadata.get("source_product", ""),
-                    source_type=metadata.get("source_type", ""),
-                    source_id=metadata.get("source_id", ""),
-                    weight=metadata.get("weight", 0.0),
-                    timestamp=timestamp,
-                    extra=metadata.get("extra", {}),
+        search_queries_result = await workflow.execute_activity(
+            generate_search_queries_activity,
+            GenerateSearchQueriesInput(
+                description=inputs.description,
+                source_product=inputs.source_product,
+                source_type=inputs.source_type,
+                signal_type_examples=type_examples_result.examples,
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        queries = search_queries_result.queries
+
+        query_embedding_results: list[GenerateEmbeddingOutput] = await asyncio.gather(
+            *[
+                workflow.execute_activity(
+                    get_embedding_activity,
+                    GenerateEmbeddingInput(team_id=inputs.team_id, content=query),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
                 )
+                for query in queries
+            ]
+        )
+
+        query_results: list[RunSignalSemanticSearchOutput] = await asyncio.gather(
+            *[
+                workflow.execute_activity(
+                    run_signal_semantic_search_activity,
+                    RunSignalSemanticSearchInput(
+                        team_id=inputs.team_id,
+                        embedding=emb_result.embedding,
+                        limit=10,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                for emb_result in query_embedding_results
+            ]
+        )
+
+        match_result = await workflow.execute_activity(
+            llm_match_signal_activity,
+            LLMMatchSignalInput(
+                description=inputs.description,
+                source_product=inputs.source_product,
+                source_type=inputs.source_type,
+                queries=queries,
+                query_results=[r.candidates for r in query_results],
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        assign_result: AssignSignalOutput = await workflow.execute_activity(
+            assign_signal_to_report_activity,
+            AssignSignalInput(
+                team_id=inputs.team_id,
+                signal_id=signal_id,
+                description=inputs.description,
+                weight=inputs.weight,
+                source_product=inputs.source_product,
+                source_type=inputs.source_type,
+                source_id=inputs.source_id,
+                extra=inputs.extra,
+                embedding=embedding_result.embedding,
+                match_result=match_result,
+            ),
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        await workflow.execute_activity(
+            emit_to_clickhouse_activity,
+            EmitToClickHouseInput(
+                team_id=inputs.team_id,
+                signal_id=signal_id,
+                description=inputs.description,
+                source_product=inputs.source_product,
+                source_type=inputs.source_type,
+                source_id=inputs.source_id,
+                weight=inputs.weight,
+                extra=inputs.extra,
+                report_id=assign_result.report_id,
+            ),
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        # If the report was just promoted to candidate status, kick off summary
+        if assign_result.promoted:
+            from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
+
+            await workflow.start_child_workflow(
+                SignalReportSummaryWorkflow.run,
+                SignalReportSummaryWorkflowInputs(team_id=inputs.team_id, report_id=assign_result.report_id),
+                id=SignalReportSummaryWorkflow.workflow_id_for(inputs.team_id, assign_result.report_id),
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                execution_timeout=timedelta(minutes=30),
             )
 
-        logger.debug(
-            f"Fetched {len(signals)} signals for report {input.report_id}",
-            team_id=input.team_id,
-            report_id=input.report_id,
-            signal_count=len(signals),
-        )
-        return FetchSignalsForReportOutput(signals=signals)
-    except Exception as e:
-        logger.exception(
-            f"Failed to fetch signals for report {input.report_id}: {e}",
-            team_id=input.team_id,
-            report_id=input.report_id,
-        )
-        raise
-
-
-@dataclass
-class MarkReportInProgressInput:
-    report_id: str
-    signal_count: int
-
-
-@temporalio.activity.defn
-async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> None:
-    """Mark a report as in_progress and record the signal count snapshot."""
-    try:
-
-        @transaction.atomic
-        def do_update():
-            report = SignalReport.objects.select_for_update().get(id=input.report_id)
-            report.status = SignalReport.Status.IN_PROGRESS
-            report.last_run_at = timezone.now()
-            report.signals_at_run = input.signal_count
-            report.save(update_fields=["status", "last_run_at", "signals_at_run", "updated_at"])
-
-        await sync_to_async(do_update, thread_sensitive=False)()
-        logger.debug(
-            f"Marked report {input.report_id} as in_progress",
-            report_id=input.report_id,
-            signal_count=input.signal_count,
-        )
-    except Exception as e:
-        logger.exception(
-            f"Failed to mark report {input.report_id} as in_progress: {e}",
-            report_id=input.report_id,
-        )
-        raise
-
-
-@dataclass
-class SummarizeSignalsInput:
-    report_id: str
-    signals: list[SignalData]
-
-
-@dataclass
-class SummarizeSignalsOutput:
-    title: str
-    summary: str
-
-
-@temporalio.activity.defn
-async def summarize_signals_activity(input: SummarizeSignalsInput) -> SummarizeSignalsOutput:
-    """Summarize signals into a title and summary for the report."""
-    try:
-        title, summary = await summarize_signals(input.signals)
-        logger.debug(
-            f"Summarized {len(input.signals)} signals for report {input.report_id}",
-            report_id=input.report_id,
-            signal_count=len(input.signals),
-            title=title,
-        )
-        return SummarizeSignalsOutput(title=title, summary=summary)
-    except Exception as e:
-        logger.exception(
-            f"Failed to summarize signals for report {input.report_id}: {e}",
-            report_id=input.report_id,
-        )
-        raise
-
-
-@dataclass
-class MarkReportReadyInput:
-    report_id: str
-    title: str
-    summary: str
-
-
-@temporalio.activity.defn
-async def mark_report_ready_activity(input: MarkReportReadyInput) -> None:
-    """Mark a report as ready after successful summarization."""
-    try:
-
-        @transaction.atomic
-        def do_update():
-            report = SignalReport.objects.select_for_update().get(id=input.report_id)
-            report.status = SignalReport.Status.READY
-            report.title = input.title
-            report.summary = input.summary
-            report.error = None
-            report.save(update_fields=["status", "title", "summary", "error", "updated_at"])
-
-        await sync_to_async(do_update, thread_sensitive=False)()
-        logger.debug(
-            f"Marked report {input.report_id} as ready",
-            report_id=input.report_id,
-            title=input.title,
-        )
-    except Exception as e:
-        logger.exception(
-            f"Failed to mark report {input.report_id} as ready: {e}",
-            report_id=input.report_id,
-        )
-        raise
-
-
-@dataclass
-class MarkReportFailedInput:
-    report_id: str
-    error: str
-
-
-@temporalio.activity.defn
-async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
-    """Mark a report as failed and store the error message."""
-    try:
-
-        @transaction.atomic
-        def do_update():
-            report = SignalReport.objects.select_for_update().get(id=input.report_id)
-            report.status = SignalReport.Status.FAILED
-            report.error = input.error
-            report.save(update_fields=["status", "error", "updated_at"])
-
-        await sync_to_async(do_update, thread_sensitive=False)()
-        logger.debug(
-            f"Marked report {input.report_id} as failed",
-            report_id=input.report_id,
-            error=input.error,
-        )
-    except Exception as e:
-        logger.exception(
-            f"Failed to mark report {input.report_id} as failed: {e}",
-            report_id=input.report_id,
-        )
-        raise
+        return signal_id

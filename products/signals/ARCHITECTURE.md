@@ -2,13 +2,13 @@
 
 ## Overview
 
-The **Signals** product is a signal clustering and research pipeline. Signals from various PostHog products (experiments, web analytics, error tracking, session replay) get grouped into **SignalReports** via embedding similarity + LLM matching. When a group accumulates enough weight, a research workflow summarizes them and optionally creates a GitHub coding task.
+The **Signals** product is a signal clustering and summarization pipeline. Signals from various PostHog products (experiments, web analytics, error tracking, session replay) get grouped into **SignalReports** via embedding similarity + LLM matching. When a group accumulates enough weight, a summary workflow summarizes them and optionally creates a GitHub coding task.
 
 ---
 
 ## Temporal Workflows
 
-There are two Temporal workflows defined in `backend/temporal/workflow.py`, with activities in `backend/temporal/activities.py`.
+There are two Temporal workflows, each defined alongside their activities in `backend/temporal/grouping.py` and `backend/temporal/summary.py`.
 
 ### `EmitSignalWorkflow` (`emit-signal`)
 
@@ -16,18 +16,18 @@ Processes a single incoming signal and assigns it to a report group.
 
 **Flow:**
 
-1. **Embed** the signal description → `get_embedding_activity`
-2. **Generate 1-3 search queries** via LLM → `generate_search_queries_activity`
+1. **Embed** the signal description + **fetch signal type examples** from ClickHouse (parallel) → `get_embedding_activity`, `fetch_signal_type_examples_activity`
+2. **Generate 1-3 search queries** via LLM (receives type examples for context) → `generate_search_queries_activity`
 3. **Embed each query** → parallel `get_embedding_activity` calls
 4. **Semantic search** ClickHouse `document_embeddings` for nearest neighbors per query → `run_signal_semantic_search_activity` (uses `cosineDistance()`)
 5. **LLM match** — decides if signal belongs to an existing report or needs a new group → `llm_match_signal_activity`
 6. **Assign** signal to a `SignalReport` in Postgres, increment weight/count, check promotion threshold → `assign_signal_to_report_activity`
 7. **Emit to ClickHouse** via Kafka (embedding worker) → `emit_to_clickhouse_activity`
-8. If promoted (weight ≥ `WEIGHT_THRESHOLD`, default `1.0`), **spawn child** `SignalResearchWorkflow`
+8. If promoted (weight ≥ `WEIGHT_THRESHOLD`, default `1.0`), **spawn child** `SignalReportSummaryWorkflow`
 
-Steps 1+2 run in parallel. Step 3 fans out in parallel for each query. Step 4 fans out in parallel for each query embedding.
+Steps 1 runs two activities in parallel. Step 2 depends on step 1 (needs the type examples). Steps 3+4 fan out in parallel for each query/embedding.
 
-### `SignalResearchWorkflow` (`signal-research`)
+### `SignalReportSummaryWorkflow` (`signal-report-summary`)
 
 Runs when a report is promoted to `candidate` status. Summarizes the signal group.
 
@@ -65,9 +65,9 @@ potential → candidate → in_progress → ready
 | `summary`                     | Text (nullable)              | LLM-generated summary                                              |
 | `error`                       | Text (nullable)              | Error message if status is `failed`                                |
 | `conversation`                | FK → Conversation (nullable) | Optional linked conversation                                       |
-| `signals_at_run`              | Int                          | Snapshot of signal count when research started                     |
+| `signals_at_run`              | Int                          | Snapshot of signal count when summary started                      |
 | `promoted_at`                 | DateTime (nullable)          | When report was promoted to `candidate`                            |
-| `last_run_at`                 | DateTime (nullable)          | When research workflow last ran                                    |
+| `last_run_at`                 | DateTime (nullable)          | When summary workflow last ran                                     |
 | `relevant_user_count`         | Int (nullable)               | Number of relevant users                                           |
 | `cluster_centroid`            | ArrayField(Float) (nullable) | Embedding centroid for video segment clustering                    |
 | `cluster_centroid_updated_at` | DateTime (nullable)          | When centroid was last updated                                     |
@@ -122,12 +122,11 @@ emit_embedding_request() → Kafka (document_embeddings_input topic)
 
 ### HogQL Queries
 
-Activities query via `execute_hogql_query()` using the HogQL alias `document_embeddings`. Two main queries:
+Activities query via `execute_hogql_query()` using the HogQL alias `document_embeddings`. All queries filter to `product = 'signals'` and `document_type = 'signal'`, and use `argMax(..., inserted_at)` grouped by `document_id` to handle deduplication from the `ReplacingMergeTree`. Three main queries:
 
-1. **Semantic search** (`run_signal_semantic_search_activity`): Uses `cosineDistance(embedding, {embedding})` to find nearest neighbors with a `report_id`, limited to last 1 month.
-2. **Fetch for report** (`fetch_signals_for_report_activity`): Fetches all signals for a given `report_id`.
-
-Both use `argMax(..., inserted_at)` grouped by `document_id` to handle deduplication from the `ReplacingMergeTree`.
+1. **Fetch signal type examples** (`fetch_signal_type_examples_activity`): Fetches one example signal per unique `(source_product, source_type)` pair from the last month, selecting the most recent example per type via `argMax(content, timestamp)`. Used to give the query generation LLM context about the heterogeneous signal landscape.
+2. **Semantic search** (`run_signal_semantic_search_activity`): Uses `cosineDistance(embedding, {embedding})` to find nearest neighbors that have a `report_id`, limited to the last 1 month.
+3. **Fetch for report** (`fetch_signals_for_report_activity`): Fetches all signals for a given `report_id`, ordered by timestamp ascending.
 
 ---
 
@@ -190,7 +189,7 @@ Uses **Claude Sonnet 4.5** (`claude-sonnet-4-5`) via the Anthropic SDK, wrapped 
 
 ### `generate_search_queries()`
 
-Generates 1-3 search queries from different angles (feature/component, behavior/issue, business impact). Queries are truncated to 2048 tokens for embedding. Temperature: 0.7.
+Generates 1-3 search queries from different angles (feature/component, behavior/issue, business impact). Accepts optional `signal_type_examples` — one example per `(source_product, source_type)` pair from the last month — which are included in the system prompt to give the LLM context about the heterogeneous signal landscape. The prompt explicitly instructs the LLM to generate queries that search _across_ signal types rather than generating one query per type. Queries are truncated to 2048 tokens for embedding. Temperature: 0.7.
 
 ### `match_signal_with_llm()`
 
@@ -222,15 +221,16 @@ When a `SignalReport` is **created** (post-save), `create_task_for_signal_report
 
 ## Data Types (`backend/temporal/types.py`)
 
-| Type                           | Description                                                                                                                          |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `EmitSignalInputs`             | Workflow input: `team_id`, `source_product`, `source_type`, `source_id`, `description`, `weight`, `extra`                            |
-| `SignalCandidate`              | Search result: `signal_id`, `report_id`, `content`, `source_product`, `source_type`, `distance`                                      |
-| `ExistingReportMatch`          | LLM decided signal matches existing report: `report_id`                                                                              |
-| `NewReportMatch`               | LLM decided signal needs new group: `title`, `summary`                                                                               |
-| `MatchResult`                  | Union: `ExistingReportMatch \| NewReportMatch`                                                                                       |
-| `SignalResearchWorkflowInputs` | Research workflow input: `team_id`, `report_id`                                                                                      |
-| `SignalData`                   | Signal fetched from ClickHouse: `signal_id`, `content`, `source_product`, `source_type`, `source_id`, `weight`, `timestamp`, `extra` |
+| Type                                | Description                                                                                                                          |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `EmitSignalInputs`                  | Workflow input: `team_id`, `source_product`, `source_type`, `source_id`, `description`, `weight`, `extra`                            |
+| `SignalCandidate`                   | Search result: `signal_id`, `report_id`, `content`, `source_product`, `source_type`, `distance`                                      |
+| `ExistingReportMatch`               | LLM decided signal matches existing report: `report_id`                                                                              |
+| `NewReportMatch`                    | LLM decided signal needs new group: `title`, `summary`                                                                               |
+| `MatchResult`                       | Union: `ExistingReportMatch \| NewReportMatch`                                                                                       |
+| `SignalReportSummaryWorkflowInputs` | Summary workflow input: `team_id`, `report_id`                                                                                       |
+| `SignalTypeExample`                 | One example per `(source_product, source_type)` pair: `source_product`, `source_type`, `content`, `timestamp`, `extra`               |
+| `SignalData`                        | Signal fetched from ClickHouse: `signal_id`, `content`, `source_product`, `source_type`, `source_id`, `weight`, `timestamp`, `extra` |
 
 ---
 
@@ -258,9 +258,9 @@ products/signals/
 │   ├── urls.py               # Route registration
 │   ├── views.py              # SignalViewSet (debug), SignalReportViewSet (read-only)
 │   └── temporal/
-│       ├── activities.py     # All Temporal activity definitions
+│       ├── grouping.py       # EmitSignalWorkflow + grouping activities
 │       ├── llm.py            # Anthropic LLM calls (query gen, matching, summarization)
-│       ├── types.py          # Shared dataclasses
-│       └── workflow.py       # EmitSignalWorkflow, SignalResearchWorkflow
+│       ├── summary.py        # SignalReportSummaryWorkflow + summary activities
+│       └── types.py          # Shared dataclasses
 └── frontend/                 # Frontend components (not covered here)
 ```

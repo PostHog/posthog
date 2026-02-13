@@ -10,8 +10,8 @@ from temporalio.common import WorkflowIDReusePolicy
 from posthog.models import Team
 from posthog.temporal.common.client import async_connect
 
+from products.signals.backend.temporal.grouping import EmitSignalWorkflow
 from products.signals.backend.temporal.types import EmitSignalInputs
-from products.signals.backend.temporal.workflow import EmitSignalWorkflow
 
 
 async def product_autonomy_enabled(team: Team) -> bool:
@@ -48,7 +48,7 @@ async def emit_signal(
     extra: dict | None = None,
 ) -> None:
     """
-    Emit a signal for clustering and potential research. Fire-and-forget.
+    Emit a signal for clustering and potential summarization. Fire-and-forget.
 
     Args:
         team: The team object
@@ -56,7 +56,7 @@ async def emit_signal(
         source_type: Type of signal (e.g., "significance_reached", "traffic_anomaly")
         source_id: Unique identifier within the source (e.g., experiment UUID)
         description: Human-readable description that will be embedded
-        weight: Importance/confidence of signal (0.0-1.0). Weight of 1.0 triggers research.
+        weight: Importance/confidence of signal (0.0-1.0). Weight of 1.0 triggers summary.
         extra: Optional product-specific metadata
 
     Example:

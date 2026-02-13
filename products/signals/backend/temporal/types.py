@@ -37,8 +37,8 @@ MatchResult = ExistingReportMatch | NewReportMatch
 
 
 @dataclass
-class SignalResearchWorkflowInputs:
-    """Inputs for the signal research workflow."""
+class SignalReportSummaryWorkflowInputs:
+    """Inputs for the signal report summary workflow."""
 
     team_id: int
     report_id: str
