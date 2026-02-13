@@ -14,7 +14,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db import connection
+from django.db import connection, transaction
 
 # Migrations that must be skipped on hobby deploys.
 # These partition the posthog_person table, which is only needed in production
@@ -96,8 +96,11 @@ class Command(BaseCommand):
 
                 sql = sql_file.read_text()
                 self.stdout.write(f"  Applying {sql_file.name}...")
-                cursor.execute(sql)
-                _record_migration(cursor, sql_file.name)
+                with transaction.atomic():
+                    # psycopg2 handles multi-statement SQL strings natively.
+                    # Do NOT split on ';' — DO $$ blocks contain internal semicolons.
+                    cursor.execute(sql)
+                    _record_migration(cursor, sql_file.name)
                 applied_count += 1
 
         action = "Would apply" if dry_run else "Applied"
