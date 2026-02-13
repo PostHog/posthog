@@ -28,9 +28,44 @@ from posthog.models.organization import Organization
 
 STATE_SIGNER_SALT = "toolbar-oauth-state-v1"
 STATE_VERSION = 1
-STATE_CACHE_PREFIX = "toolbar_oauth_state"
-STATE_USED_CACHE_PREFIX = "toolbar_oauth_state_used"
 CALLBACK_PATH = "/toolbar_oauth/callback"
+
+
+class ToolbarOAuthStateCache:
+    """
+    One-time-use state nonces for toolbar OAuth.
+    Mark a nonce as pending when building the auth URL; claim it during token exchange.
+    """
+
+    def __init__(self) -> None:
+        self._timeout = settings.TOOLBAR_OAUTH_STATE_TTL_SECONDS
+        self._pending_prefix = "toolbar_oauth_state"
+        self._used_prefix = "toolbar_oauth_state_used"
+
+    def _key(self, prefix: str, nonce: str) -> str:
+        return f"{prefix}:{nonce}"
+
+    def mark_pending(self, nonce: str) -> None:
+        cache.set(self._key(self._pending_prefix, nonce), True, timeout=self._timeout)
+
+    def claim_or_raise(self, nonce: str) -> None:
+        """
+        Claim the nonce for one-time use.
+        Raises ToolbarOAuthError if already used (replay) or not found/expired.
+        """
+        used_key = self._key(self._used_prefix, nonce)
+        pending_key = self._key(self._pending_prefix, nonce)
+        if cache.get(used_key):
+            raise ToolbarOAuthError("state_replay", "OAuth state has already been used", 400)
+        if not cache.get(pending_key):
+            raise ToolbarOAuthError("state_not_found", "OAuth state was not found or expired", 400)
+        # cache.add is atomic: only one concurrent request can claim this nonce
+        if not cache.add(used_key, True, timeout=self._timeout):
+            raise ToolbarOAuthError("state_replay", "OAuth state has already been used", 400)
+        cache.delete(pending_key)
+
+
+toolbar_oauth_state_cache = ToolbarOAuthStateCache()
 
 
 class ToolbarOAuthError(Exception):
@@ -51,10 +86,6 @@ class ToolbarOAuthState:
     experiment_id: int | str | None = None
     product_tour_id: str | None = None
     user_intent: str | None = None
-
-
-def _cache_key(prefix: str, nonce: str) -> str:
-    return f"{prefix}:{nonce}"
 
 
 def _split_redirect_uris(redirect_uris: str) -> list[str]:
@@ -174,8 +205,7 @@ def build_toolbar_oauth_state(state: ToolbarOAuthState) -> tuple[str, datetime]:
     }
 
     signed_state = signing.dumps(payload, salt=STATE_SIGNER_SALT)
-    cache.set(_cache_key(STATE_CACHE_PREFIX, nonce), True, timeout=settings.TOOLBAR_OAUTH_STATE_TTL_SECONDS)
-
+    toolbar_oauth_state_cache.mark_pending(nonce)
     return signed_state, datetime.fromtimestamp(expires_at, tz=UTC)
 
 
@@ -206,24 +236,7 @@ def validate_and_consume_toolbar_oauth_state(
     if not nonce:
         raise ToolbarOAuthError("invalid_state", "OAuth state is missing nonce", 400)
 
-    pending_key = _cache_key(STATE_CACHE_PREFIX, nonce)
-    used_key = _cache_key(STATE_USED_CACHE_PREFIX, nonce)
-
-    # replay guard
-    if cache.get(used_key):
-        raise ToolbarOAuthError("state_replay", "OAuth state has already been used", 400)
-
-    pending = cache.get(pending_key)
-    if not pending:
-        raise ToolbarOAuthError("state_not_found", "OAuth state was not found or expired", 400)
-
-    # best-effort one-time use marker
-    # `cache.add` is atomic: only one concurrent request can claim a nonce.
-    # This closes the race where two exchanges arrive before `pending_key` is deleted.
-    added = cache.add(used_key, True, timeout=settings.TOOLBAR_OAUTH_STATE_TTL_SECONDS)
-    if not added:
-        raise ToolbarOAuthError("state_replay", "OAuth state has already been used", 400)
-    cache.delete(pending_key)
+    toolbar_oauth_state_cache.claim_or_raise(nonce)
 
     if payload.get("user_id") != request_user.pk:
         raise ToolbarOAuthError("state_user_mismatch", "OAuth state user mismatch", 400)
