@@ -267,12 +267,12 @@ pub struct Config {
     // Limits memory usage by bounding the number of in-flight HTTP connections
     // Critical during rebalance when many partitions are assigned simultaneously
     // Higher values speed up rebalance; streaming bounds memory per download to ~8KB
-    #[envconfig(default = "50")]
+    #[envconfig(default = "100")]
     pub max_concurrent_checkpoint_file_downloads: usize,
 
     // Maximum concurrent S3 file uploads during checkpoint export
     // Less critical than downloads since uploads are bounded by max_concurrent_checkpoints
-    #[envconfig(default = "25")]
+    #[envconfig(default = "100")]
     pub max_concurrent_checkpoint_file_uploads: usize,
 
     // Maximum time allowed for a complete checkpoint import for a single partition (seconds).
