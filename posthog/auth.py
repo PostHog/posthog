@@ -644,24 +644,21 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
         if not configured_secret:
             logger.error(
                 "Internal API authentication attempted without configured secret",
-                path=request.path,
-                method=request.method,
+                extra={"path": request.path, "method": request.method},
             )
             raise AuthenticationFailed("Internal API authentication is not configured.")
 
         if not provided_secret:
             logger.warning(
                 "Internal API request missing authentication header",
-                path=request.path,
-                method=request.method,
+                extra={"path": request.path, "method": request.method},
             )
             raise AuthenticationFailed("Missing internal API authentication header.")
 
         if not hmac.compare_digest(configured_secret, provided_secret):
             logger.warning(
                 "Internal API request with invalid secret",
-                path=request.path,
-                method=request.method,
+                extra={"path": request.path, "method": request.method},
             )
             raise AuthenticationFailed("Invalid internal API authentication.")
 
