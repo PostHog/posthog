@@ -1,11 +1,10 @@
 import {
-    Edge,
     EdgeChange,
     MarkerType,
-    Node,
     NodeChange,
     Position,
     ReactFlowInstance,
+    Viewport,
     applyEdgeChanges,
     applyNodeChanges,
 } from '@xyflow/react'
@@ -24,12 +23,12 @@ import {
     DataModelingNodeType,
 } from '~/types'
 
-import { ElkDirection, getFormattedNodes } from './autolayout'
-import { BOTTOM_HANDLE_POSITION, LEFT_HANDLE_POSITION, RIGHT_HANDLE_POSITION, TOP_HANDLE_POSITION } from './constants'
-import type { dataModelingEditorLogicType } from './dataModelingEditorLogicType'
-import { ModelNode, ModelNodeHandle } from './types'
+import type { dataModelingLogicType } from './dataModelingLogicType'
+import { getFormattedNodes } from './modeling/autolayout'
+import { PAGE_SIZE } from './modeling/constants'
+import { Edge, ElkDirection, Node, NodeHandle, SearchMode, ViewMode } from './modeling/types'
 
-const POLL_INTERVAL_MS = 2000
+const POLL_INTERVAL_MS = 5000
 const MIN_RUNNING_DURATION_MS = 2000
 
 let pollIntervalId: ReturnType<typeof setInterval> | null = null
@@ -37,21 +36,78 @@ const nodeStartTimes: Map<string, number> = new Map()
 
 const getEdgeId = (from: string, to: string): string => `${from}->${to}`
 
-export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
-    path(['scenes', 'data-warehouse', 'scene', 'modeling', 'dataModelingEditorLogic']),
+interface AdjacencyMaps {
+    upstream: Map<string, string[]>
+    downstream: Map<string, string[]>
+}
+
+function buildAdjacencyMaps(edges: Edge[]): AdjacencyMaps {
+    const upstream = new Map<string, string[]>()
+    const downstream = new Map<string, string[]>()
+    for (const edge of edges) {
+        if (!upstream.has(edge.target)) {
+            upstream.set(edge.target, [])
+        }
+        upstream.get(edge.target)!.push(edge.source)
+        if (!downstream.has(edge.source)) {
+            downstream.set(edge.source, [])
+        }
+        downstream.get(edge.source)!.push(edge.target)
+    }
+    return { upstream, downstream }
+}
+
+function traverseGraph(startId: string, adjacencyMap: Map<string, string[]>): Set<string> {
+    const result = new Set<string>()
+    const queue = [startId]
+    while (queue.length > 0) {
+        const current = queue.shift()!
+        const neighbors = adjacencyMap.get(current) ?? []
+        for (const neighbor of neighbors) {
+            if (!result.has(neighbor)) {
+                result.add(neighbor)
+                queue.push(neighbor)
+            }
+        }
+    }
+    return result
+}
+
+export interface ParsedSearch {
+    mode: SearchMode
+    baseName: string
+}
+
+/** Parse search term for +name (upstream), name+ (downstream), or +name+ (both) syntax */
+export function parseSearchTerm(searchTerm: string): ParsedSearch {
+    const trimmed = searchTerm.trim()
+    if (trimmed.startsWith('+') && trimmed.endsWith('+') && trimmed.length > 2) {
+        return { mode: 'all', baseName: trimmed.slice(1, -1) }
+    }
+    if (trimmed.startsWith('+') && trimmed.length > 1) {
+        return { mode: 'upstream', baseName: trimmed.slice(1) }
+    }
+    if (trimmed.endsWith('+') && trimmed.length > 1) {
+        return { mode: 'downstream', baseName: trimmed.slice(0, -1) }
+    }
+    return { mode: 'search', baseName: trimmed }
+}
+
+export const dataModelingLogic = kea<dataModelingLogicType>([
+    path(['scenes', 'data-warehouse', 'scene', 'dataModelingLogic']),
     actions({
         onEdgesChange: (edges: EdgeChange<Edge>[]) => ({ edges }),
-        onNodesChange: (nodes: NodeChange<ModelNode>[]) => ({ nodes }),
-        onNodesDelete: (deleted: ModelNode[]) => ({ deleted }),
-        setNodes: (nodes: ModelNode[], fitViewAfter?: boolean) => ({ nodes, fitViewAfter }),
-        setNodesRaw: (nodes: ModelNode[]) => ({ nodes }),
+        onNodesChange: (nodes: NodeChange<Node>[]) => ({ nodes }),
+        setNodes: (nodes: Node[], fitViewAfter?: boolean) => ({ nodes, fitViewAfter }),
+        setNodesRaw: (nodes: Node[]) => ({ nodes }),
         setEdges: (edges: Edge[]) => ({ edges }),
-        setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => ({
             reactFlowInstance,
         }),
         setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
         setHighlightedNodeType: (highlightedNodeType: DataModelingNodeType | null) => ({ highlightedNodeType }),
+        setHoveredNodeId: (hoveredNodeId: string | null) => ({ hoveredNodeId }),
+        setSavedViewport: (viewport: Viewport) => ({ viewport }),
         resetGraph: (
             dataModelingNodes: DataModelingNode[],
             dataModelingEdges: DataModelingEdge[],
@@ -83,6 +139,16 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
         loadRecentJobs: true,
         loadRecentJobsSuccess: (recentJobs: DataModelingJob[]) => ({ recentJobs }),
         setLayoutDirection: (layoutDirection: ElkDirection) => ({ layoutDirection }),
+        // View/filter actions (previously in dataModelingNodesLogic)
+        setViewMode: (viewMode: ViewMode) => ({ viewMode }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setDebouncedSearchTerm: (debouncedSearchTerm: string) => ({ debouncedSearchTerm }),
+        setCurrentPage: (page: number) => ({ page }),
+        toggleFilterDagId: (dagId: string) => ({ dagId }),
+        clearFilterDagIds: true,
+        toggleFilterType: (nodeType: DataModelingNodeType) => ({ nodeType }),
+        clearFilterTypes: true,
+        setNodeTypePanelCollapsed: (collapsed: boolean) => ({ collapsed }),
     }),
     loaders({
         dataModelingNodes: [
@@ -106,7 +172,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
     }),
     reducers(() => ({
         nodes: [
-            [] as ModelNode[],
+            [] as Node[],
             {
                 setNodesRaw: (_, { nodes }) => nodes,
             },
@@ -117,16 +183,22 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 setHighlightedNodeType: (_, { highlightedNodeType }) => highlightedNodeType,
             },
         ],
+        hoveredNodeId: [
+            null as string | null,
+            {
+                setHoveredNodeId: (_, { hoveredNodeId }) => hoveredNodeId,
+            },
+        ],
+        savedViewport: [
+            null as Viewport | null,
+            {
+                setSavedViewport: (_, { viewport }) => viewport,
+            },
+        ],
         edges: [
             [] as Edge[],
             {
                 setEdges: (_, { edges }) => edges,
-            },
-        ],
-        selectedNodeId: [
-            null as string | null,
-            {
-                setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
             },
         ],
         reactFlowInstance: [
@@ -169,94 +241,133 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 },
             },
         ],
-        lastJobStatusBySavedQueryId: [
-            {} as Record<string, DataModelingJobStatus>,
-            {
-                loadRecentJobsSuccess: (_, { recentJobs }) => {
-                    const statusMap: Record<string, DataModelingJobStatus> = {}
-                    for (const job of recentJobs) {
-                        if (!(job.saved_query_id in statusMap)) {
-                            statusMap[job.saved_query_id] = job.status
-                        }
-                    }
-                    return statusMap
-                },
-            },
-        ],
         layoutDirection: [
-            'DOWN' as ElkDirection,
+            'RIGHT' as ElkDirection,
+            { persist: true },
             {
                 setLayoutDirection: (_, { layoutDirection }) => layoutDirection,
+            },
+        ],
+        nodeTypePanelCollapsed: [
+            false,
+            { persist: true },
+            {
+                setNodeTypePanelCollapsed: (_, { collapsed }) => collapsed,
+            },
+        ],
+        viewMode: [
+            'graph' as ViewMode,
+            { persist: true },
+            {
+                setViewMode: (_, { viewMode }) => viewMode,
+            },
+        ],
+        searchTerm: [
+            '' as string,
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        debouncedSearchTerm: [
+            '' as string,
+            {
+                setDebouncedSearchTerm: (_, { debouncedSearchTerm }) => debouncedSearchTerm,
+            },
+        ],
+        currentPage: [
+            1 as number,
+            {
+                setCurrentPage: (_, { page }) => page,
+                setSearchTerm: () => 1,
+                toggleFilterDagId: () => 1,
+                clearFilterDagIds: () => 1,
+                toggleFilterType: () => 1,
+                clearFilterTypes: () => 1,
+            },
+        ],
+        filterDagIds: [
+            [] as string[],
+            {
+                toggleFilterDagId: (state, { dagId }) =>
+                    state.includes(dagId) ? state.filter((id) => id !== dagId) : [...state, dagId],
+                clearFilterDagIds: () => [],
+            },
+        ],
+        filterTypes: [
+            [] as DataModelingNodeType[],
+            {
+                toggleFilterType: (state, { nodeType }) =>
+                    state.includes(nodeType) ? state.filter((t) => t !== nodeType) : [...state, nodeType],
+                clearFilterTypes: () => [],
+            },
+        ],
+        latestJobMetadataBySavedQueryId: [
+            {} as Record<string, { status: DataModelingJobStatus; lastRunAt: string | null }>,
+            {
+                loadRecentJobsSuccess: (state, { recentJobs }) => {
+                    const map: Record<string, { status: DataModelingJobStatus; lastRunAt: string | null }> = {}
+                    for (const job of recentJobs) {
+                        if (job.saved_query_id) {
+                            map[job.saved_query_id] = {
+                                status: job.status,
+                                lastRunAt: job.last_run_at,
+                            }
+                        }
+                    }
+                    return equal(state, map) ? state : map
+                },
             },
         ],
     })),
     selectors({
         nodesById: [
             (s) => [s.nodes],
-            (nodes): Record<string, ModelNode> => {
+            (nodes): Record<string, Node> => {
                 return nodes.reduce(
                     (acc, node) => {
                         acc[node.id] = node
                         return acc
                     },
-                    {} as Record<string, ModelNode>
+                    {} as Record<string, Node>
                 )
             },
             { resultEqualityCheck: equal },
-        ],
-        nodeIdBySavedQueryId: [
-            (s) => [s.nodes],
-            (nodes): Record<string, string> => {
-                return nodes.reduce(
-                    (acc, node) => {
-                        if (node.data.savedQueryId) {
-                            acc[node.data.savedQueryId] = node.id
-                        }
-                        return acc
-                    },
-                    {} as Record<string, string>
-                )
-            },
-            { resultEqualityCheck: equal },
-        ],
-        selectedNode: [
-            (s) => [s.nodesById, s.selectedNodeId],
-            (nodesById, selectedNodeId) => {
-                return selectedNodeId ? (nodesById[selectedNodeId] ?? null) : null
-            },
         ],
         nodesLoading: [
             (s) => [s.dataModelingNodesLoading, s.dataModelingEdgesLoading],
             (dataModelingNodesLoading: boolean, dataModelingEdgesLoading: boolean): boolean =>
                 dataModelingNodesLoading || dataModelingEdgesLoading,
         ],
-        lastJobStatusByNodeId: [
-            (s) => [s.nodes, s.lastJobStatusBySavedQueryId],
-            (nodes, lastJobStatusBySavedQueryId): Record<string, DataModelingJobStatus> => {
-                const statusMap: Record<string, DataModelingJobStatus> = {}
+        latestJobMetadataByNodeId: [
+            (s) => [s.nodes, s.latestJobMetadataBySavedQueryId],
+            (
+                nodes,
+                latestJobMetadataBySavedQueryId
+            ): Record<string, { status: DataModelingJobStatus; lastRunAt: string | null }> => {
+                const map: Record<string, { status: DataModelingJobStatus; lastRunAt: string | null }> = {}
                 for (const node of nodes) {
-                    if (node.data.savedQueryId && lastJobStatusBySavedQueryId[node.data.savedQueryId]) {
-                        statusMap[node.id] = lastJobStatusBySavedQueryId[node.data.savedQueryId]
+                    if (node.data.savedQueryId && latestJobMetadataBySavedQueryId[node.data.savedQueryId]) {
+                        map[node.id] = latestJobMetadataBySavedQueryId[node.data.savedQueryId]
                     }
                 }
-                return statusMap
+                return map
             },
             { resultEqualityCheck: equal },
         ],
-        // nodes are enriched with derived state to optimize reactflow rendering
         enrichedNodes: [
-            (s) => [s.nodes, s.selectedNodeId, s.runningNodeIds, s.lastJobStatusByNodeId, s.highlightedNodeType],
-            (nodes, selectedNodeId, runningNodeIds, lastJobStatusByNodeId, highlightedNodeType): ModelNode[] => {
+            (s) => [s.nodes, s.runningNodeIds, s.highlightedNodeType, s.latestJobMetadataByNodeId],
+            (nodes, runningNodeIds, highlightedNodeType, latestJobMetadataByNodeId): Node[] => {
                 return nodes.map((node) => {
-                    const isSelected = selectedNodeId === node.id
                     const isRunning = runningNodeIds.has(node.id)
-                    const lastJobStatus = lastJobStatusByNodeId[node.id]
                     const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === node.data.type
+                    const metadata = latestJobMetadataByNodeId[node.id]
+                    const lastJobStatus = metadata?.status ?? node.data.lastJobStatus
+                    const lastRunAt = metadata?.lastRunAt ?? node.data.lastRunAt
                     if (
-                        node.data.isSelected === isSelected &&
                         node.data.isRunning === isRunning &&
+                        node.data.isTypeHighlighted === isTypeHighlighted &&
                         node.data.lastJobStatus === lastJobStatus &&
-                        node.data.isTypeHighlighted === isTypeHighlighted
+                        node.data.lastRunAt === lastRunAt
                     ) {
                         return node
                     }
@@ -264,55 +375,48 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                         ...node,
                         data: {
                             ...node.data,
-                            isSelected,
                             isRunning,
-                            lastJobStatus,
                             isTypeHighlighted,
+                            lastJobStatus,
+                            lastRunAt,
                         },
                     }
                 })
+            },
+            {
+                resultEqualityCheck: (a: Node[], b: Node[]): boolean =>
+                    a.length === b.length && a.every((node, i) => node === b[i]),
+            },
+        ],
+        enrichedEdges: [
+            (s) => [s.edges, s.hoveredNodeId],
+            (edges, hoveredNodeId): Edge[] => {
+                if (!hoveredNodeId) {
+                    return edges
+                }
+                return edges.map((edge) => {
+                    const isConnected = edge.source === hoveredNodeId || edge.target === hoveredNodeId
+                    if (!isConnected) {
+                        return edge
+                    }
+                    return {
+                        ...edge,
+                        style: { stroke: 'var(--primary-3000)' },
+                        markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--primary-3000)' },
+                    }
+                })
+            },
+            {
+                resultEqualityCheck: (a: Edge[], b: Edge[]): boolean =>
+                    a.length === b.length && a.every((edge, i) => edge === b[i]),
             },
         ],
         highlightedNodeIds: [
             (s) => [s.nodes, s.edges],
             (nodes, edges): ((baseName: string, mode: 'upstream' | 'downstream' | 'all') => Set<string>) => {
-                // Build adjacency lists for efficient traversal
-                const upstreamEdges = new Map<string, string[]>() // target -> sources
-                const downstreamEdges = new Map<string, string[]>() // source -> targets
-
-                for (const edge of edges) {
-                    // upstream: edge.source is upstream of edge.target
-                    if (!upstreamEdges.has(edge.target)) {
-                        upstreamEdges.set(edge.target, [])
-                    }
-                    upstreamEdges.get(edge.target)!.push(edge.source)
-
-                    // downstream: edge.target is downstream of edge.source
-                    if (!downstreamEdges.has(edge.source)) {
-                        downstreamEdges.set(edge.source, [])
-                    }
-                    downstreamEdges.get(edge.source)!.push(edge.target)
-                }
-
-                // BFS helper to traverse in one direction
-                const traverse = (startId: string, adjacencyMap: Map<string, string[]>): Set<string> => {
-                    const result = new Set<string>()
-                    const queue = [startId]
-                    while (queue.length > 0) {
-                        const current = queue.shift()!
-                        const neighbors = adjacencyMap.get(current) ?? []
-                        for (const neighbor of neighbors) {
-                            if (!result.has(neighbor)) {
-                                result.add(neighbor)
-                                queue.push(neighbor)
-                            }
-                        }
-                    }
-                    return result
-                }
+                const { upstream, downstream } = buildAdjacencyMaps(edges)
 
                 return (baseName: string, mode: 'upstream' | 'downstream' | 'all'): Set<string> => {
-                    // Find the starting node by name (exact match first, then partial)
                     const lowerBaseName = baseName.toLowerCase()
                     let startNode = nodes.find((n) => n.data.name.toLowerCase() === lowerBaseName)
                     if (!startNode) {
@@ -325,12 +429,12 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     const result = new Set<string>([startNode.id])
 
                     if (mode === 'upstream' || mode === 'all') {
-                        for (const id of traverse(startNode.id, upstreamEdges)) {
+                        for (const id of traverseGraph(startNode.id, upstream)) {
                             result.add(id)
                         }
                     }
                     if (mode === 'downstream' || mode === 'all') {
-                        for (const id of traverse(startNode.id, downstreamEdges)) {
+                        for (const id of traverseGraph(startNode.id, downstream)) {
                             result.add(id)
                         }
                     }
@@ -339,32 +443,84 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 }
             },
         ],
+        // View/filter selectors (previously in dataModelingNodesLogic)
+        parsedSearch: [
+            (s) => [s.debouncedSearchTerm],
+            (debouncedSearchTerm: string): ParsedSearch => parseSearchTerm(debouncedSearchTerm),
+        ],
+        filteredNodes: [
+            (s) => [s.dataModelingNodes, s.searchTerm],
+            (dataModelingNodes: DataModelingNode[], searchTerm: string): DataModelingNode[] => {
+                if (!searchTerm) {
+                    return dataModelingNodes
+                }
+                const { baseName } = parseSearchTerm(searchTerm)
+                return dataModelingNodes.filter((n) => n.name.toLowerCase().includes(baseName.toLowerCase()))
+            },
+        ],
+        availableDagIds: [
+            (s) => [s.filteredNodes],
+            (nodes: DataModelingNode[]): string[] => {
+                const viewableNodes = nodes.filter((n) => n.type === 'matview' || n.type === 'view')
+                return [...new Set(viewableNodes.map((n) => n.dag_id))].sort()
+            },
+        ],
+        availableTypes: [
+            (s) => [s.filteredNodes],
+            (nodes: DataModelingNode[]): DataModelingNodeType[] => {
+                const viewableNodes = nodes.filter((n) => n.type === 'matview' || n.type === 'view')
+                return [...new Set(viewableNodes.map((n) => n.type))].sort()
+            },
+        ],
+        viewNodes: [
+            (s) => [s.filteredNodes, s.filterDagIds, s.filterTypes],
+            (
+                nodes: DataModelingNode[],
+                filterDagIds: string[],
+                filterTypes: DataModelingNodeType[]
+            ): DataModelingNode[] => {
+                return nodes
+                    .filter((n) => n.type === 'matview' || n.type === 'view')
+                    .filter((n) => filterDagIds.length === 0 || filterDagIds.includes(n.dag_id))
+                    .filter((n) => filterTypes.length === 0 || filterTypes.includes(n.type))
+            },
+        ],
+        visibleNodes: [
+            (s) => [s.viewNodes, s.currentPage],
+            (nodes: DataModelingNode[], currentPage: number): DataModelingNode[] => {
+                const startIndex = (currentPage - 1) * PAGE_SIZE
+                const endIndex = startIndex + PAGE_SIZE
+                return nodes.slice(startIndex, endIndex)
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
+        setViewMode: ({ viewMode }) => {
+            if (viewMode !== 'graph' && values.reactFlowInstance) {
+                actions.setSavedViewport(values.reactFlowInstance.getViewport())
+            }
+        },
         onEdgesChange: ({ edges }) => {
             actions.setEdges(applyEdgeChanges(edges, values.edges))
         },
         onNodesChange: ({ nodes }) => {
             actions.setNodes(applyNodeChanges(nodes, values.nodes))
         },
-
         loadDataModelingNodesSuccess: () => {
             if (values.dataModelingEdges.length > 0 || !values.dataModelingEdgesLoading) {
                 actions.resetGraph(values.dataModelingNodes, values.dataModelingEdges)
             }
         },
-
         loadDataModelingEdgesSuccess: () => {
             if (values.dataModelingNodes.length > 0 || !values.dataModelingNodesLoading) {
                 actions.resetGraph(values.dataModelingNodes, values.dataModelingEdges)
             }
         },
-
         resetGraph: async ({ dataModelingNodes, dataModelingEdges, fitViewAfter }) => {
             const nodeIds = new Set(dataModelingNodes.map((n) => n.id))
             const isHorizontal = values.layoutDirection === 'RIGHT'
 
-            const handlesByNodeId: Record<string, Record<string, ModelNodeHandle>> = {}
+            const handlesByNodeId: Record<string, Record<string, NodeHandle>> = {}
 
             dataModelingNodes.forEach((node) => {
                 handlesByNodeId[node.id] = {
@@ -372,13 +528,11 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                         id: `target_${node.id}`,
                         type: 'target',
                         position: isHorizontal ? Position.Left : Position.Top,
-                        ...(isHorizontal ? LEFT_HANDLE_POSITION : TOP_HANDLE_POSITION),
                     },
                     [`source_${node.id}`]: {
                         id: `source_${node.id}`,
                         type: 'source',
                         position: isHorizontal ? Position.Right : Position.Bottom,
-                        ...(isHorizontal ? RIGHT_HANDLE_POSITION : BOTTOM_HANDLE_POSITION),
                     },
                 }
             })
@@ -387,8 +541,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
             )
 
-            const nodes: ModelNode[] = sortedNodes.map((node) => {
-                const userTag = (node.properties?.user as Record<string, unknown>)?.tag as string | undefined
+            const nodes: Node[] = sortedNodes.map((node) => {
                 return {
                     id: node.id,
                     type: 'model',
@@ -399,9 +552,12 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                         dagId: node.dag_id,
                         savedQueryId: node.saved_query_id,
                         handles: Object.values(handlesByNodeId[node.id] ?? {}),
-                        userTag,
                         upstreamCount: node.upstream_count,
                         downstreamCount: node.downstream_count,
+                        userTag: node.user_tag,
+                        lastJobStatus: node.last_run_status,
+                        lastRunAt: node.last_run_at,
+                        syncInterval: node.sync_interval,
                     },
                     position: { x: 0, y: 0 },
                     deletable: true,
@@ -427,7 +583,6 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             actions.setEdges(edges)
             actions.setNodes(nodes, fitViewAfter)
         },
-
         setNodes: async ({ nodes, fitViewAfter }) => {
             if (nodes.length === 0) {
                 actions.setNodesRaw([])
@@ -439,20 +594,31 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 values.reactFlowInstance?.fitView({ padding: 0.2, maxZoom: 1 })
             }
         },
-
-        onNodesDelete: ({ deleted }) => {
-            if (deleted.some((node) => node.id === values.selectedNodeId)) {
-                actions.setSelectedNodeId(null)
-            }
-        },
-
         setLayoutDirection: () => {
             if (values.dataModelingNodes.length > 0) {
                 actions.resetGraph(values.dataModelingNodes, values.dataModelingEdges, true)
             }
         },
-
+        setSearchTerm: async ({ searchTerm }, breakpoint) => {
+            if (searchTerm.length > 0) {
+                actions.setHighlightedNodeType(null)
+            }
+            await breakpoint(150)
+            actions.setDebouncedSearchTerm(searchTerm)
+        },
         runNode: async ({ nodeId, direction }) => {
+            const { upstream, downstream } = buildAdjacencyMaps(values.edges)
+            const adjacency = direction === 'upstream' ? upstream : downstream
+            const optimisticIds = traverseGraph(nodeId, adjacency)
+            optimisticIds.add(nodeId)
+            const now = Date.now()
+            for (const id of optimisticIds) {
+                if (!nodeStartTimes.has(id)) {
+                    nodeStartTimes.set(id, now)
+                }
+            }
+            actions.setRunningNodeIds(new Set([...values.runningNodeIds, ...optimisticIds]))
+
             try {
                 const response = await api.dataModelingNodes.run(nodeId, direction)
                 actions.runNodeSuccess(nodeId, direction, response.node_ids)
@@ -461,7 +627,6 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 actions.runNodeFailure(nodeId, direction, String(e))
             }
         },
-
         materializeNode: async ({ nodeId }) => {
             try {
                 await api.dataModelingNodes.materialize(nodeId)
@@ -471,28 +636,23 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 actions.materializeNodeFailure(nodeId, String(e))
             }
         },
-
         pollRunningJobs: async () => {
+            actions.loadRecentJobs()
             try {
-                const [running, recent] = await Promise.all([
-                    api.dataModelingJobs.listRunning(),
-                    api.dataModelingJobs.listRecent(),
-                ])
+                const running = await api.dataModelingJobs.listRunning()
                 actions.pollRunningJobsSuccess(running)
-                actions.loadRecentJobsSuccess(recent)
             } catch {
-                // Keep stale data during transient failures
+                // keep stale data during transient failures
             }
         },
-
         pollRunningJobsSuccess: ({ runningJobs }) => {
             const now = Date.now()
             const runningSavedQueryIds = new Set(runningJobs.map((job) => job.saved_query_id))
             const newRunningNodeIds = new Set<string>()
 
-            for (const [savedQueryId, nodeId] of Object.entries(values.nodeIdBySavedQueryId)) {
-                if (runningSavedQueryIds.has(savedQueryId)) {
-                    newRunningNodeIds.add(nodeId)
+            for (const node of values.nodes) {
+                if (node.data.savedQueryId && runningSavedQueryIds.has(node.data.savedQueryId)) {
+                    newRunningNodeIds.add(node.id)
                 }
             }
             for (const nodeId of values.runningNodeIds) {
@@ -501,12 +661,20 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     newRunningNodeIds.add(nodeId)
                 }
             }
+
             actions.setRunningNodeIds(newRunningNodeIds)
             if (newRunningNodeIds.size === 0) {
                 actions.stopPollingRunningJobs()
             }
         },
-
+        loadRecentJobs: async () => {
+            try {
+                const recent = await api.dataModelingJobs.listRecent()
+                actions.loadRecentJobsSuccess(recent)
+            } catch {
+                // silent failure
+            }
+        },
         startPollingRunningJobs: () => {
             if (pollIntervalId) {
                 return
@@ -524,19 +692,11 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 actions.loadRecentJobs()
             }
         },
-
-        loadRecentJobs: async () => {
-            try {
-                const recentJobs = await api.dataModelingJobs.listRecent()
-                actions.loadRecentJobsSuccess(recentJobs)
-            } catch {
-                // Silently fail
-            }
-        },
     })),
     afterMount(({ actions }) => {
         actions.loadDataModelingNodes()
         actions.loadDataModelingEdges()
+        actions.loadRecentJobs()
         actions.startPollingRunningJobs()
     }),
     beforeUnmount(({ actions }) => {
