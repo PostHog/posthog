@@ -44,7 +44,7 @@ const LogsSceneContent = (): JSX.Element => {
         sparklineBreakdownBy,
         maxExportableLogs,
     } = useValues(logsSceneLogic)
-    const { teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
+    const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy, zoomDateRange } =
         useActions(logsSceneLogic)
     const openLogsSettings = useOpenLogsSettingsPanel()
@@ -58,9 +58,16 @@ const LogsSceneContent = (): JSX.Element => {
                     type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <LemonButton size="small" type="secondary" icon={<IconGear />} onClick={openLogsSettings}>
-                        Settings
-                    </LemonButton>
+                    <>
+                        {hasLogs && (
+                            <LemonButton size="small" type="secondary" id="logs-feedback-button">
+                                Send feedback
+                            </LemonButton>
+                        )}
+                        <LemonButton size="small" type="secondary" icon={<IconGear />} onClick={openLogsSettings}>
+                            Settings
+                        </LemonButton>
+                    </>
                 }
             />
             {teamHasLogsCheckFailed && (
@@ -76,13 +83,6 @@ const LogsSceneContent = (): JSX.Element => {
                     Unable to verify logs setup. If you haven't configured logging yet, check out our setup guide.
                 </LemonBanner>
             )}
-            <LemonBanner
-                type="warning"
-                dismissKey="logs-feedback-banner"
-                action={{ children: 'Send feedback', id: 'logs-feedback-button' }}
-            >
-                <p>Logs has just been released. We'd love to hear your feedback on how it's working for you.</p>
-            </LemonBanner>
             <LogsSetupPrompt>
                 <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
                     <LogsViewer

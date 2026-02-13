@@ -305,6 +305,8 @@ COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmd
 COPY --from=node-scripts-build --chown=posthog:posthog /code/nodejs/src/scripts /code/nodejs/src/scripts
 
 # Copy plugin transpiler (used by Django for site destinations/apps).
+# pnpm stores packages in node_modules/.pnpm/, workspace node_modules contain symlinks there.
+COPY --from=node-scripts-build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json

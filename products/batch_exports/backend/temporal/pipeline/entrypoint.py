@@ -95,12 +95,13 @@ async def execute_batch_export_using_internal_stage(
         num_partitions: Optionally, set a number of partitions for the internal stage
             activity.
     """
-    get_export_started_metric().add(1)
-
     if hasattr(inputs, "batch_export"):
         batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export
     else:
         batch_export_inputs = inputs
+
+    model_name = batch_export_inputs.batch_export_model.name if batch_export_inputs.batch_export_model else "events"
+    get_export_started_metric(model=model_name).add(1)
 
     assert batch_export_inputs.batch_export_id is not None
     assert batch_export_inputs.run_id is not None
@@ -202,7 +203,7 @@ async def execute_batch_export_using_internal_stage(
         raise
 
     finally:
-        get_export_finished_metric(status=finish_inputs.status.lower()).add(1)
+        get_export_finished_metric(status=finish_inputs.status.lower(), model=model_name).add(1)
 
         await workflow.execute_activity(
             finish_batch_export_run,

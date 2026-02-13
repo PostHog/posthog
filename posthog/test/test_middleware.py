@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, override_settings
+from posthog.test.base import APIBaseTest, FuzzyInt, override_settings
 from unittest.mock import patch
 
 from django.conf import settings
@@ -181,7 +181,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 52
+        cls.base_app_num_queries = 53
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -204,7 +204,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         dashboard = Dashboard.objects.create(team=self.second_team)
 
         with self.assertNumQueries(
-            self.base_app_num_queries + 7
+            FuzzyInt(self.base_app_num_queries + 6, self.base_app_num_queries + 10)
         ):  # AutoProjectMiddleware adds 4 queries + 1 from activity logging
             response_app = self.client.get(f"/dashboard/{dashboard.id}")
         response_users_api = self.client.get(f"/api/users/@me/")

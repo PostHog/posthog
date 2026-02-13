@@ -1,20 +1,65 @@
+import uuid
+import logging
 from typing import cast
 
+from django.conf import settings
 from django.db.models import Count
 
+from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
-from .models import SignalReport
-from .serializers import SignalReportArtefactSerializer, SignalReportSerializer
+from products.signals.backend.api import emit_signal
+from products.signals.backend.models import SignalReport
+from products.signals.backend.serializers import SignalReportArtefactSerializer, SignalReportSerializer
+from products.tasks.backend.temporal.client import execute_video_segment_clustering_workflow
+
+logger = logging.getLogger(__name__)
+
+
+class EmitSignalSerializer(serializers.Serializer):
+    source_product = serializers.CharField(max_length=100)
+    source_type = serializers.CharField(max_length=100)
+    description = serializers.CharField()
+    weight = serializers.FloatField(default=0.5, min_value=0.0, max_value=1.0)
+    extra = serializers.DictField(required=False, default=dict)
+
+
+# Simple debug view, to make testing out the flow easier. Disabled in production.
+class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    scope_object = "INTERNAL"
+
+    @action(methods=["POST"], detail=False)
+    def emit(self, request: Request, *args, **kwargs):
+        if not settings.DEBUG:
+            raise NotFound()
+
+        serializer = EmitSignalSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        data = serializer.validated_data
+
+        async_to_sync(emit_signal)(
+            team=self.team,
+            source_product=data["source_product"],
+            source_type=data["source_type"],
+            source_id=str(uuid.uuid4()),
+            description=data["description"],
+            weight=data["weight"],
+            extra=data["extra"],
+        )
+
+        return Response({"status": "ok"}, status=status.HTTP_202_ACCEPTED)
 
 
 @extend_schema(tags=["signal-reports"])
@@ -29,10 +74,11 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     scope_object = "task"  # Using task scope as signal_report doesn't have its own scope yet
     queryset = SignalReport.objects.all()
     posthog_feature_flag = {
-        "tasks": [
+        "product-autonomy": [
             "list",
             "retrieve",
             "artefacts",
+            "analyze_sessions",
         ]
     }
 
@@ -50,6 +96,48 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(description="Session analysis workflow completed"),
+            403: OpenApiResponse(description="Only available in DEBUG mode"),
+            500: OpenApiResponse(description="Session analysis workflow failed"),
+        },
+        summary="Run session analysis",
+        description="Run the video segment clustering workflow for this team. DEBUG only. Blocks until workflow completes.",
+    )
+    @action(detail=False, methods=["post"], url_path="analyze_sessions", required_scopes=["task:write"])
+    def analyze_sessions(self, request, **kwargs):
+        if not settings.DEBUG:
+            return Response(
+                {"error": "This endpoint is only available in DEBUG mode"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            result = execute_video_segment_clustering_workflow(team_id=self.team.id)
+
+            response_status = status.HTTP_200_OK if result.get("success") else status.HTTP_500_INTERNAL_SERVER_ERROR
+
+            return Response(
+                {
+                    "workflow_id": result["workflow_id"],
+                    "success": result.get("success"),
+                    "error": result.get("error"),
+                    "segments_processed": result.get("segments_processed"),
+                    "clusters_found": result.get("clusters_found"),
+                    "reports_created": result.get("reports_created"),
+                    "reports_updated": result.get("reports_updated"),
+                    "artefacts_created": result.get("artefacts_created"),
+                },
+                status=response_status,
+            )
+        except Exception:
+            logger.exception(f"Failed to run session analysis workflow for team {self.team.id}")
+            return Response(
+                {"error": "Failed to run session analysis workflow"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @extend_schema(
         responses={

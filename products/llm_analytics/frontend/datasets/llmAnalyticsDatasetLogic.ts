@@ -200,6 +200,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
                             description: formValues.description,
                             metadata: coerceJsonToObject(formValues.metadata),
                         })
+                        llmAnalyticsDatasetsLogic.findMounted()?.actions.loadDatasets(false)
 
                         lemonToast.success('Dataset created successfully')
                         router.actions.replace(urls.llmAnalyticsDataset(savedDataset.id))

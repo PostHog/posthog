@@ -204,6 +204,17 @@ class ExperimentQueryRunner(QueryRunner):
             metric=self.metric,
             breakdowns=self._get_breakdowns_for_builder(),
         )
+
+        if self.experiment.exposure_preaggregation_enabled:
+            try:
+                result = self._ensure_exposures_preaggregated(builder)
+                if result.ready:
+                    builder.preaggregation_job_ids = [str(job_id) for job_id in result.job_ids]
+                else:
+                    logger.warning("exposure_preaggregation_not_ready", experiment_id=self.experiment.id)
+            except Exception:
+                logger.exception("exposure_preaggregation_failed", experiment_id=self.experiment.id)
+
         return builder.build_query()
 
     def _evaluate_experiment_query(

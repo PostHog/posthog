@@ -41,6 +41,7 @@ from products.conversations.backend.cache import (
     set_cached_messages,
     set_cached_tickets,
 )
+from products.conversations.backend.events import capture_ticket_created
 from products.conversations.backend.models import Ticket
 
 logger = logging.getLogger(__name__)
@@ -154,6 +155,7 @@ class WidgetMessageView(APIView):
             )
             # Invalidate unread count cache - new ticket with unread message
             invalidate_unread_count_cache(team.id)
+            capture_ticket_created(ticket)
 
         # Create message
         comment = Comment.objects.create(
@@ -360,6 +362,7 @@ class WidgetTicketsView(APIView):
             ticket_list.append(
                 {
                     "id": str(ticket.id),
+                    "ticket_number": ticket.ticket_number,
                     "status": ticket.status,
                     "unread_count": ticket.unread_customer_count,  # Unread messages for customer
                     "last_message": ticket.last_message_text,  # Now from denormalized field

@@ -204,6 +204,7 @@ export enum AvailableFeature {
     PRODUCT_ANALYTICS_AI = 'product_analytics_ai',
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
+    APPROVALS = 'approvals',
     HIPAA_BAA = 'hipaa_baa',
     CUSTOM_MSA = 'custom_msa',
     TWOFA = '2fa',
@@ -1330,7 +1331,7 @@ export type ErrorClusterResponse = ErrorCluster[] | null
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity' | 'groups'
 
 export interface Entity {
-    id: string | number
+    id: string | number | null
     name: string
     custom_name?: string
     order: number
@@ -3403,6 +3404,8 @@ export const PRODUCT_TOUR_STEP_WIDTHS: Record<ProductTourStepWidth, number> = {
     'extra-wide': 700,
 }
 
+export type ProductTourStepTargeting = 'auto' | 'manual'
+
 export interface ProductTourStep {
     id: string
     type: ProductTourStepType
@@ -3428,8 +3431,10 @@ export interface ProductTourStep {
     screenshotMediaId?: string
     /** enhanced element data for more reliable lookup at runtime */
     inferenceData?: InferredSelector
-    /** When true, SDK uses selector directly instead of inferenceData for element matching */
+    /** SDK-only: derived from elementTargeting on save. Do not read directly in editor code. */
     useManualSelector?: boolean
+    /** Editor-only: explicit targeting mode. Derived from legacy fields on load via normalizeStep(). */
+    elementTargeting?: ProductTourStepTargeting
     /** Button configuration for tour steps (modals / announcements) */
     buttons?: ProductTourStepButtons
     /** Banner configuration (only for banner steps) */
@@ -4238,6 +4243,7 @@ export interface Experiment {
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
         variant_screenshot_media_ids?: Record<string, string[]>
+        rollout_percentage?: number
     }
     start_date?: string | null
     end_date?: string | null
@@ -4362,7 +4368,7 @@ export interface AppContext {
     current_project: ProjectType | null
     current_team: TeamType | TeamPublicType | null
     preflight: PreflightStatus
-    default_event_name: string
+    default_event_name: string | null
     persisted_feature_flags?: string[]
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
@@ -5743,6 +5749,7 @@ export enum SDKKey {
     NEXT_JS = 'nextjs',
     NODE_JS = 'nodejs',
     NUXT_JS = 'nuxtjs',
+    NUXT_JS_36 = 'nuxtjs_36',
     OLLAMA = 'ollama',
     OPENAI = 'openai',
     OPENAI_AGENTS = 'openai_agents',
@@ -5757,6 +5764,7 @@ export enum SDKKey {
     REMIX = 'remix',
     RETOOL = 'retool',
     RUBY = 'ruby',
+    RUBY_ON_RAILS = 'ruby_on_rails',
     RUDDERSTACK = 'rudderstack',
     RUST = 'rust',
     SEGMENT = 'segment',
@@ -5776,6 +5784,7 @@ export enum SDKKey {
     WORDPRESS = 'wordpress',
     XAI = 'xai',
     ZAPIER = 'zapier',
+    HONO = 'hono',
 }
 
 export enum SDKTag {
@@ -6767,7 +6776,7 @@ export interface ApprovalPolicy {
 }
 
 export interface WebAnalyticsFiltersConfig {
-    properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[]
+    properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
     dateFrom?: string | null
     dateTo?: string | null
     interval?: IntervalType
