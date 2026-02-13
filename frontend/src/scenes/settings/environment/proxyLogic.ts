@@ -6,11 +6,12 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
-import { SetupTaskId } from 'lib/components/ProductSetup/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isDomain } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { organizationLogic } from 'scenes/organizationLogic'
+
+import { SetupTaskId } from '~/queries/schema/schema-general'
 
 import type { proxyLogicType } from './proxyLogicType'
 

@@ -11,6 +11,8 @@ from urllib.parse import quote
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
+from posthog.schema import SetupTaskId
+
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
@@ -208,6 +210,10 @@ class Command(BaseCommand):
             else:
                 print("Skipping UserProductList creation.")
 
+            if existing_team_id != 0 and team:
+                print("Marking all quick start tasks as completed...")
+                self.complete_all_quick_start_tasks(team)
+
             print(
                 "\nMaster project reset!\n"
                 if existing_team_id == 0
@@ -358,3 +364,10 @@ class Command(BaseCommand):
             if created:
                 created_count += 1
         print(f"Created {created_count} UserProductList entries for {len(product_paths)} products.")
+
+    @staticmethod
+    def complete_all_quick_start_tasks(team: Team) -> None:
+        """Mark all quick start tasks as completed so the setup UI doesn't show."""
+        team.onboarding_tasks = dict.fromkeys(SetupTaskId, "completed")
+        team.save(update_fields=["onboarding_tasks"])
+        print(f"Marked {len(SetupTaskId)} quick start tasks as completed.")

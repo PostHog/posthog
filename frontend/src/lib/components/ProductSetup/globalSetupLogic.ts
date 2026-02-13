@@ -6,11 +6,11 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic as globalTeamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import { SetupTaskId } from '~/queries/schema/schema-general'
 import { ActivationTaskStatus } from '~/types'
 
 import type { globalSetupLogicType } from './globalSetupLogicType'
 import { PRODUCTS_WITH_SETUP } from './productSetupRegistry'
-import { SetupTaskId } from './types'
 
 /**
  * Global setup logic - the single source of truth for task completion and UI state.

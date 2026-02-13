@@ -14,12 +14,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { getTreeItemsProducts } from '~/products'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import type { SetupTaskId } from '~/queries/schema/schema-general'
 import { ActivationTaskStatus } from '~/types'
 
 import { globalSetupLogic } from './globalSetupLogic'
 import { productSetupLogic } from './productSetupLogic'
 import { PRODUCTS_WITH_SETUP, getProductSetupConfig, getTasksForProduct } from './productSetupRegistry'
-import type { SetupTaskId, SetupTaskWithState } from './types'
+import type { SetupTaskWithState } from './types'
 
 // Build maps from ProductKey to category and href for sorting and navigation
 const productCategoryMap: Partial<Record<ProductKey, string>> = {}
