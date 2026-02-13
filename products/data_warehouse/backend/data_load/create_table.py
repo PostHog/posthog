@@ -56,6 +56,7 @@ async def create_table_from_saved_query(
     saved_query_id_converted = str(uuid.UUID(saved_query_id))
     saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
 
+    # nosemgrep: idor-lookup-without-team (internal Temporal activity, not API-exposed)
     job = await DataModelingJob.objects.aget(id=job_id)
 
     try:

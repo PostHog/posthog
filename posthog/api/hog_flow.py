@@ -337,6 +337,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         instance_id = serializer.instance.id
 
         try:
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance_id)
         except HogFlow.DoesNotExist:
             before_update = None
