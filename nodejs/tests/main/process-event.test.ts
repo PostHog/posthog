@@ -26,6 +26,7 @@ import { ClickHouseEvent, Hub, Person, PluginsServerConfig, Team } from '../../s
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
+import { normalizeEventStep } from '../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { fetchDistinctIdValues, fetchPersons } from '../../src/worker/ingestion/persons/repositories/test-helpers'
@@ -115,6 +116,7 @@ describe('processEvent', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
+        const [normalizedEvent, eventTimestamp] = await normalizeEventStep(pluginEvent, true)
         const runner = new EventPipelineRunner(
             {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -130,11 +132,11 @@ describe('processEvent', () => {
             hub.kafkaProducer,
             hub.teamManager,
             hub.groupTypeManager,
-            pluginEvent,
+            normalizedEvent,
             personsStoreForBatch,
             groupStoreForBatch
         )
-        const res = await runner.runEventPipeline(pluginEvent, team)
+        const res = await runner.runEventPipeline(normalizedEvent, eventTimestamp, team)
         if (isOkResult(res)) {
             // Create the event
             const createEventStep = createCreateEventStep()
@@ -273,6 +275,10 @@ describe('processEvent', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
+        const [normalizedEvent, eventTimestamp] = await normalizeEventStep(
+            { ...event, team_id: event.team_id ?? team.id },
+            true
+        )
         const runner = new EventPipelineRunner(
             {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -288,11 +294,11 @@ describe('processEvent', () => {
             hub.kafkaProducer,
             hub.teamManager,
             hub.groupTypeManager,
-            event,
+            normalizedEvent,
             personsStoreForBatch,
             groupStoreForBatch
         )
-        const res = await runner.runEventPipeline(event, team)
+        const res = await runner.runEventPipeline(normalizedEvent, eventTimestamp, team)
         if (isOkResult(res)) {
             // Create the event
             const createEventStep = createCreateEventStep()

@@ -3,15 +3,19 @@ import { PerDistinctIdPipelineInput } from '../analytics'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { PipelineResult, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
-import { EventPipelineRunnerInput } from './event-pipeline-runner-v1-step'
+
+type NormalizeProcessPersonFlagOutput = PerDistinctIdPipelineInput & {
+    processPerson: boolean
+    forceDisablePersonProcessing: boolean
+}
 
 export function createNormalizeProcessPersonFlagStep(): ProcessingStep<
     PerDistinctIdPipelineInput,
-    EventPipelineRunnerInput
+    NormalizeProcessPersonFlagOutput
 > {
     return function normalizeProcessPersonFlagStep(
         input: PerDistinctIdPipelineInput
-    ): Promise<PipelineResult<EventPipelineRunnerInput>> {
+    ): Promise<PipelineResult<NormalizeProcessPersonFlagOutput>> {
         const event = input.event
         const warnings: PipelineWarning[] = []
         const forceDisablePersonProcessing = input.headers.force_disable_person_processing === true

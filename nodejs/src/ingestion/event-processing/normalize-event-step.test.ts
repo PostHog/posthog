@@ -131,7 +131,7 @@ describe('normalizeEventStep wrapper', () => {
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
-            expect(result.value.normalizedEvent.token).toBe('\uFFFDtoken')
+            expect((result.value.normalizedEvent as any).token).toBe('\uFFFDtoken')
         }
     })
 

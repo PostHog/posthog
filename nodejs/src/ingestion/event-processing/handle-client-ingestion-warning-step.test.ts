@@ -1,15 +1,13 @@
 import { v4 } from 'uuid'
 
-import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
-import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
-import { createTestTeam } from '../../../tests/helpers/team'
 import { PipelineResultType } from '../pipelines/results'
-import { EventPipelineRunnerInput } from './event-pipeline-runner-v1-step'
-import { createHandleClientIngestionWarningStep } from './handle-client-ingestion-warning-step'
+import {
+    HandleClientIngestionWarningStepInput,
+    createHandleClientIngestionWarningStep,
+} from './handle-client-ingestion-warning-step'
 
 describe('handleClientIngestionWarningStep', () => {
-    const team = createTestTeam()
     const eventUuid = v4()
 
     const baseEvent = createTestPluginEvent({
@@ -22,21 +20,15 @@ describe('handleClientIngestionWarningStep', () => {
         uuid: eventUuid,
     })
 
-    const baseInput: EventPipelineRunnerInput = {
-        message: createTestMessage(),
+    const baseInput: HandleClientIngestionWarningStepInput = {
         event: baseEvent,
-        team,
-        headers: createTestEventHeaders(),
-        groupStoreForBatch: {} as any,
-        processPerson: true,
-        forceDisablePersonProcessing: false,
     }
 
     const handleStep = createHandleClientIngestionWarningStep()
 
     describe('$$client_ingestion_warning events', () => {
         it('processes $$client_ingestion_warning event and adds warning', async () => {
-            const input: EventPipelineRunnerInput = {
+            const input: HandleClientIngestionWarningStepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
@@ -65,7 +57,7 @@ describe('handleClientIngestionWarningStep', () => {
         })
 
         it('includes message property in warning details', async () => {
-            const input: EventPipelineRunnerInput = {
+            const input: HandleClientIngestionWarningStepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
@@ -84,7 +76,7 @@ describe('handleClientIngestionWarningStep', () => {
         })
 
         it('handles missing warning message property', async () => {
-            const input: EventPipelineRunnerInput = {
+            const input: HandleClientIngestionWarningStepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
@@ -105,7 +97,7 @@ describe('handleClientIngestionWarningStep', () => {
 
     describe('non-client ingestion warning events', () => {
         it('DLQs regular events', async () => {
-            const input: EventPipelineRunnerInput = {
+            const input: HandleClientIngestionWarningStepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
@@ -124,7 +116,7 @@ describe('handleClientIngestionWarningStep', () => {
         })
 
         it('DLQs $identify events', async () => {
-            const input: EventPipelineRunnerInput = {
+            const input: HandleClientIngestionWarningStepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
@@ -143,7 +135,7 @@ describe('handleClientIngestionWarningStep', () => {
         })
 
         it('DLQs custom events', async () => {
-            const input: EventPipelineRunnerInput = {
+            const input: HandleClientIngestionWarningStepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
