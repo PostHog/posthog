@@ -1,30 +1,28 @@
-import { v4 } from 'uuid'
-
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
+import { createTestTeam } from '../../../tests/helpers/team'
 import { HogTransformerService, TransformationResult } from '../../cdp/hog-transformations/hog-transformer.service'
 import { PipelineResultType, isDropResult, isOkResult } from '../pipelines/results'
 import { HogTransformEventInput, createHogTransformEventStep } from './hog-transform-event-step'
 
+type MockHogTransformer = Pick<HogTransformerService, 'transformEventAndProduceMessages'>
+
 const createTestInput = (): HogTransformEventInput => {
     return {
-        event: {
-            uuid: v4(),
+        event: createTestPluginEvent({
             event: '$pageview',
             distinct_id: 'user-1',
             properties: { $current_url: 'https://example.com' },
-            now: new Date().toISOString(),
-        },
-        team: {
-            id: 1,
-        },
-    } as unknown as HogTransformEventInput
+        }),
+        team: createTestTeam(),
+    }
 }
 
-const createMockHogTransformer = (transformFn: (event: PluginEvent) => TransformationResult): HogTransformerService => {
+const createMockHogTransformer = (transformFn: (event: PluginEvent) => TransformationResult): MockHogTransformer => {
     return {
-        transformEventAndProduceMessages: jest.fn(transformFn),
-    } as unknown as HogTransformerService
+        transformEventAndProduceMessages: jest.fn((event) => Promise.resolve(transformFn(event))),
+    }
 }
 
 describe('createHogTransformEventStep', () => {
@@ -124,5 +122,15 @@ describe('createHogTransformEventStep', () => {
         if (isOkResult(result)) {
             expect(result.value.event.distinct_id).toBe('new-user-id')
         }
+    })
+
+    it('rethrows exceptions from the transformer', async () => {
+        const mockTransformer: MockHogTransformer = {
+            transformEventAndProduceMessages: jest.fn().mockRejectedValue(new Error('transformer broke')),
+        }
+        const hogTransformEventStep = createHogTransformEventStep(mockTransformer)
+        const input = createTestInput()
+
+        await expect(hogTransformEventStep(input)).rejects.toThrow('transformer broke')
     })
 })

@@ -19,7 +19,7 @@ export interface HogTransformEventInput {
  * If a transformation drops the event (returns null), this step returns a `drop` result.
  */
 export function createHogTransformEventStep<T extends HogTransformEventInput>(
-    hogTransformer: HogTransformerService | null
+    hogTransformer: Pick<HogTransformerService, 'transformEventAndProduceMessages'> | null
 ): ProcessingStep<T, T> {
     return async function hogTransformEventStep(input: T): Promise<PipelineResult<T>> {
         const { event } = input
