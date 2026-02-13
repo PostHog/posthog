@@ -1,4 +1,4 @@
-name: Fast Approval Slack Notifications
+name: Priority Review Slack Notifications
 
 on:
     pull_request_target:
@@ -14,12 +14,12 @@ permissions:
     pull-requests: read
 
 jobs:
-    # When a PR is labeled "fast-approval", post to #dev-stamp-exchange
-    notify-fast-approval:
+    # When a PR is labeled "priority-review", post to #dev-stamp-exchange
+    notify-priority-review:
         runs-on: ubuntu-latest
         if: >-
             github.event.action == 'labeled'
-            && github.event.label.name == 'fast-approval'
+            && github.event.label.name == 'priority-review'
         steps:
             - name: Escape PR title for YAML
               id: pr
@@ -39,13 +39,13 @@ jobs:
                   errors: true
                   payload: |
                       channel: "${{ env.SLACK_CHANNEL }}"
-                      text: "Fast approval requested: ${{ steps.pr.outputs.title }}"
+                      text: "Priority review requested: ${{ steps.pr.outputs.title }}"
                       unfurl_links: false
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":rocket: *Fast approval requested*"
+                            text: ":eyes: *Priority review requested*"
                         - type: "section"
                           fields:
                             - type: "mrkdwn"
@@ -66,36 +66,36 @@ jobs:
                   echo '{}' | jq \
                     --arg channel "${{ steps.slack.outputs.channel_id }}" \
                     --arg ts "${{ steps.slack.outputs.ts }}" \
-                    '{channel: $channel, ts: $ts}' > .fast-approval-slack
+                    '{channel: $channel, ts: $ts}' > .priority-review-slack
 
             - name: Cache Slack message info
               uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
-                  path: .fast-approval-slack
-                  key: fast-approval-slack-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
+                  path: .priority-review-slack
+                  key: priority-review-slack-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
 
-    # When a fast-approval PR is approved, react and thread-reply on the Slack message
-    notify-approval:
+    # When a priority-review PR is approved, react and thread-reply on the Slack message
+    notify-reviewed:
         runs-on: ubuntu-latest
         if: >-
             github.event.action == 'submitted'
             && github.event.review.state == 'approved'
-            && contains(github.event.pull_request.labels.*.name, 'fast-approval')
+            && contains(github.event.pull_request.labels.*.name, 'priority-review')
         steps:
             - name: Restore Slack message info
               uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
-                  path: .fast-approval-slack
-                  key: fast-approval-slack-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
-                  restore-keys: fast-approval-slack-pr-${{ github.event.pull_request.number }}-
+                  path: .priority-review-slack
+                  key: priority-review-slack-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
+                  restore-keys: priority-review-slack-pr-${{ github.event.pull_request.number }}-
 
             - name: Read Slack message info
               id: slack_msg
               run: |
-                  if [ -f .fast-approval-slack ]; then
+                  if [ -f .priority-review-slack ]; then
                     echo "found=true" >> $GITHUB_OUTPUT
-                    echo "channel=$(jq -r '.channel' .fast-approval-slack)" >> $GITHUB_OUTPUT
-                    echo "ts=$(jq -r '.ts' .fast-approval-slack)" >> $GITHUB_OUTPUT
+                    echo "channel=$(jq -r '.channel' .priority-review-slack)" >> $GITHUB_OUTPUT
+                    echo "ts=$(jq -r '.ts' .priority-review-slack)" >> $GITHUB_OUTPUT
                   else
                     echo "found=false" >> $GITHUB_OUTPUT
                   fi
@@ -120,7 +120,7 @@ jobs:
                   script: |
                       const reviewer = context.payload.review.user.login;
                       const body = (context.payload.review.body || '').trim();
-                      let text = `:white_check_mark: Approved by *${reviewer}*`;
+                      let text = `:white_check_mark: Reviewed and approved by *${reviewer}*`;
                       if (body) {
                         const truncated = body.length > 500
                           ? body.substring(0, 500) + '...'
