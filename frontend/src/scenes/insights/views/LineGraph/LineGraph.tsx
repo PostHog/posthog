@@ -422,12 +422,6 @@ export function LineGraph_({
                 },
             },
             borderWidth: isBar ? 0 : 2,
-            // pointRadius and hitRadius are set above, but might be overridden by spread of dataset below if it has its own settings.
-            // We want our optimization to take precedence if the dataset is large, but respect manual overrides for small datasets.
-            // However, the `...dataset` spread below will override what we set above.
-            // So we need to ensure our optimization logic runs AFTER the spread if we want to enforce it for large datasets,
-            // OR we rely on the fact that `adjustedData` logic is specific to this component's rendering needs.
-            // Let's stick with the spread order but ensure we handle single-point datasets correctly as before.
             pointRadius:
                 Array.isArray(adjustedData) && adjustedData.length === 1
                     ? 4
@@ -604,7 +598,7 @@ export function LineGraph_({
                 },
                 plugins: {
                     decimation: {
-                        enabled: datasets[0]?.data?.length > 100,
+                        enabled: (datasets[0]?.data?.length || 0) > 100,
                         algorithm: 'min-max',
                     },
                     stacked100: { enable: isPercentStackView, precision: 1 },
