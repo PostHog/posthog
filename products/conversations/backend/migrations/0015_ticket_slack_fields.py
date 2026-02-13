@@ -19,11 +19,9 @@ class Migration(migrations.Migration):
             name="slack_thread_ts",
             field=models.CharField(blank=True, max_length=64, null=True),
         ),
-        migrations.AddIndex(
+        migrations.AddField(
             model_name="ticket",
-            index=models.Index(
-                fields=["team", "slack_channel_id", "slack_thread_ts"],
-                name="posthog_con_slack_thread_idx",
-            ),
+            name="slack_team_id",
+            field=models.CharField(blank=True, max_length=64, null=True),
         ),
     ]

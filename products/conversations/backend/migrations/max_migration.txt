@@ -1,1 +1,1 @@
-0016_ticket_slack_team_id
+0016_ticket_slack_thread_idx

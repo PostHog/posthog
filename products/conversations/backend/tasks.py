@@ -1,6 +1,5 @@
 """Celery tasks for the conversations product."""
 
-import hashlib
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -15,16 +14,6 @@ from posthog.storage import object_storage
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
 
 logger = structlog.get_logger(__name__)
-
-
-def get_gravatar_url(email: str | None) -> str | None:
-    """Generate Gravatar URL from email."""
-    if not email:
-        return None
-    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
-    # Gravatar API contract specifically requires MD5(email); not used as a cryptographic primitive.
-    email_hash = hashlib.md5(email.strip().lower().encode()).hexdigest()
-    return f"https://www.gravatar.com/avatar/{email_hash}?s=96&d=identicon"
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
@@ -80,11 +69,6 @@ def post_reply_to_slack(
     }
     if slack_blocks:
         message_kwargs["blocks"] = slack_blocks
-
-    # Add Gravatar if we have an email
-    icon_url = get_gravatar_url(author_email)
-    if icon_url:
-        message_kwargs["icon_url"] = icon_url
 
     try:
         if slack_text.strip() or slack_blocks:
@@ -154,7 +138,6 @@ def post_reply_to_slack(
                     thread_ts=slack_thread_ts,
                     text=fallback_text,
                     username=author_name or "Support",
-                    icon_url=icon_url if icon_url else None,
                 )
                 logger.warning(
                     "🖼️ slack_reply_image_upload_fallback_links_posted",
