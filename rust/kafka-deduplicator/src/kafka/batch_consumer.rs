@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use crate::kafka::batch_context::{BatchConsumerContext, ConsumerCommand, ConsumerCommandReceiver};
 use crate::kafka::batch_message::{Batch, BatchError, KafkaMessage};
+use crate::kafka::error_handling;
 use crate::kafka::metrics_consts::{
     BATCH_CONSUMER_BATCH_COLLECTION_DURATION_MS, BATCH_CONSUMER_BATCH_FILL_RATIO,
     BATCH_CONSUMER_BATCH_SIZE, BATCH_CONSUMER_KAFKA_ERROR, BATCH_CONSUMER_MESSAGES_RECEIVED,
@@ -17,13 +18,12 @@ use axum::async_trait;
 use futures_util::StreamExt;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{CommitMode, Consumer, MessageStream, StreamConsumer};
-use rdkafka::error::{KafkaError, KafkaResult, RDKafkaErrorCode};
+use rdkafka::error::KafkaResult;
 use rdkafka::message::Message;
 use rdkafka::TopicPartitionList;
 use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot::Receiver;
-use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 #[async_trait]
@@ -250,131 +250,6 @@ where
         Ok(())
     }
 
-    async fn handle_kafka_error(e: KafkaError, current_count: u64) -> Option<KafkaError> {
-        match &e {
-            KafkaError::MessageConsumption(code) => {
-                match code {
-                    RDKafkaErrorCode::PartitionEOF => {
-                        metrics::counter!(
-                            BATCH_CONSUMER_KAFKA_ERROR,
-                            &[("level", "info"), ("error", "partition_eof"),]
-                        )
-                        .increment(1);
-                    }
-                    RDKafkaErrorCode::OperationTimedOut => {
-                        metrics::counter!(
-                            BATCH_CONSUMER_KAFKA_ERROR,
-                            &[("level", "info"), ("error", "op_timed_out"),]
-                        )
-                        .increment(1);
-                    }
-                    RDKafkaErrorCode::OffsetOutOfRange => {
-                        // "auto.offset.reset" will trigger a seek to head or tail
-                        // of the partition in coordination with the broker
-                        warn!("Offset out of range - seeking to configured offset reset policy",);
-                        metrics::counter!(
-                            BATCH_CONSUMER_KAFKA_ERROR,
-                            &[("level", "info"), ("error", "offset_out_of_range"),]
-                        )
-                        .increment(1);
-                        sleep(Duration::from_millis(500)).await;
-                    }
-                    _ => {
-                        warn!("Kafka consumer error: {code:?}");
-                        metrics::counter!(
-                            BATCH_CONSUMER_KAFKA_ERROR,
-                            &[("level", "warn"), ("error", "consumer"),]
-                        )
-                        .increment(1);
-                        sleep(Duration::from_millis(100 * current_count.min(10))).await;
-                    }
-                }
-
-                None
-            }
-
-            KafkaError::MessageConsumptionFatal(code) => {
-                error!("Fatal Kafka consumer error: {code:?}");
-                metrics::counter!(
-                    BATCH_CONSUMER_KAFKA_ERROR,
-                    &[("level", "fatal"), ("error", "consumer"),]
-                )
-                .increment(1);
-
-                Some(e)
-            }
-
-            // Connection issues
-            KafkaError::Global(code) => {
-                match code {
-                    RDKafkaErrorCode::AllBrokersDown => {
-                        warn!("All brokers down: {code:?} - waiting for reconnect");
-                        metrics::counter!(
-                            BATCH_CONSUMER_KAFKA_ERROR,
-                            &[("level", "warn"), ("error", "all_brokers_down"),]
-                        )
-                        .increment(1);
-                        sleep(Duration::from_secs(current_count.min(5))).await;
-                    }
-                    RDKafkaErrorCode::BrokerTransportFailure => {
-                        warn!("Broker transport failure: {code:?} - waiting for reconnect");
-                        metrics::counter!(
-                            BATCH_CONSUMER_KAFKA_ERROR,
-                            &[("level", "warn"), ("error", "broker_transport"),]
-                        )
-                        .increment(1);
-                        sleep(Duration::from_secs(current_count.min(3))).await;
-                    }
-                    RDKafkaErrorCode::Authentication => {
-                        error!("Authentication failed: {code:?}");
-                        metrics::counter!(
-                            BATCH_CONSUMER_KAFKA_ERROR,
-                            &[("level", "fatal"), ("error", "authentication"),]
-                        )
-                        .increment(1);
-                        return Some(e);
-                    }
-                    _ => {
-                        warn!("Global Kafka error: {code:?}");
-                        metrics::counter!(
-                            BATCH_CONSUMER_KAFKA_ERROR,
-                            &[("level", "warn"), ("error", "global"),]
-                        )
-                        .increment(1);
-                        sleep(Duration::from_millis(500 * current_count.min(6))).await;
-                    }
-                }
-
-                None
-            }
-
-            // Shutdown signal
-            KafkaError::Canceled => {
-                info!("Consumer canceled - shutting down");
-                metrics::counter!(
-                    BATCH_CONSUMER_KAFKA_ERROR,
-                    &[("level", "info"), ("error", "canceled"),]
-                )
-                .increment(1);
-
-                Some(e)
-            }
-
-            // Other errors
-            _ => {
-                error!("Unexpected error: {e:#}");
-                metrics::counter!(
-                    BATCH_CONSUMER_KAFKA_ERROR,
-                    &[("level", "fatal"), ("error", "unexpected"),]
-                )
-                .increment(1);
-                sleep(Duration::from_millis(100 * current_count.min(10))).await;
-
-                None
-            }
-        }
-    }
-
     // NOT FOR PROD - handy for integration smoke tests
     pub fn inner_consumer(&self) -> &StreamConsumer<BatchConsumerContext> {
         &self.consumer
@@ -478,7 +353,9 @@ where
                         }
                         Some(Err(e)) => {
                             kafka_error_count += 1;
-                            if let Some(ke) = Self::handle_kafka_error(e, kafka_error_count).await {
+                            if let Some(ke) =
+                                error_handling::handle_kafka_error(e, kafka_error_count, BATCH_CONSUMER_KAFKA_ERROR).await
+                            {
                                 // only fatal, unhandleable, or retriable errors that have
                                 // exhausted attempts will be returned, which breaks the
                                 // consume loop and ends processing, causing pod to reset
