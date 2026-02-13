@@ -50,7 +50,14 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         .pipe(createNormalizeProcessPersonFlagStep())
         .pipe(createHogTransformEventStep(hogTransformer))
         .pipe(
-            createEventPipelineRunnerV1Step(options, kafkaProducer, teamManager, groupTypeManager, personsStore, groupStore)
+            createEventPipelineRunnerV1Step(
+                options,
+                kafkaProducer,
+                teamManager,
+                groupTypeManager,
+                personsStore,
+                groupStore
+            )
         )
         .pipe(
             createExtractHeatmapDataStep({

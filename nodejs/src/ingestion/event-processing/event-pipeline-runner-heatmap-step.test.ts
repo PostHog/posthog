@@ -4,7 +4,6 @@ import { v4 } from 'uuid'
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestPipelineEvent } from '../../../tests/helpers/pipeline-event'
 import { createTestTeam } from '../../../tests/helpers/team'
-import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, ISOTimestamp, PipelineEvent, PreIngestionEvent, ProjectId, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
@@ -55,7 +54,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
     let mockKafkaProducer: KafkaProducerWrapper
     let mockTeamManager: TeamManager
     let mockGroupTypeManager: GroupTypeManager
-    let mockHogTransformer: HogTransformerService
     let mockPersonsStore: PersonsStore
     let mockGroupStore: BatchWritingGroupStore
     let mockEventPipelineRunner: jest.Mocked<EventPipelineRunner>
@@ -80,7 +78,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
         mockKafkaProducer = {} as KafkaProducerWrapper
         mockTeamManager = {} as TeamManager
         mockGroupTypeManager = {} as GroupTypeManager
-        mockHogTransformer = {} as HogTransformerService
         mockPersonsStore = {} as PersonsStore
         mockGroupStore = {} as BatchWritingGroupStore
 
@@ -135,7 +132,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockEvent,
             mockPersonsStore,
             mockGroupStore,
-            mockHeaders,
+            mockHeaders
         )
         expect(mockEventPipelineRunner.runHeatmapPipeline).toHaveBeenCalledWith(mockEvent, mockTimestamp, mockTeam)
         expect(result.type).toBe(PipelineResultType.OK)
