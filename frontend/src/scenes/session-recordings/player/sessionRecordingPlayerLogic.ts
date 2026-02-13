@@ -735,6 +735,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (playNextRecording): ((automatic: boolean) => void) | undefined => playNextRecording,
         ],
 
+        // Whether seekToTimestamp should force playback based on the user's explicit play/pause intent.
+        // Used when resuming from buffering, segment transitions, and player initialization to avoid
+        // losing the play intent that autoPlay or the user's play action originally set.
+        shouldForcePlay: [(s) => [s.playingState], (playingState) => playingState === SessionPlayerState.PLAY],
+
         hasSnapshots: [
             (s) => [s.sessionPlayerData],
             (sessionPlayerData: SessionPlayerData) => {
@@ -1342,9 +1347,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlayer: ({ player }) => {
             if (player) {
                 if (values.currentTimestamp !== undefined) {
-                    // Preserve play intent so autoPlay works when the player initializes after data loads
-                    const shouldPlay = values.playingState === SessionPlayerState.PLAY
-                    actions.seekToTimestamp(values.currentTimestamp, shouldPlay)
+                    actions.seekToTimestamp(values.currentTimestamp, values.shouldForcePlay)
                 }
                 actions.syncPlayerSpeed()
                 // Ensure we respect the persisted playing state when the player is reinitialized
@@ -1387,9 +1390,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Otherwise keep existing player visible (last valid frame)
             }
             if (values.currentTimestamp !== undefined) {
-                // Preserve play intent so playback resumes after segment transitions (e.g. after buffering)
-                const shouldPlay = values.playingState === SessionPlayerState.PLAY
-                actions.seekToTimestamp(values.currentTimestamp, shouldPlay)
+                actions.seekToTimestamp(values.currentTimestamp, values.shouldForcePlay)
             }
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
@@ -1415,10 +1416,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const isBuffering = isBufferingSegment || values.isWaitingForPlayableFullSnapshot
 
             if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
-                // Preserve the playing intent so seekToTimestamp resumes playback
-                const shouldPlay = values.playingState === SessionPlayerState.PLAY
                 actions.endBuffer()
-                actions.seekToTimestamp(values.currentTimestamp, shouldPlay)
+                actions.seekToTimestamp(values.currentTimestamp, values.shouldForcePlay)
             }
         },
         initializePlayerFromStart: () => {

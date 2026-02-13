@@ -75,9 +75,6 @@ catalogs:
     lint-staged:
       specifier: ~15.4.3
       version: 15.4.3
-    posthog-js:
-      specifier: 1.345.2
-      version: 1.345.2
     prettier:
       specifier: ^3.6.2
       version: 3.6.2
@@ -7430,9 +7427,6 @@ packages:
 
   '@poppinss/exception@1.2.3':
     resolution: {integrity: sha512-dCED+QRChTVatE9ibtoaxc+WkdzOSjYTKi/+uacHWIsfodVfpsueo3+DKpgU5Px8qXjgmXkSvhXvSCz3fnP9lw==}
-
-  '@posthog/core@1.21.0':
-    resolution: {integrity: sha512-0a2JUIX1vhduP2El/6/J8s5AeYAurIoufQGFgMiGnJE5ajd63o9LFocu2vFYYBnIOmy75y4ADNeW8zSl1keEQQ==}
 
   '@posthog/core@1.22.0':
     resolution: {integrity: sha512-WkmOnq95aAOu6yk6r5LWr5cfXsQdpVbWDCwOxQwxSne8YV6GuZET1ziO5toSQXgrgbdcjrSz2/GopAfiL6iiAA==}
@@ -27783,10 +27777,6 @@ snapshots:
       supports-color: 10.2.2
 
   '@poppinss/exception@1.2.3': {}
-
-  '@posthog/core@1.21.0':
-    dependencies:
-      cross-spawn: 7.0.6
 
   '@posthog/core@1.22.0':
     dependencies:
