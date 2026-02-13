@@ -83,7 +83,7 @@ export function ExperimentWizard(): JSX.Element {
                             targetBlankIcon
                             to="https://posthog.com/docs/experiments/no-code-web-experiments"
                         >
-                            read more
+                            see no-code docs
                         </Link>
                     </p>
                 </div>

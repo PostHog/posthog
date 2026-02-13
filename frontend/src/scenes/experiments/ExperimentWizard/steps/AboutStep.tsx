@@ -56,23 +56,28 @@ export function AboutStep(): JSX.Element {
                     }}
                 />
             ) : (
-                <LemonField.Pure label="Feature flag key">
-                    <div className="flex items-center gap-2">
-                        <LemonInput
-                            placeholder="e.g., new-checkout-flow-test"
-                            value={experiment.feature_flag_key ?? ''}
-                            onChange={(value) => setExperimentValue('feature_flag_key', value)}
-                            data-attr="experiment-wizard-flag-key"
-                            fullWidth
-                        />
+                <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                        <label className="text-sm font-semibold">Feature flag key</label>
+                        <span className="text-muted text-sm">
+                            Do you have a feature flag already?{' '}
+                            <Link
+                                className="whitespace-nowrap text-sm"
+                                subtle
+                                onClick={openSelectExistingFeatureFlagModal}
+                            >
+                                Select existing flag
+                            </Link>
+                        </span>
                     </div>
-                    <div className="flex items-center justify-end gap-1 text-sm">
-                        Do you have a feature flag already?{' '}
-                        <Link className="whitespace-nowrap text-sm" subtle onClick={openSelectExistingFeatureFlagModal}>
-                            Select existing flag
-                        </Link>
-                    </div>
-                </LemonField.Pure>
+                    <LemonInput
+                        placeholder="e.g., new-checkout-flow-test"
+                        value={experiment.feature_flag_key ?? ''}
+                        onChange={(value) => setExperimentValue('feature_flag_key', value)}
+                        data-attr="experiment-wizard-flag-key"
+                        fullWidth
+                    />
+                </div>
             )}
 
             <SelectExistingFeatureFlagModal
