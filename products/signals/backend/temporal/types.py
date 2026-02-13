@@ -45,6 +45,17 @@ class SignalResearchWorkflowInputs:
 
 
 @dataclass
+class SignalTypeExample:
+    """One example signal per unique (source_product, source_type) pair, used to give the LLM context."""
+
+    source_product: str
+    source_type: str
+    content: str
+    timestamp: str
+    extra: dict = field(default_factory=dict)
+
+
+@dataclass
 class SignalData:
     """Data about a signal fetched from ClickHouse."""
 

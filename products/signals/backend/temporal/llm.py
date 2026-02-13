@@ -17,6 +17,7 @@ from products.signals.backend.temporal.types import (
     NewReportMatch,
     SignalCandidate,
     SignalData,
+    SignalTypeExample,
 )
 
 logger = structlog.get_logger(__name__)
@@ -54,10 +55,14 @@ class QueryGenerationResponse(BaseModel):
     queries: list[str] = Field(min_length=1, max_length=3)
 
 
-QUERY_GENERATION_SYSTEM_PROMPT = f"""You are a signal grouping assistant. Your job is to generate search queries that will help find related signals in an embedding database.
+QUERY_GENERATION_SYSTEM_PROMPT_TEMPLATE = """You are a signal grouping assistant. Your job is to generate search queries that will help find related signals in an embedding database.
 
 Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.
 Related signals may be different types but connected by the same underlying cause, feature, or user journey. Note that "related" does not just mean "semantically similar", but "likely to share a common root cause or impact".
+
+The signal database is heterogeneous — it contains many different signal types. Your queries should search ACROSS these types to find signals that share a common root cause, affected feature, or user journey with the new signal. Do NOT try to generate one query per signal type. Instead, generate queries that would surface related signals regardless of their type.
+
+{examples_section}
 
 Given a new signal, generate 1-3 search queries that would help find related signals. Each query should be a natural language description that captures a different angle of what might be related:
 
@@ -65,9 +70,27 @@ Given a new signal, generate 1-3 search queries that would help find related sig
 2. The type of user behavior or technical issue
 3. The broader category or business impact
 
-Keep queries concise but descriptive - they have a maximum length of {MAX_QUERY_TOKENS} tokens. Each query will be embedded and used for semantic similarity search.
+Keep queries concise but descriptive - they have a maximum length of {max_query_tokens} tokens. Each query will be embedded and used for semantic similarity search.
 
 Respond with a JSON object containing a "queries" array with 1-3 query strings. Return ONLY valid JSON, no other text."""
+
+
+def _build_query_generation_system_prompt(signal_type_examples: list[SignalTypeExample]) -> str:
+    """Build the query generation system prompt, optionally including signal type examples."""
+    if signal_type_examples:
+        lines = [
+            "Here are examples of signal types currently in the database, to help you understand what kinds of signals your queries might match against:\n"
+        ]
+        for ex in signal_type_examples:
+            lines.append(f'- {ex.source_product} / {ex.source_type} (last seen: {ex.timestamp}): "{ex.content[:300]}"')
+        examples_section = "\n".join(lines)
+    else:
+        examples_section = ""
+
+    return QUERY_GENERATION_SYSTEM_PROMPT_TEMPLATE.format(
+        examples_section=examples_section,
+        max_query_tokens=MAX_QUERY_TOKENS,
+    )
 
 
 def _truncate_query_to_token_limit(query: str, max_tokens: int = MAX_QUERY_TOKENS) -> str:
@@ -98,11 +121,14 @@ async def generate_search_queries(
     description: str,
     source_product: str,
     source_type: str,
+    signal_type_examples: list[SignalTypeExample] | None = None,
 ) -> list[str]:
     """
     Use LLM to generate 1-3 search queries for finding related signals.
     Returns queries truncated to fit within embedding token limits.
     """
+
+    system_prompt = _build_query_generation_system_prompt(signal_type_examples or [])
 
     user_prompt = f"""NEW SIGNAL:
 - Source: {source_product} / {source_type}
@@ -120,7 +146,7 @@ async def generate_search_queries(
         try:
             response = await client.messages.create(
                 model=MATCHING_MODEL,
-                system=QUERY_GENERATION_SYSTEM_PROMPT,
+                system=system_prompt,
                 messages=messages,
                 max_tokens=1024,
                 temperature=0.7,

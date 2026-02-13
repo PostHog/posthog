@@ -27,6 +27,7 @@ from products.signals.backend.temporal.types import (
     NewReportMatch,
     SignalCandidate,
     SignalData,
+    SignalTypeExample,
 )
 
 logger = structlog.get_logger(__name__)
@@ -69,10 +70,96 @@ async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbed
 
 
 @dataclass
+class FetchSignalTypeExamplesInput:
+    team_id: int
+
+
+@dataclass
+class FetchSignalTypeExamplesOutput:
+    examples: list[SignalTypeExample]
+
+
+@temporalio.activity.defn
+async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInput) -> FetchSignalTypeExamplesOutput:
+    """Fetch one example signal per unique (source_product, source_type) pair from ClickHouse."""
+    try:
+        team = await Team.objects.aget(pk=input.team_id)
+
+        query = """
+            SELECT -- Grab the latest unique example of each signal type
+                source_product,
+                source_type,
+                argMax(content, timestamp) as example_content,
+                argMax(metadata, timestamp) as example_metadata,
+                toString(max(timestamp)) as latest_timestamp
+            FROM ( -- From the set of most recent versions where the signal appeared at most a month ago
+                SELECT
+                    JSONExtractString(metadata, 'source_product') as source_product,
+                    JSONExtractString(metadata, 'source_type') as source_type,
+                    content,
+                    metadata,
+                    timestamp
+                FROM ( -- From the most recent versions of all signals
+                    SELECT
+                        document_id,
+                        argMax(content, inserted_at) as content,
+                        argMax(metadata, inserted_at) as metadata,
+                        argMax(timestamp, inserted_at) as timestamp
+                    FROM document_embeddings
+                    WHERE model_name = {model_name}
+                      AND product = 'signals'
+                      AND document_type = 'signal'
+                    GROUP BY document_id
+                )
+                WHERE content != ''
+                  AND timestamp >= now() - INTERVAL 1 MONTH
+            )
+            GROUP BY source_product, source_type
+        """
+
+        result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
+            query_type="SignalsFetchTypeExamples",
+            query=query,
+            team=team,
+            placeholders={
+                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            },
+        )
+
+        examples = []
+        for row in result.results or []:
+            source_product, source_type, content, metadata_str, timestamp = row
+            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str or {}
+            examples.append(
+                SignalTypeExample(
+                    source_product=source_product,
+                    source_type=source_type,
+                    content=content,
+                    timestamp=timestamp,
+                    extra=metadata.get("extra", {}),
+                )
+            )
+
+        logger.debug(
+            f"Fetched {len(examples)} signal type examples for team {input.team_id}",
+            team_id=input.team_id,
+            example_count=len(examples),
+        )
+        return FetchSignalTypeExamplesOutput(examples=examples)
+    except Exception as e:
+        logger.exception(
+            f"Failed to fetch signal type examples for team {input.team_id}: {e}",
+            team_id=input.team_id,
+        )
+        raise
+
+
+@dataclass
 class GenerateSearchQueriesInput:
     description: str
     source_product: str
     source_type: str
+    signal_type_examples: list[SignalTypeExample]
 
 
 @dataclass
@@ -88,6 +175,7 @@ async def generate_search_queries_activity(input: GenerateSearchQueriesInput) ->
             description=input.description,
             source_product=input.source_product,
             source_type=input.source_type,
+            signal_type_examples=input.signal_type_examples,
         )
         logger.debug(
             f"Generated {len(queries)} search queries",

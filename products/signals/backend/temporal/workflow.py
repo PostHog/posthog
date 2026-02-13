@@ -19,6 +19,7 @@ from products.signals.backend.temporal.activities import (
     EmitToClickHouseInput,
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
+    FetchSignalTypeExamplesInput,
     GenerateEmbeddingInput,
     GenerateEmbeddingOutput,
     GenerateSearchQueriesInput,
@@ -32,6 +33,7 @@ from products.signals.backend.temporal.activities import (
     SummarizeSignalsOutput,
     assign_signal_to_report_activity,
     emit_to_clickhouse_activity,
+    fetch_signal_type_examples_activity,
     fetch_signals_for_report_activity,
     generate_search_queries_activity,
     get_embedding_activity,
@@ -75,7 +77,8 @@ class EmitSignalWorkflow(PostHogWorkflow):
     async def run(self, inputs: EmitSignalInputs) -> str:
         signal_id = str(uuid.uuid4())
 
-        embedding_result, search_queries_result = await asyncio.gather(
+        # Fetch signal type examples and embedding in parallel (examples needed for query generation)
+        embedding_result, type_examples_result = await asyncio.gather(
             workflow.execute_activity(
                 get_embedding_activity,
                 GenerateEmbeddingInput(team_id=inputs.team_id, content=inputs.description),
@@ -83,15 +86,23 @@ class EmitSignalWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             ),
             workflow.execute_activity(
-                generate_search_queries_activity,
-                GenerateSearchQueriesInput(
-                    description=inputs.description,
-                    source_product=inputs.source_product,
-                    source_type=inputs.source_type,
-                ),
-                start_to_close_timeout=timedelta(minutes=5),
+                fetch_signal_type_examples_activity,
+                FetchSignalTypeExamplesInput(team_id=inputs.team_id),
+                start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             ),
+        )
+
+        search_queries_result = await workflow.execute_activity(
+            generate_search_queries_activity,
+            GenerateSearchQueriesInput(
+                description=inputs.description,
+                source_product=inputs.source_product,
+                source_type=inputs.source_type,
+                signal_type_examples=type_examples_result.examples,
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
         queries = search_queries_result.queries
