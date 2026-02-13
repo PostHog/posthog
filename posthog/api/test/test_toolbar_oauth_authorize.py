@@ -9,14 +9,21 @@ class TestAuthorizeAndRedirectOAuth(APIBaseTest):
         super().setUp()
         self.team.app_urls = ["https://mysite.com"]
         self.team.save()
+        self.user.current_team = self.team
+        self.user.save(update_fields=["current_team"])
+        self.client.force_login(self.user)
 
     def _get_authorize(self, redirect_url: str = "https://mysite.com/page"):
         return self.client.get(f"/authorize_and_redirect/?redirect={redirect_url}", HTTP_REFERER=redirect_url)
 
+    def _assert_authorize_ok(self, response):
+        assert response.status_code == 200, (
+            f"Expected 200 from authorize_and_redirect, got {response.status_code}. Body: {response.content[:500]!r}"
+        )
+
     def test_renders_oauth_authorize_url_when_enabled(self):
         response = self._get_authorize()
-
-        assert response.status_code == 200
+        self._assert_authorize_ok(response)
         content = response.content.decode()
         assert "/oauth/authorize" in content
         assert "code_challenge" in content
@@ -25,8 +32,7 @@ class TestAuthorizeAndRedirectOAuth(APIBaseTest):
     @override_settings(TOOLBAR_OAUTH_ENABLED=False)
     def test_renders_legacy_redirect_when_disabled(self):
         response = self._get_authorize()
-
-        assert response.status_code == 200
+        self._assert_authorize_ok(response)
         content = response.content.decode()
         assert "/api/user/redirect_to_site" in content
         assert "/oauth/authorize" not in content
@@ -43,7 +49,7 @@ class TestAuthorizeAndRedirectOAuth(APIBaseTest):
 
     def test_oauth_url_contains_state_and_pkce_params(self):
         response = self._get_authorize()
-
+        self._assert_authorize_ok(response)
         content = response.content.decode()
         assert "state=" in content
         assert "code_challenge=" in content
@@ -51,7 +57,7 @@ class TestAuthorizeAndRedirectOAuth(APIBaseTest):
 
     def test_oauth_url_contains_correct_redirect_uri(self):
         response = self._get_authorize()
-
+        self._assert_authorize_ok(response)
         content = response.content.decode()
         assert "redirect_uri=" in content
         assert "toolbar_oauth" in content
@@ -59,8 +65,7 @@ class TestAuthorizeAndRedirectOAuth(APIBaseTest):
 
     def test_code_verifier_is_stored_in_session(self):
         response = self._get_authorize()
-
-        assert response.status_code == 200
+        self._assert_authorize_ok(response)
 
         session = self.client.session
         assert "toolbar_oauth_code_verifier" in session
