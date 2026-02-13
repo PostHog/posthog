@@ -24,7 +24,7 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const ROOT_DIR = path.resolve(__dirname, '..')
-const TYPES_FILE = path.join(ROOT_DIR, 'frontend/src/lib/components/ProductSetup/types.ts')
+const TYPES_FILE = path.join(ROOT_DIR, 'frontend/src/queries/schema/schema-general.ts')
 const REGISTRY_FILE = path.join(ROOT_DIR, 'frontend/src/lib/components/ProductSetup/productSetupRegistry.ts')
 const SEARCH_PATHS = ['frontend/src', 'products']
 
@@ -34,7 +34,7 @@ function extractSetupTaskIds() {
     // Find the SetupTaskId enum
     const enumMatch = content.match(/export enum SetupTaskId \{([\s\S]*?)\n\}/)
     if (!enumMatch) {
-        console.error('ERROR: Could not find SetupTaskId enum in types.ts')
+        console.error('ERROR: Could not find SetupTaskId enum in schema-general.ts')
         process.exit(1)
     }
 
@@ -68,7 +68,7 @@ function checkTaskHasCompletionCode(taskId) {
             execSync(
                 // Safe: taskId is extracted from our own source code via regex matching only [A-Za-z]+ characters
                 // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
-                `grep -r "${pattern}" "${fullPath}" --include="*.ts" --include="*.tsx" --exclude="types.ts" --exclude="productSetupRegistry.ts" -q 2>/dev/null`,
+                `grep -r "${pattern}" "${fullPath}" --include="*.ts" --include="*.tsx" --exclude="schema-general.ts" --exclude="productSetupRegistry.ts" -q 2>/dev/null`,
                 {
                     encoding: 'utf-8',
                 }

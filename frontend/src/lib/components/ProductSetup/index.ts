@@ -23,7 +23,7 @@ export {
 export { useSetupHighlight } from './useSetupHighlight'
 
 // Enums (must be exported as values, not types)
-export { SetupTaskId } from './types'
+export { SetupTaskId } from '~/queries/schema/schema-general'
 
 // Types
 export type { SetupTask, SetupTaskWithState, TaskType, ProductSetupConfig } from './types'

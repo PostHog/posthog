@@ -8,13 +8,14 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { SetupTaskId } from '~/queries/schema/schema-general'
 import { ActivationTaskStatus } from '~/types'
 
 import { reverseProxyCheckerLogic } from '../ReverseProxyChecker/reverseProxyCheckerLogic'
 import { globalSetupLogic } from './globalSetupLogic'
 import type { productSetupLogicType } from './productSetupLogicType'
 import { getProductSetupConfig, getTasksForProduct } from './productSetupRegistry'
-import { SetupTaskId, type SetupTaskWithState } from './types'
+import type { SetupTaskWithState } from './types'
 
 export interface ProductSetupLogicProps {
     productKey: ProductKey

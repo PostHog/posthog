@@ -1,9 +1,10 @@
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import { SetupTaskId } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, ReplayTabs } from '~/types'
 
-import { type ProductSetupConfig, type SetupTask, SetupTaskId } from './types'
+import type { ProductSetupConfig, SetupTask } from './types'
 
 // ============================================================================
 // Shared Tasks - reusable across products
