@@ -298,13 +298,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """
         # Use atomic update to safely check and reset is_calculating flag
         # Only reset if the completed version is >= the current pending_version
-        updated_count = Cohort.objects.filter(
-            pk=self.pk, pending_version__lte=completed_version, is_calculating=True
-        ).update(is_calculating=False)
-
-        if updated_count > 0:
-            # Check current state for logging
-            self.refresh_from_db()
+        Cohort.objects.filter(pk=self.pk, pending_version__lte=completed_version, is_calculating=True).update(
+            is_calculating=False
+        )
 
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
@@ -344,6 +340,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             raise
         finally:
+            self.save()
             # Only set is_calculating = False if this is the highest pending version
             # This prevents the flag from being reset while other higher-version calculations are still running
             self._safe_reset_calculating_state(completed_version=pending_version)
