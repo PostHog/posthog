@@ -40,9 +40,8 @@ from products.analytics_platform.backend.models import PreaggregationJob
 # Default TTL for preaggregated data (how long before ClickHouse deletes it)
 DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
-# Buffer time before expiry when we stop using a job.
-# This prevents race conditions where we try to query data that ClickHouse
-# is about to delete or has just deleted.
+# ClickHouse data outlives the PG job by this amount. This prevents races where we fetch a job in PG, use it, but while
+# waiting for something else, it expires and is deleted in clickhouse.
 EXPIRY_BUFFER_SECONDS = 1 * 60 * 60  # 1 hour
 
 # Waiting configuration for pending jobs
@@ -193,10 +192,11 @@ def find_existing_jobs(
     Find all existing preaggregation jobs for the given team and query hash
     that overlap with the requested time range.
 
-    Excludes jobs that are expired or about to expire (within EXPIRY_BUFFER_SECONDS).
+    Excludes expired jobs. ClickHouse data outlives the PG job by
+    EXPIRY_BUFFER_SECONDS, so queries in flight when a job expires still
+    find data.
     """
-    # Calculate the minimum expires_at we'll accept (now + buffer)
-    min_expires_at = django_timezone.now() + timedelta(seconds=EXPIRY_BUFFER_SECONDS)
+    min_expires_at = django_timezone.now()
 
     return list(
         PreaggregationJob.objects.filter(
@@ -420,13 +420,17 @@ def run_preaggregation_insert(
     """Run the INSERT query to populate preaggregation results in ClickHouse."""
     assert job.expires_at is not None
 
+    # CH data should outlive the PG job by EXPIRY_BUFFER_SECONDS so that
+    # queries in flight when the PG job expires still find data in ClickHouse.
+    ch_expires_at = job.expires_at + timedelta(seconds=EXPIRY_BUFFER_SECONDS)
+
     insert_sql, values = build_preaggregation_insert_sql(
         team=team,
         job_id=str(job.id),
         select_query=query_info.query,
         time_range_start=job.time_range_start,
         time_range_end=job.time_range_end,
-        expires_at=job.expires_at,
+        expires_at=ch_expires_at,
     )
 
     set_ch_query_started(job.id)

@@ -969,24 +969,6 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
         assert len(second_result.job_ids) == 2
         assert jan1_job_id in second_result.job_ids
 
-    def test_respects_custom_ttl(self):
-        """Test that ensure_preaggregated respects the ttl_seconds parameter."""
-        result = ensure_preaggregated(
-            team=self.team,
-            insert_query=self.MANUAL_INSERT_QUERY,
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            ttl_seconds=60 * 60,  # 1 hour
-        )
-        assert result.ready is True
-
-        job = PreaggregationJob.objects.get(id=result.job_ids[0])
-        # expires_at should be about 1 hour from now
-        assert job.expires_at is not None
-        expected_expiry = django_timezone.now()
-        time_diff = (job.expires_at - expected_expiry).total_seconds()
-        assert 3500 < time_diff < 3700  # 1 hour +/- 100 seconds
-
     def test_accepts_custom_placeholders(self):
         """Test that ensure_preaggregated accepts custom placeholders."""
         query_with_placeholder = """
@@ -1205,6 +1187,43 @@ class TestPreaggregationExecutorExecute(BaseTest):
         assert result.ready is True
         # Contiguous daily windows [Jan 1, Jan 2) + [Jan 2, Jan 3) are merged into one job
         assert len(result.job_ids) == 1
+
+    def test_respects_custom_ttl(self):
+        query_info, _ = self._make_query_info()
+
+        one_hour = 60 * 60
+        executor = PreaggregationExecutor(ttl_seconds=one_hour)
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=lambda t, j: None,
+        )
+
+        assert result.ready is True
+        job = PreaggregationJob.objects.get(id=result.job_ids[0])
+        assert job.expires_at is not None
+        time_diff = (job.expires_at - django_timezone.now()).total_seconds()
+        assert one_hour - 100 < time_diff < one_hour + 100
+
+    def test_short_ttl_does_not_infinite_loop(self):
+        query_info, _ = self._make_query_info()
+
+        executor = PreaggregationExecutor(ttl_seconds=60, wait_timeout_seconds=5.0)
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=lambda t, j: None,
+        )
+
+        assert result.ready is True
+        job = PreaggregationJob.objects.get(id=result.job_ids[0])
+        assert job.expires_at is not None
+        time_diff = (job.expires_at - django_timezone.now()).total_seconds()
+        assert 0 < time_diff < 120
 
     # --- Waiting for pending jobs ---
 
