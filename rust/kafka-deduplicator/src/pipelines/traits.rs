@@ -8,7 +8,7 @@
 use anyhow::Result;
 
 use crate::kafka::batch_message::KafkaMessage;
-use crate::rocksdb::dedup_metadata::EventSimilarity;
+use crate::pipelines::EventSimilarity;
 
 /// Trait for extracting deduplication keys from events.
 ///
@@ -63,6 +63,9 @@ pub trait DeduplicationMetadata<E>: Sized {
 
     /// Calculate similarity between the original event and a new event.
     fn calculate_similarity(&self, new_event: &E) -> Result<EventSimilarity>;
+
+    /// Get the number of unique UUIDs seen for this dedup key.
+    fn unique_uuids_count(&self) -> usize;
 
     /// Serialize metadata to bytes for storage.
     fn to_bytes(&self) -> Result<Vec<u8>>;

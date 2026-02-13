@@ -1032,6 +1032,7 @@
                       "team_id",
                       "properties",
                       "is_identified",
+                      "last_seen_at",
                       "pdi",
                       "revenue_analytics",
                       "$virt_initial_referring_domain_type",
@@ -1501,6 +1502,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
+              },
+              "last_seen_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_seen_at",
+                  "id": null,
+                  "name": "last_seen_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
               },
               "pdi": {
                   "chain": null,
@@ -4427,6 +4438,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
+              },
+              "last_seen_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_seen_at",
+                  "id": null,
+                  "name": "last_seen_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
               },
               "pdi": {
                   "chain": null,

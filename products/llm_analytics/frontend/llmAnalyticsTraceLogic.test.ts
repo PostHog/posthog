@@ -4,12 +4,16 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { DisplayOption, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+
+const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
+const scenes: any = { LLMAnalyticsTrace: blankScene }
 
 describe('llmAnalyticsTraceLogic', () => {
     let logic: ReturnType<typeof llmAnalyticsTraceLogic.build>
@@ -21,7 +25,11 @@ describe('llmAnalyticsTraceLogic', () => {
             },
         })
         initKeaTests()
-        logic = llmAnalyticsTraceLogic()
+        sceneLogic({ scenes }).mount()
+        sceneLogic.actions.setTabs([
+            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
+        ])
+        logic = llmAnalyticsTraceLogic({ tabId: '1' })
         logic.mount()
     })
 

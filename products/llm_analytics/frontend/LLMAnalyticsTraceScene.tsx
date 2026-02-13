@@ -40,6 +40,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -68,6 +69,7 @@ import { useAIData } from './hooks/useAIData'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
@@ -82,7 +84,6 @@ import {
     getSessionStartTimestamp,
     getTraceTimestamp,
     isLLMEvent,
-    isTraceLevel,
     removeMilliseconds,
 } from './utils'
 
@@ -145,10 +146,14 @@ export const scene: SceneExport = {
 }
 
 export function LLMAnalyticsTraceScene(): JSX.Element {
-    const { traceId, query } = useValues(llmAnalyticsTraceLogic)
+    const { traceId, query, searchQuery } = useValues(llmAnalyticsTraceLogic)
+    const logicProps = { traceId, query, cachedResults: null, searchQuery }
+    const traceDataLogic = llmAnalyticsTraceDataLogic(logicProps)
+
+    useAttachedLogic(traceDataLogic, llmAnalyticsTraceLogic)
 
     return (
-        <BindLogic logic={llmAnalyticsTraceDataLogic} props={{ traceId, query, cachedResults: null }}>
+        <BindLogic logic={llmAnalyticsTraceDataLogic} props={logicProps}>
             <TraceSceneWrapper />
         </BindLogic>
     )
@@ -299,6 +304,19 @@ function TraceMetadata({
     showBillingInfo?: boolean
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { personsCache, isDistinctIdLoading } = useValues(llmPersonsLazyLoaderLogic)
+    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
+
+    const cached = personsCache[trace.distinctId]
+    const loading = isDistinctIdLoading(trace.distinctId)
+
+    if (cached === undefined && !loading) {
+        ensurePersonLoaded(trace.distinctId)
+    }
+
+    const personData = cached
+        ? { distinct_id: cached.distinct_id, properties: cached.properties }
+        : { distinct_id: trace.distinctId }
 
     const getSessionUrl = (sessionId: string): string => {
         if (
@@ -324,7 +342,7 @@ function TraceMetadata({
     return (
         <header className="flex gap-1.5 flex-wrap">
             <Chip title="Person">
-                <PersonDisplay withIcon="sm" person={trace.person ?? { distinct_id: trace.distinctId }} />
+                <PersonDisplay withIcon="sm" person={personData} />
             </Chip>
             {trace.aiSessionId && (
                 <Chip
@@ -781,9 +799,9 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
-        const showClustersTab = !!event && isTraceLevel(event) && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
+        const showClustersTab = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
 
-        const showFeedbackTab = !!event && isTraceLevel(event)
+        const showFeedbackTab = true
 
         // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
         const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
@@ -1066,7 +1084,7 @@ const EventContent = React.memo(
                                                       generationEventId={event.id}
                                                       timestamp={event.createdAt}
                                                       event={event.event}
-                                                      distinctId={trace.person?.distinct_id ?? trace.distinctId}
+                                                      distinctId={trace.distinctId}
                                                   />
                                               ),
                                           },
