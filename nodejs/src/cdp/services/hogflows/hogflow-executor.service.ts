@@ -576,6 +576,9 @@ export class HogFlowExecutorService {
             )
             // Clean up all variables we just set
             for (const outputVar of outputVars) {
+                if (!outputVar.key) {
+                    continue
+                }
                 if (outputVar.spread) {
                     for (const key of Object.keys(result.invocation.state.variables)) {
                         if (key.startsWith(`${outputVar.key}_`)) {
