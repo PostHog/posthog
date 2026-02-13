@@ -32,6 +32,8 @@ export function EventsFilter({ query, setQuery }: EventsFilterProps): JSX.Elemen
                     label: event.name,
                 }))
             )
+        } catch {
+            setSearchOptions([])
         } finally {
             setLoading(false)
         }
