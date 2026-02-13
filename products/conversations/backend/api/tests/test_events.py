@@ -161,3 +161,54 @@ class TestConversationEvents(BaseTest):
 
         call_kwargs = mock_capture.call_args.kwargs
         assert len(call_kwargs["properties"]["message_content"]) == 1000
+
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_event_uses_ticket_team_token_not_other_team(self, mock_capture):
+        """Verify events route to the ticket's team, not any other team."""
+        from posthog.models import Organization, Team
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        # Ticket belongs to self.team, not other_team
+        capture_ticket_created(self.ticket)
+
+        call_kwargs = mock_capture.call_args.kwargs
+        # Must use self.team's token (ticket owner), not other_team's
+        assert call_kwargs["token"] == self.team.api_token
+        assert call_kwargs["token"] != other_team.api_token
+
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_two_teams_events_routed_to_respective_projects(self, mock_capture):
+        """Events from Team 1 ticket use Team 1 token, Team 2 ticket uses Team 2 token."""
+        from posthog.models import Organization, Team
+
+        # Create second team
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        # Create ticket for other_team
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="other-customer",
+            channel_source="widget",
+        )
+
+        # Fire events for both tickets
+        capture_ticket_created(self.ticket)  # Team 1
+        capture_ticket_created(other_ticket)  # Team 2
+
+        # Verify two calls were made
+        assert mock_capture.call_count == 2
+
+        # First call should use self.team's token
+        first_call = mock_capture.call_args_list[0].kwargs
+        assert first_call["token"] == self.team.api_token
+
+        # Second call should use other_team's token
+        second_call = mock_capture.call_args_list[1].kwargs
+        assert second_call["token"] == other_team.api_token
+
+        # Tokens must be different (proves isolation)
+        assert first_call["token"] != second_call["token"]
