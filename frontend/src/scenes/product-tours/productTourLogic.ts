@@ -82,6 +82,13 @@ function escapeSqlString(value: string): string {
     return value.replace(/['\\]/g, '\\$&')
 }
 
+export type LaunchValidationIssueType = 'missing_element' | 'missing_selector'
+
+export interface LaunchValidationIssue {
+    type: LaunchValidationIssueType
+    stepNumbers: number[] // 1-based for display
+}
+
 export interface ProductTourLogicProps {
     id: string
 }
@@ -336,13 +343,6 @@ export const productTourLogic = kea<productTourLogicType>([
                             validateButton(step.buttons?.secondary, `${errorPrefix}Secondary button`)
                     }
 
-                    if (hasIncompleteTargeting(step)) {
-                        error =
-                            step.elementTargeting === 'manual'
-                                ? `Step ${index + 1} missing element selector`
-                                : `Select an element for step ${index + 1}`
-                    }
-
                     if (error) {
                         errors._form = error
                         break
@@ -577,6 +577,26 @@ export const productTourLogic = kea<productTourLogicType>([
             (s) => [s.productTour],
             (productTour: ProductTour | null): string => {
                 return productTour && isAnnouncement(productTour) ? 'announcement' : 'tour'
+            },
+        ],
+        launchValidationIssues: [
+            (s) => [s.productTour],
+            (productTour: ProductTour | null): LaunchValidationIssue[] => {
+                const steps = productTour?.content?.steps ?? []
+                const grouped: Record<LaunchValidationIssueType, number[]> = {
+                    missing_element: [],
+                    missing_selector: [],
+                }
+                for (const [index, step] of steps.entries()) {
+                    if (hasIncompleteTargeting(step)) {
+                        const type: LaunchValidationIssueType =
+                            step.elementTargeting === 'manual' ? 'missing_selector' : 'missing_element'
+                        grouped[type].push(index + 1)
+                    }
+                }
+                return Object.entries(grouped)
+                    .filter(([, steps]) => steps.length > 0)
+                    .map(([type, stepNumbers]) => ({ type: type as LaunchValidationIssueType, stepNumbers }))
             },
         ],
     }),
