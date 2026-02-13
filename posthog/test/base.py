@@ -7,6 +7,7 @@ import datetime as dt
 import resource
 import threading
 from collections.abc import Callable, Generator, Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
@@ -28,6 +29,7 @@ from django.test.utils import CaptureQueriesContext
 # freezegun.FakeDateTime and pendulum don't play nicely otherwise
 import pendulum  # noqa F401
 import sqlparse
+from clickhouse_pool.pool import TooManyConnections
 from rest_framework.test import APITestCase as DRFTestCase
 from syrupy.extensions.amber import AmberSnapshotExtension
 
@@ -1445,19 +1447,32 @@ def failhard_threadhook_context():
 
 
 def run_clickhouse_statement_in_parallel(statements: list[str]):
-    jobs = []
-    with failhard_threadhook_context():
-        for item in statements:
-            thread = threading.Thread(target=sync_execute, args=(item,))
-            jobs.append(thread)
+    def _execute_with_retry(stmt: str) -> None:
+        for attempt in range(20):
+            try:
+                sync_execute(stmt)
+                return
+            except TooManyConnections:
+                if attempt == 19:
+                    raise
+                time.sleep(0.05 * (attempt**2))
 
-        # Start the threads (i.e. calculate the random number lists)
-        for j in jobs:
-            j.start()
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        futures = [pool.submit(_execute_with_retry, stmt) for stmt in statements]
 
-        # Ensure all of the threads have finished
-        for j in jobs:
-            j.join()
+        exceptions: list[BaseException] = []
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception as exc:
+                if hasattr(exc, "code") and exc.code == 60 and "posthog_test" in str(exc):
+                    continue
+                exceptions.append(exc)
+
+        if exceptions:
+            unique_errors = {f"{type(e).__name__}: {e}" for e in exceptions}
+            summary = "; ".join(sorted(unique_errors))
+            raise AssertionError(f"{len(exceptions)} statement(s) failed: {summary}") from exceptions[0]
 
 
 def reset_clickhouse_database() -> None:
