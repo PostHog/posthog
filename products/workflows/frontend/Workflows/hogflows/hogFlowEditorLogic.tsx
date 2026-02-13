@@ -147,7 +147,7 @@ export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as WorkflowLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
-    key((props) => `hog-flow-editor-${props.id}-${props.tabId}`),
+    key((props: WorkflowLogicProps) => `hog-flow-editor-${props.id}-${props.tabId}`),
     connect((props: WorkflowLogicProps) => ({
         values: [
             workflowLogic(props),
@@ -199,42 +199,48 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ) => ({ params, timezone }),
         fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
         handlePaneClick: true,
+        setPanelFullscreen: (isPanelFullscreen: boolean) => ({ isPanelFullscreen }),
     }),
     reducers(() => ({
         mode: [
             'build' as HogFlowEditorMode,
             {
-                setMode: (_, { mode }) => mode,
+                setMode: (_: HogFlowEditorMode, { mode }: { mode: HogFlowEditorMode }) => mode,
             },
         ],
         nodes: [
             [] as HogFlowActionNode[],
             {
-                setNodesRaw: (_, { nodes }) => nodes,
+                setNodesRaw: (_: HogFlowActionNode[], { nodes }: { nodes: HogFlowActionNode[] }) => nodes,
             },
         ],
         dropzoneNodes: [
             [] as DropzoneNode[],
             {
-                setDropzoneNodes: (_, { dropzoneNodes }) => dropzoneNodes,
+                setDropzoneNodes: (_: DropzoneNode[], { dropzoneNodes }: { dropzoneNodes: DropzoneNode[] }) =>
+                    dropzoneNodes,
             },
         ],
         highlightedDropzoneNodeId: [
             null as string | null,
             {
-                setHighlightedDropzoneNodeId: (_, { highlightedDropzoneNodeId }) => highlightedDropzoneNodeId,
+                setHighlightedDropzoneNodeId: (
+                    _: string | null,
+                    { highlightedDropzoneNodeId }: { highlightedDropzoneNodeId: string | null }
+                ) => highlightedDropzoneNodeId,
             },
         ],
         edges: [
             [] as HogFlowActionEdge[],
             {
-                setEdges: (_, { edges }) => edges,
+                setEdges: (_: HogFlowActionEdge[], { edges }: { edges: HogFlowActionEdge[] }) => edges,
             },
         ],
         selectedNodeId: [
             null as string | null,
             {
-                setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
+                setSelectedNodeId: (_: string | null, { selectedNodeId }: { selectedNodeId: string | null }) =>
+                    selectedNodeId,
             },
         ],
         isCopyingNode: [
@@ -261,29 +267,47 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         nodeToBeAdded: [
             null as CreateActionType | HogFlowActionNode | null,
             {
-                setNodeToBeAdded: (_, { nodeToBeAdded }) => nodeToBeAdded,
+                setNodeToBeAdded: (
+                    _: CreateActionType | HogFlowActionNode | null,
+                    { nodeToBeAdded }: { nodeToBeAdded: CreateActionType | HogFlowActionNode | null }
+                ) => nodeToBeAdded,
                 startCopyingNode: (_, { node }) => node.data,
             },
         ],
         reactFlowInstance: [
             null as ReactFlowInstance<Node, Edge> | null,
             {
-                setReactFlowInstance: (_, { reactFlowInstance }) => reactFlowInstance,
+                setReactFlowInstance: (
+                    _: ReactFlowInstance<Node, Edge> | null,
+                    { reactFlowInstance }: { reactFlowInstance: ReactFlowInstance<Node, Edge> | null }
+                ) => reactFlowInstance,
             },
         ],
         reactFlowWrapper: [
             null as RefObject<HTMLDivElement> | null,
             {
-                setReactFlowWrapper: (_, { reactFlowWrapper }) => reactFlowWrapper,
+                setReactFlowWrapper: (
+                    _: RefObject<HTMLDivElement> | null,
+                    { reactFlowWrapper }: { reactFlowWrapper: RefObject<HTMLDivElement> | null }
+                ) => reactFlowWrapper,
             },
         ],
         animatingEdgePair: [
             null as string | null,
             {
-                setAnimatingEdgePair: (_: string | null, { from, to }: { from: string; to: string }) =>
-                    `${from}->${to}`,
+                setAnimatingEdgePair: (
+                    _: string | null,
+                    { from, to }: { from: string | null; to: string | null | undefined }
+                ) => `${from}->${to}`,
                 clearAnimatingEdgePair: () => null,
                 setMode: () => null,
+            },
+        ],
+        isPanelFullscreen: [
+            false,
+            {
+                setPanelFullscreen: (_: boolean, { isPanelFullscreen }: { isPanelFullscreen: boolean }) =>
+                    isPanelFullscreen,
             },
         ],
     })),
@@ -291,9 +315,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     selectors({
         nodesById: [
             (s) => [s.nodes],
-            (nodes): Record<string, HogFlowActionNode> => {
+            (nodes: HogFlowActionNode[]): Record<string, HogFlowActionNode> => {
                 return nodes.reduce(
-                    (acc, node) => {
+                    (acc: Record<string, HogFlowActionNode>, node: HogFlowActionNode) => {
                         acc[node.id] = node
                         return acc
                     },
@@ -303,13 +327,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
         selectedNode: [
             (s) => [s.nodes, s.selectedNodeId],
-            (nodes, selectedNodeId) => {
+            (nodes: HogFlowActionNode[], selectedNodeId: string | null) => {
                 return nodes.find((node) => node.id === selectedNodeId) ?? null
             },
         ],
         selectedNodeCanBeDeleted: [
             (s) => [s.selectedNode, s.nodes, s.edges],
-            (selectedNode, nodes, edges) => {
+            (selectedNode: HogFlowActionNode | null, nodes: HogFlowActionNode[], edges: HogFlowActionEdge[]) => {
                 if (!selectedNode) {
                     return false
                 }
@@ -324,7 +348,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
         selectedNodeCanBeCopiedOrMoved: [
             (s) => [s.selectedNode, s.selectedNodeCanBeDeleted],
-            (selectedNode, selectedNodeCanBeDeleted) => {
+            (selectedNode: HogFlowActionNode | null, selectedNodeCanBeDeleted: boolean) => {
                 if (!selectedNodeCanBeDeleted) {
                     return false
                 }
@@ -399,10 +423,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     listeners(({ values, actions }) => {
         let animationTimeout: ReturnType<typeof setTimeout> | null = null
         return {
-            onEdgesChange: ({ edges }) => {
+            onEdgesChange: ({ edges }: { edges: EdgeChange<HogFlowActionEdge>[] }) => {
                 actions.setEdges(applyEdgeChanges(edges, values.edges))
             },
-            onNodesChange: ({ nodes }) => {
+            onNodesChange: ({ nodes }: { nodes: NodeChange<HogFlowActionNode>[] }) => {
                 actions.setNodes(applyNodeChanges(nodes, values.nodes))
             },
             setAnimatingEdgePair: () => {
@@ -415,7 +439,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }, 1500)
             },
 
-            resetFlowFromHogFlow: ({ hogFlow }) => {
+            resetFlowFromHogFlow: ({ hogFlow }: { hogFlow: HogFlow }) => {
                 try {
                     const edges: HogFlowActionEdge[] = hogFlow.edges.map((edge) => {
                         const isOnlyEdgeForNode = hogFlow.edges.filter((e) => e.from === edge.from).length === 1
@@ -509,25 +533,25 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
             },
 
-            setNodes: async ({ nodes }) => {
-                const formattedNodes = await getFormattedNodes(nodes, values.edges)
+            setNodes: async ({ nodes }: { nodes: HogFlowActionNode[] }) => {
+                const formattedNodes = await getFormattedNodes(nodes, values.edges as HogFlowActionEdge[])
 
                 actions.setNodesRaw(formattedNodes)
             },
 
-            onNodesDelete: ({ deleted }) => {
+            onNodesDelete: ({ deleted }: { deleted: HogFlowActionNode[] }) => {
                 if (deleted.some((node) => node.id === values.selectedNodeId)) {
                     actions.setSelectedNodeId(null)
                 }
 
-                const deletedNodeIds = deleted.map((node) => node.id)
+                const deletedNodeIds = deleted.map((node: HogFlowActionNode) => node.id)
 
                 // Find all edges connected to the deleted node then reconnect them to avoid orphaned nodes
                 const updatedEdges = values.workflow.edges
-                    .map((hogFlowEdge) => {
+                    .map((hogFlowEdge: HogFlow['edges'][number]) => {
                         if (deletedNodeIds.includes(hogFlowEdge.to)) {
                             // Find the deleted node
-                            const deletedNode = deleted.find((node) => node.id === hogFlowEdge.to)
+                            const deletedNode = deleted.find((node: HogFlowActionNode) => node.id === hogFlowEdge.to)
                             if (deletedNode) {
                                 // Find the first outgoer of the deleted node
                                 const outgoers = getOutgoers(deletedNode, values.nodes, values.edges)
@@ -637,14 +661,16 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions.setDropzoneNodes([])
             },
 
-            onDragOver: ({ event }) => {
+            onDragOver: ({ event }: { event: DragEvent }) => {
                 event.preventDefault()
                 event.dataTransfer.dropEffect = 'move'
             },
 
-            onDrop: ({ event }) => {
+            onDrop: ({ event }: { event?: DragEvent }) => {
                 event?.preventDefault()
-                const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
+                const dropzoneNode = values.dropzoneNodes.find(
+                    (x: DropzoneNode) => x.id === values.highlightedDropzoneNodeId
+                )
 
                 if (values.nodeToBeAdded && dropzoneNode) {
                     const edgeToInsertNodeInto = dropzoneNode?.data.edge
@@ -813,12 +839,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     actions.fitView({ duration: 0 })
                 }, 100)
             },
-            setSelectedNodeId: ({ selectedNodeId }) => {
+            setSelectedNodeId: ({ selectedNodeId }: { selectedNodeId: string | null }) => {
                 if (selectedNodeId) {
                     actions.fitView({ noZoom: true })
                 }
             },
-            fitView: ({ duration, noZoom }) => {
+            fitView: ({ duration, noZoom }: { duration?: number; noZoom?: boolean }) => {
                 const { reactFlowWrapper, reactFlowInstance } = values
                 if (!reactFlowWrapper?.current || !reactFlowInstance) {
                     return

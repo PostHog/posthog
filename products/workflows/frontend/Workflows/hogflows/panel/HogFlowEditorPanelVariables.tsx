@@ -59,7 +59,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
     }
 
     return (
-        <div className="flex flex-col h-full overflow-hidden m-2">
+        <div className="flex flex-col h-full overflow-hidden m-2 max-w-2xl">
             <LemonLabel
                 info={
                     <span>
