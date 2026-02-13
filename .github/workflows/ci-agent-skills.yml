@@ -79,10 +79,7 @@ jobs:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   REDIS_URL: 'redis://localhost'
-                  OBJECT_STORAGE_ENABLED: 'True'
-                  OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
-                  OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-                  OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+                  OBJECT_STORAGE_ENABLED: 'False'
                   TEST: 1
                   DEBUG: 1
               run: |
@@ -94,10 +91,7 @@ jobs:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   REDIS_URL: 'redis://localhost'
-                  OBJECT_STORAGE_ENABLED: 'True'
-                  OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
-                  OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-                  OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+                  OBJECT_STORAGE_ENABLED: 'False'
                   TEST: 1
                   DEBUG: 1
               run: ./bin/hogli build:skills
@@ -142,10 +136,7 @@ jobs:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   REDIS_URL: 'redis://localhost'
-                  OBJECT_STORAGE_ENABLED: 'True'
-                  OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
-                  OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-                  OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+                  OBJECT_STORAGE_ENABLED: 'False'
                   TEST: 1
                   DEBUG: 1
               run: |
@@ -157,10 +148,7 @@ jobs:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   REDIS_URL: 'redis://localhost'
-                  OBJECT_STORAGE_ENABLED: 'True'
-                  OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
-                  OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-                  OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+                  OBJECT_STORAGE_ENABLED: 'False'
                   TEST: 1
                   DEBUG: 1
               run: ./bin/hogli build:skills
