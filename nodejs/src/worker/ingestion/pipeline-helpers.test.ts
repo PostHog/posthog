@@ -431,12 +431,12 @@ describe('sendMessageToDLQ', () => {
                 team_id: '42',
                 distinct_id: 'test-user',
                 event: 'pageview',
-                'dlq-reason': 'Test error',
-                'dlq-step': stepName,
-                'dlq-timestamp': expect.any(String),
-                'dlq-topic': 'test-topic',
-                'dlq-partition': '0',
-                'dlq-offset': '123',
+                dlq_reason: 'Test error',
+                dlq_step: stepName,
+                dlq_timestamp: expect.any(String),
+                dlq_topic: 'test-topic',
+                dlq_partition: '0',
+                dlq_offset: '123',
             }),
         })
     })
@@ -502,7 +502,7 @@ describe('sendMessageToDLQ', () => {
         expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
             expect.objectContaining({
                 headers: expect.objectContaining({
-                    'dlq-reason': 'String error',
+                    dlq_reason: 'String error',
                 }),
             })
         )

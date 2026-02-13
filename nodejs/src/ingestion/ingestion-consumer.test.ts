@@ -933,7 +933,7 @@ describe('IngestionConsumer', () => {
             )
             expect(dlqMessages).toHaveLength(1)
             expect(dlqMessages[0].value).toEqual(parseJSON(messages[0].value!.toString()))
-            expect(dlqMessages[0].headers!['dlq-reason']).toEqual(error.message)
+            expect(dlqMessages[0].headers!['dlq_reason']).toEqual(error.message)
         })
     })
 
