@@ -57,23 +57,29 @@ export function ProductSetupButton(): JSX.Element | null {
     }
 
     return (
-        <ProductSetupPopover
-            visible={isGlobalModalOpen}
-            onClickOutside={closeGlobalSetup}
-            selectedProduct={selectedProduct}
-            onSelectProduct={setSelectedProduct}
-        >
-            {isDismissed && !isGlobalModalOpen ? (
-                <MinimizedButton remainingCount={remainingCount} isActive={isGlobalModalOpen} onClick={handleToggle} />
-            ) : (
-                <ExpandedButton
-                    remainingCount={remainingCount}
-                    showBadge={shouldShowSetup}
-                    isActive={isGlobalModalOpen}
-                    onClick={handleToggle}
-                />
-            )}
-        </ProductSetupPopover>
+        <div className="hidden @2xl/main-content:block">
+            <ProductSetupPopover
+                visible={isGlobalModalOpen}
+                onClickOutside={closeGlobalSetup}
+                selectedProduct={selectedProduct}
+                onSelectProduct={setSelectedProduct}
+            >
+                {isDismissed && !isGlobalModalOpen ? (
+                    <MinimizedButton
+                        remainingCount={remainingCount}
+                        isActive={isGlobalModalOpen}
+                        onClick={handleToggle}
+                    />
+                ) : (
+                    <ExpandedButton
+                        remainingCount={remainingCount}
+                        showBadge={shouldShowSetup}
+                        isActive={isGlobalModalOpen}
+                        onClick={handleToggle}
+                    />
+                )}
+            </ProductSetupPopover>
+        </div>
     )
 }
 
@@ -94,7 +100,7 @@ const MinimizedButton = forwardRef<HTMLButtonElement, MinimizedButtonProps>(func
                 <span className="relative">
                     <IconTarget />
                     {remainingCount > 0 && (
-                        <LemonBadge.Number count={remainingCount} status="warning" size="medium" position="top-right" />
+                        <LemonBadge.Number count={remainingCount} status="warning" size="small" position="top-right" />
                     )}
                 </span>
             }
@@ -120,21 +126,35 @@ const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(functi
     ref
 ) {
     return (
-        <LemonButton
-            ref={ref}
-            icon={<IconTarget />}
-            size="small"
-            type="secondary"
-            onClick={onClick}
-            active={isActive}
-            data-attr="global-product-setup-button"
-            sideIcon={
-                showBadge && remainingCount > 0 ? (
-                    <LemonBadge.Number count={remainingCount} status="warning" size="medium" />
-                ) : undefined
-            }
-        >
-            Quick start
-        </LemonButton>
+        <>
+            <div className="hidden @4xl/main-content:block">
+                <LemonButton
+                    ref={ref}
+                    icon={<IconTarget />}
+                    size="small"
+                    type="secondary"
+                    onClick={onClick}
+                    active={isActive}
+                    data-attr="global-product-setup-button"
+                    sideIcon={
+                        showBadge && remainingCount > 0 ? (
+                            <LemonBadge.Number count={remainingCount} status="warning" size="medium" />
+                        ) : undefined
+                    }
+                >
+                    <span className="hidden @4xl/main-content:block">Quick start</span>
+                </LemonButton>
+            </div>
+            <div className="block @4xl/main-content:hidden">
+                <LemonButton
+                    ref={ref}
+                    icon={<IconTarget />}
+                    size="small"
+                    type="secondary"
+                    onClick={onClick}
+                    active={isActive}
+                />
+            </div>
+        </>
     )
 })
