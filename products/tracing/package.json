@@ -1,0 +1,16 @@
+{
+    "name": "@posthog/products-tracing",
+    "scripts": {},
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-router": "catalog:"
+    },
+    "peerDependencies": {
+        "@dagrejs/dagre": "*",
+        "@posthog/icons": "*",
+        "@types/react": "*",
+        "@xyflow/react": "*",
+        "react": "*",
+        "typescript": "*"
+    }
+}

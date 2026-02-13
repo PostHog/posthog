@@ -24,6 +24,7 @@ import {
     IconHogQL,
     IconHome,
     IconLifecycle,
+    IconListTree,
     IconLive,
     IconLlmAnalytics,
     IconMegaphone,
@@ -142,6 +143,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     logs: {
         icon: <IconLive />,
+        iconColor: ['var(--color-product-logs-light)'],
+    },
+    tracing: {
+        icon: <IconListTree />,
         iconColor: ['var(--color-product-logs-light)'],
     },
     early_access_feature: {

@@ -388,6 +388,7 @@ export const FEATURE_FLAGS = {
     TASKS: 'tasks', // owner: #team-llm-analytics
     TAXONOMIC_QUICK_FILTERS: 'taxonomic-quick-filters', // owner: @pauldambra #team-product-analytics multivariate=control,test
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
+    TRACING: 'tracing', // owner: #team-logs
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
