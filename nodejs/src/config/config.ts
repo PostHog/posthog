@@ -152,6 +152,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_API_KEY: '',
         POSTHOG_HOST_URL: 'http://localhost:8010',
 
+        // Super properties for internal analytics (matching Python posthoganalytics.super_properties)
+        OTEL_SERVICE_NAME: null,
+        OTEL_SERVICE_ENVIRONMENT: null,
+
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
         SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
