@@ -553,12 +553,10 @@ export class HogFlowExecutorService {
             ) {
                 const prefix = outputVar.key
                 for (const [prop, value] of Object.entries(resolvedResult)) {
-                    result.invocation.state.variables[`${prefix}_${prop}`] = value
+                    const spreadKey = `${prefix}_${prop}`
+                    result.invocation.state.variables[spreadKey] = value
+                    allStoredKeys.push(spreadKey)
                 }
-
-                allStoredKeys.push(
-                    ...Object.keys(result.invocation.state.variables).filter((k) => k.startsWith(`${prefix}_`))
-                )
             } else {
                 result.invocation.state.variables[outputVar.key] = resolvedResult
                 allStoredKeys.push(outputVar.key)
