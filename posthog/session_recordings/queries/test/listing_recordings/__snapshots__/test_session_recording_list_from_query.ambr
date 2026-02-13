@@ -6253,7 +6253,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort
   '''
-
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -6263,7 +6263,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort.1
   '''
-
+  
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -6403,7 +6403,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized
   '''
-
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -6413,7 +6413,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized.1
   '''
-
+  
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -6553,7 +6553,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events
   '''
-
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -6563,7 +6563,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events.1
   '''
-
+  
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -6703,7 +6703,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized
   '''
-
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -6713,7 +6713,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized.1
   '''
-
+  
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -13808,7 +13808,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort
   '''
-
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -13818,7 +13818,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort.1
   '''
-
+  
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -13958,7 +13958,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized
   '''
-
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -13968,7 +13968,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized.1
   '''
-
+  
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -14108,7 +14108,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events
   '''
-
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -14118,7 +14118,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events.1
   '''
-
+  
   SELECT DISTINCT p.id
   FROM
     (SELECT *
@@ -14258,7 +14258,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized
   '''
-
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -14268,7 +14268,7 @@
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized.1
   '''
-
+  
   SELECT DISTINCT p.id
   FROM
     (SELECT *

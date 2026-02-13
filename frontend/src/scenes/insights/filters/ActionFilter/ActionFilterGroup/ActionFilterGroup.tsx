@@ -9,17 +9,22 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroupType,
+    isQuickFilterItem,
+    quickFilterToPropertyFilters,
+} from 'lib/components/TaxonomicFilter/types'
 import {
     TaxonomicPopover,
     TaxonomicPopoverProps,
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { teamLogic } from 'scenes/teamLogic'
 import { MathCategory, mathsLogic } from 'scenes/trends/mathsLogic'
 
-import { BaseMathType, InsightType } from '~/types'
+import { BaseMathType, EntityTypes, InsightType } from '~/types'
 
 import {
     ActionFilterRow,
@@ -67,6 +72,11 @@ export function ActionFilterGroup({
     trendsDisplayCategory,
     insightType,
 }: ActionFilterGroupProps): JSX.Element {
+    const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
+    const effectiveActionsTaxonomicGroupTypes = showQuickFilters
+        ? [TaxonomicFilterGroupType.QuickFilters, ...actionsTaxonomicGroupTypes]
+        : actionsTaxonomicGroupTypes
+
     const { currentTeamId } = useValues(teamLogic)
     const { removeLocalFilter, splitLocalFilter } = useActions(entityFilterLogic({ typeKey }))
     const { mathDefinitions } = useValues(mathsLogic)
@@ -74,7 +84,14 @@ export function ActionFilterGroup({
 
     const groupLogic = actionFilterGroupLogic({ filterUuid: filter.uuid, typeKey, groupIndex: index })
     const { nestedFilters, operator, isHogQLDropdownVisible } = useValues(groupLogic)
-    const { addNestedFilter, setMath, setMathProperty, setMathHogQL, setHogQLDropdownVisible } = useActions(groupLogic)
+    const {
+        addNestedFilter,
+        updateNestedFilterProperties,
+        setMath,
+        setMathProperty,
+        setMathHogQL,
+        setHogQLDropdownVisible,
+    } = useActions(groupLogic)
 
     return (
         <li
@@ -289,6 +306,18 @@ export function ActionFilterGroup({
                             icon={<IconPlusSmall />}
                             sideIcon={null}
                             onChange={(value, groupType, item) => {
+                                if (isQuickFilterItem(item)) {
+                                    if (item.eventName) {
+                                        const newIndex = nestedFilters.length
+                                        addNestedFilter(item.eventName, item.eventName, EntityTypes.EVENTS)
+                                        updateNestedFilterProperties(newIndex, quickFilterToPropertyFilters(item))
+                                        posthog.capture('add_event_to_group', {
+                                            insight_type: insightType,
+                                            team_id: currentTeamId,
+                                        })
+                                    }
+                                    return
+                                }
                                 const entityType = taxonomicFilterGroupTypeToEntityType(groupType)
                                 if (entityType && value) {
                                     addNestedFilter(String(value), item?.name || String(value), entityType)
@@ -298,7 +327,7 @@ export function ActionFilterGroup({
                                     })
                                 }
                             }}
-                            groupTypes={actionsTaxonomicGroupTypes}
+                            groupTypes={effectiveActionsTaxonomicGroupTypes}
                             placeholder="Add event"
                             placeholderClass=""
                             showNumericalPropsOnly={showNumericalPropsOnly}

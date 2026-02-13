@@ -682,20 +682,20 @@ export const productToursLogic = kea<productToursLogicType>([
             toolbarLogic.actions.toggleMinimized(false)
         },
         updateRects: () => {
-            // if in selecting mode: try to find + highlight element
+            // If in selecting mode with a previously selected element that got
+            // detached, try to re-find it via selector. We guard on
+            // selectedElement being non-null so we don't auto-select when the
+            // user hasn't clicked yet (selectedElement is cleared to null on
+            // entering selecting mode).
             const { editorState, selectedElement, tourForm } = values
-            if (editorState.mode === 'selecting') {
-                const selectedElementValid = selectedElement && document.body.contains(selectedElement)
-
-                if (!selectedElementValid) {
-                    // Element missing or detached - try to find it via selector
+            if (editorState.mode === 'selecting' && selectedElement) {
+                if (!selectedElement.isConnected) {
                     const step = tourForm?.steps?.[editorState.stepIndex]
                     if (step?.selector) {
                         const element = document.querySelector(step.selector) as HTMLElement | null
                         if (element) {
                             actions.selectElement(element)
-                        } else if (selectedElement) {
-                            // Had an element but it's gone - clear it
+                        } else {
                             actions.clearSelectedElement()
                         }
                     }

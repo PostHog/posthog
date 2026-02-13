@@ -2,9 +2,8 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { HogTransformerService, TransformationResult } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { PipelineWarning } from '../../../ingestion/pipelines/pipeline.interface'
-import { PipelineResult, dlq, drop, isOkResult, ok } from '../../../ingestion/pipelines/results'
+import { PipelineResult, dlq, isOkResult, ok } from '../../../ingestion/pipelines/results'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { EventHeaders, Person, PipelineEvent, PreIngestionEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
@@ -28,7 +27,6 @@ import { normalizeEventStep } from './normalizeEventStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonlessStep } from './processPersonlessStep'
 import { processPersonsStep } from './processPersonsStep'
-import { transformEventStep } from './transformEventStep'
 
 export type RunnerResult<T = object> = T & {
     // Only used in tests
@@ -80,7 +78,6 @@ export class EventPipelineRunner {
         teamManager: TeamManager,
         groupTypeManager: GroupTypeManager,
         private originalEvent: PipelineEvent,
-        private hogTransformer: HogTransformerService | null = null,
         private personsStore: PersonsStore,
         private groupStoreForBatch: GroupStoreForBatch,
         private headers?: EventHeaders
@@ -200,28 +197,9 @@ export class EventPipelineRunner {
         const kafkaAcks: Promise<unknown>[] = []
         const warnings: PipelineWarning[] = []
 
-        const transformResult = await this.runStep<TransformationResult, typeof transformEventStep>(
-            transformEventStep,
-            [event, this.hogTransformer],
-            team.id,
-            true,
-            kafkaAcks,
-            warnings
-        )
-        if (!isOkResult(transformResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return transformResult
-        }
-        const { event: transformedEvent } = transformResult.value
-
-        if (transformedEvent === null) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return drop('dropped_by_transformation', kafkaAcks, warnings)
-        }
-
         const normalizeResult = await this.runStep<[PluginEvent, DateTime], typeof normalizeEventStep>(
             normalizeEventStep,
-            [transformedEvent, processPerson, this.headers, this.options.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
+            [event, processPerson, this.headers, this.options.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
             team.id,
             true,
             kafkaAcks,

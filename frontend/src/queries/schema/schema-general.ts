@@ -13,6 +13,7 @@ import {
     CalendarHeatmapMathType,
     ChartDisplayCategory,
     ChartDisplayType,
+    CohortPropertyFilter,
     CountPerActorMathType,
     DataWarehouseSyncInterval,
     DataWarehouseViewLink,
@@ -2052,7 +2053,11 @@ export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryRes
     /** Only fetch sessions that started before this timestamp (default: '+5s') */
     before?: string
 }
-export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
+export type WebAnalyticsPropertyFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | SessionPropertyFilter
+    | CohortPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 export type ActionConversionGoal = {
     actionId: integer
@@ -2909,6 +2914,7 @@ export type FileSystemIconType =
     | 'toolbar'
     | 'settings'
     | 'health'
+    | 'inbox'
     | 'sdk_doctor'
     | 'pipeline_status'
     | 'llm_evaluations'
