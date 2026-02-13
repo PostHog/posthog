@@ -2072,6 +2072,184 @@
           "row_count": null,
           "type": "posthog"
       },
+      "logs": {
+          "fields": {
+              "uuid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "uuid",
+                  "id": null,
+                  "name": "uuid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "trace_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "trace_id",
+                  "id": null,
+                  "name": "trace_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "span_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "span_id",
+                  "id": null,
+                  "name": "span_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "message": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "message",
+                  "id": null,
+                  "name": "message",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "body": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "body",
+                  "id": null,
+                  "name": "body",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "attributes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "attributes",
+                  "id": null,
+                  "name": "attributes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "time_bucket": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "time_bucket",
+                  "id": null,
+                  "name": "time_bucket",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "timestamp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "timestamp",
+                  "id": null,
+                  "name": "timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "observed_timestamp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "observed_timestamp",
+                  "id": null,
+                  "name": "observed_timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "severity_text": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "severity_text",
+                  "id": null,
+                  "name": "severity_text",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "severity_number": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "severity_number",
+                  "id": null,
+                  "name": "severity_number",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "level": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "level",
+                  "id": null,
+                  "name": "level",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "resource_attributes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "resource_attributes",
+                  "id": null,
+                  "name": "resource_attributes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "resource_fingerprint": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "resource_fingerprint",
+                  "id": null,
+                  "name": "resource_fingerprint",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "instrumentation_scope": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "instrumentation_scope",
+                  "id": null,
+                  "name": "instrumentation_scope",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "event_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "event_name",
+                  "id": null,
+                  "name": "event_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "service_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "service_name",
+                  "id": null,
+                  "name": "service_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "logs",
+          "name": "logs",
+          "row_count": null,
+          "type": "posthog"
+      },
       "query_log": {
           "fields": {
               "event_date": {
@@ -5005,6 +5183,184 @@
           },
           "id": "sessions",
           "name": "sessions",
+          "row_count": null,
+          "type": "posthog"
+      },
+      "logs": {
+          "fields": {
+              "uuid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "uuid",
+                  "id": null,
+                  "name": "uuid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "trace_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "trace_id",
+                  "id": null,
+                  "name": "trace_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "span_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "span_id",
+                  "id": null,
+                  "name": "span_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "message": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "message",
+                  "id": null,
+                  "name": "message",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "body": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "body",
+                  "id": null,
+                  "name": "body",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "attributes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "attributes",
+                  "id": null,
+                  "name": "attributes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "time_bucket": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "time_bucket",
+                  "id": null,
+                  "name": "time_bucket",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "timestamp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "timestamp",
+                  "id": null,
+                  "name": "timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "observed_timestamp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "observed_timestamp",
+                  "id": null,
+                  "name": "observed_timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "severity_text": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "severity_text",
+                  "id": null,
+                  "name": "severity_text",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "severity_number": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "severity_number",
+                  "id": null,
+                  "name": "severity_number",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "level": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "level",
+                  "id": null,
+                  "name": "level",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "resource_attributes": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "resource_attributes",
+                  "id": null,
+                  "name": "resource_attributes",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "resource_fingerprint": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "resource_fingerprint",
+                  "id": null,
+                  "name": "resource_fingerprint",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "instrumentation_scope": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "instrumentation_scope",
+                  "id": null,
+                  "name": "instrumentation_scope",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "event_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "event_name",
+                  "id": null,
+                  "name": "event_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "service_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "service_name",
+                  "id": null,
+                  "name": "service_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "logs",
+          "name": "logs",
           "row_count": null,
           "type": "posthog"
       },
