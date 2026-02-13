@@ -15,6 +15,8 @@ export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): Da
     propertiesViaUrl: true,
     showSavedQueries: true,
     showPersistentColumnConfigurator: true,
+    showEventFilter: false,
+    showEventsFilter: true,
 })
 
 export const getDefaultSessionsSceneQuery = (properties?: AnyPropertyFilter[]): DataTableNode => ({
