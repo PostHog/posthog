@@ -1,8 +1,9 @@
 import { useReactFlow } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
-import { IconArrowLeft, IconCollapse, IconExpand45, IconTrash } from '@posthog/icons'
+import { IconArrowLeft, IconCollapse45, IconExpand45, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -20,7 +21,7 @@ import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 
 export function HogFlowEditorPanel(): JSX.Element | null {
     const { selectedNode, mode, selectedNodeCanBeDeleted, workflow, isPanelFullscreen } = useValues(hogFlowEditorLogic)
-    const { setMode, setSelectedNodeId, togglePanelFullscreen } = useActions(hogFlowEditorLogic)
+    const { setMode, setSelectedNodeId, setPanelFullscreen } = useActions(hogFlowEditorLogic)
     const { deleteElements } = useReactFlow()
 
     const variablesCount = workflow?.variables?.length || 0
@@ -39,6 +40,21 @@ export function HogFlowEditorPanel(): JSX.Element | null {
 
     const width = isPanelFullscreen ? '100%' : mode !== 'build' ? '42rem' : selectedNode ? '42rem' : '30rem'
 
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent): void => {
+            if (e.key === 'Escape' && isPanelFullscreen) {
+                e.stopPropagation()
+                setPanelFullscreen(false)
+            }
+            if (e.key === 'f' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+                e.preventDefault()
+                setPanelFullscreen(!isPanelFullscreen)
+            }
+        }
+        document.addEventListener('keydown', handleKeyDown, true)
+        return () => document.removeEventListener('keydown', handleKeyDown, true)
+    }, [isPanelFullscreen, setPanelFullscreen])
+
     const Step = useHogFlowStep(selectedNode?.data)
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const validationResult = actionValidationErrorsById[selectedNode?.id ?? '']
@@ -46,13 +62,16 @@ export function HogFlowEditorPanel(): JSX.Element | null {
     return (
         <div
             className={clsx(
-                'absolute flex flex-col m-0 p-2 overflow-hidden max-h-full right-0 justify-end',
-                isPanelFullscreen ? 'inset-0 z-20' : 'transition-[width]'
+                'absolute flex flex-col m-0 p-2 overflow-hidden max-h-full right-0',
+                isPanelFullscreen ? 'inset-0 z-20 justify-stretch' : 'justify-end transition-[width]'
             )}
             style={isPanelFullscreen ? undefined : { width }}
         >
             <div
-                className="relative flex flex-col rounded-md overflow-hidden bg-surface-primary max-h-full z-10"
+                className={clsx(
+                    'relative flex flex-col rounded-md overflow-hidden bg-surface-primary max-h-full z-10',
+                    isPanelFullscreen && 'h-full'
+                )}
                 style={{
                     border: '1px solid var(--border)',
                     boxShadow: '0 3px 0 var(--border)',
@@ -82,22 +101,8 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                         />
                     </div>
 
-                    <Tooltip
-                        title={
-                            isPanelFullscreen
-                                ? 'Exit full screen (Esc)'
-                                : `Full screen (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+⇧+F)`
-                        }
-                    >
-                        <LemonButton
-                            size="small"
-                            icon={isPanelFullscreen ? <IconCollapse /> : <IconExpand45 />}
-                            onClick={togglePanelFullscreen}
-                        />
-                    </Tooltip>
-
                     {selectedNode && (
-                        <span className="flex gap-1 items-center font-medium rounded-md mr-3 min-w-0">
+                        <span className="flex gap-1 items-center font-medium rounded-md min-w-0">
                             <span className="text-lg">{Step?.icon}</span>
                             <Tooltip title={selectedNode.data.name}>
                                 <span className="font-semibold truncate">{selectedNode.data.name}</span>
@@ -125,20 +130,37 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                             )}
                         </span>
                     )}
+
+                    <Tooltip
+                        title={
+                            isPanelFullscreen
+                                ? 'Exit full screen (Esc)'
+                                : `Full screen (${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+⇧+F)`
+                        }
+                    >
+                        <LemonButton
+                            size="small"
+                            className="mr-1"
+                            icon={isPanelFullscreen ? <IconCollapse45 /> : <IconExpand45 />}
+                            onClick={() => setPanelFullscreen(!isPanelFullscreen)}
+                        />
+                    </Tooltip>
                 </div>
 
-                {mode === 'build' && (
-                    <>{!selectedNode ? <HogFlowEditorPanelBuild /> : <HogFlowEditorPanelBuildDetail />}</>
-                )}
-                {mode === 'variables' && <HogFlowEditorPanelVariables />}
-                {mode === 'test' &&
-                    (selectedNode?.data?.type === 'function_email' ? (
-                        <EmailActionTestContent />
-                    ) : (
-                        <HogFlowEditorPanelTest />
-                    ))}
-                {mode === 'metrics' && <HogFlowEditorPanelMetrics />}
-                {mode === 'logs' && <HogFlowEditorPanelLogs />}
+                <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+                    {mode === 'build' && (
+                        <>{!selectedNode ? <HogFlowEditorPanelBuild /> : <HogFlowEditorPanelBuildDetail />}</>
+                    )}
+                    {mode === 'variables' && <HogFlowEditorPanelVariables />}
+                    {mode === 'test' &&
+                        (selectedNode?.data?.type === 'function_email' ? (
+                            <EmailActionTestContent />
+                        ) : (
+                            <HogFlowEditorPanelTest />
+                        ))}
+                    {mode === 'metrics' && <HogFlowEditorPanelMetrics />}
+                    {mode === 'logs' && <HogFlowEditorPanelLogs />}
+                </div>
             </div>
         </div>
     )

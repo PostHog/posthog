@@ -199,7 +199,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ) => ({ params, timezone }),
         fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
         handlePaneClick: true,
-        togglePanelFullscreen: true,
+        setPanelFullscreen: (isPanelFullscreen: boolean) => ({ isPanelFullscreen }),
     }),
     reducers(() => ({
         mode: [
@@ -306,8 +306,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         isPanelFullscreen: [
             false,
             {
-                togglePanelFullscreen: (_: boolean, { isPanelFullscreen }: { isPanelFullscreen: boolean }) =>
-                    !isPanelFullscreen,
+                setPanelFullscreen: (_: boolean, { isPanelFullscreen }: { isPanelFullscreen: boolean }) =>
+                    isPanelFullscreen,
             },
         ],
     })),
@@ -1013,20 +1013,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             afterMount: () => {
                 const handleKeyDown = (e: KeyboardEvent): void => {
                     if (e.key === 'Escape') {
-                        if (values.isPanelFullscreen) {
-                            actions.togglePanelFullscreen()
-                            return
-                        }
                         if (values.isCopyingNode) {
                             actions.stopCopyingNode()
                         }
                         if (values.isMovingNode) {
                             actions.stopMovingNode()
                         }
-                    }
-                    if (e.key === 'f' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
-                        e.preventDefault()
-                        actions.togglePanelFullscreen()
                     }
                 }
 
