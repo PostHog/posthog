@@ -343,7 +343,7 @@ const WaitingRecords = (): JSX.Element | null => {
 
     const waitingRecords = proxyRecords.filter((r) => r.status === 'waiting')
 
-    if (!waitingRecords) {
+    if (waitingRecords.length === 0) {
         return null
     }
 
