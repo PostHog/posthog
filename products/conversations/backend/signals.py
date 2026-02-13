@@ -81,6 +81,9 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                 capture_message_received(ticket, comment_id, content or "")
         except Ticket.DoesNotExist:
             pass
+        except Exception:
+            # Don't let analytics failures break message creation
+            logger.exception("Failed to capture message event", extra={"ticket_id": item_id})
 
     transaction.on_commit(do_update)
 

@@ -155,7 +155,11 @@ class WidgetMessageView(APIView):
             )
             # Invalidate unread count cache - new ticket with unread message
             invalidate_unread_count_cache(team.id)
-            capture_ticket_created(ticket)
+            try:
+                capture_ticket_created(ticket)
+            except Exception:
+                # Don't let analytics failures break the widget
+                logger.exception("Failed to capture ticket_created event", extra={"ticket_id": str(ticket.id)})
 
         # Create message
         comment = Comment.objects.create(

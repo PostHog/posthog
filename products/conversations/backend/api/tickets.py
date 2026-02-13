@@ -292,12 +292,15 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             invalidate_unread_count_cache(self.team_id)
 
         # Emit analytics events for workflow triggers
-        if old_status != new_status:
-            capture_ticket_status_changed(instance, old_status, new_status)
+        try:
+            if old_status != new_status:
+                capture_ticket_status_changed(instance, old_status, new_status)
 
-        new_priority = instance.priority
-        if old_priority != new_priority:
-            capture_ticket_priority_changed(instance, old_priority, new_priority)
+            new_priority = instance.priority
+            if old_priority != new_priority:
+                capture_ticket_priority_changed(instance, old_priority, new_priority)
+        except Exception:
+            logger.exception("Failed to capture ticket event", ticket_id=str(instance.id))
 
         # Re-serialize to include updated assignee
         serializer = self.get_serializer(instance)
@@ -420,10 +423,13 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
         )
 
         # Emit analytics event for workflow triggers
-        if assignee:
-            assignee_type = assignee["type"]
-            assignee_id = str(assignee["id"])
-        else:
-            assignee_type = None
-            assignee_id = None
-        capture_ticket_assigned(ticket, assignee_type, assignee_id)
+        try:
+            if assignee:
+                assignee_type = assignee["type"]
+                assignee_id = str(assignee["id"])
+            else:
+                assignee_type = None
+                assignee_id = None
+            capture_ticket_assigned(ticket, assignee_type, assignee_id)
+        except Exception:
+            logger.exception("Failed to capture ticket_assigned event", ticket_id=str(ticket.id))
