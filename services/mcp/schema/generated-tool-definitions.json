@@ -73,5 +73,50 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "error-tracking-issues-list": {
+        "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking issues",
+        "title": "List error tracking issues",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-issues-retrieve": {
+        "description": "Get a specific error tracking issue by ID. Returns full issue details including status, description, volume, and metadata.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Get error tracking issue",
+        "title": "Get error tracking issue",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-issues-partial-update": {
+        "description": "Update an error tracking issue. Can change status (active, resolved, suppressed), assign to a user, or update description.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking issue",
+        "title": "Update error tracking issue",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
     }
 }

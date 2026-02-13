@@ -208,15 +208,25 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
             const importName = `${pascal}QueryParams`
             orvalImports.push(importName)
 
-            // Omit format + any excluded query params
-            const omitKeys = ['format']
+            // Build omit set: format (if present) + any excluded query params
+            const omitKeys: string[] = []
+            const allQueryParamNames = new Set(
+                (resolved.operation.parameters ?? []).filter((p) => p.in === 'query').map((p) => p.name)
+            )
+            if (allQueryParamNames.has('format')) {
+                omitKeys.push('format')
+            }
             for (const p of queryParams) {
                 if (!usefulQueryParams.some((u) => u.name === p.name)) {
                     omitKeys.push(p.name)
                 }
             }
-            const omitObj = omitKeys.map((k) => `'${k}': true`).join(', ')
-            schemaParts.push(`${importName}.omit({ ${omitObj} })`)
+            if (omitKeys.length > 0) {
+                const omitObj = omitKeys.map((k) => `'${k}': true`).join(', ')
+                schemaParts.push(`${importName}.omit({ ${omitObj} })`)
+            } else {
+                schemaParts.push(importName)
+            }
             for (const p of usefulQueryParams) {
                 queryParamNames.push(p.name)
             }
