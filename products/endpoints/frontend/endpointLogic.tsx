@@ -17,6 +17,7 @@ import { EndpointType, EndpointVersionType } from '~/types'
 
 import type { endpointLogicType } from './endpointLogicType'
 import { endpointsLogic } from './endpointsLogic'
+import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
 
 export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
 
@@ -198,6 +199,7 @@ export const endpointLogic = kea<endpointLogicType>([
                 actions.setEndpointName('')
                 actions.setEndpointDescription('')
                 actions.loadEndpoints()
+                insightPickerEndpointModalLogic.findMounted()?.actions.closeModal()
                 lemonToast.success(<>Endpoint created</>, {
                     button: {
                         label: 'View',
