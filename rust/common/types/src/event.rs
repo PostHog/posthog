@@ -25,6 +25,25 @@ pub struct LibraryInfo {
     pub version: Option<String>,
 }
 
+impl LibraryInfo {
+    /// Extract library information from a properties HashMap.
+    ///
+    /// Returns `None` if the `$lib` property is not present.
+    pub fn from_properties(props: &HashMap<String, Value>) -> Option<Self> {
+        let name = props
+            .get("$lib")
+            .and_then(|v| v.as_str())
+            .map(String::from)?;
+
+        let version = props
+            .get("$lib_version")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        Some(LibraryInfo { name, version })
+    }
+}
+
 /// Trait for events that can extract library information from their properties.
 ///
 /// This trait provides a common interface for extracting the SDK/library name
@@ -376,18 +395,7 @@ impl EventWithLibraryInfo for ClickHouseEvent {
     fn extract_library_info(&self) -> Option<LibraryInfo> {
         let properties_str = self.properties.as_ref()?;
         let properties: HashMap<String, Value> = serde_json::from_str(properties_str).ok()?;
-
-        let name = properties
-            .get("$lib")
-            .and_then(|v| v.as_str())
-            .map(String::from)?;
-
-        let version = properties
-            .get("$lib_version")
-            .and_then(|v| v.as_str())
-            .map(String::from);
-
-        Some(LibraryInfo { name, version })
+        LibraryInfo::from_properties(&properties)
     }
 }
 
@@ -465,19 +473,7 @@ impl RawEvent {
 
 impl EventWithLibraryInfo for RawEvent {
     fn extract_library_info(&self) -> Option<LibraryInfo> {
-        let name = self
-            .properties
-            .get("$lib")
-            .and_then(|v| v.as_str())
-            .map(String::from)?;
-
-        let version = self
-            .properties
-            .get("$lib_version")
-            .and_then(|v| v.as_str())
-            .map(String::from);
-
-        Some(LibraryInfo { name, version })
+        LibraryInfo::from_properties(&self.properties)
     }
 }
 
