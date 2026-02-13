@@ -27,27 +27,25 @@ Super groups are stored in the feature flag's `filters` JSON field alongside reg
 
 ```json
 {
-  "filters": {
-    "groups": [
-      {
-        "properties": [...],
-        "rollout_percentage": 50
-      }
-    ],
-    "super_groups": [
-      {
-        "properties": [
-          {
-            "key": "$feature_enrollment/new-dashboard",
-            "type": "person",
-            "operator": "exact",
-            "value": ["true"]
-          }
-        ],
-        "rollout_percentage": 100
-      }
-    ]
-  }
+  "groups": [
+    {
+      "properties": [...],
+      "rollout_percentage": 50
+    }
+  ],
+  "super_groups": [
+    {
+      "properties": [
+        {
+          "key": "$feature_enrollment/new-dashboard",
+          "type": "person",
+          "operator": "exact",
+          "value": ["true"]
+        }
+      ],
+      "rollout_percentage": 100
+    }
+  ]
 }
 ```
 
@@ -57,9 +55,12 @@ Super groups use the same `FeatureFlagGroupType` as regular conditions:
 
 ```typescript
 interface FeatureFlagGroupType {
-  properties: AnyPropertyFilter[]
-  rollout_percentage: number | null
-  variant: string | null
+  properties?: AnyPropertyFilter[]
+  rollout_percentage?: number | null
+  variant?: string | null
+  users_affected?: number
+  sort_key?: string | null
+  description?: string | null
 }
 ```
 
@@ -85,15 +86,18 @@ A clearer name would be `enrollment_condition` or `early_access_gate`.
 
 Using `FeatureFlagGroupType` implies you can:
 
-- Add multiple properties (you can't—only the first is evaluated)
+- Add multiple properties (behavior is constrained—see below)
 - Use any property key (only `$feature_enrollment/*` makes sense)
 - Use different operators (only `exact` with `["true"]` is meaningful)
 - Set different rollout percentages (it's always 100% for enrolled users)
 
-The evaluation code only checks the first property:
+While multiple properties are technically allowed, the behavior varies by implementation:
+
+- **Python**: The first property's key determines whether to evaluate and is used for `is_set` checks, but condition evaluation can still include multiple properties
+- **Rust**: Evaluation can be triggered by any property key present in the person's properties
 
 ```python
-# From flag_matching.py
+# From flag_matching.py - first property key used to decide which super group to consider
 prop_key = (condition.get("properties") or [{}])[0].get("key")
 ```
 

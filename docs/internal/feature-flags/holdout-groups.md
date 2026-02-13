@@ -7,9 +7,9 @@ Holdout groups are stable sets of users intentionally excluded from experiment v
 Key characteristics:
 
 - **Stable across experiments**: The same users are consistently excluded, enabling cross-experiment analysis
-- **Hash-based assignment**: Uses consistent hashing on `distinct_id` so assignment is deterministic
+- **Hash-based assignment**: Uses consistent hashing on the bucketing identifier (distinct_id or group key) so assignment is deterministic
 - **Pre-condition evaluation**: Evaluated _before_ regular feature flag conditions, acting as a gate
-- **Immutable after launch**: Cannot be modified once an experiment starts
+- **Immutable experiment linkage**: Once an experiment starts, its associated holdout cannot be changed (the holdout definition itself may still be edited)
 
 ## What they're used for
 
@@ -44,16 +44,14 @@ When an experiment has a holdout, the holdout configuration is copied into the e
 
 ```json
 {
-  "filters": {
-    "groups": [...],
-    "holdout_groups": [
-      {
-        "variant": "holdout-42",
-        "properties": [],
-        "rollout_percentage": 10
-      }
-    ]
-  }
+  "groups": [...],
+  "holdout_groups": [
+    {
+      "variant": "holdout-42",
+      "properties": [],
+      "rollout_percentage": 10
+    }
+  ]
 }
 ```
 
