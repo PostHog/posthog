@@ -424,8 +424,6 @@ def get_context_for_template(
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
-    context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
-    context["js_app_state_logging_sample_rate"] = settings.APP_STATE_LOGGING_SAMPLE_RATE
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {

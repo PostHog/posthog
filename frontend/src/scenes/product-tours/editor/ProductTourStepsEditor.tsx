@@ -16,7 +16,6 @@ import {
 } from '~/types'
 
 import { ProductTourPreview } from '../components/ProductTourPreview'
-import { ProductToursToolbarButton } from '../components/ProductToursToolbarButton'
 import { productTourLogic } from '../productTourLogic'
 import { isAnnouncement, isBannerAnnouncement } from '../productToursLogic'
 import { createDefaultStep, getStepIcon, getStepLabel, getStepTitle, hasElementTarget } from '../stepUtils'
@@ -46,8 +45,12 @@ export const TOUR_STEP_MIN_WIDTH = 200
 export const TOUR_STEP_MAX_WIDTH = 700
 
 export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps): JSX.Element {
-    const { productTour, productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
-    const { setProductTourFormValue, setSelectedStepIndex } = useActions(productTourLogic({ id: tourId }))
+    const { productTour, productTourForm, selectedStepIndex, pendingToolbarOpen } = useValues(
+        productTourLogic({ id: tourId })
+    )
+    const { setProductTourFormValue, setSelectedStepIndex, submitAndOpenToolbar } = useActions(
+        productTourLogic({ id: tourId })
+    )
 
     const steps = productTourForm.content?.steps ?? []
     const appearance = productTourForm.content?.appearance
@@ -370,19 +373,15 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                                                                     />
                                                                 </button>
                                                             )}
-                                                        <ProductToursToolbarButton
-                                                            tourId={tourId}
-                                                            mode="edit"
-                                                            label={
-                                                                <div className="flex gap-1">
-                                                                    <IconCursorClick />
-                                                                    {selectedStep.inferenceData
-                                                                        ? 'Change'
-                                                                        : 'Select element'}
-                                                                </div>
-                                                            }
-                                                            saveFirst
-                                                        />
+                                                        <LemonButton
+                                                            type="secondary"
+                                                            size="small"
+                                                            onClick={() => submitAndOpenToolbar('edit')}
+                                                            loading={pendingToolbarOpen}
+                                                        >
+                                                            <IconCursorClick />
+                                                            {selectedStep.inferenceData ? 'Change' : 'Select element'}
+                                                        </LemonButton>
                                                     </div>
                                                 )}
                                             </div>
@@ -437,17 +436,17 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                                                         }
                                                     />
                                                 </div>
-                                                <ProductToursToolbarButton
-                                                    tourId={tourId}
-                                                    mode="edit"
-                                                    label={
-                                                        <div className="flex gap-1">
-                                                            <IconCursorClick />
-                                                            Attach to element
-                                                        </div>
-                                                    }
-                                                    saveFirst
-                                                />
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    onClick={() => submitAndOpenToolbar('edit')}
+                                                    loading={pendingToolbarOpen}
+                                                >
+                                                    <div className="flex gap-1">
+                                                        <IconCursorClick />
+                                                        Attach to element
+                                                    </div>
+                                                </LemonButton>
                                             </div>
                                         )}
                                     </div>
