@@ -15,6 +15,7 @@ from django.conf import settings
 from django.core.cache import cache
 
 import requests
+import tldextract
 import dns.resolver
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -177,68 +178,23 @@ def get_key_id() -> str:
     return getattr(settings, "DOMAIN_CONNECT_KEY_ID", "_dck1")
 
 
-def extract_root_domain_and_host(fqdn: str) -> tuple[str, str]:
-    """Split an FQDN into (root_domain, host_prefix).
+def extract_root_domain_and_host(full_domain: str) -> tuple[str, str]:
+    """Split a full domain into (root_domain, host_prefix).
 
     Examples:
         "ph.example.com"            → ("example.com", "ph")
         "track.sub.example.co.uk"   → ("example.co.uk", "track.sub")
         "example.com"               → ("example.com", "")
 
-    Uses a heuristic: known multi-part TLDs get special handling, otherwise
-    the root domain is the last two labels.
+    Uses the Public Suffix List via tldextract for correct TLD handling.
     """
-    # Remove trailing dot if present
-    fqdn = fqdn.rstrip(".")
-    parts = fqdn.split(".")
-
-    if len(parts) <= 1:
-        return (fqdn, "")
-
-    # Known multi-part TLD suffixes (extend as needed)
-    multi_part_tlds = {
-        "co.uk",
-        "org.uk",
-        "me.uk",
-        "net.uk",
-        "ac.uk",
-        "co.jp",
-        "or.jp",
-        "ne.jp",
-        "ac.jp",
-        "com.au",
-        "net.au",
-        "org.au",
-        "co.nz",
-        "net.nz",
-        "org.nz",
-        "com.br",
-        "net.br",
-        "org.br",
-        "co.in",
-        "net.in",
-        "org.in",
-        "co.za",
-        "com.mx",
-        "co.kr",
-        "com.cn",
-        "net.cn",
-        "org.cn",
-    }
-
-    # Check if the last N parts form a known multi-part TLD
-    for n in (3, 2):
-        if len(parts) >= n + 1:
-            candidate_tld = ".".join(parts[-n:])
-            if candidate_tld in multi_part_tlds:
-                root = ".".join(parts[-(n + 1) :])
-                host = ".".join(parts[: -(n + 1)])
-                return (root, host)
-
-    # Default: last 2 parts are the root domain
-    root = ".".join(parts[-2:])
-    host = ".".join(parts[:-2])
-    return (root, host)
+    full_domain = full_domain.rstrip(".")
+    ext = tldextract.extract(full_domain)
+    if ext.suffix:
+        root = f"{ext.domain}.{ext.suffix}"
+    else:
+        root = ext.domain or full_domain
+    return (root, ext.subdomain)
 
 
 def get_service_id_for_region(service_prefix: str) -> str:
@@ -312,7 +268,7 @@ def resolve_email_context(integration_id: int, team_id: int) -> tuple[str, str, 
 def resolve_proxy_context(proxy_record_id: str, organization_id: str) -> tuple[str, str, str, dict[str, str]]:
     """Resolve Domain Connect parameters for a proxy record.
 
-    Extracts the root domain and host from the proxy record's FQDN.
+    Extracts the root domain and host from the proxy record's full domain.
     Returns (domain, service_id, host, variables) — host is a protocol-level
     parameter (for hostRequired templates), not a template variable.
     """
@@ -377,8 +333,6 @@ def generate_apply_url(
 
 
 # --- Internal helpers ---
-
-
 def _lookup_domain_connect_endpoint(domain: str) -> str | None:
     """DNS TXT lookup for _domainconnect.{domain}.
 

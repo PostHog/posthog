@@ -62,8 +62,12 @@ class TestExtractRootDomainAndHost(BaseTest):
             ("single label", "localhost", ("localhost", "")),
         ]
     )
-    def test_extraction(self, _name: str, fqdn: str, expected: tuple[str, str]) -> None:
-        self.assertEqual(extract_root_domain_and_host(fqdn), expected)
+    def test_extraction(self, name: str, full_domain: str, expected: tuple[str, str]) -> None:
+        self.assertEqual(
+            extract_root_domain_and_host(full_domain),
+            expected,
+            f"Failed for case {name} for domain {full_domain}",
+        )
 
 
 class TestGetServiceIdForRegion(BaseTest):
