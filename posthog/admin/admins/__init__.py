@@ -10,9 +10,9 @@ from .data_color_theme_admin import DataColorThemeAdmin
 from .data_warehouse_table_admin import DataWarehouseTableAdmin
 from .ducklake_catalog_admin import DuckLakeCatalogAdmin
 from .event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
-from .external_data_schema_admin import ExternalDataSchemaAdmin
 from .experiment_admin import ExperimentAdmin
 from .experiment_saved_metric_admin import ExperimentSavedMetricAdmin
+from .external_data_schema_admin import ExternalDataSchemaAdmin
 from .feature_flag_admin import FeatureFlagAdmin
 from .group_type_mapping_admin import GroupTypeMappingAdmin
 from .hog_function_admin import HogFunctionAdmin
