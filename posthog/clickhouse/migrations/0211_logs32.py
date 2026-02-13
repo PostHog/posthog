@@ -9,19 +9,19 @@ from posthog.clickhouse.logs import (
 
 operations = [
     run_sql_with_exceptions(
-        LOGS32_TABLE_SQL,
+        LOGS32_TABLE_SQL(),
         node_roles=[NodeRole.LOGS],
     ),
     run_sql_with_exceptions(
-        LOG_ATTRIBUTES_TABLE_SQL,
+        LOG_ATTRIBUTES_TABLE_SQL(),
         node_roles=[NodeRole.LOGS],
     ),
     run_sql_with_exceptions(
-        LOG_ATTRIBUTES_MV,
+        LOG_ATTRIBUTES_MV(),
         node_roles=[NodeRole.LOGS],
     ),
     run_sql_with_exceptions(
-        LOG_RESOURCE_ATTRIBUTES_MV,
+        LOG_RESOURCE_ATTRIBUTES_MV(),
         node_roles=[NodeRole.LOGS],
     ),
 ]
