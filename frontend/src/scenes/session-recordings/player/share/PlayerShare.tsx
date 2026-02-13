@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
@@ -110,9 +109,8 @@ function IntegrationNudgeBanner({
 }): JSX.Element | null {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
     const { setTab } = useActions(playerSidebarLogic)
-    const [dismissed, setDismissed] = useState(false)
 
-    if (integrationsLoading || dismissed) {
+    if (integrationsLoading) {
         return null
     }
 
@@ -123,9 +121,10 @@ function IntegrationNudgeBanner({
         return (
             <LemonBanner
                 type="info"
-                onClose={() => setDismissed(true)}
+                dismissKey={`share-integration-nudge-${kind}-configured`}
                 action={{
                     children: 'Use linked issues',
+                    center: true,
                     onClick: () => {
                         posthog.capture('session_replay_share_integration_nudge_clicked', {
                             kind,
@@ -146,9 +145,10 @@ function IntegrationNudgeBanner({
     return (
         <LemonBanner
             type="info"
-            onClose={() => setDismissed(true)}
+            dismissKey={`share-integration-nudge-${kind}-not-configured`}
             action={{
                 children: 'Set up integration',
+                center: true,
                 onClick: () => {
                     posthog.capture('session_replay_share_integration_nudge_clicked', {
                         kind,
