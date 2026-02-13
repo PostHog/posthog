@@ -47,7 +47,8 @@ class SlackChannelsView(APIView):
                 for c in result.get("channels", []):
                     channels.append({"id": c["id"], "name": c["name"]})
 
-                cursor = result.get("response_metadata", {}).get("next_cursor", "")
+                response_metadata = result.get("response_metadata") or {}
+                cursor = response_metadata.get("next_cursor", "")
                 if not cursor:
                     break
             else:

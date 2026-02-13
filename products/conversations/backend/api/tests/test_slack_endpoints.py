@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
-from rest_framework.response import Response
 from rest_framework.test import APIClient
 from slack_sdk.errors import SlackApiError
 
@@ -24,8 +23,8 @@ class TestSupportSlackEventsAPI(BaseTest):
         self.client = APIClient()
         cache.clear()
 
-    def _post(self, payload: dict[str, Any]) -> Response:
-        return self.client.post(  # type: ignore[return-value]
+    def _post(self, payload: dict[str, Any]):
+        return self.client.post(
             "/api/conversations/v1/slack/events",
             data=json.dumps(payload),
             content_type="application/json",
