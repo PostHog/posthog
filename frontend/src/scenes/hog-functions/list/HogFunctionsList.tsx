@@ -247,8 +247,8 @@ export function HogFunctionList({
                     </Link>
                 ) : null}
                 <div className="flex-1" />
-                <div className="flex items-center gap-2">
-                    <span>Created by:</span>
+                <div className="flex items-center gap-2 shrink-0">
+                    <span className="hidden xl:inline">Created by:</span>
                     <MemberSelect
                         value={filters.createdBy || null}
                         onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
