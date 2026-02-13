@@ -115,6 +115,14 @@ async def _get_temporal_client(config: TemporalIOSourceConfig) -> Client:
     )
 
 
+def _encode_page_token(token: bytes) -> str:
+    return base64.b64encode(token).decode("utf-8")
+
+
+def _decode_page_token(token: str) -> bytes:
+    return base64.b64decode(token)
+
+
 async def _get_workflows(
     config: TemporalIOSourceConfig,
     db_incremental_field_last_value: Optional[Any],
@@ -131,33 +139,39 @@ async def _get_workflows(
 
         query = f'CloseTime >= "{db_incremental_field_last_value.strftime("%Y-%m-%dT%H:%M:%S.000Z")}"'
 
-    # Only use resume state for full-refresh syncs — the pagination token is tied
-    # to a specific query, so it becomes invalid when incremental field values change.
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     next_page_token: bytes | None = None
-    if not should_use_incremental_field and resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
-            next_page_token = base64.b64decode(resume_config.next_page_token)
-            logger.debug("TemporalIO: resuming from next_page_token")
+    if resume_config is not None:
+        next_page_token = _decode_page_token(resume_config.next_page_token)
+        logger.debug("TemporalIO: resuming from next_page_token")
 
     client = await _get_temporal_client(config)
-    workflows = client.list_workflows(query=query, next_page_token=next_page_token)
+    workflows = client.list_workflows(query=query, next_page_token=next_page_token, page_size=100)
 
     page_count = 0
     total_count = 0
-    async for item in workflows:
-        yield _sanitize(item.__dict__)
-        total_count += 1
+    while True:
+        # Save the token that will be used to fetch this page *before* fetching.
+        # On resume we re-fetch this same page — duplicates are safe thanks to primary keys.
+        pre_fetch_token = workflows.next_page_token
+        await workflows.fetch_next_page()
+        page = workflows.current_page
+        if not page:
+            break
 
-        # current_page_index is incremented by __anext__ before returning, so it
-        # equals 1 on the first item of each new page. Save state at page
-        # boundaries so we can resume from the next page if interrupted.
-        if workflows.current_page_index == 1 and total_count > 1 and not should_use_incremental_field:
-            page_count += 1
-            if workflows.next_page_token:
-                token_b64 = base64.b64encode(workflows.next_page_token).decode("utf-8")
-                resumable_source_manager.save_state(TemporalIOResumeConfig(next_page_token=token_b64))
-                logger.debug(f"TemporalIO: saved resume state after page {page_count} ({total_count} total workflows)")
+        page_count += 1
+        if pre_fetch_token:
+            resumable_source_manager.save_state(
+                TemporalIOResumeConfig(next_page_token=_encode_page_token(pre_fetch_token))
+            )
+            logger.debug(f"TemporalIO: saved resume state at page {page_count} ({total_count} total workflows)")
+
+        for item in page:
+            yield _sanitize(item.__dict__)
+            total_count += 1
+
+        if not workflows.next_page_token:
+            break
 
 
 async def _get_workflow_histories(
@@ -176,48 +190,59 @@ async def _get_workflow_histories(
 
         query = f'CloseTime >= "{db_incremental_field_last_value.strftime("%Y-%m-%dT%H:%M:%S.000Z")}"'
 
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     next_page_token: bytes | None = None
-    if not should_use_incremental_field and resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
-            next_page_token = base64.b64decode(resume_config.next_page_token)
-            logger.debug("TemporalIO: resuming workflow histories from next_page_token")
+    if resume_config is not None:
+        next_page_token = _decode_page_token(resume_config.next_page_token)
+        logger.debug("TemporalIO: resuming workflow histories from next_page_token")
 
     client = await _get_temporal_client(config)
-    workflows = client.list_workflows(query=query, next_page_token=next_page_token)
+    workflows = client.list_workflows(query=query, next_page_token=next_page_token, page_size=100)
 
     page_count = 0
     workflow_count = 0
-    async for item in workflows:
-        try:
-            history = await client.get_workflow_handle(item.id, run_id=item.run_id).fetch_history()
-            history_dict = history.to_json_dict()
-            events = history_dict["events"]
-            for event in events:
-                id = f"{item.id}-{item.run_id}-{event['taskId']}"
-                event_with_ids = {
-                    "id": id,
-                    "workflow_id": item.id,
-                    "run_id": item.run_id,
-                    "workflow_start_time": item.start_time,
-                    "workflow_close_time": item.close_time,
-                    **event,
-                }
-                yield _sanitize(event_with_ids)
-        except RPCError as e:
-            if "workflow execution not found for" in e.message:
-                continue
-            raise
+    while True:
+        # Save the token that will be used to fetch this page *before* fetching.
+        # On resume we re-fetch this same page — duplicates are safe thanks to primary keys.
+        pre_fetch_token = workflows.next_page_token
+        await workflows.fetch_next_page()
+        page = workflows.current_page
+        if not page:
+            break
 
-        workflow_count += 1
-        if workflows.current_page_index == 1 and workflow_count > 1 and not should_use_incremental_field:
-            page_count += 1
-            if workflows.next_page_token:
-                token_b64 = base64.b64encode(workflows.next_page_token).decode("utf-8")
-                resumable_source_manager.save_state(TemporalIOResumeConfig(next_page_token=token_b64))
-                logger.debug(
-                    f"TemporalIO: saved resume state after page {page_count} ({workflow_count} total workflow histories)"
-                )
+        page_count += 1
+        if pre_fetch_token:
+            resumable_source_manager.save_state(
+                TemporalIOResumeConfig(next_page_token=_encode_page_token(pre_fetch_token))
+            )
+            logger.debug(
+                f"TemporalIO: saved resume state at page {page_count} ({workflow_count} total workflow histories)"
+            )
+
+        for item in page:
+            try:
+                history = await client.get_workflow_handle(item.id, run_id=item.run_id).fetch_history()
+                history_dict = history.to_json_dict()
+                events = history_dict["events"]
+                for event in events:
+                    id = f"{item.id}-{item.run_id}-{event['taskId']}"
+                    event_with_ids = {
+                        "id": id,
+                        "workflow_id": item.id,
+                        "run_id": item.run_id,
+                        "workflow_start_time": item.start_time,
+                        "workflow_close_time": item.close_time,
+                        **event,
+                    }
+                    yield _sanitize(event_with_ids)
+            except RPCError as e:
+                if "workflow execution not found for" in e.message:
+                    continue
+                raise
+            workflow_count += 1
+
+        if not workflows.next_page_token:
+            break
 
 
 def temporalio_source(
