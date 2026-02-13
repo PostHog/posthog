@@ -34,6 +34,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
 import {
+    convertDataTableNodeToDataVisualizationNode,
     isFunnelsQuery,
     isLifecycleQuery,
     isNodeWithSource,
@@ -176,7 +177,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             throw new Error(`Insight with shortId ${shortId} not found`)
                         }
 
-                        return insight
+                        const convertedQuery = convertDataTableNodeToDataVisualizationNode(insight.query ?? null)
+
+                        return {
+                            ...insight,
+                            query: convertedQuery,
+                        }
                     } catch (error: any) {
                         if (error.status === 403 && error.code === 'permission_denied') {
                             actions.setAccessDeniedToInsight()
