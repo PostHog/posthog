@@ -79,19 +79,25 @@ interface TrafficPreviewProps {
     areVariantRolloutsValid: boolean
 }
 
+// Visualizes the bucketing logic performed by the backend
 const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }: TrafficPreviewProps): JSX.Element => {
-    const numVariants = variants.length
-    const slotSize = 100 / numVariants
     const excludedPercentage = Math.max(0, 100 - rolloutPercentage)
 
-    const previewVariants = variants.map((variant, index) => ({
-        ...variant,
-        index,
-        letter: alphabet[index] ?? `${index + 1}`,
-        slotStart: index * slotSize,
-        previewPercentage: Math.max(0, (variant.rollout_percentage / 100) * rolloutPercentage),
-        color: getSeriesColor(index),
-    }))
+    let cumulativeStart = 0
+    const previewVariants = variants.map((variant, index) => {
+        const slotSize = variant.rollout_percentage
+        const slotStart = cumulativeStart
+        cumulativeStart += slotSize
+        return {
+            ...variant,
+            index,
+            letter: alphabet[index] ?? `${index + 1}`,
+            slotSize,
+            slotStart,
+            previewPercentage: Math.max(0, (variant.rollout_percentage / 100) * rolloutPercentage),
+            color: getSeriesColor(index),
+        }
+    })
 
     return (
         <div className="flex flex-col gap-3">
@@ -113,7 +119,7 @@ const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }
             <div className="h-10 rounded bg-fill-secondary border border-primary overflow-hidden flex relative">
                 {rolloutPercentage > 0 ? (
                     previewVariants.map((variant) => (
-                        <div key={variant.key} className="h-full flex" style={{ width: `${slotSize}%` }}>
+                        <div key={variant.key} className="h-full flex" style={{ width: `${variant.slotSize}%` }}>
                             <div
                                 className="h-full"
                                 style={{
@@ -147,7 +153,7 @@ const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }
                             key={`${variant.key}-letter`}
                             className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 text-[10px] font-semibold text-white pointer-events-none"
                             style={{
-                                left: `${variant.slotStart + (slotSize * rolloutPercentage) / 100 / 2}%`,
+                                left: `${variant.slotStart + (variant.slotSize * rolloutPercentage) / 100 / 2}%`,
                                 textShadow: '0 1px 2px rgba(0, 0, 0, 0.35)',
                             }}
                         >
@@ -157,7 +163,7 @@ const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }
             </div>
             <div className="flex" style={{ visibility: rolloutPercentage > 0 ? 'visible' : 'hidden' }}>
                 {previewVariants.map((variant) => (
-                    <div key={`${variant.key}-label`} className="flex" style={{ width: `${slotSize}%` }}>
+                    <div key={`${variant.key}-label`} className="flex" style={{ width: `${variant.slotSize}%` }}>
                         <div
                             className="text-xs text-secondary text-center whitespace-nowrap"
                             style={{ width: `${rolloutPercentage}%` }}
