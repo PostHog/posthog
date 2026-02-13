@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -93,6 +94,15 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         )
     }
 
+    // Extract email from person properties or anonymous traits
+    const customerEmail = ticket?.person?.properties?.email || ticket?.anonymous_traits?.email
+    const normalizedEmail =
+        customerEmail && typeof customerEmail === 'string'
+            ? customerEmail
+            : Array.isArray(customerEmail)
+              ? customerEmail[0]
+              : undefined
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -167,6 +177,15 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     }
                                     withIcon
                                 />
+                                {normalizedEmail && (
+                                    <div className="flex items-center gap-2 mt-2 text-xs">
+                                        <span className="text-muted-alt truncate">{normalizedEmail}</span>
+                                        <IconCopy
+                                            className="text-lg cursor-pointer shrink-0 hover:text-primary"
+                                            onClick={() => void copyToClipboard(normalizedEmail, 'email')}
+                                        />
+                                    </div>
+                                )}
                                 <div className="my-3 border-t" />
                             </>
                         )}
