@@ -63,7 +63,9 @@ DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
+SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
+STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 
 # Modal region mapping based on cloud deployment
@@ -83,6 +85,7 @@ LOCAL_SOURCE_SKILLS_PATHS = (Path(".agents/skills"), Path("products/posthog_ai/s
 LOCAL_MODAL_DOCKERFILES = {
     SandboxTemplate.DEFAULT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"),
     SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
+    SandboxTemplate.STREAMLIT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit"),
 }
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 
@@ -154,6 +157,7 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
+        SandboxTemplate.STREAMLIT_BASE: SANDBOX_STREAMLIT_IMAGE,
     }.get(template)
     if registry_image is None:
         raise ValueError(f"Unknown template: {template}")
@@ -259,6 +263,8 @@ class ModalSandbox(SandboxBase):
     def _get_app_for_template(cls, template: SandboxTemplate) -> modal.App:
         if template == SandboxTemplate.NOTEBOOK_BASE:
             return modal.App.lookup(cls.NOTEBOOK_APP_NAME, create_if_missing=True)
+        if template == SandboxTemplate.STREAMLIT_BASE:
+            return modal.App.lookup(STREAMLIT_MODAL_APP_NAME, create_if_missing=True)
         return cls._get_default_app()
 
     @classmethod
