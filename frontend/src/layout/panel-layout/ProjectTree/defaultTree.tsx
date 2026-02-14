@@ -119,6 +119,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconApp />,
         iconColor: ['var(--color-product-heatmaps-light)', 'var(--color-product-heatmaps-dark)'],
     },
+    session_profile: {
+        icon: <IconReceipt />,
+    },
     session_replay: {
         icon: <IconRewindPlay />,
         iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
@@ -315,9 +318,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     exports: {
         icon: <IconDownload />,
-    },
-    session: {
-        icon: <IconReceipt />,
     },
 }
 
