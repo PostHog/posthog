@@ -1,3 +1,4 @@
+import { offset } from '@floating-ui/react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -78,7 +79,14 @@ export function ProductSetupPopover({
 
     const config = getProductSetupConfig(selectedProduct)
     const [hoveredTask, setHoveredTask] = useState<SetupTaskWithState | null>(null)
+    const [hoveredTaskElement, setHoveredTaskElement] = useState<HTMLElement | null>(null)
     const [announcement, setAnnouncement] = useState<string>('')
+    const hintPopoverRef = useRef<HTMLDivElement | null>(null)
+
+    const handleTaskHover = (task: SetupTaskWithState | null, element?: HTMLElement): void => {
+        setHoveredTask(task)
+        setHoveredTaskElement(element ?? null)
+    }
 
     // Calculate other products with remaining tasks
     const otherProductsWithTasks = useOtherProductsWithTasks(selectedProduct, savedOnboardingTasks)
@@ -203,94 +211,109 @@ export function ProductSetupPopover({
                 onClickOutside={onClickOutside}
                 placement="bottom-end"
                 padded={false}
+                additionalRefs={[hintPopoverRef]}
                 overlay={
-                    <div className="w-80 max-h-[70vh] flex flex-col" role="dialog" aria-label="Quick start guide">
-                        {/* Screen reader announcements */}
-                        <div className="sr-only" aria-live="polite" aria-atomic="true">
-                            {announcement}
+                    <div className="relative w-80 max-h-[70vh]" role="dialog" aria-label="Quick start guide">
+                        <div className="flex flex-col h-full">
+                            {/* Screen reader announcements */}
+                            <div className="sr-only" aria-live="polite" aria-atomic="true">
+                                {announcement}
+                            </div>
+                            <PopoverHeader
+                                showCelebration={showCelebration}
+                                isSetupComplete={isSetupComplete}
+                                productName={productName}
+                                otherProductsWithTasks={otherProductsWithTasks}
+                                isProductSelectionLocked={isProductSelectionLocked}
+                                selectedProduct={selectedProduct}
+                                onSelectProduct={onSelectProduct}
+                                productOptions={productOptions}
+                                completedCount={completedCount}
+                                totalTasks={totalTasks}
+                            />
+
+                            <div className="flex-1 overflow-y-auto" onMouseLeave={() => handleTaskHover(null)}>
+                                {isSetupComplete ? (
+                                    <ProductSuggestions
+                                        products={otherProductsWithTasks}
+                                        onSelectProduct={handleSelectSuggestedProduct}
+                                    />
+                                ) : (
+                                    <>
+                                        {setupTasks.length > 0 && (
+                                            <TaskSection
+                                                title="PostHog setup"
+                                                tasks={setupTasks}
+                                                onTaskClick={handleTaskClick}
+                                                onSkip={handleSkip}
+                                                onUnskip={handleUnskip}
+                                                onMarkComplete={handleMarkComplete}
+                                                onUnmarkComplete={handleUnmarkComplete}
+                                                onHover={handleTaskHover}
+                                            />
+                                        )}
+
+                                        {onboardingTasks.length > 0 && (
+                                            <TaskSection
+                                                title={`Get started with ${productName}`}
+                                                tasks={onboardingTasks}
+                                                onTaskClick={handleTaskClick}
+                                                onSkip={handleSkip}
+                                                onUnskip={handleUnskip}
+                                                onMarkComplete={handleMarkComplete}
+                                                onUnmarkComplete={handleUnmarkComplete}
+                                                onHover={handleTaskHover}
+                                            />
+                                        )}
+
+                                        {exploreTasks.length > 0 && (
+                                            <TaskSection
+                                                title="Try more"
+                                                tasks={exploreTasks}
+                                                onTaskClick={handleTaskClick}
+                                                onSkip={handleSkip}
+                                                onUnskip={handleUnskip}
+                                                onMarkComplete={handleMarkComplete}
+                                                onUnmarkComplete={handleUnmarkComplete}
+                                                onHover={handleTaskHover}
+                                                actionButton={
+                                                    exploreTasks.some((t) => !t.completed && !t.skipped) ? (
+                                                        <LemonButton
+                                                            type="tertiary"
+                                                            size="xsmall"
+                                                            onClick={handleSkipAllExploreTasks}
+                                                        >
+                                                            Skip all
+                                                        </LemonButton>
+                                                    ) : undefined
+                                                }
+                                            />
+                                        )}
+                                    </>
+                                )}
+                            </div>
+
+                            <PopoverFooter
+                                isDismissed={isDismissed}
+                                onMinimize={handleMinimize}
+                                onRestore={handleRestore}
+                                selectedProduct={selectedProduct}
+                            />
                         </div>
-                        <PopoverHeader
-                            showCelebration={showCelebration}
-                            isSetupComplete={isSetupComplete}
-                            productName={productName}
-                            otherProductsWithTasks={otherProductsWithTasks}
-                            isProductSelectionLocked={isProductSelectionLocked}
-                            selectedProduct={selectedProduct}
-                            onSelectProduct={onSelectProduct}
-                            productOptions={productOptions}
-                            completedCount={completedCount}
-                            totalTasks={totalTasks}
-                        />
 
-                        <div className="flex-1 overflow-y-auto" onMouseLeave={() => setHoveredTask(null)}>
-                            {isSetupComplete ? (
-                                <ProductSuggestions
-                                    products={otherProductsWithTasks}
-                                    onSelectProduct={handleSelectSuggestedProduct}
-                                />
-                            ) : (
-                                <>
-                                    {setupTasks.length > 0 && (
-                                        <TaskSection
-                                            title="PostHog setup"
-                                            tasks={setupTasks}
-                                            onTaskClick={handleTaskClick}
-                                            onSkip={handleSkip}
-                                            onUnskip={handleUnskip}
-                                            onMarkComplete={handleMarkComplete}
-                                            onUnmarkComplete={handleUnmarkComplete}
-                                            onHover={setHoveredTask}
-                                        />
-                                    )}
-
-                                    {onboardingTasks.length > 0 && (
-                                        <TaskSection
-                                            title={`Get started with ${productName}`}
-                                            tasks={onboardingTasks}
-                                            onTaskClick={handleTaskClick}
-                                            onSkip={handleSkip}
-                                            onUnskip={handleUnskip}
-                                            onMarkComplete={handleMarkComplete}
-                                            onUnmarkComplete={handleUnmarkComplete}
-                                            onHover={setHoveredTask}
-                                        />
-                                    )}
-
-                                    {exploreTasks.length > 0 && (
-                                        <TaskSection
-                                            title="Try more"
-                                            tasks={exploreTasks}
-                                            onTaskClick={handleTaskClick}
-                                            onSkip={handleSkip}
-                                            onUnskip={handleUnskip}
-                                            onMarkComplete={handleMarkComplete}
-                                            onUnmarkComplete={handleUnmarkComplete}
-                                            onHover={setHoveredTask}
-                                            actionButton={
-                                                exploreTasks.some((t) => !t.completed && !t.skipped) ? (
-                                                    <LemonButton
-                                                        type="tertiary"
-                                                        size="xsmall"
-                                                        onClick={handleSkipAllExploreTasks}
-                                                    >
-                                                        Skip all
-                                                    </LemonButton>
-                                                ) : undefined
-                                            }
-                                        />
-                                    )}
-                                </>
-                            )}
-                        </div>
-
-                        {!isSetupComplete && <TaskHoverDescription task={hoveredTask} />}
-
-                        <PopoverFooter
-                            isDismissed={isDismissed}
-                            onMinimize={handleMinimize}
-                            onRestore={handleRestore}
-                            selectedProduct={selectedProduct}
-                        />
+                        {!isSetupComplete && hoveredTask && hoveredTaskElement && (
+                            <Popover
+                                visible
+                                referenceElement={hoveredTaskElement}
+                                placement="left-start"
+                                fallbackPlacements={['left-end', 'left']}
+                                padded={false}
+                                floatingRef={hintPopoverRef}
+                                middleware={[offset(8)]}
+                                onClickOutside={() => {}}
+                                overlay={<TaskHoverDescription task={hoveredTask} anchored />}
+                            />
+                        )}
                     </div>
                 }
             >
@@ -436,11 +459,19 @@ function ProductSuggestionItem({ product, onSelect }: ProductSuggestionItemProps
 
 interface TaskHoverDescriptionProps {
     task: SetupTaskWithState | null
+    /** When true, rendered outside main popover at bottom-left; no reserved space */
+    anchored?: boolean
 }
 
-function TaskHoverDescription({ task }: TaskHoverDescriptionProps): JSX.Element {
+function TaskHoverDescription({ task, anchored = false }: TaskHoverDescriptionProps): JSX.Element {
     return (
-        <div className="px-3 py-2 border-t border-border bg-fill-tertiary min-h-28 flex flex-col">
+        <div
+            className={
+                anchored
+                    ? 'px-2 py-1.5 rounded border border-border bg-bg-light dark:bg-bg-dark shadow-elevation-3000'
+                    : 'px-3 py-2 border-t border-border bg-fill-tertiary min-h-28 flex flex-col'
+            }
+        >
             {task ? (
                 <>
                     <span className="text-xs font-medium">{task.title}</span>
@@ -460,9 +491,7 @@ function TaskHoverDescription({ task }: TaskHoverDescriptionProps): JSX.Element 
                         </p>
                     )}
                 </>
-            ) : (
-                <p className="text-xs text-muted italic">Hover over a task for details</p>
-            )}
+            ) : null}
         </div>
     )
 }
@@ -505,7 +534,7 @@ interface TaskSectionProps {
     onUnskip: (e: React.MouseEvent, taskId: SetupTaskId) => void
     onMarkComplete?: (e: React.MouseEvent, taskId: SetupTaskId) => void
     onUnmarkComplete?: (e: React.MouseEvent, taskId: SetupTaskId) => void
-    onHover?: (task: SetupTaskWithState | null) => void
+    onHover?: (task: SetupTaskWithState | null, element?: HTMLElement) => void
     actionButton?: React.ReactNode
 }
 
@@ -554,7 +583,7 @@ interface TaskItemProps {
     onUnskip: (e: React.MouseEvent, taskId: SetupTaskId) => void
     onMarkComplete?: (e: React.MouseEvent, taskId: SetupTaskId) => void
     onUnmarkComplete?: (e: React.MouseEvent, taskId: SetupTaskId) => void
-    onHover?: (task: SetupTaskWithState | null) => void
+    onHover?: (task: SetupTaskWithState | null, element?: HTMLElement) => void
 }
 
 function TaskItem({
@@ -596,7 +625,8 @@ function TaskItem({
             }`}
             onClick={isClickable ? onClick : undefined}
             onKeyDown={handleKeyDown}
-            onMouseEnter={() => onHover?.(task)}
+            onMouseEnter={(e) => onHover?.(task, e.currentTarget as HTMLElement)}
+            onMouseLeave={() => onHover?.(null)}
         >
             <TaskStatusIndicator
                 isCompleted={isCompleted}
