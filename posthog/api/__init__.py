@@ -116,6 +116,7 @@ from . import (
     personal_api_key,
     plugin,
     plugin_log_entry,
+    project_secret_api_key,
     proxy_record,
     query,
     quick_filters,
@@ -454,7 +455,12 @@ projects_router.register(
 )
 
 projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["project_id"])
-
+projects_router.register(
+    r"project_secret_api_keys",
+    project_secret_api_key.ProjectSecretAPIKeyViewSet,
+    "project_secret_api_keys",
+    ["project_id"],
+)
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
 projects_router.register(
     r"web_analytics",

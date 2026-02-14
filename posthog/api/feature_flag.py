@@ -2207,7 +2207,6 @@ class FeatureFlagViewSet(
         throttle_classes=[LocalEvaluationThrottle],
         required_scopes=["feature_flag:read"],
         authentication_classes=[
-            TemporaryTokenAuthentication,
             ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[ProjectSecretAPITokenPermission],
@@ -2521,7 +2520,6 @@ class FeatureFlagViewSet(
         detail=True,
         required_scopes=["feature_flag:read"],
         authentication_classes=[
-            TemporaryTokenAuthentication,
             ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[ProjectSecretAPITokenPermission],

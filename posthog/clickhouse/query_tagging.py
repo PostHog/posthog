@@ -16,6 +16,7 @@ from posthog.schema import ProductKey
 
 class AccessMethod(StrEnum):
     PERSONAL_API_KEY = "personal_api_key"
+    PROJECT_SECRET_API_KEY = "project_secret_api_key"
     OAUTH = "oauth"
 
 

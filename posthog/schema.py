@@ -2974,6 +2974,19 @@ class ProductKey(StrEnum):
     WORKFLOWS = "workflows"
 
 
+class ProjectSecretAPIKeyAllowedScope(StrEnum):
+    FEATURE_FLAG_READ = "feature_flag:read"
+    PLACEHOLDER = "PLACEHOLDER"
+
+
+class ProjectSecretAPIKeyRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str | None = None
+    scopes: list[ProjectSecretAPIKeyAllowedScope] | None = None
+
+
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"

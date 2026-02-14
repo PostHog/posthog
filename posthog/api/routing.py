@@ -121,9 +121,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     def get_authenticators(self):
         # NOTE: Custom authentication_classes go first as these typically have extra initial checks
-        authentication_classes: list = [
-            *self.authentication_classes,
-        ]
+        authentication_classes: list = [*self.authentication_classes]
 
         if self.sharing_enabled_actions:
             authentication_classes.append(SharingPasswordProtectedAuthentication)
