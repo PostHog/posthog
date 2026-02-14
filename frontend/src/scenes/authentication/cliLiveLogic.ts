@@ -62,6 +62,12 @@ export const cliLiveLogic = kea<cliLiveLogicType>([
                 actions.setError('Missing port parameter')
                 return
             }
+            const portNum = parseInt(values.port, 10)
+            if (isNaN(portNum) || portNum < 1 || portNum > 65535 || String(portNum) !== values.port) {
+                actions.setError('Invalid port parameter')
+                return
+            }
+
             try {
                 const team = await api.get(`api/environments/${projectId}/`)
                 const token = team.live_events_token
@@ -72,7 +78,7 @@ export const cliLiveLogic = kea<cliLiveLogicType>([
                 const teamName = encodeURIComponent(team.name || '')
                 const teamId = team.id
                 const apiHost = encodeURIComponent(window.location.origin)
-                window.location.href = `http://localhost:${values.port}/callback?token=${token}&team_name=${teamName}&team_id=${teamId}&api_host=${apiHost}`
+                window.location.href = `http://127.0.0.1:${portNum}/callback?token=${token}&team_name=${teamName}&team_id=${teamId}&api_host=${apiHost}`
                 actions.setRedirected(true)
             } catch (e: any) {
                 actions.setError(e?.detail || 'Failed to fetch project details')
