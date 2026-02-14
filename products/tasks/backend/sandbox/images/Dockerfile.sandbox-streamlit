@@ -1,0 +1,36 @@
+FROM python:3.11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    streamlit==1.31.0 \
+    numpy \
+    pandas \
+    polars \
+    plotly \
+    matplotlib \
+    seaborn \
+    scipy \
+    scikit-learn \
+    pyarrow \
+    duckdb \
+    requests \
+    beautifulsoup4 \
+    lxml \
+    sqlalchemy
+
+RUN mkdir -p /root/.streamlit
+COPY streamlit_config.toml /root/.streamlit/config.toml
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 8501
+
+ENTRYPOINT ["/entrypoint.sh"]
