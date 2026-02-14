@@ -15,7 +15,7 @@ from posthog.tasks.alerts.checks import (
     checks_cleanup_task,
     reset_stuck_alerts_task,
 )
-from posthog.tasks.email import send_hog_functions_daily_digest
+from posthog.tasks.email import send_hog_functions_daily_digest, send_matview_failure_digest
 from posthog.tasks.feature_flags import (
     cleanup_stale_flags_expiry_tracking_task,
     compute_feature_flag_metrics,
@@ -264,6 +264,25 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="9", minute="30"),
         send_hog_functions_daily_digest.s(),
         name="send HogFunctions daily digest",
+    )
+
+    # Send materialized view failure digest daily.
+    # Use CLOUD_DEPLOYMENT to pick a time that's morning for the region:
+    #   EU: 8:00 AM UTC (morning in Europe)
+    #   US: 2:00 PM UTC (~9 AM ET / 6 AM PT)
+    #   Self-hosted/other: 9:00 AM UTC (reasonable default)
+    cloud_deployment = (settings.CLOUD_DEPLOYMENT or "").upper()
+    if cloud_deployment == "EU":
+        matview_digest_hour = "8"
+    elif cloud_deployment == "US":
+        matview_digest_hour = "14"
+    else:
+        matview_digest_hour = "9"
+
+    sender.add_periodic_task(
+        crontab(hour=matview_digest_hour, minute="0"),
+        send_matview_failure_digest.s(),
+        name="send matview failure digest",
     )
 
     # PostHog Cloud cron jobs
