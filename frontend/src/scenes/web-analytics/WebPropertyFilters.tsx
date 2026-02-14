@@ -79,7 +79,7 @@ export const WebPropertyFilters = ({
         <Popover
             visible={displayFilters}
             onClickOutside={() => setDisplayFilters(false)}
-            placement="bottom"
+            placement="bottom-start"
             className="max-w-200"
             overlay={
                 <div className="p-2">
