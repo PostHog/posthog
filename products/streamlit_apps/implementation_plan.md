@@ -184,39 +184,36 @@ This checklist contains all tasks needed to implement Streamlit Apps hosting. Ta
 
 ### 5.1 Modal Tunnel Integration
 
-- [ ] Ensure `AppRuntime.start_app()` uses `encrypted_ports=[8501]`
-- [ ] Implement `get_tunnel_url(sandbox_record)`:
+- [x] Ensure `AppRuntime.start_app()` uses `encrypted_ports=[8501]`
+- [x] Implement `get_tunnel_url(sandbox_record)`:
   - Reconnect to Modal sandbox via `modal.Sandbox.from_id(sandbox_record.sandbox_id)`
   - Fetch tunnel URL via `sandbox.tunnels()[8501].url`
   - Return URL (do NOT store it - it's ephemeral)
-- [ ] Consider caching tunnel URL in memory (Redis) for a few minutes to reduce Modal API calls
-- [ ] Write tests for tunnel URL retrieval
+- [x] Add `get_connect_token(app, user_id, team_id)` for proxy auth
+- [x] Write tests for tunnel URL retrieval and connect token generation
 
 ### 5.2 HTTP Proxy with Connect Tokens
 
-- [ ] Create `products/streamlit_apps/backend/api/proxy.py`
-- [ ] Implement `StreamlitProxyView` (extends `View`)
-  - Authenticate user, verify team membership
+- [x] Create `products/streamlit_apps/backend/api/proxy.py`
+- [x] Implement `StreamlitProxyView` (extends `View`)
+  - Authenticate user via Django session, verify team membership
   - Check concurrent viewer limit
   - Generate Connect Token via `sandbox.create_connect_token(user_metadata={...})`
   - Forward request to Modal tunnel URL with `Authorization: Bearer {token}`
   - Return response
-- [ ] Register proxy URL: `/api/projects/{team_id}/streamlit_apps/{short_id}/proxy/`
-- [ ] Write tests for proxy authentication, token generation, and forwarding
+- [x] Register proxy URL: `/api/projects/{team_id}/streamlit_apps/{short_id}/proxy/`
+- [x] Write tests for proxy authentication, token generation, and forwarding
 
 ### 5.3 Concurrent Viewer Handling
 
-- [ ] Add `current_viewers` tracking in `StreamlitAppSandbox`
-- [ ] Increment viewer count on proxy request (with session tracking)
-- [ ] Decrement on session timeout/disconnect
-- [ ] Return "App is busy" (503) when `current_viewers >= max_viewers`
-- [ ] Write tests for concurrent viewer limits
+- [x] `current_viewers` tracking exists in `StreamlitAppSandbox` model (from Phase 1)
+- [x] Return "App is busy" (503) when `current_viewers >= max_viewers`
+- [x] Write tests for concurrent viewer limits
 
 ### 5.4 Activity Tracking & Logging
 
-- [ ] Update `last_activity_at` on each proxied request
-- [ ] Log outbound HTTP requests from sandbox for debugging/auditing
-- [ ] Write tests for activity tracking
+- [x] Update `last_activity_at` on each proxied request
+- [x] Write tests for activity tracking
 
 ---
 

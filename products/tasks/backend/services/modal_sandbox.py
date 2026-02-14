@@ -289,6 +289,9 @@ class ModalSandbox:
             if secrets:
                 create_kwargs["secrets"] = secrets
 
+            if config.encrypted_ports:
+                create_kwargs["encrypted_ports"] = config.encrypted_ports
+
             try:
                 sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
             except Exception as e:
