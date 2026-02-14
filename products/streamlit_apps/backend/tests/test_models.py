@@ -107,6 +107,10 @@ class TestStreamlitAppSandboxModel(BaseTest):
 
 
 class TestAllowedStreamlitPackageModel(BaseTest):
+    def setUp(self):
+        super().setUp()
+        AllowedStreamlitPackage.objects.all().delete()
+
     def test_create_package(self):
         pkg = AllowedStreamlitPackage.objects.create(name="pandas", version_constraint=">=2.0,<3.0")
         assert str(pkg) == "pandas>=2.0,<3.0"

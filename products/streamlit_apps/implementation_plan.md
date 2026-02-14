@@ -87,7 +87,7 @@ This checklist contains all tasks needed to implement Streamlit Apps hosting. Ta
   - Support: `--add`, `--remove`, `--list` flags
   - Validate package names
 - [x] Write tests for the management command
-- [ ] Seed initial allowlist (numpy, pandas, plotly, etc.)
+- [x] Seed initial allowlist (numpy, pandas, plotly, etc.)
 
 ### 2.2 Zip Validator Service
 

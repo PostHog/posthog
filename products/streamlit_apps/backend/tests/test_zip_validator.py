@@ -21,6 +21,7 @@ def _make_zip(files: dict[str, str]) -> BytesIO:
 class TestValidateZip(BaseTest):
     def setUp(self):
         super().setUp()
+        AllowedStreamlitPackage.objects.all().delete()
         AllowedStreamlitPackage.objects.create(name="pandas")
         AllowedStreamlitPackage.objects.create(name="numpy")
 
