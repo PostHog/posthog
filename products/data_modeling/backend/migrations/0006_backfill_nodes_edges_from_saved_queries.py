@@ -40,7 +40,9 @@ def backfill_nodes_and_edges(apps, schema_editor):
         Node.objects.create(
             team_id=saved_query.team_id,
             saved_query=saved_query,
-            dag_id=get_dag_id(saved_query.team_id),
+            # ignored type because this flags as an unknown field. it existed
+            # in previous migrations but not the current state
+            dag_id=get_dag_id(saved_query.team_id),  # type: ignore
             name=saved_query.name,
             type=node_type,
             properties={"backfilled": True},

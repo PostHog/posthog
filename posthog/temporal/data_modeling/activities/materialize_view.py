@@ -370,7 +370,7 @@ def _get_matview_input_objects(
 ) -> tuple[Team, Node, DataWarehouseSavedQuery, DataModelingJob]:
     team = Team.objects.get(id=inputs.team_id)
     node = Node.objects.prefetch_related("saved_query").get(
-        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
+        id=inputs.node_id, team_id=inputs.team_id, dag_id_text=inputs.dag_id
     )
     if node.type == NodeType.TABLE:
         raise InvalidNodeTypeException(f"Cannot materialize a TABLE node: {node.name}")
