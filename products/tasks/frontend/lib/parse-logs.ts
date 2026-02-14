@@ -128,6 +128,20 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
 
             case 'tool_call': {
                 const toolCallId = update.toolCallId || id
+                const existing = toolMap.get(toolCallId)
+                if (existing) {
+                    // Update existing entry in place (ACP sends tool_call for both start and completion)
+                    existing.toolStatus = normalizeToolStatus(update.status)
+                    if (update.rawInput && !existing.toolArgs) {
+                        existing.toolArgs = update.rawInput
+                    }
+                    if (update._meta?.claudeCode?.toolResponse !== undefined) {
+                        existing.toolResult = update._meta.claudeCode.toolResponse
+                    } else if (update.rawOutput !== undefined) {
+                        existing.toolResult = update.rawOutput
+                    }
+                    return null
+                }
                 const entry: LogEntry = {
                     id,
                     type: 'tool',

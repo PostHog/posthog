@@ -6,13 +6,11 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { sessionRecordingPlayerLogic } from '../player/sessionRecordingPlayerLogic'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
@@ -54,7 +52,6 @@ function HorizontalLayout({
 
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
-
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'playlist-resizer-horizontal',
         containerRef: playlistRef,
@@ -75,14 +72,16 @@ function HorizontalLayout({
                     'w-3': isPlaylistCollapsed,
                 })}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={isPlaylistCollapsed ? {} : { width: desiredSize ?? 320, minWidth: 265, maxWidth: '50%' }}
+                style={
+                    isPlaylistCollapsed ? {} : { width: desiredSize ?? 320, minWidth: 'min-content', maxWidth: '50%' }
+                }
             >
                 <Playlist {...props} />
                 {!isPlaylistCollapsed && (
                     <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
                 )}
             </div>
-            <PlayerWrapper {...props} className="h-full flex-1 shrink min-w-96" />
+            <PlayerWrapper {...props} className="h-full flex-1 shrink" />
         </>
     )
 }
@@ -134,59 +133,6 @@ function VerticalLayout({
                 <Playlist {...props} />
             </div>
         </>
-    )
-}
-
-function AttachedPlayer({
-    playlistProps,
-    activeSessionRecording,
-    matchingEventsMatchType,
-    pinnedRecordings,
-    onPlayNextRecording,
-}: {
-    playlistProps: SessionRecordingPlaylistLogicProps
-    activeSessionRecording: any
-    matchingEventsMatchType: any
-    pinnedRecordings: any[]
-    onPlayNextRecording: () => void
-}): JSX.Element {
-    const playerKey = playlistProps.logicKey ?? 'playlist'
-
-    // Attach player logic to playlist logic so it persists across tab switches
-    // Pass autoPlay from playlistProps to match what the component will use
-    useAttachedLogic(
-        sessionRecordingPlayerLogic({
-            playerKey,
-            sessionRecordingId: activeSessionRecording.id,
-            matchingEventsMatchType,
-            autoPlay: playlistProps.autoPlay,
-        }),
-        sessionRecordingsPlaylistLogic(playlistProps)
-    )
-
-    return (
-        <SessionRecordingPlayer
-            playerKey={playerKey}
-            sessionRecordingId={activeSessionRecording.id}
-            matchingEventsMatchType={matchingEventsMatchType}
-            autoPlay={playlistProps.autoPlay}
-            onRecordingDeleted={() => {
-                sessionRecordingsPlaylistLogic.actions.loadAllRecordings()
-                sessionRecordingsPlaylistLogic.actions.setSelectedRecordingId(null)
-            }}
-            pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
-            setPinned={
-                playlistProps.onPinnedChange
-                    ? (pinned) => {
-                          if (!activeSessionRecording.id) {
-                              return
-                          }
-                          playlistProps.onPinnedChange?.(activeSessionRecording, pinned)
-                      }
-                    : undefined
-            }
-            playNextRecording={onPlayNextRecording}
-        />
     )
 }
 
@@ -244,12 +190,27 @@ function PlayerWrapper({
                     />
                 </div>
             ) : showContent && activeSessionRecording ? (
-                <AttachedPlayer
-                    playlistProps={props}
-                    activeSessionRecording={activeSessionRecording}
+                <SessionRecordingPlayer
+                    playerKey={props.logicKey ?? 'playlist'}
+                    sessionRecordingId={activeSessionRecording.id}
                     matchingEventsMatchType={matchingEventsMatchType}
-                    pinnedRecordings={pinnedRecordings}
-                    onPlayNextRecording={onPlayNextRecording}
+                    autoPlay={props.autoPlay}
+                    onRecordingDeleted={() => {
+                        sessionRecordingsPlaylistLogic.actions.loadAllRecordings()
+                        sessionRecordingsPlaylistLogic.actions.setSelectedRecordingId(null)
+                    }}
+                    pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
+                    setPinned={
+                        props.onPinnedChange
+                            ? (pinned) => {
+                                  if (!activeSessionRecording.id) {
+                                      return
+                                  }
+                                  props.onPinnedChange?.(activeSessionRecording, pinned)
+                              }
+                            : undefined
+                    }
+                    playNextRecording={onPlayNextRecording}
                 />
             ) : (
                 <div className="mt-20">

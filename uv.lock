@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = "==3.12.12"
 resolution-markers = [
     "platform_python_implementation != 'PyPy' and sys_platform != 'emscripten'",
@@ -2297,7 +2297,7 @@ wheels = [
 
 [[package]]
 name = "google-ads"
-version = "26.1.0"
+version = "29.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-core" },
@@ -2309,9 +2309,9 @@ dependencies = [
     { name = "protobuf" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/23/0e483d236f0f47cecd9b866614186a5845ad6fb03cfc265edcd962d500bf/google_ads-26.1.0.tar.gz", hash = "sha256:3ec4cc8ad07f71c923433bd2a783afc59acd5d428ed75bcc64f8ecaa5b3d8691", size = 7045268, upload-time = "2025-04-16T19:21:46.876Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2c/d5/bdc19aa181af685fa17b904d69440ad8821ace603aae704004882db984dc/google_ads-29.0.0.tar.gz", hash = "sha256:f0ac0ac1cbe52c3387dd13fd337cf72667751d4474240b85b1eb0dd1ebc9f9e8", size = 9427948, upload-time = "2026-01-28T22:27:37.164Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ab/de/ecceaa4de5c344fabe6d9a739f92cda1de19889af1dd1aa372841d84b52c/google_ads-26.1.0-py3-none-any.whl", hash = "sha256:5fd2a7ac7216d45c6f7b8cadd765ea2670fda4a05aa280ea849ecc28f1aa7fd0", size = 13655250, upload-time = "2025-04-16T19:21:44.377Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/de/5e3b5f3260bde4e54e7d8360ba2e9ee0faa3b326c8d3bfc9343a269bfb12/google_ads-29.0.0-py3-none-any.whl", hash = "sha256:133652c0bafc92591b06a991bc3500b188cdaeb046be2b3193c9ca1cb30f86df", size = 18109098, upload-time = "2026-01-28T22:27:34.306Z" },
 ]
 
 [[package]]
@@ -4740,7 +4740,7 @@ requires-dist = [
     { name = "geoip2", specifier = "==4.6.0" },
     { name = "gitpython", specifier = "~=3.1.44" },
     { name = "glom", specifier = "~=24.11.0" },
-    { name = "google-ads", specifier = "==26.1.0" },
+    { name = "google-ads", specifier = "==29.0.0" },
     { name = "google-cloud-bigquery", specifier = "==3.26" },
     { name = "google-genai", specifier = "==1.46.0" },
     { name = "granian", extras = ["uvloop", "reload", "pname"], specifier = "==2.5.5" },
@@ -4816,7 +4816,7 @@ requires-dist = [
     { name = "selenium", specifier = "==4.28.1" },
     { name = "semantic-version", specifier = "==2.8.5" },
     { name = "simple-salesforce", specifier = "~=1.12.6" },
-    { name = "slack-sdk", specifier = "==3.17.1" },
+    { name = "slack-sdk", specifier = "==3.39.0" },
     { name = "snowflake-connector-python", specifier = "==4.1.1" },
     { name = "snowflake-sqlalchemy", specifier = "==1.8.2" },
     { name = "social-auth-app-django", specifier = "~=5.4.3" },
@@ -6291,11 +6291,11 @@ wheels = [
 
 [[package]]
 name = "slack-sdk"
-version = "3.17.1"
+version = "3.39.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/35/f6/8d894a14d751216705fb4b5f5b552cdc50b6963fcd58c6e0da9cea3dfb4c/slack_sdk-3.17.1.tar.gz", hash = "sha256:20a170698fa1affde9c642d78ea1e8947e9dd37920685cb0f2c5a2df7c48abd4", size = 205437, upload-time = "2022-06-14T04:47:35.244Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b6/dd/645f3eb93fce38eadbb649e85684730b1fc3906c2674ca59bddc2ca2bd2e/slack_sdk-3.39.0.tar.gz", hash = "sha256:6a56be10dc155c436ff658c6b776e1c082e29eae6a771fccf8b0a235822bbcb1", size = 247207, upload-time = "2025-11-20T15:27:57.556Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c9/a6/388ea894e55980067b28345f695e07c97b7b28fcd88353920ecd0810b97e/slack_sdk-3.17.1-py2.py3-none-any.whl", hash = "sha256:50fa984d9513226d3f982ba7d596d3d68127f58865f83dcc1825f52012e908ab", size = 265476, upload-time = "2022-06-14T04:47:32.84Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/1f/32bcf088e535c1870b1a1f2e3b916129c66fdfe565a793316317241d41e5/slack_sdk-3.39.0-py2.py3-none-any.whl", hash = "sha256:b1556b2f5b8b12b94e5ea3f56c4f2c7f04462e4e1013d325c5764ff118044fa8", size = 309850, upload-time = "2025-11-20T15:27:55.729Z" },
 ]
 
 [[package]]

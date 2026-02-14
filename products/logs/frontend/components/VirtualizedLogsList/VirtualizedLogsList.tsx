@@ -155,7 +155,7 @@ export function VirtualizedLogsList({
     onChangeOrderBy,
 }: VirtualizedLogsListProps): JSX.Element {
     const {
-        tabId,
+        id,
         pinnedLogs,
         expandedLogIds,
         cursorIndex,
@@ -187,8 +187,8 @@ export function VirtualizedLogsList({
 
     const containerRef = useRef<HTMLDivElement>(null)
 
-    const { shouldLoadMore } = useValues(virtualizedLogsListLogic({ tabId }))
-    const { setContainerWidth } = useActions(virtualizedLogsListLogic({ tabId }))
+    const { shouldLoadMore } = useValues(virtualizedLogsListLogic({ id }))
+    const { setContainerWidth } = useActions(virtualizedLogsListLogic({ id }))
     const listRef = useListRef(null)
     const autosizerWidthRef = useRef<number>(0)
 
