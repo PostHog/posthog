@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCheck, IconCursorClick, IconExternal, IconPlay, IconPlus, IconSidebarClose, IconX } from '@posthog/icons'
+import { IconCheck, IconCursorClick, IconPlay, IconPlus, IconSidebarClose, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -21,7 +21,7 @@ import { PRODUCT_TOURS_SIDEBAR_TRANSITION_MS } from './utils'
 const SIDEBAR_WIDTH = 320
 
 export function ProductToursSidebar(): JSX.Element | null {
-    const { userIntent, posthog } = useValues(toolbarConfigLogic)
+    const { posthog } = useValues(toolbarConfigLogic)
     const {
         selectedTourId,
         tourForm,
@@ -31,14 +31,12 @@ export function ProductToursSidebar(): JSX.Element | null {
         expandedStepIndex,
         isTourFormSubmitting,
         isPreviewing,
-        pendingEditInPostHog,
         sessionRecordingConsent,
         sidebarPosition,
     } = useValues(productToursLogic)
     const {
         selectTour,
         saveTour,
-        saveAndEditInPostHog,
         previewTour,
         setTourFormValue,
         addStep,
@@ -210,7 +208,7 @@ export function ProductToursSidebar(): JSX.Element | null {
                             type="primary"
                             icon={<IconCheck />}
                             onClick={saveTour}
-                            loading={isTourFormSubmitting && !pendingEditInPostHog}
+                            loading={isTourFormSubmitting}
                             disabledReason={getSaveDisabledReason()}
                             center
                             className="flex-1"
@@ -234,7 +232,10 @@ export function ProductToursSidebar(): JSX.Element | null {
                                 <IconCursorClick className="w-5 h-5" />
                             </div>
                             <p className="m-0 text-sm mb-1">No steps yet</p>
-                            <p className="m-0 text-xs text-muted-3000">Add your first step to get started</p>
+                            <p className="m-0 text-xs text-muted-3000">
+                                Add your first step to get started. When you're finished, you can edit step content back
+                                in PostHog.
+                            </p>
                         </div>
                     ) : (
                         <div className="flex flex-col gap-2">
@@ -269,21 +270,6 @@ export function ProductToursSidebar(): JSX.Element | null {
                             Add step
                         </LemonButton>
                     </div>
-                </div>
-
-                <div className="p-4 border-t border-border-bold-3000 bg-bg-light">
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        fullWidth
-                        icon={<IconExternal />}
-                        loading={pendingEditInPostHog}
-                        onClick={saveAndEditInPostHog}
-                    >
-                        {userIntent === 'edit-product-tour' && window.opener
-                            ? 'Save & close'
-                            : 'Save & edit in PostHog'}
-                    </LemonButton>
                 </div>
             </div>
 
