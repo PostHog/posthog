@@ -104,42 +104,42 @@ This checklist contains all tasks needed to implement Streamlit Apps hosting. Ta
 
 ### 3.1 App Runtime Core
 
-- [ ] Create `products/streamlit_apps/backend/services/app_runtime.py`
+- [x] Create `products/streamlit_apps/backend/services/app_runtime.py`
   - Import `ModalSandbox` from `products/tasks/backend/services/modal_sandbox.py`
   - Import `SandboxConfig`, `SandboxTemplate` from `products/tasks/backend/services/sandbox.py`
-- [ ] Implement `AppRuntimeService` class with:
+- [x] Implement `AppRuntimeService` class with:
   - `start_app(app: StreamlitApp)` - handles cold/warm start (see 3.2)
   - `stop_app(app: StreamlitApp)` - destroys sandbox, updates status
   - `get_status(app: StreamlitApp)` - returns current sandbox status
   - `get_tunnel_url(app: StreamlitApp)` - fetches tunnel URL live from Modal (NOT stored)
   - `get_connect_token(app, user)` - generates Modal Connect Token for proxy auth
-- [ ] Write tests for start/stop lifecycle
+- [x] Write tests for start/stop lifecycle
 
 ### 3.2 Sandbox Startup Flow (Cold vs Warm)
 
-- [ ] Implement **cold start** (version has no snapshot):
+- [x] Implement **cold start** (version has no snapshot):
   1. Create sandbox with base Streamlit image + `encrypted_ports=[8501]`
   2. Download zip from S3 (`version.zip_file`)
   3. Upload files to sandbox via Modal filesystem API (`sandbox.open()`)
   4. If `requirements.txt` exists: `pip install -r requirements.txt`
   5. Create filesystem snapshot, store `snapshot_id` on version
   6. Run `streamlit run /app/app.py`
-- [ ] Implement **warm start** (version has snapshot):
+- [x] Implement **warm start** (version has snapshot):
   1. Restore sandbox from `version.snapshot_id`
   2. Run `streamlit run /app/app.py`
-- [ ] Write tests for cold start (snapshot creation) and warm start (snapshot restore)
+- [x] Write tests for cold start (snapshot creation) and warm start (snapshot restore)
 
 ### 3.3 App Runtime Lifecycle
 
-- [ ] Add `restart_app(app: StreamlitApp)` method
+- [x] Add `restart_app(app: StreamlitApp)` method
   - Increment `restart_count`, respect max 3 restarts
   - Use warm start (restore from snapshot)
-- [ ] Add `_upload_app_files(sandbox, version)` helper
+- [x] Add `_upload_app_files(sandbox, version)` helper
   - Download zip from S3
   - Extract and upload via `sandbox.open(path, "w").write(content)`
-- [ ] Add `_start_streamlit_process(sandbox)` helper
+- [x] Add `_start_streamlit_process(sandbox)` helper
   - Run `streamlit run /app/app.py` in background
-- [ ] Write tests for restart logic
+- [x] Write tests for restart logic
 
 ---
 
