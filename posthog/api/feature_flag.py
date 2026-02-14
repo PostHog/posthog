@@ -52,7 +52,13 @@ from posthog.helpers.encrypted_flag_payloads import (
     get_decrypted_flag_payloads_protected,
 )
 from posthog.models import FeatureFlag, Tag
-from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    Detail,
+    changes_between,
+    load_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
 from posthog.models.cohort import Cohort
@@ -1988,7 +1994,9 @@ class FeatureFlagViewSet(
                     if numeric_id not in found_ids:
                         errors.append({"id": numeric_id, "reason": "Flag not found"})
 
-        # Process each flag
+        # Phase 1: Validate each flag and separate into deletable vs errors
+        flags_to_delete: list[tuple[FeatureFlag, str, dict[str, Any]]] = []
+
         for flag in flags_list:
             flag_id = flag.id
 
@@ -2035,7 +2043,6 @@ class FeatureFlagViewSet(
             checker = FeatureFlagStatusChecker(feature_flag=flag)
             rollout_info = _get_flag_rollout_info(flag, checker)
 
-            # Soft delete the flag
             old_key = flag.key
 
             # Rename key if has deleted experiments
@@ -2045,24 +2052,41 @@ class FeatureFlagViewSet(
 
             flag.deleted = True
             flag.last_modified_by = request.user if request.user.is_authenticated else None
-            flag.save()
 
-            # Log activity
-            log_activity(
-                organization_id=flag.team.organization_id,
-                team_id=flag.team_id,
-                user=request.user if request.user.is_authenticated else None,
-                was_impersonated=is_impersonated_session(request),
-                item_id=flag.id,
-                scope="FeatureFlag",
-                activity="deleted",
-                detail=Detail(
-                    changes=[],
-                    name=old_key,
-                ),
+            flags_to_delete.append((flag, old_key, rollout_info))
+
+        # Phase 2: Bulk update all validated flags in a single query
+        if flags_to_delete:
+            FeatureFlag.objects.bulk_update(
+                [flag for flag, _, _ in flags_to_delete],
+                fields=["deleted", "key", "last_modified_by"],
             )
 
-            deleted.append({"id": flag_id, "key": old_key, **rollout_info})
+            # Build activity log entries in bulk
+            user = request.user if request.user.is_authenticated else None
+            was_impersonated = is_impersonated_session(request)
+            activity_logs = [
+                ActivityLog(
+                    organization_id=flag.team.organization_id,
+                    team_id=flag.team_id,
+                    user=user,
+                    was_impersonated=was_impersonated,
+                    is_system=user is None,
+                    item_id=str(flag.id),
+                    scope="FeatureFlag",
+                    activity="deleted",
+                    detail=Detail(changes=[], name=old_key),
+                )
+                for flag, old_key, _ in flags_to_delete
+            ]
+            ActivityLog.objects.bulk_create(activity_logs)
+
+            # Invalidate the flag cache once for the entire batch
+            set_feature_flags_for_team_in_cache(self.project_id)
+
+            deleted = [
+                {"id": flag.id, "key": old_key, **rollout_info} for flag, old_key, rollout_info in flags_to_delete
+            ]
 
         return Response(
             {
