@@ -8,28 +8,28 @@ This checklist contains all tasks needed to implement Streamlit Apps hosting. Ta
 
 ### 0.1 Backend Setup
 
-- [ ] Create `products/streamlit_apps/__init__.py` (empty)
-- [ ] Create `products/streamlit_apps/backend/__init__.py` (empty)
-- [ ] Create `products/streamlit_apps/backend/apps.py` with `StreamlitAppsConfig`
-- [ ] Create `products/streamlit_apps/backend/migrations/__init__.py` (empty)
-- [ ] Register app in `posthog/settings/web.py` `PRODUCTS_APPS` list
+- [x] Create `products/streamlit_apps/__init__.py` (empty)
+- [x] Create `products/streamlit_apps/backend/__init__.py` (empty)
+- [x] Create `products/streamlit_apps/backend/apps.py` with `StreamlitAppsConfig`
+- [x] Create `products/streamlit_apps/backend/migrations/__init__.py` (empty)
+- [x] Register app in `posthog/settings/web.py` `PRODUCTS_APPS` list
 
 ### 0.2 Frontend Setup
 
-- [ ] Create `products/streamlit_apps/package.json` with `@posthog/products-streamlit-apps` name
-- [ ] Create `products/streamlit_apps/manifest.tsx` with scenes, routes, urls
-- [ ] Run `pnpm install` to register the new workspace
-- [ ] Run `pnpm build:products` to generate products.tsx
+- [x] Create `products/streamlit_apps/package.json` with `@posthog/products-streamlit-apps` name
+- [x] Create `products/streamlit_apps/manifest.tsx` with scenes, routes, urls
+- [x] Run `pnpm install` to register the new workspace
+- [x] Run `pnpm build:products` to generate products.tsx
 
 ### 0.3 Module Registration
 
-- [ ] Add `products.streamlit_apps` module to `tach.toml` with dependencies on `posthog` and `products.tasks`
-- [ ] Verify product loads without errors: `python manage.py check`
+- [x] Add `products.streamlit_apps` module to `tach.toml` with dependencies on `posthog` and `products.tasks`
+- [x] Verify product loads without errors: `python manage.py check`
 
 ### 0.4 Boilerplate Verification
 
-- [ ] Run `pnpm install` and `pnpm build:products` without errors
-- [ ] Run `python manage.py check` without errors
+- [x] Run `pnpm install` and `pnpm build:products` without errors
+- [x] Run `python manage.py check` without errors
 - [ ] **Verify in Chrome MCP**: Start dev server and navigate to `/project/1/apps`
   - Route should exist (may show empty component or 404 if scene not implemented yet)
   - No JavaScript errors in console

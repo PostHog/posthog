@@ -1,0 +1,10 @@
+{
+    "name": "@posthog/products-streamlit-apps",
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@posthog/lemon-ui": "*",
+        "@types/react": "*",
+        "react": "*",
+        "kea": "*"
+    }
+}
