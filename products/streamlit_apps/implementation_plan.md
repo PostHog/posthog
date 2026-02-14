@@ -147,36 +147,36 @@ This checklist contains all tasks needed to implement Streamlit Apps hosting. Ta
 
 ### 4.1 Serializers
 
-- [ ] Create `products/streamlit_apps/backend/api/__init__.py`
-- [ ] Create `products/streamlit_apps/backend/api/streamlit_app.py`
-- [ ] Implement `StreamlitAppSerializer` with nested `active_version` and `created_by`
-- [ ] Implement `StreamlitAppMinimalSerializer` for list view
-- [ ] Implement `StreamlitAppVersionSerializer`
-- [ ] Write tests for serializers
+- [x] Create `products/streamlit_apps/backend/api/__init__.py`
+- [x] Create `products/streamlit_apps/backend/api/streamlit_app.py`
+- [x] Implement `StreamlitAppSerializer` with nested `active_version` and `created_by`
+- [x] Implement `StreamlitAppMinimalSerializer` for list view
+- [x] Implement `StreamlitAppVersionSerializer`
+- [x] Write tests for serializers
 
 ### 4.2 App ViewSet
 
-- [ ] Implement `StreamlitAppViewSet` in `streamlit_app.py`
+- [x] Implement `StreamlitAppViewSet` in `streamlit_app.py`
   - Extend `TeamAndOrgViewSetMixin`, `viewsets.ModelViewSet`
   - `scope_object = "streamlit_app"`
   - Override `perform_create` to set `created_by` and handle zip upload
-- [ ] Register ViewSet in `posthog/api/__init__.py` under projects router
-- [ ] Write tests for CRUD operations
+- [x] Register ViewSet in `posthog/api/__init__.py` under projects router
+- [x] Write tests for CRUD operations
 
 ### 4.3 Version Management Endpoints
 
-- [ ] Add `@action versions` (GET) - list all versions for an app
-- [ ] Add `@action upload_version` (POST) - upload new zip, create version, activate
-- [ ] Add `@action activate_version` (POST) - switch active version
-- [ ] Write tests for version management
+- [x] Add `@action versions` (GET) - list all versions for an app
+- [x] Add `@action upload_version` (POST) - upload new zip, create version, activate
+- [x] Add `@action activate_version` (POST) - switch active version
+- [x] Write tests for version management
 
 ### 4.4 Sandbox Control Endpoints
 
-- [ ] Add `@action status` (GET) - return sandbox status
-- [ ] Add `@action start` (POST) - start sandbox via AppRuntime
-- [ ] Add `@action stop` (POST) - stop sandbox via AppRuntime
-- [ ] Add `@action restart` (POST) - restart sandbox
-- [ ] Write tests for sandbox control
+- [x] Add `@action status` (GET) - return sandbox status
+- [x] Add `@action start` (POST) - start sandbox via AppRuntime
+- [x] Add `@action stop` (POST) - stop sandbox via AppRuntime
+- [x] Add `@action restart` (POST) - restart sandbox
+- [x] Write tests for sandbox control
 
 ---
 
