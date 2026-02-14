@@ -81,22 +81,22 @@ This checklist contains all tasks needed to implement Streamlit Apps hosting. Ta
 
 ### 2.1 Package Allowlist Management
 
-- [ ] Create `products/streamlit_apps/backend/management/__init__.py`
-- [ ] Create `products/streamlit_apps/backend/management/commands/__init__.py`
-- [ ] Create `update_streamlit_packages.py` management command
+- [x] Create `products/streamlit_apps/backend/management/__init__.py`
+- [x] Create `products/streamlit_apps/backend/management/commands/__init__.py`
+- [x] Create `update_streamlit_packages.py` management command
   - Support: `--add`, `--remove`, `--list` flags
   - Validate package names
-- [ ] Write tests for the management command
+- [x] Write tests for the management command
 - [ ] Seed initial allowlist (numpy, pandas, plotly, etc.)
 
 ### 2.2 Zip Validator Service
 
-- [ ] Create `products/streamlit_apps/backend/services/__init__.py`
-- [ ] Create `products/streamlit_apps/backend/services/zip_validator.py`
+- [x] Create `products/streamlit_apps/backend/services/__init__.py`
+- [x] Create `products/streamlit_apps/backend/services/zip_validator.py`
   - `validate_zip(file)` - checks structure, size (10MB max)
   - `validate_requirements(requirements_txt)` - parses and checks allowlist
   - Returns validation result with errors
-- [ ] Write tests for zip validation (valid zip, missing app.py, invalid packages, too large)
+- [x] Write tests for zip validation (valid zip, missing app.py, invalid packages, too large)
 
 ---
 
