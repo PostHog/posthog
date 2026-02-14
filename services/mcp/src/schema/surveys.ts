@@ -114,9 +114,9 @@ const LinkQuestion = BaseSurveyQuestionSchema.extend({
 const RatingQuestion = BaseSurveyQuestionSchema.extend({
     type: z.literal('rating'),
     display: z
-        .enum(['number', 'emoji'])
+        .enum(['number', 'emoji', 'star'])
         .optional()
-        .describe("Display format: 'number' shows numeric scale, 'emoji' shows emoji scale"),
+        .describe("Display format: 'number' shows numeric scale, 'emoji' shows emoji scale, 'star' shows star scale"),
     scale: z
         .union([z.literal(3), z.literal(5), z.literal(7)])
         .optional()
@@ -138,6 +138,14 @@ const RatingQuestion = BaseSurveyQuestionSchema.extend({
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: 'Number display only supports scales of 5 or 7',
+            path: ['scale'],
+        })
+    }
+
+    if (data.display === 'star' && data.scale && data.scale !== 5) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Star display only supports a scale of 5',
             path: ['scale'],
         })
     }

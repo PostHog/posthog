@@ -267,6 +267,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                     options={[
                                         { label: 'Number', value: 'number' },
                                         { label: 'Emoji', value: 'emoji' },
+                                        { label: 'Star', value: 'star' },
                                     ]}
                                     onChange={(val) => {
                                         const newQuestion = {
@@ -287,7 +288,13 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             </LemonField>
                             <LemonField name="scale" label="Scale" className="w-1/2">
                                 <LemonSelect
-                                    options={question.display === 'emoji' ? SCALE_OPTIONS.EMOJI : SCALE_OPTIONS.NUMBER}
+                                    options={
+                                        question.display === 'emoji'
+                                            ? SCALE_OPTIONS.EMOJI
+                                            : question.display === 'star'
+                                              ? SCALE_OPTIONS.STAR
+                                              : SCALE_OPTIONS.NUMBER
+                                    }
                                     onChange={(val) => {
                                         const newQuestion = { ...survey.questions[index], scale: val }
                                         const newQuestions = [...survey.questions]

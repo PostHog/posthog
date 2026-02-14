@@ -134,7 +134,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         - `descriptionContentType`: Content type of the description (`html` or `text`).
         - `optional`: Whether the question is optional (`boolean`).
         - `buttonText`: Text displayed on the submit button.
-        - `display`: Display style of the rating (`number` or `emoji`).
+        - `display`: Display style of the rating (`number`, `emoji`, or `star`).
         - `scale`: The scale of the rating (`number`).
         - `lowerBoundLabel`: Label for the lower bound of the scale.
         - `upperBoundLabel`: Label for the upper bound of the scale.

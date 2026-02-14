@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 
-import { IconEmoji, IconPlusSmall, IconRevert, IconTrash } from '@posthog/icons'
+import { IconEmoji, IconPlusSmall, IconRevert, IconStar, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -38,7 +38,10 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
     // Rating question options
     if (question.type === SurveyQuestionType.Rating) {
         const ratingQuestion = question as RatingSurveyQuestion
-        const isEmoji = ratingQuestion.display === 'emoji'
+        const displayType = ratingQuestion.display ?? 'number'
+        const isEmoji = displayType === 'emoji'
+        const isStar = displayType === 'star'
+        const isNumber = displayType === 'number'
 
         // Scale options depend on display type
         const numberScales = [
@@ -50,7 +53,8 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
             { value: 3, label: '3', sublabel: null },
             { value: 5, label: '5', sublabel: null },
         ]
-        const scaleOptions = isEmoji ? emojiScales : numberScales
+        const starScales = [{ value: 5, label: '1-5', sublabel: null }]
+        const scaleOptions = isEmoji ? emojiScales : isStar ? starScales : numberScales
 
         return (
             <div className="space-y-3 pt-3 border-t border-border mt-3">
@@ -77,12 +81,26 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                                 type="button"
                                 onClick={() =>
                                     onUpdate({
+                                        display: 'star',
+                                        scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
+                                    } as Partial<RatingSurveyQuestion>)
+                                }
+                                className={`px-3 py-2 border-l border-border transition-colors ${
+                                    isStar ? 'bg-fill-highlight-100' : 'hover:bg-fill-highlight-50'
+                                }`}
+                            >
+                                <IconStar className="text-lg" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    onUpdate({
                                         display: 'number',
                                         scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
                                     } as Partial<RatingSurveyQuestion>)
                                 }
                                 className={`px-3 py-2 text-sm font-medium border-l border-border transition-colors ${
-                                    !isEmoji ? 'bg-fill-highlight-100' : 'hover:bg-fill-highlight-50'
+                                    isNumber ? 'bg-fill-highlight-100' : 'hover:bg-fill-highlight-50'
                                 }`}
                             >
                                 1-5

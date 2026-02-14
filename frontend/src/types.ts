@@ -3673,7 +3673,7 @@ export interface LinkSurveyQuestion extends SurveyQuestionBase {
 
 export interface RatingSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.Rating
-    display: 'number' | 'emoji'
+    display: 'number' | 'emoji' | 'star'
     scale: SurveyRatingScaleValue
     lowerBoundLabel: string
     upperBoundLabel: string

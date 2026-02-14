@@ -51,7 +51,7 @@ export interface SurveyQuestionSchema {
     hasOpenChoice?: boolean
 
     // Rating questions
-    display?: 'number' | 'emoji'
+    display?: 'number' | 'emoji' | 'star'
     scale?: number
     lowerBoundLabel?: string
     upperBoundLabel?: string
