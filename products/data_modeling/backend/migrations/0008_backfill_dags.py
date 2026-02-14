@@ -15,7 +15,7 @@ def populate_dags(apps, _):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_modeling", "0007_created_dag"),
+        ("data_modeling", "0007_create_dag"),
     ]
 
     operations = [
