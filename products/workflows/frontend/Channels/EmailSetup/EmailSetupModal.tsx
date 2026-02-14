@@ -13,6 +13,7 @@ import {
     lemonToast,
 } from '@posthog/lemon-ui'
 
+import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -23,6 +24,9 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
     const { savedIntegration, verificationLoading, isEmailSenderSubmitting, dnsRecords, domain, isDomainVerified } =
         useValues(logic)
     const { verifyDomain, submitEmailSender } = useActions(logic)
+
+    const emailDomain = savedIntegration?.config?.domain || ''
+
     return (
         <>
             <LemonModal title="Configure email sender" width="auto" onClose={props.onClose}>
@@ -101,6 +105,17 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                         <p className="mb-2 font-semibold">
                             Note: It can take up to 48 hours for DNS changes to propagate.
                         </p>
+
+                        {!isDomainVerified && emailDomain && (
+                            <DomainConnectBanner
+                                logicKey={`email-${savedIntegration.id}`}
+                                domain={emailDomain}
+                                context="email"
+                                integrationId={savedIntegration.id}
+                                className="mb-2"
+                            />
+                        )}
+
                         <div className="overflow-x-auto">
                             <table className="w-full border-collapse">
                                 <thead>

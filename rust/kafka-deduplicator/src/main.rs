@@ -187,7 +187,9 @@ async fn main() -> Result<()> {
         } else {
             // production: use JSON format Loki/Grafana can extract useful filter tags from
             base.json()
-                .with_span_list(false)
+                .flatten_event(true)
+                .with_span_list(true)
+                .with_current_span(true)
                 .with_filter(
                     EnvFilter::builder()
                         .with_default_directive(LevelFilter::INFO.into())

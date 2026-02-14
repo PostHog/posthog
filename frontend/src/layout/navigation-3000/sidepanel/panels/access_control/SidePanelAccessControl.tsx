@@ -16,7 +16,7 @@ export const SidePanelAccessControl = (): JSX.Element => {
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     return (
-        <div className="flex flex-col overflow-hidden">
+        <div className="flex flex-col overflow-hidden grow">
             {!isRemovingSidePanelFlag ? <SidePanelPaneHeader title="Access control" /> : null}
             <SidePanelContentContainer flagOffClassName="flex-1 p-4 overflow-y-auto">
                 {isRemovingSidePanelFlag ? <SidePanelPaneHeader title="Access control" /> : null}
