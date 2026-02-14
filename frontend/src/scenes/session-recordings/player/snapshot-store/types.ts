@@ -13,7 +13,7 @@ export interface SourceEntry {
 
 export interface LoadBatch {
     sourceIndices: number[]
-    reason: 'sequential' | 'seek_target' | 'seek_backward' | 'seek_gap_fill' | 'forward_from_seek' | 'backward_to_start'
+    reason: 'seek_target' | 'seek_backward' | 'seek_gap_fill' | 'buffer_ahead'
 }
 
 export interface SourceLoadingState {
@@ -22,4 +22,4 @@ export interface SourceLoadingState {
     state: 'unloaded' | 'loaded' | 'evicted'
 }
 
-export type Mode = { kind: 'sequential' } | { kind: 'seek'; targetTimestamp: number }
+export type Mode = { kind: 'buffer_ahead' } | { kind: 'seek'; targetTimestamp: number }

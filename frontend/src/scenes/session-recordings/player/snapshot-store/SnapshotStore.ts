@@ -2,8 +2,6 @@ import { EventType, eventWithTime } from '@posthog/rrweb-types'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
-import { ViewportResolution } from '../snapshot-processing/patch-meta-event'
-import { processSourceSnapshots } from './processSourceSnapshots'
 import { SourceEntry, SourceLoadingState } from './types'
 
 const MAX_LOADED_SOURCES = 50
@@ -13,7 +11,6 @@ export class SnapshotStore {
     private _version = 0
     private mergedSnapshotsCache: RecordingSnapshot[] | null = null
     private snapshotsByWindowIdCache: Record<number, eventWithTime[]> | null = null
-    private lastMergedVersion = -1
 
     get version(): number {
         return this._version
@@ -41,36 +38,6 @@ export class SnapshotStore {
         return this.entries[index]
     }
 
-    processAndStore(
-        sourceIndex: number,
-        rawSnapshots: RecordingSnapshot[],
-        viewportFn: (timestamp: number) => ViewportResolution | undefined
-    ): void {
-        const entry = this.entries[sourceIndex]
-        if (!entry) {
-            return
-        }
-
-        const processed = processSourceSnapshots(rawSnapshots, viewportFn)
-
-        const fullSnapshotTimestamps: number[] = []
-        const metaTimestamps: number[] = []
-        for (const snap of processed) {
-            if (snap.type === EventType.FullSnapshot) {
-                fullSnapshotTimestamps.push(snap.timestamp)
-            }
-            if (snap.type === EventType.Meta) {
-                metaTimestamps.push(snap.timestamp)
-            }
-        }
-
-        entry.state = 'loaded'
-        entry.processedSnapshots = processed
-        entry.fullSnapshotTimestamps = fullSnapshotTimestamps
-        entry.metaTimestamps = metaTimestamps
-        this.bump()
-    }
-
     markLoaded(sourceIndex: number, processedSnapshots: RecordingSnapshot[]): void {
         const entry = this.entries[sourceIndex]
         if (!entry) {
@@ -95,12 +62,8 @@ export class SnapshotStore {
         this.bump()
     }
 
-    isSourceLoaded(index: number): boolean {
-        return this.entries[index]?.state === 'loaded'
-    }
-
     getAllLoadedSnapshots(): RecordingSnapshot[] {
-        if (this.lastMergedVersion === this._version && this.mergedSnapshotsCache) {
+        if (this.mergedSnapshotsCache) {
             return this.mergedSnapshotsCache
         }
 
@@ -114,20 +77,17 @@ export class SnapshotStore {
         }
         result.sort((a, b) => a.timestamp - b.timestamp)
         this.mergedSnapshotsCache = result
-        this.lastMergedVersion = this._version
         return result
     }
 
     getSnapshotsByWindowId(): Record<number, eventWithTime[]> {
-        if (this.lastMergedVersion === this._version && this.snapshotsByWindowIdCache) {
+        if (this.snapshotsByWindowIdCache) {
             return this.snapshotsByWindowIdCache
         }
 
-        // Ensure merged cache is fresh
-        this.getAllLoadedSnapshots()
+        const snapshots = this.getAllLoadedSnapshots()
 
         const result: Record<number, eventWithTime[]> = {}
-        const snapshots = this.mergedSnapshotsCache || []
         for (const snapshot of snapshots) {
             const windowId = (snapshot as RecordingSnapshot).windowId
             if (!(windowId in result)) {
@@ -145,9 +105,10 @@ export class SnapshotStore {
             if (ts >= entry.startMs && ts <= entry.endMs) {
                 return i
             }
-        }
-        if (this.entries.length > 0 && ts < this.entries[0].startMs) {
-            return 0
+            // Timestamp falls in a gap before this source — return the preceding source
+            if (ts < entry.startMs) {
+                return Math.max(0, i - 1)
+            }
         }
         return Math.max(0, this.entries.length - 1)
     }
@@ -195,20 +156,10 @@ export class SnapshotStore {
             return
         }
 
-        // Find the source containing the nearest FullSnapshot before current position
-        const currentEntry = this.entries[currentSourceIndex]
-        const currentTs = currentEntry ? currentEntry.startMs : 0
-        const nearestFull = this.findNearestFullSnapshot(currentTs)
-        const protectedIndices = new Set<number>()
-        protectedIndices.add(currentSourceIndex)
-        if (nearestFull) {
-            protectedIndices.add(nearestFull.sourceIndex)
-        }
-
         // Evict past sources before future sources, furthest first within each group.
         // Playback moves forward so past data is less likely to be needed again.
         const evictable = loadedEntries
-            .filter((e) => !protectedIndices.has(e.index))
+            .filter((e) => e.index !== currentSourceIndex)
             .sort((a, b) => {
                 const isPastA = a.index < currentSourceIndex
                 const isPastB = b.index < currentSourceIndex
@@ -235,7 +186,8 @@ export class SnapshotStore {
         const clampedStart = Math.max(0, start)
         const clampedEnd = Math.min(this.entries.length - 1, end)
         for (let i = clampedStart; i <= clampedEnd; i++) {
-            if (this.entries[i]?.state !== 'loaded') {
+            const state = this.entries[i]?.state
+            if (state !== 'loaded') {
                 result.push(i)
             }
         }
