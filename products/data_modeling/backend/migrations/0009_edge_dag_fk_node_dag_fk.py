@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 blank=True,
                 null=True,
-                db_column="dag_fk",
+                db_column="dag",
                 on_delete=django.db.models.deletion.CASCADE,
                 to="data_modeling.dag",
             ),
@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 blank=True,
                 null=True,
-                db_column="dag_fk",
+                db_column="dag",
                 on_delete=django.db.models.deletion.CASCADE,
                 to="data_modeling.dag",
             ),
