@@ -151,13 +151,14 @@ fi
 
 # Persons migrations via Django management command.
 # Hobby: runs against default DB, skipping partitioning migrations.
-# Non-hobby (local dev / production): runs against persons_db_writer, creating
-# the database if needed and applying all migrations including partitioning.
+# Local dev (DEBUG=1): runs against persons_db_writer, creating the database
+# if needed and applying all migrations including partitioning.
+# Production: skipped — persons migrations are handled by the sqlx-migrate K8s job.
 if run_scope "persons"; then
     if [ "${DEPLOYMENT:-}" = "hobby" ]; then
         echo "Running persons migrations via Django management command (hobby)..."
         python manage.py apply_persons_migrations --hobby
-    else
+    elif [ "${DEBUG:-0}" = "1" ]; then
         echo "Running persons migrations via Django management command..."
         python manage.py apply_persons_migrations --database=persons_db_writer --ensure-database
     fi
