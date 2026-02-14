@@ -127,6 +127,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         TEMPORAL_CLIENT_CERT: undefined,
         TEMPORAL_CLIENT_KEY: undefined,
         LLMA_SENTIMENT_SAMPLE_RATE: isDevEnv() ? 1.0 : 0.01, // 100% in dev, 1% in prod
+        LLMA_SENTIMENT_TEAM_IDS: isDevEnv() ? '' : '2', // empty = all teams; restrict to team 2 in prod for dogfooding
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min

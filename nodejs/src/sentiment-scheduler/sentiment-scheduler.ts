@@ -23,7 +23,7 @@ import { logger } from '../utils/logger'
 
 /** Narrowed Hub type for sentiment scheduler */
 export type SentimentSchedulerHub = TemporalServiceHub &
-    Pick<Hub, 'LLMA_SENTIMENT_SAMPLE_RATE' | 'POSTHOG_API_KEY' | 'POSTHOG_HOST_URL'>
+    Pick<Hub, 'LLMA_SENTIMENT_SAMPLE_RATE' | 'LLMA_SENTIMENT_TEAM_IDS' | 'POSTHOG_API_KEY' | 'POSTHOG_HOST_URL'>
 
 const FEATURE_FLAG_KEY = 'llm-analytics-sentiment-rollout'
 const FLAG_POLL_INTERVAL_MS = 30_000
@@ -55,12 +55,31 @@ const sentimentSchedulerBatchesStarted = new Counter({
     labelNames: ['status'], // success, error
 })
 
+const sentimentSchedulerTeamFiltered = new Counter({
+    name: 'llma_sentiment_scheduler_team_filtered',
+    help: 'Number of events filtered out by team allowlist',
+})
+
 const sentimentSchedulerSampleRate = new Gauge({
     name: 'llma_sentiment_scheduler_sample_rate',
     help: 'Current sample rate used by the sentiment scheduler',
 })
 
 // Pure functions for testability
+
+export function parseTeamAllowlist(raw: string): Set<number> | null {
+    if (!raw.trim()) {
+        return null // empty = all teams allowed
+    }
+    const ids = new Set<number>()
+    for (const part of raw.split(',')) {
+        const id = parseInt(part.trim(), 10)
+        if (!isNaN(id)) {
+            ids.add(id)
+        }
+    }
+    return ids.size > 0 ? ids : null
+}
 
 export function filterAndParseMessages(messages: Message[]): RawKafkaEvent[] {
     return messages
@@ -200,11 +219,15 @@ export const startSentimentScheduler = async (hub: SentimentSchedulerHub): Promi
 
     const temporalService = new TemporalService(hub)
     const fallbackRate = hub.LLMA_SENTIMENT_SAMPLE_RATE ?? DEFAULT_SAMPLE_RATE
+    const teamAllowlist = parseTeamAllowlist(hub.LLMA_SENTIMENT_TEAM_IDS ?? '')
 
     const sampleRateProvider = new SampleRateProvider(fallbackRate, hub.POSTHOG_API_KEY, hub.POSTHOG_HOST_URL)
     await sampleRateProvider.start()
 
-    logger.info('Sentiment scheduler started', { sampleRate: sampleRateProvider.getSampleRate() })
+    logger.info('Sentiment scheduler started', {
+        sampleRate: sampleRateProvider.getSampleRate(),
+        teamAllowlist: teamAllowlist ? Array.from(teamAllowlist) : 'all',
+    })
 
     const kafkaConsumer = new KafkaConsumer({
         groupId: `${KAFKA_PREFIX}llma-sentiment-scheduler`,
@@ -212,7 +235,7 @@ export const startSentimentScheduler = async (hub: SentimentSchedulerHub): Promi
     })
 
     await kafkaConsumer.connect((messages) =>
-        eachBatchSentimentScheduler(messages, temporalService, sampleRateProvider)
+        eachBatchSentimentScheduler(messages, temporalService, sampleRateProvider, teamAllowlist)
     )
 
     const onShutdown = async () => {
@@ -231,7 +254,8 @@ export const startSentimentScheduler = async (hub: SentimentSchedulerHub): Promi
 export async function eachBatchSentimentScheduler(
     messages: Message[],
     temporalService: TemporalService,
-    sampleRateProvider: SampleRateProvider
+    sampleRateProvider: SampleRateProvider,
+    teamAllowlist?: Set<number> | null
 ): Promise<void> {
     sentimentSchedulerMessagesReceived.inc(messages.length)
 
@@ -244,10 +268,21 @@ export async function eachBatchSentimentScheduler(
         return
     }
 
+    // Filter by team allowlist when configured
+    let eligibleEvents = aiGenerationEvents
+    if (teamAllowlist) {
+        eligibleEvents = aiGenerationEvents.filter((event) => teamAllowlist.has(event.team_id))
+        sentimentSchedulerTeamFiltered.inc(aiGenerationEvents.length - eligibleEvents.length)
+    }
+
+    if (eligibleEvents.length === 0) {
+        return
+    }
+
     const sampleRate = sampleRateProvider.getSampleRate()
     const sampledEvents: RawKafkaEvent[] = []
 
-    for (const event of aiGenerationEvents) {
+    for (const event of eligibleEvents) {
         if (!checkSampleRate(event.uuid, sampleRate)) {
             sentimentSchedulerEventsProcessed.labels({ status: 'sampled_out' }).inc()
             continue

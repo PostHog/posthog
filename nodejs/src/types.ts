@@ -470,6 +470,7 @@ export interface PluginsServerConfig
     TEMPORAL_CLIENT_CERT: string | undefined
     TEMPORAL_CLIENT_KEY: string | undefined
     LLMA_SENTIMENT_SAMPLE_RATE: number
+    LLMA_SENTIMENT_TEAM_IDS: string
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     PLUGIN_SERVER_MODE: PluginServerMode | null

@@ -9,6 +9,7 @@ import {
     eachBatchSentimentScheduler,
     filterAndParseMessages,
     parseSampleRatePayload,
+    parseTeamAllowlist,
 } from './sentiment-scheduler'
 
 jest.mock('~/llm-analytics/services/temporal.service')
@@ -131,6 +132,20 @@ describe('Sentiment Scheduler', () => {
         })
     })
 
+    describe('parseTeamAllowlist', () => {
+        it.each([
+            ['empty string', '', null],
+            ['whitespace only', '  ', null],
+            ['single team', '2', new Set([2])],
+            ['multiple teams', '2,5,10', new Set([2, 5, 10])],
+            ['with whitespace', ' 2 , 5 ', new Set([2, 5])],
+            ['ignores non-numeric', 'abc,2,def', new Set([2])],
+            ['all non-numeric', 'abc,def', null],
+        ])('%s: %s', (_label, input, expected) => {
+            expect(parseTeamAllowlist(input)).toEqual(expected)
+        })
+    })
+
     describe('parseSampleRatePayload', () => {
         const fallback = 0.01
 
@@ -238,6 +253,62 @@ describe('Sentiment Scheduler', () => {
             await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider)
 
             expect(mockTemporalService.startSentimentClassificationWorkflow).not.toHaveBeenCalled()
+        })
+
+        it('filters events by team allowlist', async () => {
+            const allowedTeamId = 2
+            const blockedTeamId = 99
+            const teamAllowlist = new Set([allowedTeamId])
+
+            const messages: Message[] = [
+                {
+                    headers: [{ productTrack: Buffer.from('llma') }],
+                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(allowedTeamId))),
+                } as any,
+                {
+                    headers: [{ productTrack: Buffer.from('llma') }],
+                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(blockedTeamId))),
+                } as any,
+                {
+                    headers: [{ productTrack: Buffer.from('llma') }],
+                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(allowedTeamId))),
+                } as any,
+            ]
+
+            await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider, teamAllowlist)
+
+            expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(1)
+            const callArgs = mockTemporalService.startSentimentClassificationWorkflow.mock.calls[0][0]
+            expect(callArgs).toHaveLength(2)
+            callArgs.forEach((event: any) => expect(event.team_id).toBe(allowedTeamId))
+        })
+
+        it('skips batch when all events are from non-allowed teams', async () => {
+            const teamAllowlist = new Set([2])
+
+            const messages: Message[] = [
+                {
+                    headers: [{ productTrack: Buffer.from('llma') }],
+                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(99))),
+                } as any,
+            ]
+
+            await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider, teamAllowlist)
+
+            expect(mockTemporalService.startSentimentClassificationWorkflow).not.toHaveBeenCalled()
+        })
+
+        it('allows all teams when allowlist is null', async () => {
+            const messages: Message[] = [
+                {
+                    headers: [{ productTrack: Buffer.from('llma') }],
+                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(99))),
+                } as any,
+            ]
+
+            await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider, null)
+
+            expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(1)
         })
 
         it('handles workflow start failure gracefully', async () => {
