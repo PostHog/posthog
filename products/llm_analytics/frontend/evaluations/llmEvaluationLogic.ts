@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -434,7 +434,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     )
                     actions.saveEvaluationSuccess(response)
                 }
-                router.actions.push(urls.llmAnalyticsEvaluations())
+                router.actions.push(urls.llmAnalyticsEvaluations(), router.values.searchParams)
             } catch (error) {
                 console.error('Failed to save evaluation:', error)
             }
@@ -602,7 +602,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (evaluation): Breadcrumb[] => [
                 {
                     name: 'Evaluations',
-                    path: urls.llmAnalyticsEvaluations(),
+                    path: combineUrl(urls.llmAnalyticsEvaluations(), router.values.searchParams).url,
                     key: 'LLMAnalyticsEvaluations',
                     iconType: 'llm_evaluations',
                 },

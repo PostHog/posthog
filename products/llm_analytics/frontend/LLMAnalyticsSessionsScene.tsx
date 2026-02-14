@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
@@ -229,9 +230,12 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                                                                 </LemonTag>
                                                             )}
                                                             <Link
-                                                                to={urls.llmAnalyticsTrace(trace.id, {
-                                                                    timestamp: getTraceTimestamp(trace.createdAt),
-                                                                })}
+                                                                to={
+                                                                    combineUrl(urls.llmAnalyticsTrace(trace.id), {
+                                                                        ...router.values.searchParams,
+                                                                        timestamp: getTraceTimestamp(trace.createdAt),
+                                                                    }).url
+                                                                }
                                                                 onClick={(e) => e.stopPropagation()}
                                                                 className="text-xs"
                                                             >

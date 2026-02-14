@@ -29,6 +29,14 @@ function cleanFilters(values: Partial<DatasetFilters>): DatasetFilters {
     }
 }
 
+function cleanFilterSearchParams(filters: DatasetFilters): Record<string, unknown> {
+    return {
+        page: filters.page === 1 ? undefined : filters.page,
+        search: filters.search || undefined,
+        order_by: filters.order_by === '-created_at' ? undefined : filters.order_by,
+    }
+}
+
 export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsDatasetsLogic']),
 
@@ -174,10 +182,10 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
                   },
               ]
             | void => {
-            const nextValues = cleanFilters(values.filters)
+            const nextValues = cleanFilterSearchParams(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
-            if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.llmAnalyticsDatasets(), nextValues, {}, { replace: false }]
+            if (!objectsEqual(values.filters, urlValues)) {
+                return [urls.llmAnalyticsDatasets(), nextValues, {}, { replace: true }]
             }
         }
         return {
@@ -188,7 +196,7 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
     urlToAction(({ actions, values }) => ({
         [urls.llmAnalyticsDatasets()]: (_, searchParams) => {
             const newFilters = cleanFilters(searchParams)
-            if (values.rawFilters === null || !objectsEqual(values.filters, newFilters)) {
+            if (!objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)
             }
         },

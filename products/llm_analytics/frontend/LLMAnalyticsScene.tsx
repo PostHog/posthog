@@ -479,27 +479,39 @@ export function LLMAnalyticsScene(): JSX.Element {
         return [
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS] ? (
-                <Link to={urls.llmAnalyticsClusters()} onClick={() => toggleProduct('Clusters', true)}>
+                <Link
+                    to={combineUrl(urls.llmAnalyticsClusters(), searchParams).url}
+                    onClick={() => toggleProduct('Clusters', true)}
+                >
                     clusters
                 </Link>
             ) : null,
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] ? (
-                <Link to={urls.llmAnalyticsDatasets()} onClick={() => toggleProduct('Datasets', true)}>
+                <Link
+                    to={combineUrl(urls.llmAnalyticsDatasets(), searchParams).url}
+                    onClick={() => toggleProduct('Datasets', true)}
+                >
                     datasets
                 </Link>
             ) : null,
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS] ? (
-                <Link to={urls.llmAnalyticsEvaluations()} onClick={() => toggleProduct('Evaluations', true)}>
+                <Link
+                    to={combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url}
+                    onClick={() => toggleProduct('Evaluations', true)}
+                >
                     evaluations
                 </Link>
             ) : null,
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS] ? (
-                <Link to={urls.llmAnalyticsPrompts()} onClick={() => toggleProduct('Prompts', true)}>
+                <Link
+                    to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
+                    onClick={() => toggleProduct('Prompts', true)}
+                >
                     prompts
                 </Link>
             ) : null,
         ].filter(Boolean) as JSX.Element[]
-    }, [featureFlags, toggleProduct])
+    }, [featureFlags, searchParams, toggleProduct])
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>

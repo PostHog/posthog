@@ -1,3 +1,4 @@
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { IconCheck, IconMinus, IconX } from '@posthog/icons'
@@ -35,7 +36,13 @@ export function PatternCard({ pattern, type, runsLookup }: PatternCardProps): JS
                             return (
                                 <Tooltip key={genId} title={run.reasoning}>
                                     <Link
-                                        to={urls.llmAnalyticsTrace(run.trace_id, { event: genId, tab: 'evals' })}
+                                        to={
+                                            combineUrl(urls.llmAnalyticsTrace(run.trace_id), {
+                                                ...router.values.searchParams,
+                                                event: genId,
+                                                tab: 'evals',
+                                            }).url
+                                        }
                                         className="text-xs font-mono text-primary hover:underline"
                                         data-attr="llma-evaluation-summary-example-link"
                                         onClick={() => {

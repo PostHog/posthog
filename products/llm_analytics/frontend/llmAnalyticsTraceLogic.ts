@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -333,13 +333,13 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     {
                         key: 'LLMAnalytics',
                         name: 'LLM analytics',
-                        path: urls.llmAnalyticsDashboard(),
+                        path: combineUrl(urls.llmAnalyticsDashboard(), router.values.searchParams).url,
                         iconType: 'llm_analytics',
                     },
                     {
                         key: 'LLMAnalyticsTraces',
                         name: 'Traces',
-                        path: urls.llmAnalyticsTraces(),
+                        path: combineUrl(urls.llmAnalyticsTraces(), router.values.searchParams).url,
                         iconType: 'llm_analytics',
                     },
                     {

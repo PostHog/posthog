@@ -1,7 +1,7 @@
 import classNames from 'classnames'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import React, { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
@@ -188,7 +188,7 @@ function TraceSceneWrapper(): JSX.Element {
                             resourceType={{ type: 'llm_analytics' }}
                             forceBackTo={{
                                 name: 'Traces',
-                                path: urls.llmAnalyticsTraces(),
+                                path: combineUrl(urls.llmAnalyticsTraces(), router.values.searchParams).url,
                                 key: 'traces',
                             }}
                             actions={

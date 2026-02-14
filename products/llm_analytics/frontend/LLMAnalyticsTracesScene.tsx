@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
@@ -108,7 +109,12 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
         <strong>
             <Tooltip title={row.id}>
                 <Link
-                    to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
+                    to={
+                        combineUrl(urls.llmAnalyticsTrace(row.id), {
+                            ...router.values.searchParams,
+                            timestamp: getTraceTimestamp(row.createdAt),
+                        }).url
+                    }
                     data-attr="trace-id-link"
                 >
                     {row.id.slice(0, 4)}...{row.id.slice(-4)}
@@ -124,7 +130,12 @@ const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
         <div className="flex items-center gap-2">
             <strong>
                 <Link
-                    to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
+                    to={
+                        combineUrl(urls.llmAnalyticsTrace(row.id), {
+                            ...router.values.searchParams,
+                            timestamp: getTraceTimestamp(row.createdAt),
+                        }).url
+                    }
                     data-attr="trace-name-link"
                 >
                     {row.traceName || '–'}

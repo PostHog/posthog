@@ -14,7 +14,7 @@ import {
 } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import api from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
@@ -199,7 +199,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             (prompt): Breadcrumb[] => [
                 {
                     name: 'Prompts',
-                    path: urls.llmAnalyticsPrompts(),
+                    path: combineUrl(urls.llmAnalyticsPrompts(), router.values.searchParams).url,
                     key: 'LLMAnalyticsPrompts',
                     iconType: 'llm_prompts',
                 },
@@ -286,7 +286,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 try {
                     await api.llmPrompts.update(values.prompt.id, { deleted: true })
                     lemonToast.info(`${values.prompt.name || 'Prompt'} has been deleted.`)
-                    router.actions.replace(urls.llmAnalyticsPrompts())
+                    router.actions.replace(urls.llmAnalyticsPrompts(), router.values.searchParams)
                 } catch {
                     lemonToast.error('Failed to delete prompt')
                 }
