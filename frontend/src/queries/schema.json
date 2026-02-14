@@ -11724,6 +11724,10 @@
             "required": ["results"],
             "type": "object"
         },
+        "DomainConnectProviderName": {
+            "const": "Cloudflare",
+            "type": "string"
+        },
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"

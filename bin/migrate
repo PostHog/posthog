@@ -16,6 +16,13 @@ run_scope() {
     return 1
 }
 
+# timestamp function with nanosecond precision if supported, otherwise fallback to seconds with .000000000 suffix for uniform formatting
+if [ "$(date +%N)" != "N" ]; then
+    timestamp() { date +%s.%N; }
+else
+    timestamp() { echo "$(date +%s).000000000"; }
+fi
+
 # NOTE when running in docker, rust might not exist so we need to check for it
 if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
     if run_scope "cyclotron"; then
@@ -25,7 +32,7 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
             exit 1
         fi
     fi
-
+    
     if run_scope "cyclotron-shadow"; then
         bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron-shadow
         if [ $? -ne 0 ]; then
@@ -33,7 +40,7 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
             exit 1
         fi
     fi
-
+    
     if run_scope "persons"; then
         echo "Running persons migrations via external non-django migrator..."
         bash $SCRIPT_DIR/../rust/bin/migrate-persons
@@ -42,7 +49,7 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
             exit 1
         fi
     fi
-
+    
     if run_scope "behavioral-cohorts"; then
         echo "Running behavioral cohorts migrations via external non-django migrator..."
         bash $SCRIPT_DIR/../rust/bin/migrate-behavioral-cohorts
@@ -61,7 +68,7 @@ if [ "$RUN_CLICKHOUSE" = "1" ] && [ "$RUN_POSTGRES" = "1" ]; then
     trap 'rm -f "$CLICKHOUSE_STATUS" 2>/dev/null' EXIT
     CLICKHOUSE_STATUS=$(mktemp)
     echo "0" > $CLICKHOUSE_STATUS
-
+    
     (
         python manage.py migrate_clickhouse
         CH_MIGRATE_STATUS=$?
@@ -70,7 +77,7 @@ if [ "$RUN_CLICKHOUSE" = "1" ] && [ "$RUN_POSTGRES" = "1" ]; then
             echo "1" > $CLICKHOUSE_STATUS
             exit $CH_MIGRATE_STATUS
         fi
-
+        
         python manage.py sync_replicated_schema
         SYNC_STATUS=$?
         if [ $SYNC_STATUS -ne 0 ]; then
@@ -80,7 +87,7 @@ if [ "$RUN_CLICKHOUSE" = "1" ] && [ "$RUN_POSTGRES" = "1" ]; then
         fi
     ) &
     CLICKHOUSE_PID=$!
-elif [ "$RUN_CLICKHOUSE" = "1" ]; then
+    elif [ "$RUN_CLICKHOUSE" = "1" ]; then
     # ClickHouse only - run directly
     python manage.py migrate_clickhouse || { echo "Error in migrate_clickhouse, exiting."; exit 1; }
     python manage.py sync_replicated_schema || { echo "Error in sync_replicated_schema, exiting."; exit 1; }
@@ -93,11 +100,11 @@ if [ "$RUN_POSTGRES" = "1" ]; then
     MIGRATE_MAX_RETRIES=${MIGRATE_MAX_RETRIES:-10}
     MIGRATE_RETRY_DELAY=${MIGRATE_RETRY_DELAY:-3}
     MIGRATE_BACKOFF=${MIGRATE_BACKOFF:-2}
-
+    
     MIGRATE_ATTEMPT=1
     MIGRATE_SUCCESS=false
-    MIGRATE_START_TIME=$(date +%s.%N)
-
+    MIGRATE_START_TIME=$(timestamp)
+    
     # Build migrate command - use direct connection if available
     if [ -n "$POSTHOG_POSTGRES_DIRECT_HOST" ]; then
         MIGRATE_CMD="python manage.py migrate --noinput --database=default_direct"
@@ -105,32 +112,32 @@ if [ "$RUN_POSTGRES" = "1" ]; then
     else
         MIGRATE_CMD="python manage.py migrate --noinput"
     fi
-
+    
     while [ $MIGRATE_ATTEMPT -le $MIGRATE_MAX_RETRIES ]; do
         echo "[migrate] Django migration attempt $MIGRATE_ATTEMPT/$MIGRATE_MAX_RETRIES"
-
+        
         if $MIGRATE_CMD; then
             MIGRATE_SUCCESS=true
             break
         fi
-
+        
         echo "[migrate] Django migration failed"
-
+        
         if [ $MIGRATE_ATTEMPT -ge $MIGRATE_MAX_RETRIES ]; then
             echo "[migrate] max retries reached, aborting"
             break
         fi
-
+        
         echo "[migrate] waiting ${MIGRATE_RETRY_DELAY}s before retry..."
         sleep $MIGRATE_RETRY_DELAY
-
+        
         MIGRATE_RETRY_DELAY=$((MIGRATE_RETRY_DELAY * MIGRATE_BACKOFF))
         MIGRATE_ATTEMPT=$((MIGRATE_ATTEMPT + 1))
     done
-
-    MIGRATE_END_TIME=$(date +%s.%N)
+    
+    MIGRATE_END_TIME=$(timestamp)
     MIGRATE_DURATION=$(python3 -c "print($MIGRATE_END_TIME - $MIGRATE_START_TIME)")
-
+    
     # Report migration metrics to pushgateway (if configured)
     if [ "$MIGRATE_SUCCESS" = "true" ]; then
         python manage.py report_migration_metric --attempts=$MIGRATE_ATTEMPT --duration=$MIGRATE_DURATION --success || true
@@ -141,7 +148,7 @@ if [ "$RUN_POSTGRES" = "1" ]; then
         [ -n "$CLICKHOUSE_STATUS" ] && rm -f $CLICKHOUSE_STATUS
         exit 1
     fi
-
+    
 fi
 
 if run_scope "async"; then
@@ -155,7 +162,7 @@ if run_scope "async"; then
         [ -n "$CLICKHOUSE_STATUS" ] && rm -f $CLICKHOUSE_STATUS
         exit 1
     fi
-
+    
     # NOTE: this check should not fail if a migration isn't complete but within the
     # given async migration posthog version range, thus this should not block e.g.
     # k8s pod deployments.
@@ -172,10 +179,10 @@ fi
 if [ -n "$CLICKHOUSE_PID" ]; then
     wait $CLICKHOUSE_PID
     CLICKHOUSE_WAIT_STATUS=$?
-
+    
     CH_STATUS=$(cat $CLICKHOUSE_STATUS)
     rm -f $CLICKHOUSE_STATUS
-
+    
     if [ "$CH_STATUS" != "0" ] || [ $CLICKHOUSE_WAIT_STATUS -ne 0 ]; then
         echo "Error in ClickHouse migrations, exiting."
         exit 1
