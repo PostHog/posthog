@@ -62,18 +62,18 @@ This checklist contains all tasks needed to implement Streamlit Apps hosting. Ta
 
 ### 1.3 Sandbox Template
 
-- [ ] Add `STREAMLIT` to `SandboxTemplate` enum in `products/tasks/backend/services/sandbox.py`
-- [ ] Add `STREAMLIT_BASE` image reference in the template config
+- [x] Add `STREAMLIT` to `SandboxTemplate` enum in `products/tasks/backend/services/sandbox.py`
+- [x] Add `STREAMLIT_BASE` image reference in the template config
 
 ### 1.4 Docker Image
 
-- [ ] Create `products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit`
+- [x] Create `products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit`
   - Base: `python:3.11-slim`
   - Install: streamlit, numpy, pandas, plotly, matplotlib, seaborn, etc.
   - Install: custom `posthog` package for `posthog.query()` API
   - Copy: `streamlit_config.toml`, `entrypoint.sh`
-- [ ] Create `streamlit_config.toml` (port 8501, headless, no telemetry, HTTP polling mode)
-- [ ] Create `entrypoint.sh` (starts Streamlit with app.py)
+- [x] Create `streamlit_config.toml` (port 8501, headless, no telemetry, HTTP polling mode)
+- [x] Create `entrypoint.sh` (starts Streamlit with app.py)
 
 ---
 
