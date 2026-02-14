@@ -66,6 +66,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         setQuickEmojiIsOpen,
         setShowingClipParams,
         setPlayNextAnimationInterrupted,
+        setPlayerActive,
     } = useActions(sessionRecordingPlayerLogic)
 
     const {
@@ -93,6 +94,11 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         mode === SessionRecordingPlayerMode.Screenshot ||
         mode === SessionRecordingPlayerMode.Video ||
         mode === SessionRecordingPlayerMode.Kiosk
+
+    useEffect(() => {
+        setPlayerActive(true)
+        return () => setPlayerActive(false)
+    }, [])
 
     useEffect(() => {
         // Disable skipping inactivity when exporting, but keep it if we are displaying metadata footer (export for analysis purposes)

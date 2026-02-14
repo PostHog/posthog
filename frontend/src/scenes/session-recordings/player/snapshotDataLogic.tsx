@@ -63,6 +63,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         setPollingInterval: (intervalMs: number) => ({ intervalMs }),
         resetPollingInterval: true,
         setTargetTimestamp: (timestamp: number | null) => ({ timestamp }),
+        updatePlaybackPosition: (timestamp: number) => ({ timestamp }),
+        setPlayerActive: (active: boolean) => ({ active }),
     }),
     reducers(() => ({
         snapshotsBySourceSuccessCount: [
@@ -218,12 +220,48 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     })),
     listeners(({ values, actions, cache, props }) => ({
         setTargetTimestamp: ({ timestamp }) => {
-            if (!cache.useSnapshotStore) {
+            if (!cache.useSnapshotStore || !cache.scheduler || !cache.store) {
                 return
             }
             if (timestamp !== null) {
-                cache.scheduler.seekTo(timestamp)
                 cache.playbackPosition = timestamp
+
+                const currentMode = cache.scheduler.currentMode
+                // Don't re-seek to the same target
+                if (currentMode.kind === 'seek' && currentMode.targetTimestamp === timestamp) {
+                    return
+                }
+                // If we can already play at this position (data is loaded), no need to seek —
+                // this handles segment transitions during normal forward playback
+                if (cache.store?.canPlayAt(timestamp)) {
+                    actions.loadNextSnapshotSource()
+                    return
+                }
+                // Don't enter seek mode when at source 0 and already in buffer_ahead mode —
+                // buffer_ahead loading already starts from the beginning
+                const targetIndex = cache.store?.getSourceIndexForTimestamp(timestamp) ?? 0
+                if (targetIndex === 0 && currentMode.kind === 'buffer_ahead') {
+                    actions.loadNextSnapshotSource()
+                    return
+                }
+
+                cache.scheduler.seekTo(timestamp)
+                actions.loadNextSnapshotSource()
+            }
+        },
+
+        updatePlaybackPosition: ({ timestamp }) => {
+            if (!cache.useSnapshotStore) {
+                return
+            }
+            cache.playbackPosition = timestamp
+            // Trigger loading if the buffer ahead needs filling
+            actions.loadNextSnapshotSource()
+        },
+
+        setPlayerActive: ({ active }) => {
+            cache.playerActive = active
+            if (active && cache.useSnapshotStore) {
                 actions.loadNextSnapshotSource()
             }
         },
@@ -297,24 +335,68 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 })
             }
 
-            // When using SnapshotStore, also store snapshots there
+            // When using SnapshotStore, split batch snapshots across sources and store
             if (cache.useSnapshotStore && sources) {
                 const loadedSources = snapshotsForSource.sources || [snapshotsForSource.source]
+                // The API returns all snapshots for the batch combined under the first source key.
+                // Split them across individual sources using sorted sequential assignment
+                // to avoid dropping snapshots that fall in timestamp gaps between sources.
+                const batchKey = keyForSource(loadedSources[0])
+                const batchData = (cache.snapshotsBySource || {})[batchKey]
+                const allBatchSnapshots: RecordingSnapshot[] = batchData?.snapshots || []
+
+                // Build ordered list of (sourceIndex, endMs) for the loaded sources
+                const sourceEntries: { sourceIndex: number; endMs: number }[] = []
                 for (const loaded of loadedSources) {
-                    const loadedKey = keyForSource(loaded)
-                    const loadedData = (cache.snapshotsBySource || {})[loadedKey]
-                    const loadedSnapshots = loadedData?.snapshots || []
-                    const sourceIndex = sources.findIndex((s) => keyForSource(s) === loadedKey)
-                    if (sourceIndex >= 0 && loadedSnapshots.length > 0) {
-                        cache.store.markLoaded(sourceIndex, loadedSnapshots)
+                    const sourceIndex = sources.findIndex((s) => keyForSource(s) === keyForSource(loaded))
+                    if (sourceIndex < 0) {
+                        continue
+                    }
+                    const entry = cache.store.getEntry(sourceIndex)
+                    if (!entry) {
+                        continue
+                    }
+                    sourceEntries.push({ sourceIndex, endMs: entry.endMs })
+                }
+                sourceEntries.sort((a, b) => a.endMs - b.endMs)
+
+                // Assign each snapshot to the first source whose endMs >= snapshot timestamp.
+                // Snapshots are already sorted by timestamp from the API.
+                const buckets = new Map<number, RecordingSnapshot[]>()
+                for (const se of sourceEntries) {
+                    buckets.set(se.sourceIndex, [])
+                }
+
+                let seIdx = 0
+                for (const snap of allBatchSnapshots) {
+                    // Advance to the source that covers this timestamp
+                    while (seIdx < sourceEntries.length - 1 && snap.timestamp > sourceEntries[seIdx].endMs) {
+                        seIdx++
+                    }
+                    buckets.get(sourceEntries[seIdx].sourceIndex)!.push(snap)
+                }
+
+                for (const se of sourceEntries) {
+                    cache.store.markLoaded(se.sourceIndex, buckets.get(se.sourceIndex)!)
+                }
+
+                // Clear raw snapshot data from cache — the store is now the sole owner.
+                // This ensures eviction actually frees memory.
+                for (const loaded of loadedSources) {
+                    const k = keyForSource(loaded)
+                    if (cache.snapshotsBySource?.[k]) {
+                        delete cache.snapshotsBySource[k].snapshots
                     }
                 }
-                // Evict if needed
-                const currentIndex = cache.playbackPosition
-                    ? cache.store.getSourceIndexForTimestamp(cache.playbackPosition)
-                    : 0
-                cache.store.evict(currentIndex, 50)
-                cache.scheduler.onBatchLoaded()
+
+                // Evict if needed — but not during seek, since eviction would
+                // fight with the scheduler loading the sources it needs
+                if (!cache.scheduler.isSeeking) {
+                    const currentIndex = cache.playbackPosition
+                        ? cache.store.getSourceIndexForTimestamp(cache.playbackPosition)
+                        : 0
+                    cache.store.evict(currentIndex, 50)
+                }
             }
 
             // whenever we load a set of data, we try to load the next set right away
@@ -338,6 +420,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
 
         loadNextSnapshotSource: async (_, breakpoint) => {
+            if (cache.useSnapshotStore && !cache.playerActive) {
+                return
+            }
             if (values.snapshotsForSourceLoading) {
                 return
             }
@@ -351,6 +436,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
             // New store-based path
             if (cache.useSnapshotStore) {
+                if (!cache.scheduler || !cache.store) {
+                    return
+                }
                 const batch = cache.scheduler.getNextBatch(cache.store, 10, cache.playbackPosition)
                 if (!batch) {
                     actions.maybeStartPolling()
@@ -364,7 +452,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 return
             }
 
-            // Legacy sequential loading path
+            // Legacy buffer_ahead loading path
             const isSourceLoaded = (source: SessionRecordingSnapshotSource): boolean => {
                 const sourceKey = keyForSource(source)
                 return !!cache.snapshotsBySource?.[sourceKey]?.sourceLoaded
@@ -497,6 +585,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         // Initialize store + scheduler when flag is on
         const useStore = values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test'
         cache.useSnapshotStore = useStore
+        cache.playerActive = true
         if (useStore) {
             cache.store = new SnapshotStore()
             cache.scheduler = new LoadingScheduler()
@@ -519,6 +608,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         }, 'visibilityChangeHandler')
     }),
     beforeUnmount(({ cache }) => {
+        cache.useSnapshotStore = false
         cache.snapshotsBySource = undefined
         cache.previousSourceKeys = undefined
         cache.lastSourcesChangeTime = undefined

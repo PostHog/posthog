@@ -403,6 +403,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshotSourcesFailure',
                 'loadNextSnapshotSource',
                 'setTargetTimestamp',
+                'updatePlaybackPosition',
+                'setPlayerActive',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess'],
@@ -1806,6 +1808,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // The normal loop. Progress the player position and continue the loop
             actions.setCurrentTimestamp(newTimestamp)
+
+            // Throttled position update for store-based loading (every 5s)
+            if (
+                values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test' &&
+                (!cache.lastPlaybackPositionUpdate || newTimestamp - cache.lastPlaybackPositionUpdate > 5000)
+            ) {
+                cache.lastPlaybackPositionUpdate = newTimestamp
+                actions.updatePlaybackPosition(newTimestamp)
+            }
 
             cache.disposables.add(() => {
                 const timerId = requestAnimationFrame(actions.updateAnimation)

@@ -169,7 +169,10 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         loadSnapshotsForSourceSuccess: () => {
             actions.reportUsageIfFullyLoaded()
-            actions.processSnapshotsAsync()
+            // Skip legacy processing when SnapshotStore handles snapshots directly
+            if (!values.snapshotStore) {
+                actions.processSnapshotsAsync()
+            }
         },
 
         loadRecordingCommentsSuccess: () => {
