@@ -166,7 +166,7 @@ class TreeCycleDetectionTest(BaseTest):
         for key in disallowed:
             # test update disallowed for each key
             with self.assertRaises(NotImplementedError):
-                if key.endswith("id"):
+                if key.endswith("id") or key == "dag_id_text":
                     bt_edges.update(**{key: "test"})
                 elif key == "source":
                     bt_edges.update(source=test_node)
