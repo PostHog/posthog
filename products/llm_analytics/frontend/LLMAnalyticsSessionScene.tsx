@@ -42,8 +42,10 @@ export function LLMAnalyticsSessionScene({ tabId }: { tabId?: string }): JSX.Ele
     useAttachedLogic(sessionDataLogic, sessionLogic)
 
     return (
-        <BindLogic logic={llmAnalyticsSessionDataLogic} props={{ sessionId, query, tabId }}>
-            <SessionSceneWrapper />
+        <BindLogic logic={llmAnalyticsSessionLogic} props={{ tabId }}>
+            <BindLogic logic={llmAnalyticsSessionDataLogic} props={{ sessionId, query, tabId }}>
+                <SessionSceneWrapper />
+            </BindLogic>
         </BindLogic>
     )
 }

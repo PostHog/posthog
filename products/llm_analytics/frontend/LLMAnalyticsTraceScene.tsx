@@ -166,8 +166,10 @@ export function LLMAnalyticsTraceScene({ tabId }: { tabId?: string }): JSX.Eleme
 
     return (
         <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
-            <BindLogic logic={llmAnalyticsTraceDataLogic} props={logicProps}>
-                <TraceSceneWrapper />
+            <BindLogic logic={llmAnalyticsTraceLogic} props={{ tabId }}>
+                <BindLogic logic={llmAnalyticsTraceDataLogic} props={logicProps}>
+                    <TraceSceneWrapper />
+                </BindLogic>
             </BindLogic>
         </BindLogic>
     )
