@@ -273,7 +273,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                 extraFloatingRef.current = el
             }
         },
-        [floatingRef, extraFloatingRef] // oxlint-disable-line react-hooks/exhaustive-deps
+        [setFloatingElement, floatingRef, extraFloatingRef]
     )
 
     const isAttached = clonedChildren || referenceElement
