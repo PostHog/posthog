@@ -40,6 +40,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -155,12 +156,17 @@ export const scene: SceneExport = {
     logic: llmAnalyticsTraceLogic,
 }
 
-export function LLMAnalyticsTraceScene(): JSX.Element {
-    const { traceId, query } = useValues(llmAnalyticsTraceLogic)
+export function LLMAnalyticsTraceScene({ tabId }: { tabId?: string }): JSX.Element {
+    const traceLogic = llmAnalyticsTraceLogic({ tabId })
+    const { traceId, query, searchQuery } = useValues(traceLogic)
+    const logicProps = { traceId, query, cachedResults: null, searchQuery, tabId }
+    const traceDataLogic = llmAnalyticsTraceDataLogic(logicProps)
+
+    useAttachedLogic(traceDataLogic, traceLogic)
 
     return (
         <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
-            <BindLogic logic={llmAnalyticsTraceDataLogic} props={{ traceId, query, cachedResults: null }}>
+            <BindLogic logic={llmAnalyticsTraceDataLogic} props={logicProps}>
                 <TraceSceneWrapper />
             </BindLogic>
         </BindLogic>
