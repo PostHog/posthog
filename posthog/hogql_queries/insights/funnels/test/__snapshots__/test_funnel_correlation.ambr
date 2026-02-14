@@ -68,9 +68,8 @@
   JOIN funnel_actors ON equals(if(not(empty(event__override.distinct_id)), event__override.person_id, event.person_id), funnel_actors.actor_id)
   WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), notIn(event.event, []))
   GROUP BY name
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -124,24 +123,22 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties
   '''
   WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -214,7 +211,7 @@
                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -269,18 +266,17 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.1
@@ -734,7 +730,6 @@
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized
   '''
   WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -807,7 +802,7 @@
                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons) AS persons ON equals(persons.id, funnel_actors.actor_id)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -862,18 +857,17 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.1
@@ -1329,7 +1323,6 @@
   WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
        assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
        funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -1387,7 +1380,7 @@
   GROUP BY name,
            prop
   HAVING ifNull(greater(plus(success_count, failure_count), 2), 0)
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -1435,18 +1428,17 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups_materialized
@@ -1454,7 +1446,6 @@
   WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
        assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
        funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -1512,7 +1503,7 @@
   GROUP BY name,
            prop
   HAVING ifNull(greater(plus(success_count, failure_count), 2), 0)
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -1560,18 +1551,17 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups
@@ -1629,9 +1619,8 @@
   JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
   WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), notIn(event.event, []))
   GROUP BY name
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -1678,18 +1667,17 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.1
@@ -2051,9 +2039,8 @@
   JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
   WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), notIn(event.event, []))
   GROUP BY name
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -2108,18 +2095,17 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.6
@@ -2325,9 +2311,8 @@
   JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
   WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), notIn(event.event, []))
   GROUP BY name
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -2374,18 +2359,17 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.1
@@ -2747,9 +2731,8 @@
   JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
   WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), notIn(event.event, []))
   GROUP BY name
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -2804,18 +2787,17 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.6
@@ -2969,7 +2951,6 @@
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups
   '''
   WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -3034,7 +3015,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -3082,18 +3063,17 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.1
@@ -3411,7 +3391,6 @@
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.5
   '''
   WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -3476,7 +3455,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -3524,24 +3503,22 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized
   '''
   WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -3606,7 +3583,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -3654,18 +3631,17 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.1
@@ -3983,7 +3959,6 @@
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.5
   '''
   WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -4048,7 +4023,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -4096,24 +4071,22 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events
   '''
   WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -4178,7 +4151,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -4226,18 +4199,17 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.1
@@ -4555,7 +4527,6 @@
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.5
   '''
   WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -4620,7 +4591,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -4668,24 +4639,22 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized
   '''
   WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -4750,7 +4719,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -4798,18 +4767,17 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.1
@@ -5127,7 +5095,6 @@
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.5
   '''
   WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -5192,7 +5159,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -5240,24 +5207,22 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2
   '''
   WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -5322,7 +5287,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -5370,18 +5335,17 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.1
@@ -5699,7 +5663,6 @@
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.5
   '''
   WITH funnel_actors AS
-
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -5764,7 +5727,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -5812,17 +5775,16 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
                                                         or isNotNull(target_step))) AS failure_count
   FROM funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
