@@ -610,14 +610,15 @@ export function ControlledDefinitionPopover({
 
     const icon = group.getIcon?.(definition || item)
 
-    // Must use `useEffect` here to hydrate popover card with the newest item, since lifecycle of `ItemPopover` is controlled
-    // independently by `infiniteListLogic`
-    useEffect(() => {
-        setDefinition(item)
-    }, [item, setDefinition])
-
     // Supports all types specified in selectedItemHasPopover
     const value = group.getValue?.(item)
+
+    // Hydrate popover card with the newest item. Compare by value identity (not reference)
+    // to avoid cascading re-renders when taxonomicGroups re-evaluates and creates new item
+    // objects with the same logical identity.
+    useEffect(() => {
+        setDefinition(item)
+    }, [value, setDefinition]) // eslint-disable-line react-hooks/exhaustive-deps
 
     if (!value || !item) {
         return null

@@ -106,6 +106,15 @@ export const propertyTaxonomicGroupProps = (
     getIcon: getPropertyDefinitionIcon,
 })
 
+// Stable reference for CohortsWithAllUsers options to prevent cascading re-renders.
+// taxonomicGroups has 14 dependencies that change during initial mount. Each change creates
+// new group objects with inline options arrays, causing rawLocalItems → fuse → localItems →
+// items → selectedItem reference changes. With CohortsWithAllUsers, selectedItemHasPopover
+// returns true (getValue returns 'all'), so ControlledDefinitionPopover renders and its
+// useEffect dispatches setDefinition on every selectedItem change, triggering kea store updates
+// that combined with react-window's layout effect setState exceed React's 50-update limit.
+const COHORTS_WITH_ALL_USERS_OPTIONS: CohortType[] = [{ id: 'all', name: 'All Users*' } as unknown as CohortType]
+
 export const defaultDataWarehousePopoverFields: DataWarehousePopoverField[] = [
     {
         key: 'id_field',
@@ -818,7 +827,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'cohorts',
                         type: TaxonomicFilterGroupType.CohortsWithAllUsers,
                         endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
-                        options: [{ id: 'all', name: 'All Users*' }],
+                        options: COHORTS_WITH_ALL_USERS_OPTIONS,
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,
                         getPopoverHeader: () => `All Users`,
