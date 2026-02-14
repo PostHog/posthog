@@ -644,7 +644,7 @@ async def materialize_model(
         job.last_run_at = dt.datetime.now(dt.UTC)
         job.error = "Warning: query returned no results"  # we log an error to signify that this isn't an ideal result
         await database_sync_to_async(job.save)()
-        return
+        return (saved_query.normalized_name, delta_table, job.id)
 
     await logger.adebug("Compacting delta table")
     delta_table.optimize.compact()
@@ -688,6 +688,7 @@ async def materialize_model(
     await database_sync_to_async(job.save)()
 
     await logger.adebug("Setting DataModelingJob.Status = COMPLETED")
+    return (saved_query.normalized_name, delta_table, job.id)
 
 
 async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: FilteringBoundLogger) -> None:
