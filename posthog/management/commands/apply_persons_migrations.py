@@ -149,7 +149,7 @@ class Command(BaseCommand):
         hobby = options["hobby"]
         dry_run = options["dry_run"]
 
-        if options["ensure_database"]:
+        if options["ensure_database"] and not dry_run:
             _ensure_database_exists(db_alias)
 
         migrations_path = self._resolve_migrations_dir(options["migrations_dir"])
