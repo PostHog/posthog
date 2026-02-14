@@ -6,6 +6,8 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
+from .dag import DAG
+
 
 class NodeType(models.TextChoices):
     TABLE = "table"
@@ -17,6 +19,8 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     # models.PROTECT prevents deleting a saved query if its referenced by a Node
     saved_query = models.ForeignKey(DataWarehouseSavedQuery, on_delete=models.PROTECT, null=True, blank=True)
+    # NOTE: initially nullable for smooth migration
+    dag = models.ForeignKey(DAG, on_delete=models.CASCADE, null=True, blank=True)
     # NOTE: this will be dropped
     dag_id_text = models.TextField(max_length=256, default="posthog", db_index=True)
     # name of the source table, view, matview, etc.
