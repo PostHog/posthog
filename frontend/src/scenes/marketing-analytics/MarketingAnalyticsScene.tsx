@@ -80,14 +80,14 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     // data warehouse sources are picked up without a full page refresh
     useEffect(() => {
         loadSources(null)
-    }, [loadSources])
+    }, [])
 
     // Auto-complete onboarding if user already has sources and conversion goals configured
     useEffect(() => {
         if (!loading && hasSources && conversion_goals.length > 0 && showOnboarding) {
             completeOnboarding()
         }
-    }, [loading, hasSources, conversion_goals, showOnboarding, completeOnboarding])
+    }, [loading, hasSources, conversion_goals, showOnboarding])
 
     // Reset onboarding if user truly has no configured sources (handles session/project changes).
     // Uses hasNoConfiguredSources which guards against premature evaluation while tables are loading.
@@ -95,7 +95,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         if (hasNoConfiguredSources && !showOnboarding) {
             resetOnboarding()
         }
-    }, [loading, hasSources, showOnboarding, resetOnboarding, hasNoConfiguredSources])
+    }, [loading, hasSources, showOnboarding, resetOnboarding])
 
     const feedbackBanner = (
         <LemonBanner type="info" action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}>
