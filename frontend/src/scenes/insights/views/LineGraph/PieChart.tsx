@@ -104,17 +104,19 @@ export function PieChart({
                         if (!nativeEvent) {
                             return
                         }
-                        const target = nativeEvent?.target as HTMLDivElement
-                        const point = chart.getElementsAtEventForMode(nativeEvent, 'point', { intersect: true }, true)
-                        target.style.cursor = onClick && point.length ? 'pointer' : 'default'
+                        const target = nativeEvent.target as HTMLDivElement
+                        const hitsSlice =
+                            chart.getElementsAtEventForMode(nativeEvent, 'point', { intersect: true }, true).length > 0
+                        target.style.cursor = onClick && hitsSlice ? 'pointer' : 'default'
                     },
                     onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
                         const nativeEvent = event.native
                         if (!nativeEvent) {
                             return
                         }
-                        const point = chart.getElementsAtEventForMode(nativeEvent, 'point', { intersect: true }, true)
-                        if (point.length) {
+                        const hitsSlice =
+                            chart.getElementsAtEventForMode(nativeEvent, 'point', { intersect: true }, true).length > 0
+                        if (hitsSlice) {
                             onChartClick(event, chart, datasets, onClick)
                         }
                     },
