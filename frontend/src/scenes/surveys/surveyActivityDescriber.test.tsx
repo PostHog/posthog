@@ -174,6 +174,15 @@ describe('describeRatingChanges', () => {
         expect(getTextContent(changes[1])).toBe('changed rating scale from 5 to 10')
         expect(getTextContent(changes[2])).toBe('updated rating labels from "Poor"-"Excellent" to "Bad"-"Good"')
     })
+
+    test('describes rating display change to star', () => {
+        const changes = describeRatingChanges([
+            { ...before, display: 'number' },
+            { ...before, display: 'star' },
+        ])
+        expect(changes).toHaveLength(1)
+        expect(getTextContent(changes[0])).toBe('changed rating display from number to star')
+    })
 })
 
 describe('describeMultipleChoiceChanges', () => {
