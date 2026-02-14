@@ -59,7 +59,7 @@ export class LoadingScheduler {
             this.seekRangeStart = windowStart
             this.seekRangeEnd = windowEnd
             return {
-                sourceIndices: unloadedInWindow.slice(0, batchSize),
+                sourceIndices: this.truncateToContiguous(unloadedInWindow.slice(0, batchSize)),
                 reason: 'seek_target',
             }
         }
@@ -85,7 +85,7 @@ export class LoadingScheduler {
             const gapIndices = store.getUnloadedIndicesInRange(nearestFull.sourceIndex, targetIndex)
             if (gapIndices.length > 0) {
                 // Load the unloaded sources closest to target first (from the end of the gap)
-                const batch = gapIndices.slice(-batchSize)
+                const batch = this.truncateToContiguous(gapIndices.slice(-batchSize))
                 this.seekRangeStart = Math.min(this.seekRangeStart ?? batch[0], batch[0])
                 return {
                     sourceIndices: batch,
@@ -105,7 +105,7 @@ export class LoadingScheduler {
             if (backwardIndices.length > 0) {
                 this.seekRangeStart = searchStart
                 return {
-                    sourceIndices: backwardIndices.slice(0, batchSize),
+                    sourceIndices: this.truncateToContiguous(backwardIndices.slice(0, batchSize)),
                     reason: 'seek_backward',
                 }
             }
@@ -129,11 +129,25 @@ export class LoadingScheduler {
         const aheadIndices = store.getUnloadedIndicesInRange(anchorIndex, bufferEnd)
         if (aheadIndices.length > 0) {
             return {
-                sourceIndices: aheadIndices.slice(0, batchSize),
+                sourceIndices: this.truncateToContiguous(aheadIndices.slice(0, batchSize)),
                 reason: 'buffer_ahead',
             }
         }
 
         return null
+    }
+
+    private truncateToContiguous(indices: number[]): number[] {
+        if (indices.length <= 1) {
+            return indices
+        }
+        const result = [indices[0]]
+        for (let i = 1; i < indices.length; i++) {
+            if (indices[i] !== indices[i - 1] + 1) {
+                break
+            }
+            result.push(indices[i])
+        }
+        return result
     }
 }

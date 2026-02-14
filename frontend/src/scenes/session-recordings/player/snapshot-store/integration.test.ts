@@ -35,7 +35,7 @@ function makeFullSnapshot(timestamp: number, windowId: number = 1): RecordingSna
 
 /**
  * Simulates what snapshotDataLogic does in a loop:
- * get next batch → "load" each source → evict → repeat.
+ * get next batch → "load" each source → repeat.
  *
  * The snapshotFactory controls what snapshots each source produces.
  * Returns the sequence of batches that were loaded.
@@ -47,7 +47,6 @@ function runLoadingLoop(
         snapshotFactory: (sourceIndex: number) => RecordingSnapshot[]
         batchSize?: number
         playbackPosition?: number
-        maxEvicted?: number
         maxIterations?: number
     }
 ): LoadBatch[] {
@@ -66,11 +65,6 @@ function runLoadingLoop(
         for (const idx of batch.sourceIndices) {
             const snaps = opts.snapshotFactory(idx)
             store.markLoaded(idx, snaps)
-        }
-
-        if (opts.maxEvicted !== undefined && !scheduler.isSeeking) {
-            const currentIndex = opts.playbackPosition ? store.getSourceIndexForTimestamp(opts.playbackPosition) : 0
-            store.evict(currentIndex, opts.maxEvicted)
         }
     }
 
@@ -155,32 +149,6 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
         expect(reasons[0]).toBe('seek_target')
         expect(store.canPlayAt(tsForMinute(15))).toBe(true)
         expect(scheduler.currentMode).toEqual({ kind: 'buffer_ahead' })
-    })
-
-    it('eviction trims sources when buffer exceeds max loaded', () => {
-        const store = new SnapshotStore()
-        const scheduler = new LoadingScheduler()
-        store.setSources(makeSources(20))
-
-        // Buffer ahead from playback at minute 5, max 8 loaded
-        runLoadingLoop(store, scheduler, {
-            snapshotFactory: (i) =>
-                i === 5
-                    ? [makeFullSnapshot(tsForMinute(i)), makeSnapshot(tsForMinute(i) + 100)]
-                    : [makeSnapshot(tsForMinute(i))],
-            batchSize: 5,
-            playbackPosition: tsForMinute(5),
-            maxEvicted: 8,
-        })
-
-        const loadedCount = Array.from({ length: 20 }, (_, i) => i).filter(
-            (i) => store.getEntry(i)?.state === 'loaded'
-        ).length
-
-        // Should not exceed the eviction limit
-        expect(loadedCount).toBeLessThanOrEqual(8)
-        // Current playback source should still be loaded
-        expect(store.getEntry(5)?.state).toBe('loaded')
     })
 
     it('buffer ahead stops at BUFFER_AHEAD_SOURCES limit', () => {
@@ -296,47 +264,32 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
         }
     })
 
-    it('non-contiguous batch indices are split into contiguous sub-batches', () => {
+    it('scheduler returns contiguous batches, skipping loaded gaps', () => {
         const store = new SnapshotStore()
         const scheduler = new LoadingScheduler()
         store.setSources(makeSources(20))
 
-        // Pre-load sources 3-6 so the scheduler's next batch will have a gap
+        // Pre-load sources 3-6 so the scheduler skips them
         for (let i = 3; i <= 6; i++) {
             store.markLoaded(i, [makeSnapshot(tsForMinute(i))])
         }
 
+        // First batch: contiguous [0,1,2] — stops at the loaded gap
         const batch = scheduler.getNextBatch(store, 10, tsForMinute(0))!
         expect(batch.reason).toBe('buffer_ahead')
-        // Batch should be [0,1,2, 7,8,9,...] — non-contiguous because 3-6 are loaded
-        expect(batch.sourceIndices).toContain(0)
-        expect(batch.sourceIndices).toContain(7)
-        expect(batch.sourceIndices).not.toContain(3)
+        expect(batch.sourceIndices).toEqual([0, 1, 2])
 
-        // Simulate snapshotDataLogic's contiguous truncation
-        const indices = batch.sourceIndices
-        const contiguous = [indices[0]]
-        for (let i = 1; i < indices.length; i++) {
-            if (indices[i] !== indices[i - 1] + 1) {
-                break
-            }
-            contiguous.push(indices[i])
-        }
-
-        // First contiguous group should be [0,1,2]
-        expect(contiguous).toEqual([0, 1, 2])
-
-        // Load just the first contiguous group
-        for (const idx of contiguous) {
+        // Load the batch
+        for (const idx of batch.sourceIndices) {
             store.markLoaded(idx, [idx === 0 ? makeFullSnapshot(tsForMinute(idx)) : makeSnapshot(tsForMinute(idx))])
         }
 
-        // Next batch should pick up from source 7 (the next unloaded)
+        // Next batch picks up from source 7 (first unloaded after the gap)
         const nextBatch = scheduler.getNextBatch(store, 10, tsForMinute(0))!
         expect(nextBatch.sourceIndices[0]).toBe(7)
     })
 
-    it('eviction does not cause infinite loading loop', () => {
+    it('seek with backward search converges', () => {
         const store = new SnapshotStore()
         const scheduler = new LoadingScheduler()
         store.setSources(makeSources(55))
@@ -351,7 +304,6 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
                     : [makeSnapshot(tsForMinute(i))],
             batchSize: 10,
             playbackPosition: tsForMinute(30),
-            maxEvicted: 50,
             maxIterations: 20,
         })
 

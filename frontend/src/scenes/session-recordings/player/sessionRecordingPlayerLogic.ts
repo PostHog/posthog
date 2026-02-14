@@ -1458,7 +1458,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
 
                 const useStoreBasedLoading = values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test'
-                if (useStoreBasedLoading && allSnapshots.length > currentEvents.length) {
+                if (useStoreBasedLoading) {
+                    // The store path loads sources incrementally (not all at once),
+                    // so we need timestamp-based diffing to find truly new events.
                     eventsToAdd.push(...findNewEvents(allSnapshots, currentEvents))
                 } else {
                     eventsToAdd.push(...allSnapshots.slice(currentEvents.length))

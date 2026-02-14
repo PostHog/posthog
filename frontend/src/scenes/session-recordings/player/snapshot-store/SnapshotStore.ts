@@ -4,8 +4,6 @@ import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import { SourceEntry, SourceLoadingState } from './types'
 
-const MAX_LOADED_SOURCES = 50
-
 export class SnapshotStore {
     private entries: SourceEntry[] = []
     private _version = 0
@@ -34,6 +32,10 @@ export class SnapshotStore {
         return this.entries.length
     }
 
+    get allLoaded(): boolean {
+        return this.entries.length > 0 && this.entries.every((e) => e.state === 'loaded')
+    }
+
     getEntry(index: number): SourceEntry | undefined {
         return this.entries[index]
     }
@@ -43,6 +45,8 @@ export class SnapshotStore {
         if (!entry) {
             return
         }
+
+        processedSnapshots.sort((a, b) => a.timestamp - b.timestamp)
 
         const fullSnapshotTimestamps: number[] = []
         const metaTimestamps: number[] = []
@@ -75,7 +79,6 @@ export class SnapshotStore {
                 }
             }
         }
-        result.sort((a, b) => a.timestamp - b.timestamp)
         this.mergedSnapshotsCache = result
         return result
     }
@@ -105,7 +108,6 @@ export class SnapshotStore {
             if (ts >= entry.startMs && ts <= entry.endMs) {
                 return i
             }
-            // Timestamp falls in a gap before this source — return the preceding source
             if (ts < entry.startMs) {
                 return Math.max(0, i - 1)
             }
@@ -121,7 +123,6 @@ export class SnapshotStore {
 
         const targetIndex = this.getSourceIndexForTimestamp(ts)
 
-        // Check every source from the FullSnapshot's source to the target source is loaded
         for (let i = fullSnapshotInfo.sourceIndex; i <= targetIndex; i++) {
             if (this.entries[i]?.state !== 'loaded') {
                 return false
@@ -135,7 +136,6 @@ export class SnapshotStore {
         let bestSourceIndex = -1
 
         for (const entry of this.entries) {
-            // Look at persisted metadata (works even for evicted sources)
             for (const fullTs of entry.fullSnapshotTimestamps) {
                 if (fullTs <= ts && fullTs > bestTs) {
                     bestTs = fullTs
@@ -150,44 +150,12 @@ export class SnapshotStore {
         return { sourceIndex: bestSourceIndex, timestamp: bestTs }
     }
 
-    evict(currentSourceIndex: number, maxLoaded: number = MAX_LOADED_SOURCES): void {
-        const loadedEntries = this.entries.filter((e) => e.state === 'loaded')
-        if (loadedEntries.length <= maxLoaded) {
-            return
-        }
-
-        // Evict past sources before future sources, furthest first within each group.
-        // Playback moves forward so past data is less likely to be needed again.
-        const evictable = loadedEntries
-            .filter((e) => e.index !== currentSourceIndex)
-            .sort((a, b) => {
-                const isPastA = a.index < currentSourceIndex
-                const isPastB = b.index < currentSourceIndex
-                if (isPastA !== isPastB) {
-                    return isPastA ? -1 : 1
-                }
-                // Within same group, furthest from current first
-                return Math.abs(b.index - currentSourceIndex) - Math.abs(a.index - currentSourceIndex)
-            })
-
-        const toEvict = loadedEntries.length - maxLoaded
-        for (let i = 0; i < toEvict && i < evictable.length; i++) {
-            evictable[i].state = 'evicted'
-            evictable[i].processedSnapshots = null
-        }
-
-        if (toEvict > 0) {
-            this.bump()
-        }
-    }
-
     getUnloadedIndicesInRange(start: number, end: number): number[] {
         const result: number[] = []
         const clampedStart = Math.max(0, start)
         const clampedEnd = Math.min(this.entries.length - 1, end)
         for (let i = clampedStart; i <= clampedEnd; i++) {
-            const state = this.entries[i]?.state
-            if (state !== 'loaded') {
+            if (this.entries[i]?.state !== 'loaded') {
                 result.push(i)
             }
         }

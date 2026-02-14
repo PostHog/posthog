@@ -253,21 +253,6 @@ describe('LoadingScheduler', () => {
         })
     })
 
-    describe('evicted sources', () => {
-        it('reloads evicted sources in buffer ahead', () => {
-            const loaded = Array.from({ length: 10 }, (_, i) => i)
-            const store = createLoadedStore(10, loaded, [0])
-            store.evict(5, 9) // evicts source 0
-
-            const scheduler = new LoadingScheduler()
-
-            const batch = scheduler.getNextBatch(store, 10)
-            expect(batch).not.toBeNull()
-            expect(batch!.sourceIndices).toEqual([0])
-            expect(batch!.reason).toBe('buffer_ahead')
-        })
-    })
-
     describe('clearSeek', () => {
         it('switches back to buffer_ahead mode', () => {
             const scheduler = new LoadingScheduler()

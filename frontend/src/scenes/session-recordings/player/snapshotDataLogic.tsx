@@ -205,13 +205,15 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     const storageKey = keyForSource(sources[0])
                     cache.snapshotsBySource[storageKey] = { snapshots: parsedSnapshots }
 
-                    // but we do want to mark the sources as loaded
-                    sources.forEach((s) => {
-                        const k = keyForSource(s)
-                        // we just need something against each key so we don't load it again
-                        cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || {}
-                        cache.snapshotsBySource[k].sourceLoaded = true
-                    })
+                    // Mark each source as loaded so the legacy path doesn't re-fetch them.
+                    // The store path tracks this via SnapshotStore entries instead.
+                    if (!cache.useSnapshotStore) {
+                        sources.forEach((s) => {
+                            const k = keyForSource(s)
+                            cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || {}
+                            cache.snapshotsBySource[k].sourceLoaded = true
+                        })
+                    }
 
                     return { sources }
                 },
@@ -312,8 +314,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 actions.setPollingInterval(newInterval)
             }
 
-            // Initialize the snapshot store with sources when flag is on
-            if (cache.useSnapshotStore) {
+            // Initialize the snapshot store with sources when flag is on.
+            // Only call setSources when sources actually changed — otherwise it wipes
+            // all loaded/evicted entries, causing a full reload cycle on every poll.
+            if (cache.useSnapshotStore && sourcesChanged) {
                 cache.store.setSources(snapshotSources)
             }
 
@@ -321,6 +325,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
 
         loadSnapshotsForSourceSuccess: ({ snapshotsForSource }) => {
+            cache.loadFailureCount = 0
             const sources = values.snapshotSources
             const sourceKey = snapshotsForSource.sources
                 ? keyForSource(snapshotsForSource.sources[0])
@@ -380,26 +385,25 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     cache.store.markLoaded(se.sourceIndex, buckets.get(se.sourceIndex)!)
                 }
 
-                // Clear raw snapshot data from cache — the store is now the sole owner.
-                // This ensures eviction actually frees memory.
+                // Clear raw snapshot data from cache — the store is now the sole owner
                 for (const loaded of loadedSources) {
                     const k = keyForSource(loaded)
                     if (cache.snapshotsBySource?.[k]) {
                         delete cache.snapshotsBySource[k].snapshots
                     }
                 }
-
-                // Evict if needed — but not during seek, since eviction would
-                // fight with the scheduler loading the sources it needs
-                if (!cache.scheduler.isSeeking) {
-                    const currentIndex = cache.playbackPosition
-                        ? cache.store.getSourceIndexForTimestamp(cache.playbackPosition)
-                        : 0
-                    cache.store.evict(currentIndex, 50)
-                }
             }
 
             // whenever we load a set of data, we try to load the next set right away
+            actions.loadNextSnapshotSource()
+        },
+
+        loadSnapshotsForSourceFailure: async (_, breakpoint) => {
+            cache.loadFailureCount = (cache.loadFailureCount ?? 0) + 1
+            if (cache.loadFailureCount > 3) {
+                return
+            }
+            await breakpoint(cache.loadFailureCount * 2000)
             actions.loadNextSnapshotSource()
         },
 
@@ -444,18 +448,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     actions.maybeStartPolling()
                     return
                 }
-                // The API uses start/end blob keys and returns all data in that range.
-                // Non-contiguous indices would fetch intermediate (already-loaded) sources
-                // whose data gets mis-bucketed. Truncate at the first gap.
-                const indices = batch.sourceIndices
-                const contiguous = [indices[0]]
-                for (let i = 1; i < indices.length; i++) {
-                    if (indices[i] !== indices[i - 1] + 1) {
-                        break
-                    }
-                    contiguous.push(indices[i])
-                }
-                const batchSources = contiguous.map((i: number) => sources[i]).filter(Boolean)
+                const batchSources = batch.sourceIndices.map((i: number) => sources[i]).filter(Boolean)
                 if (batchSources.length > 0) {
                     return actions.loadSnapshotsForSource(batchSources)
                 }
@@ -496,12 +489,18 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     })),
     selectors(({ cache }) => ({
         snapshotsLoading: [
-            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.snapshotsBySources],
+            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.snapshotsBySources, s.storeVersion],
             (
                 snapshotSourcesLoading: boolean,
                 snapshotsForSourceLoading: boolean,
                 snapshotsBySources: Record<string, RecordingSnapshot[]>
             ): boolean => {
+                if (cache.useSnapshotStore && cache.store) {
+                    return (
+                        cache.store.getAllLoadedSnapshots().length === 0 &&
+                        (snapshotSourcesLoading || snapshotsForSourceLoading)
+                    )
+                }
                 const snapshots = Object.values(snapshotsBySources).flat()
                 return snapshots?.length === 0 && (snapshotSourcesLoading || snapshotsForSourceLoading)
             },
@@ -514,6 +513,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             (
                 snapshotsBySourceSuccessCount: number
             ): Record<SourceKey, SessionRecordingSnapshotSourceResponse> & { _count?: number } => {
+                // Store path doesn't use snapshotsBySources — return stable reference
+                // to avoid the shallow copy on every batch load.
+                if (cache.useSnapshotStore) {
+                    cache.stableEmptyBySources = cache.stableEmptyBySources || {}
+                    return cache.stableEmptyBySources
+                }
+
                 if (!cache.snapshotsBySource) {
                     return {}
                 }
@@ -550,6 +556,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 if (!snapshotSources || snapshotSources.length === 0) {
                     return false
                 }
+                if (cache.useSnapshotStore && cache.store) {
+                    return cache.store.allLoaded
+                }
                 return snapshotSources.every((source) => {
                     const sourceKey = keyForSource(source)
                     return cache.snapshotsBySource?.[sourceKey]?.sourceLoaded
@@ -558,7 +567,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
 
         storeVersion: [
-            (s) => [s.snapshotsBySourceSuccessCount],
+            (s) => [s.snapshotsBySourceSuccessCount, s.snapshotSources],
             (): number => {
                 return cache.store?.version ?? 0
             },
@@ -626,5 +635,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         cache.store = undefined
         cache.scheduler = undefined
         cache.playbackPosition = undefined
+        cache.loadFailureCount = undefined
     }),
 ])

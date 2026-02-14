@@ -3,7 +3,7 @@ import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 export interface SourceEntry {
     source: SessionRecordingSnapshotSource
     index: number
-    state: 'unloaded' | 'loaded' | 'evicted'
+    state: 'unloaded' | 'loaded'
     processedSnapshots: RecordingSnapshot[] | null
     fullSnapshotTimestamps: number[]
     metaTimestamps: number[]
@@ -19,7 +19,7 @@ export interface LoadBatch {
 export interface SourceLoadingState {
     startMs: number
     endMs: number
-    state: 'unloaded' | 'loaded' | 'evicted'
+    state: 'unloaded' | 'loaded'
 }
 
 export type Mode = { kind: 'buffer_ahead' } | { kind: 'seek'; targetTimestamp: number }

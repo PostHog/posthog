@@ -120,15 +120,19 @@ describe('SnapshotStore', () => {
             expect(store.getAllLoadedSnapshots()).toEqual([])
         })
 
-        it('merges and sorts snapshots from multiple sources', () => {
+        it('merges snapshots from multiple sources in source order', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(3))
 
-            store.markLoaded(0, [makeSnapshot(300), makeSnapshot(100)])
-            store.markLoaded(2, [makeSnapshot(200)])
+            const ts0a = new Date(Date.UTC(2023, 7, 11, 12, 0, 10)).getTime()
+            const ts0b = new Date(Date.UTC(2023, 7, 11, 12, 0, 50)).getTime()
+            const ts2 = new Date(Date.UTC(2023, 7, 11, 12, 2, 30)).getTime()
+
+            store.markLoaded(0, [makeSnapshot(ts0b), makeSnapshot(ts0a)])
+            store.markLoaded(2, [makeSnapshot(ts2)])
 
             const all = store.getAllLoadedSnapshots()
-            expect(all.map((s) => s.timestamp)).toEqual([100, 200, 300])
+            expect(all.map((s) => s.timestamp)).toEqual([ts0a, ts0b, ts2])
         })
 
         it('caches result until version changes', () => {
@@ -139,19 +143,6 @@ describe('SnapshotStore', () => {
             const first = store.getAllLoadedSnapshots()
             const second = store.getAllLoadedSnapshots()
             expect(first).toBe(second) // same reference
-        })
-
-        it('excludes evicted sources', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(3))
-            store.markLoaded(0, [makeFullSnapshot(100)])
-            store.markLoaded(1, [makeSnapshot(200)])
-            store.markLoaded(2, [makeSnapshot(300)])
-
-            // Force eviction of source 2
-            store.evict(0, 2)
-            const all = store.getAllLoadedSnapshots()
-            expect(all.map((s) => s.timestamp)).not.toContain(300)
         })
     })
 
@@ -218,23 +209,6 @@ describe('SnapshotStore', () => {
             const targetTs = new Date(Date.UTC(2023, 7, 11, 12, 5, 30)).getTime()
             expect(store.canPlayAt(targetTs)).toBe(false)
         })
-
-        it('returns false when FullSnapshot source is evicted', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(5))
-
-            const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
-            store.markLoaded(0, [makeFullSnapshot(fsTs)])
-            store.markLoaded(1, [makeSnapshot(fsTs + 60000)])
-            store.markLoaded(2, [makeSnapshot(fsTs + 120000)])
-
-            // Evict source 0 (which has the FullSnapshot)
-            store.evict(2, 2)
-
-            const targetTs = new Date(Date.UTC(2023, 7, 11, 12, 2, 30)).getTime()
-            // canPlayAt should be false because source 0 (with FullSnapshot) is evicted
-            expect(store.canPlayAt(targetTs)).toBe(false)
-        })
     })
 
     describe('findNearestFullSnapshot', () => {
@@ -259,135 +233,6 @@ describe('SnapshotStore', () => {
             const target = new Date(Date.UTC(2023, 7, 11, 12, 4, 0)).getTime()
             const result = store.findNearestFullSnapshot(target)
             expect(result).toEqual({ sourceIndex: 3, timestamp: fs3 })
-        })
-
-        it('works with evicted sources (metadata persists)', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(5))
-
-            const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
-            store.markLoaded(0, [makeFullSnapshot(fsTs)])
-            store.markLoaded(1, [makeSnapshot(fsTs + 60000)])
-            store.markLoaded(2, [makeSnapshot(fsTs + 120000)])
-            store.markLoaded(3, [makeSnapshot(fsTs + 180000)])
-            store.markLoaded(4, [makeSnapshot(fsTs + 240000)])
-
-            // Evict source 0
-            store.evict(4, 4)
-
-            // Metadata should still know about the FullSnapshot
-            const result = store.findNearestFullSnapshot(fsTs + 120000)
-            expect(result).toEqual({ sourceIndex: 0, timestamp: fsTs })
-        })
-    })
-
-    describe('evict', () => {
-        it('does nothing when loaded count is under threshold', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(3))
-            store.markLoaded(0, [makeFullSnapshot(1000)])
-            store.markLoaded(1, [makeSnapshot(2000)])
-            store.markLoaded(2, [makeSnapshot(3000)])
-
-            store.evict(1, 50)
-            expect(store.getEntry(0)?.state).toBe('loaded')
-            expect(store.getEntry(1)?.state).toBe('loaded')
-            expect(store.getEntry(2)?.state).toBe('loaded')
-        })
-
-        it('evicts furthest sources from current position', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(5))
-            for (let i = 0; i < 5; i++) {
-                store.markLoaded(i, [makeSnapshot(1000 + i * 100)])
-            }
-
-            // Current = 2, max = 3 → evict 2
-            // Past sources (0, 1) evict before future (3, 4)
-            store.evict(2, 3)
-            expect(store.getEntry(0)?.state).toBe('evicted')
-            expect(store.getEntry(1)?.state).toBe('evicted')
-            expect(store.getEntry(2)?.state).toBe('loaded')
-            expect(store.getEntry(3)?.state).toBe('loaded')
-            expect(store.getEntry(4)?.state).toBe('loaded')
-        })
-
-        it('evicts all past sources before any future sources', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(7))
-            for (let i = 0; i < 7; i++) {
-                store.markLoaded(i, [makeSnapshot(1000 + i * 100)])
-            }
-
-            // Current = 3, max = 4 → must evict 3
-            // All 3 past sources (0, 1, 2) evicted; all future sources kept
-            store.evict(3, 4)
-            expect(store.getEntry(0)?.state).toBe('evicted')
-            expect(store.getEntry(1)?.state).toBe('evicted')
-            expect(store.getEntry(2)?.state).toBe('evicted')
-            expect(store.getEntry(3)?.state).toBe('loaded')
-            expect(store.getEntry(4)?.state).toBe('loaded')
-            expect(store.getEntry(5)?.state).toBe('loaded')
-            expect(store.getEntry(6)?.state).toBe('loaded')
-        })
-
-        it('evicts furthest future sources once all past sources are gone', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(7))
-            for (let i = 0; i < 7; i++) {
-                store.markLoaded(i, [makeSnapshot(1000 + i * 100)])
-            }
-
-            // Current = 3, max = 2 → must evict 5
-            // Past first (0, 1, 2), then furthest future (6, 5)
-            store.evict(3, 2)
-            expect(store.getEntry(0)?.state).toBe('evicted')
-            expect(store.getEntry(1)?.state).toBe('evicted')
-            expect(store.getEntry(2)?.state).toBe('evicted')
-            expect(store.getEntry(3)?.state).toBe('loaded')
-            expect(store.getEntry(4)?.state).toBe('loaded')
-            expect(store.getEntry(5)?.state).toBe('evicted')
-            expect(store.getEntry(6)?.state).toBe('evicted')
-        })
-
-        it('never evicts the current source', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(3))
-            for (let i = 0; i < 3; i++) {
-                store.markLoaded(i, [makeSnapshot(1000 + i * 100)])
-            }
-
-            // Max 1 → should evict 2 but protect current (1)
-            store.evict(1, 1)
-            expect(store.getEntry(1)?.state).toBe('loaded')
-        })
-
-        it('nulls processedSnapshots on eviction', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(3))
-            store.markLoaded(0, [makeSnapshot(1000)])
-            store.markLoaded(1, [makeSnapshot(2000)])
-            store.markLoaded(2, [makeSnapshot(3000)])
-
-            store.evict(2, 2)
-            expect(store.getEntry(0)?.processedSnapshots).toBeNull()
-            expect(store.getEntry(0)?.state).toBe('evicted')
-        })
-
-        it('preserves metadata through eviction', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(3))
-
-            store.markLoaded(0, [makeFullSnapshot(1000)])
-            store.markLoaded(1, [makeSnapshot(2000)])
-            store.markLoaded(2, [makeSnapshot(3000)])
-
-            // Current = 2, max = 1 → evicts 0 and 1
-            store.evict(2, 1)
-            const entry0 = store.getEntry(0)!
-            expect(entry0.state).toBe('evicted')
-            expect(entry0.processedSnapshots).toBeNull()
-            expect(entry0.fullSnapshotTimestamps).toEqual([1000])
         })
     })
 
@@ -429,17 +274,6 @@ describe('SnapshotStore', () => {
             }
             expect(store.getUnloadedIndicesInRange(start, end)).toEqual(expected)
         })
-
-        it('includes evicted sources', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(5))
-            for (let i = 0; i < 5; i++) {
-                store.markLoaded(i, [makeSnapshot(1000 + i)])
-            }
-            store.evict(4, 4) // evicts source 0
-
-            expect(store.getUnloadedIndicesInRange(0, 4)).toEqual([0])
-        })
     })
 
     describe('getSourceStates', () => {
@@ -454,22 +288,27 @@ describe('SnapshotStore', () => {
             expect(states[1].state).toBe('loaded')
             expect(states[2].state).toBe('unloaded')
         })
+    })
 
-        it('includes timestamps and reflects eviction', () => {
+    describe('allLoaded', () => {
+        it('is false when not all sources are loaded', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(3))
             store.markLoaded(0, [makeSnapshot(1000)])
+            expect(store.allLoaded).toBe(false)
+        })
+
+        it('is true when all sources are loaded', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(2))
+            store.markLoaded(0, [makeSnapshot(1000)])
             store.markLoaded(1, [makeSnapshot(2000)])
-            store.markLoaded(2, [makeSnapshot(3000)])
+            expect(store.allLoaded).toBe(true)
+        })
 
-            store.evict(2, 2)
-
-            const states = store.getSourceStates()
-            expect(states[0].state).toBe('evicted')
-            expect(states[0].startMs).toBeGreaterThan(0)
-            expect(states[0].endMs).toBeGreaterThan(states[0].startMs)
-            expect(states[1].state).toBe('loaded')
-            expect(states[2].state).toBe('loaded')
+        it('is false for empty store', () => {
+            const store = new SnapshotStore()
+            expect(store.allLoaded).toBe(false)
         })
     })
 
