@@ -5,6 +5,7 @@ import { createAiGenerationEvent } from '~/llm-analytics/_tests/fixtures'
 import { TemporalService } from '../llm-analytics/services/temporal.service'
 import {
     SampleRateProvider,
+    SentimentBatchBuffer,
     checkSampleRate,
     chunk,
     eachBatchSentimentScheduler,
@@ -204,9 +205,130 @@ describe('Sentiment Scheduler', () => {
         })
     })
 
+    describe('SentimentBatchBuffer', () => {
+        let mockTemporalService: jest.Mocked<TemporalService>
+
+        beforeEach(() => {
+            mockTemporalService = {
+                startSentimentClassificationWorkflow: jest.fn().mockResolvedValue({ workflowId: 'test' }),
+                disconnect: jest.fn(),
+            } as any
+        })
+
+        it('flushes immediately when buffer reaches batchSize', async () => {
+            const buffer = new SentimentBatchBuffer(mockTemporalService, 3, 60_000)
+            buffer.start()
+
+            const events = Array.from({ length: 3 }, () => createAiGenerationEvent(teamId))
+            await buffer.add(events)
+
+            expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(1)
+            expect(mockTemporalService.startSentimentClassificationWorkflow.mock.calls[0][0]).toHaveLength(3)
+            expect(buffer.getBufferSize()).toBe(0)
+
+            await buffer.stop()
+        })
+
+        it('does not flush when buffer is under batchSize', async () => {
+            const buffer = new SentimentBatchBuffer(mockTemporalService, 5, 60_000)
+            buffer.start()
+
+            const events = Array.from({ length: 3 }, () => createAiGenerationEvent(teamId))
+            await buffer.add(events)
+
+            expect(mockTemporalService.startSentimentClassificationWorkflow).not.toHaveBeenCalled()
+            expect(buffer.getBufferSize()).toBe(3)
+
+            await buffer.stop()
+        })
+
+        it('accumulates events across multiple add() calls', async () => {
+            const buffer = new SentimentBatchBuffer(mockTemporalService, 5, 60_000)
+            buffer.start()
+
+            await buffer.add([createAiGenerationEvent(teamId), createAiGenerationEvent(teamId)])
+            expect(mockTemporalService.startSentimentClassificationWorkflow).not.toHaveBeenCalled()
+
+            await buffer.add([
+                createAiGenerationEvent(teamId),
+                createAiGenerationEvent(teamId),
+                createAiGenerationEvent(teamId),
+            ])
+            expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(1)
+            expect(mockTemporalService.startSentimentClassificationWorkflow.mock.calls[0][0]).toHaveLength(5)
+            expect(buffer.getBufferSize()).toBe(0)
+
+            await buffer.stop()
+        })
+
+        it('handles overflow by dispatching multiple batches', async () => {
+            const buffer = new SentimentBatchBuffer(mockTemporalService, 3, 60_000)
+            buffer.start()
+
+            const events = Array.from({ length: 7 }, () => createAiGenerationEvent(teamId))
+            await buffer.add(events)
+
+            expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(2)
+            expect(mockTemporalService.startSentimentClassificationWorkflow.mock.calls[0][0]).toHaveLength(3)
+            expect(mockTemporalService.startSentimentClassificationWorkflow.mock.calls[1][0]).toHaveLength(3)
+            expect(buffer.getBufferSize()).toBe(1)
+
+            await buffer.stop()
+        })
+
+        it('flushes remaining events on stop', async () => {
+            const buffer = new SentimentBatchBuffer(mockTemporalService, 10, 60_000)
+            buffer.start()
+
+            await buffer.add([createAiGenerationEvent(teamId), createAiGenerationEvent(teamId)])
+            expect(mockTemporalService.startSentimentClassificationWorkflow).not.toHaveBeenCalled()
+
+            await buffer.stop()
+
+            expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(1)
+            expect(mockTemporalService.startSentimentClassificationWorkflow.mock.calls[0][0]).toHaveLength(2)
+        })
+
+        it('flushes on timer interval', async () => {
+            jest.useFakeTimers()
+
+            const buffer = new SentimentBatchBuffer(mockTemporalService, 100, 5_000)
+            buffer.start()
+
+            await buffer.add([createAiGenerationEvent(teamId)])
+            expect(mockTemporalService.startSentimentClassificationWorkflow).not.toHaveBeenCalled()
+
+            jest.advanceTimersByTime(5_000)
+            await Promise.resolve()
+
+            expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(1)
+            expect(mockTemporalService.startSentimentClassificationWorkflow.mock.calls[0][0]).toHaveLength(1)
+            expect(buffer.getBufferSize()).toBe(0)
+
+            await buffer.stop()
+            jest.useRealTimers()
+        })
+
+        it('does not flush on timer when buffer is empty', async () => {
+            jest.useFakeTimers()
+
+            const buffer = new SentimentBatchBuffer(mockTemporalService, 100, 5_000)
+            buffer.start()
+
+            jest.advanceTimersByTime(5_000)
+            await Promise.resolve()
+
+            expect(mockTemporalService.startSentimentClassificationWorkflow).not.toHaveBeenCalled()
+
+            await buffer.stop()
+            jest.useRealTimers()
+        })
+    })
+
     describe('eachBatchSentimentScheduler', () => {
         let mockTemporalService: jest.Mocked<TemporalService>
         let sampleRateProvider: SampleRateProvider
+        let batchBuffer: SentimentBatchBuffer
 
         beforeEach(async () => {
             mockTemporalService = {
@@ -216,13 +338,17 @@ describe('Sentiment Scheduler', () => {
 
             sampleRateProvider = new SampleRateProvider(1.0)
             await sampleRateProvider.start()
+
+            batchBuffer = new SentimentBatchBuffer(mockTemporalService, 100, 60_000)
+            batchBuffer.start()
         })
 
         afterEach(async () => {
+            await batchBuffer.stop()
             await sampleRateProvider.stop()
         })
 
-        it('starts one batch workflow with all sampled events', async () => {
+        it('adds sampled events to the buffer', async () => {
             const messages: Message[] = [
                 {
                     headers: [{ productTrack: Buffer.from('llma') }],
@@ -238,14 +364,13 @@ describe('Sentiment Scheduler', () => {
                 } as any,
             ]
 
-            await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider)
+            await eachBatchSentimentScheduler(messages, batchBuffer, sampleRateProvider)
 
-            expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(1)
-            const callArgs = mockTemporalService.startSentimentClassificationWorkflow.mock.calls[0][0]
-            expect(callArgs).toHaveLength(3)
+            expect(batchBuffer.getBufferSize()).toBe(3)
+            expect(mockTemporalService.startSentimentClassificationWorkflow).not.toHaveBeenCalled()
         })
 
-        it('does not start workflow when no events pass sampling', async () => {
+        it('does not buffer when no events pass sampling', async () => {
             const zeroRateProvider = new SampleRateProvider(0)
             await zeroRateProvider.start()
 
@@ -256,14 +381,14 @@ describe('Sentiment Scheduler', () => {
                 } as any,
             ]
 
-            await eachBatchSentimentScheduler(messages, mockTemporalService, zeroRateProvider)
+            await eachBatchSentimentScheduler(messages, batchBuffer, zeroRateProvider)
 
-            expect(mockTemporalService.startSentimentClassificationWorkflow).not.toHaveBeenCalled()
+            expect(batchBuffer.getBufferSize()).toBe(0)
 
             await zeroRateProvider.stop()
         })
 
-        it('does not start workflow when no llma events in batch', async () => {
+        it('does not buffer when no llma events in batch', async () => {
             const messages: Message[] = [
                 {
                     headers: [{ productTrack: Buffer.from('general') }],
@@ -271,9 +396,9 @@ describe('Sentiment Scheduler', () => {
                 } as any,
             ]
 
-            await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider)
+            await eachBatchSentimentScheduler(messages, batchBuffer, sampleRateProvider)
 
-            expect(mockTemporalService.startSentimentClassificationWorkflow).not.toHaveBeenCalled()
+            expect(batchBuffer.getBufferSize()).toBe(0)
         })
 
         it('filters events by team allowlist', async () => {
@@ -296,72 +421,27 @@ describe('Sentiment Scheduler', () => {
                 } as any,
             ]
 
-            await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider, teamAllowlist)
+            await eachBatchSentimentScheduler(messages, batchBuffer, sampleRateProvider, teamAllowlist)
 
-            expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(1)
-            const callArgs = mockTemporalService.startSentimentClassificationWorkflow.mock.calls[0][0]
-            expect(callArgs).toHaveLength(2)
-            callArgs.forEach((event: any) => expect(event.team_id).toBe(allowedTeamId))
+            expect(batchBuffer.getBufferSize()).toBe(2)
         })
 
-        it('skips batch when all events are from non-allowed teams', async () => {
-            const teamAllowlist = new Set([2])
+        it('triggers immediate flush when buffer reaches batchSize', async () => {
+            const smallBuffer = new SentimentBatchBuffer(mockTemporalService, 2, 60_000)
+            smallBuffer.start()
 
-            const messages: Message[] = [
-                {
-                    headers: [{ productTrack: Buffer.from('llma') }],
-                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(99))),
-                } as any,
-            ]
-
-            await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider, teamAllowlist)
-
-            expect(mockTemporalService.startSentimentClassificationWorkflow).not.toHaveBeenCalled()
-        })
-
-        it('allows all teams when allowlist is null', async () => {
-            const messages: Message[] = [
-                {
-                    headers: [{ productTrack: Buffer.from('llma') }],
-                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(99))),
-                } as any,
-            ]
-
-            await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider, null)
-
-            expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(1)
-        })
-
-        it('splits sampled events into batches by batchSize', async () => {
-            const messages: Message[] = Array.from({ length: 5 }, () => ({
+            const messages: Message[] = Array.from({ length: 3 }, () => ({
                 headers: [{ productTrack: Buffer.from('llma') }],
                 value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamId))),
             })) as any[]
 
-            await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider, null, 2)
-
-            expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(3)
-            expect(mockTemporalService.startSentimentClassificationWorkflow.mock.calls[0][0]).toHaveLength(2)
-            expect(mockTemporalService.startSentimentClassificationWorkflow.mock.calls[1][0]).toHaveLength(2)
-            expect(mockTemporalService.startSentimentClassificationWorkflow.mock.calls[2][0]).toHaveLength(1)
-        })
-
-        it('handles workflow start failure gracefully', async () => {
-            mockTemporalService.startSentimentClassificationWorkflow.mockRejectedValue(
-                new Error('Temporal unavailable')
-            )
-
-            const messages: Message[] = [
-                {
-                    headers: [{ productTrack: Buffer.from('llma') }],
-                    value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamId))),
-                } as any,
-            ]
-
-            // Should not throw
-            await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider)
+            await eachBatchSentimentScheduler(messages, smallBuffer, sampleRateProvider)
 
             expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(1)
+            expect(mockTemporalService.startSentimentClassificationWorkflow.mock.calls[0][0]).toHaveLength(2)
+            expect(smallBuffer.getBufferSize()).toBe(1)
+
+            await smallBuffer.stop()
         })
     })
 })

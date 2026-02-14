@@ -472,6 +472,7 @@ export interface PluginsServerConfig
     LLMA_SENTIMENT_SAMPLE_RATE: number
     LLMA_SENTIMENT_TEAM_IDS: string
     LLMA_SENTIMENT_BATCH_SIZE: number
+    LLMA_SENTIMENT_FLUSH_INTERVAL_MS: number
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     PLUGIN_SERVER_MODE: PluginServerMode | null

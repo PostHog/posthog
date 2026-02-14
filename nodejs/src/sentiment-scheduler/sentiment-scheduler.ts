@@ -26,6 +26,7 @@ export type SentimentSchedulerHub = TemporalServiceHub &
     Pick<
         Hub,
         | 'LLMA_SENTIMENT_BATCH_SIZE'
+        | 'LLMA_SENTIMENT_FLUSH_INTERVAL_MS'
         | 'LLMA_SENTIMENT_SAMPLE_RATE'
         | 'LLMA_SENTIMENT_TEAM_IDS'
         | 'POSTHOG_API_KEY'
@@ -72,7 +73,19 @@ const sentimentSchedulerSampleRate = new Gauge({
     help: 'Current sample rate used by the sentiment scheduler',
 })
 
+const sentimentSchedulerBufferSize = new Gauge({
+    name: 'llma_sentiment_scheduler_buffer_size',
+    help: 'Current number of events in the flush buffer',
+})
+
+const sentimentSchedulerFlushes = new Counter({
+    name: 'llma_sentiment_scheduler_flushes',
+    help: 'Number of buffer flushes',
+    labelNames: ['trigger'], // size, timer, shutdown
+})
+
 const DEFAULT_BATCH_SIZE = 100
+const DEFAULT_FLUSH_INTERVAL_MS = 30_000
 
 // Pure functions for testability
 
@@ -231,6 +244,80 @@ export class SampleRateProvider {
     }
 }
 
+/**
+ * Buffers sampled events and flushes to Temporal when the buffer reaches
+ * batchSize or a periodic timer fires — whichever comes first.
+ */
+export class SentimentBatchBuffer {
+    private buffer: RawKafkaEvent[] = []
+    private flushTimer: ReturnType<typeof setInterval> | null = null
+
+    constructor(
+        private temporalService: TemporalService,
+        private batchSize: number,
+        private flushIntervalMs: number
+    ) {}
+
+    start(): void {
+        this.flushTimer = setInterval(() => void this.flush('timer'), this.flushIntervalMs)
+    }
+
+    async add(events: RawKafkaEvent[]): Promise<void> {
+        this.buffer.push(...events)
+        sentimentSchedulerBufferSize.set(this.buffer.length)
+
+        while (this.buffer.length >= this.batchSize) {
+            const batch = this.buffer.splice(0, this.batchSize)
+            sentimentSchedulerBufferSize.set(this.buffer.length)
+            await this.dispatchBatch(batch, 'size')
+        }
+    }
+
+    async flush(trigger: 'timer' | 'shutdown'): Promise<void> {
+        if (this.buffer.length === 0) {
+            return
+        }
+
+        const batches = chunk(this.buffer, this.batchSize)
+        this.buffer = []
+        sentimentSchedulerBufferSize.set(0)
+
+        for (const batch of batches) {
+            await this.dispatchBatch(batch, trigger)
+        }
+    }
+
+    async stop(): Promise<void> {
+        if (this.flushTimer) {
+            clearInterval(this.flushTimer)
+            this.flushTimer = null
+        }
+        await this.flush('shutdown')
+    }
+
+    getBufferSize(): number {
+        return this.buffer.length
+    }
+
+    private async dispatchBatch(batch: RawKafkaEvent[], trigger: string): Promise<void> {
+        try {
+            await this.temporalService.startSentimentClassificationWorkflow(batch)
+            sentimentSchedulerBatchesStarted.labels({ status: 'success' }).inc()
+            sentimentSchedulerEventsProcessed.labels({ status: 'success' }).inc(batch.length)
+            sentimentSchedulerFlushes.labels({ trigger }).inc()
+            logger.info('Sentiment batch dispatched', { batchSize: batch.length, trigger })
+        } catch (error: unknown) {
+            logger.error('Error starting sentiment batch workflow', {
+                eventCount: batch.length,
+                trigger,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            sentimentSchedulerBatchesStarted.labels({ status: 'error' }).inc()
+            sentimentSchedulerEventsProcessed.labels({ status: 'error' }).inc(batch.length)
+        }
+    }
+}
+
 export const startSentimentScheduler = async (hub: SentimentSchedulerHub): Promise<PluginServerService> => {
     logger.info('Starting sentiment scheduler')
 
@@ -239,13 +326,19 @@ export const startSentimentScheduler = async (hub: SentimentSchedulerHub): Promi
     const teamAllowlist = parseTeamAllowlist(hub.LLMA_SENTIMENT_TEAM_IDS ?? '')
     const batchSize = hub.LLMA_SENTIMENT_BATCH_SIZE ?? DEFAULT_BATCH_SIZE
 
+    const flushIntervalMs = hub.LLMA_SENTIMENT_FLUSH_INTERVAL_MS ?? DEFAULT_FLUSH_INTERVAL_MS
+
     const sampleRateProvider = new SampleRateProvider(fallbackRate, hub.POSTHOG_API_KEY, hub.POSTHOG_HOST_URL)
     await sampleRateProvider.start()
+
+    const batchBuffer = new SentimentBatchBuffer(temporalService, batchSize, flushIntervalMs)
+    batchBuffer.start()
 
     logger.info('Sentiment scheduler started', {
         sampleRate: sampleRateProvider.getSampleRate(),
         teamAllowlist: teamAllowlist ? Array.from(teamAllowlist) : 'all',
         batchSize,
+        flushIntervalMs,
     })
 
     const kafkaConsumer = new KafkaConsumer({
@@ -254,10 +347,11 @@ export const startSentimentScheduler = async (hub: SentimentSchedulerHub): Promi
     })
 
     await kafkaConsumer.connect((messages) =>
-        eachBatchSentimentScheduler(messages, temporalService, sampleRateProvider, teamAllowlist, batchSize)
+        eachBatchSentimentScheduler(messages, batchBuffer, sampleRateProvider, teamAllowlist)
     )
 
     const onShutdown = async () => {
+        await batchBuffer.stop()
         await sampleRateProvider.stop()
         await temporalService.disconnect()
         await kafkaConsumer.disconnect()
@@ -272,10 +366,9 @@ export const startSentimentScheduler = async (hub: SentimentSchedulerHub): Promi
 
 export async function eachBatchSentimentScheduler(
     messages: Message[],
-    temporalService: TemporalService,
+    batchBuffer: SentimentBatchBuffer,
     sampleRateProvider: SampleRateProvider,
-    teamAllowlist?: Set<number> | null,
-    batchSize: number = DEFAULT_BATCH_SIZE
+    teamAllowlist?: Set<number> | null
 ): Promise<void> {
     sentimentSchedulerMessagesReceived.inc(messages.length)
 
@@ -316,20 +409,5 @@ export async function eachBatchSentimentScheduler(
         return
     }
 
-    const batches = chunk(sampledEvents, batchSize)
-
-    for (const batch of batches) {
-        try {
-            await temporalService.startSentimentClassificationWorkflow(batch)
-            sentimentSchedulerBatchesStarted.labels({ status: 'success' }).inc()
-            sentimentSchedulerEventsProcessed.labels({ status: 'success' }).inc(batch.length)
-        } catch (error: unknown) {
-            logger.error('Error starting sentiment batch workflow', {
-                eventCount: batch.length,
-                error: error instanceof Error ? error.message : String(error),
-            })
-            sentimentSchedulerBatchesStarted.labels({ status: 'error' }).inc()
-            sentimentSchedulerEventsProcessed.labels({ status: 'error' }).inc(batch.length)
-        }
-    }
+    await batchBuffer.add(sampledEvents)
 }
