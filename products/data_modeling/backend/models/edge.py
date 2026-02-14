@@ -5,7 +5,7 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from .node import Node
 
-DISALLOWED_UPDATE_FIELDS = ("dag_id", "source", "source_id", "target", "target_id", "team", "team_id")
+DISALLOWED_UPDATE_FIELDS = ("dag_id_text", "source", "source_id", "target", "target_id", "team", "team_id")
 
 
 class CycleDetectionError(Exception):
@@ -66,7 +66,7 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     class Meta:
         db_table = "posthog_datamodelingedge"
         constraints = [
-            models.UniqueConstraint(fields=["dag_id", "source", "target"], name="unique_within_dag"),
+            models.UniqueConstraint(fields=["dag_id_text", "source", "target"], name="unique_within_dag"),
         ]
 
     def save(self, *args, skip_validation: bool = False, **kwargs):
@@ -82,17 +82,17 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     def _detect_cycles(self):
         with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [self.team_id, self.dag_id])
+            cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [self.team_id, self.dag_id_text])
         # trivial case: self loop
         if self.source_id == self.target_id:
             raise CycleDetectionError(
-                f"Self-loop detected: team={self.team_id} dag={self.dag_id} "
+                f"Self-loop detected: team={self.team_id} dag={self.dag_id_text} "
                 f"source={self.source_id} target={self.target_id}"
             )
         # recursive case
         if self._creates_cycle():
             raise CycleDetectionError(
-                f"Cycle detected: team={self.team_id} dag={self.dag_id} source={self.source_id} target={self.target_id}"
+                f"Cycle detected: team={self.team_id} dag={self.dag_id_text} source={self.source_id} target={self.target_id}"
             )
 
     def _creates_cycle(self):
@@ -102,7 +102,7 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
                 FROM posthog_datamodelingedge e
                 WHERE e.source_id = %s
                     AND e.team_id = %s
-                    AND e.dag_id = %s
+                    AND e.dag_id_text = %s
                 UNION
                 SELECT e.target_id
                 FROM posthog_datamodelingedge e
@@ -110,7 +110,7 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
                 ON e.source_id = r.node_id
                 WHERE e.target_id <> %s
                     AND e.team_id = %s
-                    AND e.dag_id = %s
+                    AND e.dag_id_text = %s
             )
             SELECT 1 FROM reachable WHERE node_id = %s
         """
@@ -120,10 +120,10 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
                 [
                     self.target_id,
                     self.team_id,
-                    self.dag_id,
+                    self.dag_id_text,
                     self.target_id,
                     self.team_id,
-                    self.dag_id,
+                    self.dag_id_text,
                     self.source_id,
                 ],
             )
@@ -138,9 +138,9 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
                 f"source node team_id ({source.team_id}) or "
                 f"target node team_id ({target.team_id})"
             )
-        if source.dag_id != self.dag_id or target.dag_id != self.dag_id:
+        if source.dag_id_text != self.dag_id_text or target.dag_id_text != self.dag_id_text:
             raise DAGMismatchError(
-                f"Edge dag_id ({self.dag_id}) does not match "
-                f"source node dag_id ({source.dag_id}) or "
-                f"target node dag_id ({target.dag_id})"
+                f"Edge dag_id ({self.dag_id_text}) does not match "
+                f"source node dag_id ({source.dag_id_text}) or "
+                f"target node dag_id ({target.dag_id_text})"
             )
