@@ -474,7 +474,13 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             if (!values.traceId) {
                 return undefined
             }
-            const params: Record<string, string> = {}
+            const params: Record<string, unknown> = {
+                date_from: router.values.searchParams.date_from,
+                date_to: router.values.searchParams.date_to,
+                filters: router.values.searchParams.filters,
+                filter_test_accounts: router.values.searchParams.filter_test_accounts,
+                back_to: router.values.searchParams.back_to,
+            }
             if (values.eventId) {
                 params.event = values.eventId
             }

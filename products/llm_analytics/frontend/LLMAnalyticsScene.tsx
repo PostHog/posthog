@@ -228,7 +228,13 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 <strong>
                                     <Tooltip title={value}>
                                         <Link
-                                            to={`/llm-analytics/traces/${ids.traceId}?event=${value}`}
+                                            to={
+                                                combineUrl(urls.llmAnalyticsTrace(ids.traceId), {
+                                                    ...router.values.searchParams,
+                                                    event: value,
+                                                    back_to: 'generations',
+                                                }).url
+                                            }
                                             data-attr="generation-id-link"
                                         >
                                             {visualValue}

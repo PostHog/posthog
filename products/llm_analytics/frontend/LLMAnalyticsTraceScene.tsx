@@ -94,7 +94,11 @@ function TraceNavigation(): JSX.Element {
     const goToNewer = (): void => {
         if (newerTraceId) {
             router.actions.push(
-                urls.llmAnalyticsTrace(newerTraceId, { timestamp: newerTimestamp ?? undefined, tab: viewMode })
+                combineUrl(urls.llmAnalyticsTrace(newerTraceId), {
+                    ...router.values.searchParams,
+                    timestamp: newerTimestamp ?? undefined,
+                    tab: viewMode,
+                }).url
             )
         }
     }
@@ -102,7 +106,11 @@ function TraceNavigation(): JSX.Element {
     const goToOlder = (): void => {
         if (olderTraceId) {
             router.actions.push(
-                urls.llmAnalyticsTrace(olderTraceId, { timestamp: olderTimestamp ?? undefined, tab: viewMode })
+                combineUrl(urls.llmAnalyticsTrace(olderTraceId), {
+                    ...router.values.searchParams,
+                    timestamp: olderTimestamp ?? undefined,
+                    tab: viewMode,
+                }).url
             )
         }
     }
@@ -171,6 +179,21 @@ function TraceSceneWrapper(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { showBillingInfo, markupUsd, billedTotalUsd, billedCredits } = usePosthogAIBillingCalculations(enrichedTree)
+    const backTo = router.values.searchParams.back_to
+    const backPath =
+        backTo === 'generations'
+            ? combineUrl(urls.llmAnalyticsGenerations(), {
+                  date_from: router.values.searchParams.date_from,
+                  date_to: router.values.searchParams.date_to,
+                  filters: router.values.searchParams.filters,
+                  filter_test_accounts: router.values.searchParams.filter_test_accounts,
+              }).url
+            : combineUrl(urls.llmAnalyticsTraces(), {
+                  date_from: router.values.searchParams.date_from,
+                  date_to: router.values.searchParams.date_to,
+                  filters: router.values.searchParams.filters,
+                  filter_test_accounts: router.values.searchParams.filter_test_accounts,
+              }).url
 
     return (
         <>
@@ -187,9 +210,9 @@ function TraceSceneWrapper(): JSX.Element {
                             name={trace.id}
                             resourceType={{ type: 'llm_analytics' }}
                             forceBackTo={{
-                                name: 'Traces',
-                                path: combineUrl(urls.llmAnalyticsTraces(), router.values.searchParams).url,
-                                key: 'traces',
+                                name: backTo === 'generations' ? 'Generations' : 'Traces',
+                                path: backPath,
+                                key: backTo === 'generations' ? 'generations' : 'traces',
                             }}
                             actions={
                                 featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION] ? (
@@ -577,11 +600,14 @@ const TreeNode = React.memo(function TraceNode({
     return (
         <li key={item.id} className="mt-0.5" aria-current={isSelected /* aria-current used for auto-focus */}>
             <Link
-                to={urls.llmAnalyticsTrace(topLevelTrace.id, {
-                    event: item.id,
-                    timestamp: getTraceTimestamp(topLevelTrace.createdAt),
-                    ...(searchQuery?.trim() && { search: searchQuery }),
-                })}
+                to={
+                    combineUrl(urls.llmAnalyticsTrace(topLevelTrace.id), {
+                        ...router.values.searchParams,
+                        event: item.id,
+                        timestamp: getTraceTimestamp(topLevelTrace.createdAt),
+                        ...(searchQuery?.trim() && { search: searchQuery }),
+                    }).url
+                }
                 className={classNames(
                     'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:!bg-accent-highlight-secondary',
                     isSelected && '!bg-accent-highlight-secondary',
