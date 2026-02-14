@@ -35,6 +35,7 @@ import {
     IconPiggyBank,
     IconPlay,
     IconPlug,
+    IconReceipt,
     IconRetention,
     IconRewindPlay,
     IconRocket,
@@ -314,6 +315,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     exports: {
         icon: <IconDownload />,
+    },
+    session: {
+        icon: <IconReceipt />,
     },
 }
 
