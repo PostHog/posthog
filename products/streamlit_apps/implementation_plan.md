@@ -41,24 +41,24 @@ This checklist contains all tasks needed to implement Streamlit Apps hosting. Ta
 
 ### 1.1 Data Models
 
-- [ ] Create `StreamlitApp` model in `products/streamlit_apps/backend/models.py`
+- [x] Create `StreamlitApp` model in `products/streamlit_apps/backend/models.py`
   - Fields: `id` (UUID), `short_id`, `team`, `name`, `description`, `active_version` (FK), `cpu_cores`, `memory_gb`, `deleted`, `deleted_at`, `created_by`, `created_at`, `updated_at`
   - Add `generate_short_id()` helper
-- [ ] Create `StreamlitAppVersion` model
+- [x] Create `StreamlitAppVersion` model
   - Fields: `id`, `app` (FK), `version_number`, `zip_file` (S3 path), `zip_hash`, `snapshot_id` (nullable), `snapshot_created_at` (nullable), `has_requirements`, `packages` (JSON), `created_by`, `created_at`
   - Add `unique_together = ['app', 'version_number']`
-- [ ] Create `StreamlitAppSandbox` model
+- [x] Create `StreamlitAppSandbox` model
   - Fields: `id`, `app` (OneToOne), `version` (FK), `sandbox_id`, `status`, `restart_count`, `last_error`, `started_at`, `last_activity_at`, `current_viewers`, `max_viewers`
   - Note: NO `tunnel_url` field - it's ephemeral, fetched live from Modal
   - Add `Status` choices enum (starting, running, stopping, stopped, error)
-- [ ] Create `AllowedStreamlitPackage` model
+- [x] Create `AllowedStreamlitPackage` model
   - Fields: `id`, `name`, `version_constraint`, `added_at`, `added_by`
-- [ ] Write tests for model creation and relationships
+- [x] Write tests for model creation and relationships
 
 ### 1.2 Migrations
 
-- [ ] Generate and apply migrations: `python manage.py makemigrations streamlit_apps`
-- [ ] Verify migrations work: `python manage.py migrate`
+- [x] Generate and apply migrations: `python manage.py makemigrations streamlit_apps`
+- [x] Verify migrations work: `python manage.py migrate`
 
 ### 1.3 Sandbox Template
 
