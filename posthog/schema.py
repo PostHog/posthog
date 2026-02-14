@@ -421,6 +421,7 @@ class Display(StrEnum):
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
+    BOX_PLOT = "BoxPlot"
 
 
 class YAxisScaleType(StrEnum):
@@ -694,6 +695,7 @@ class ChartDisplayType(StrEnum):
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
+    BOX_PLOT = "BoxPlot"
 
 
 class DisplayType(StrEnum):
@@ -6696,9 +6698,26 @@ class TrendsFilter(BaseModel):
     yAxisScaleType: YAxisScaleType | None = YAxisScaleType.LINEAR
 
 
+class BoxPlotDatum(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: str
+    label: str
+    min: float
+    q1: float
+    median: float
+    q3: float
+    max: float
+    mean: float
+
+
 class TrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    boxplot_data: list[BoxPlotDatum] | None = Field(
+        default=None, description="Box plot data when display type is BoxPlot"
     )
     error: str | None = Field(
         default=None,
@@ -9011,6 +9030,9 @@ class CachedTracesQueryResponse(BaseModel):
 class CachedTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    boxplot_data: list[BoxPlotDatum] | None = Field(
+        default=None, description="Box plot data when display type is BoxPlot"
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None

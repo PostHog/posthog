@@ -108,6 +108,7 @@ export enum MathAvailability {
     ActorsOnly,
     FunnelsOnly,
     CalendarHeatmapOnly,
+    BoxPlotOnly,
     None,
 }
 
@@ -972,6 +973,8 @@ function useMathSelectorOptions({
         definitions = staticActorsOnlyMathDefinitions
     } else if (mathAvailability === MathAvailability.CalendarHeatmapOnly) {
         definitions = calendarHeatmapMathDefinitions
+    } else if (mathAvailability === MathAvailability.BoxPlotOnly) {
+        definitions = {}
     }
     const isGroupsEnabled = !needsUpgradeForGroups && !canStartUsingGroups
 
@@ -1034,7 +1037,8 @@ function useMathSelectorOptions({
     if (
         mathAvailability !== MathAvailability.ActorsOnly &&
         mathAvailability !== MathAvailability.FunnelsOnly &&
-        mathAvailability !== MathAvailability.CalendarHeatmapOnly
+        mathAvailability !== MathAvailability.CalendarHeatmapOnly &&
+        mathAvailability !== MathAvailability.BoxPlotOnly
     ) {
         // Add count per user option if any CountPerActorMathType is included in onlyMathTypes
         const shouldShowCountPerUser =
@@ -1116,7 +1120,40 @@ function useMathSelectorOptions({
         }
     }
 
-    if (isGroupsEnabled && !isCalendarHeatmap) {
+    if (mathAvailability === MathAvailability.BoxPlotOnly) {
+        options.push({
+            value: propertyMathTypeShown,
+            label: `Property value ${PROPERTY_MATH_DEFINITIONS[propertyMathTypeShown].shortName}`,
+            labelInMenu: (
+                <div className="flex items-center gap-2">
+                    <span>Property value</span>
+                    <LemonSelect
+                        value={propertyMathTypeShown}
+                        onSelect={(value) => {
+                            setPropertyMathTypeShown(value as PropertyMathType)
+                            onMathSelect(index, value)
+                        }}
+                        options={Object.entries(PROPERTY_MATH_DEFINITIONS).map(([key, definition]) => ({
+                            value: key,
+                            label: definition.shortName,
+                            tooltip: definition.description,
+                            'data-attr': `math-${key}-${index}`,
+                        }))}
+                        onClick={(e) => e.stopPropagation()}
+                        size="small"
+                        dropdownMatchSelectWidth={false}
+                        optionTooltipPlacement="right"
+                    />
+                </div>
+            ),
+            tooltip: 'Select a numeric property to visualize its distribution.',
+            'data-attr': `math-node-property-value-${index}`,
+        })
+    }
+
+    const isBoxPlot = mathAvailability === MathAvailability.BoxPlotOnly
+
+    if (isGroupsEnabled && !isCalendarHeatmap && !isBoxPlot) {
         const uniqueActorsOptions = [
             {
                 value: 'users',
@@ -1270,6 +1307,7 @@ function useMathSelectorOptions({
     if (
         mathAvailability !== MathAvailability.FunnelsOnly &&
         mathAvailability !== MathAvailability.CalendarHeatmapOnly &&
+        mathAvailability !== MathAvailability.BoxPlotOnly &&
         (!allowedMathTypes || allowedMathTypes.includes(HogQLMathType.HogQL))
     ) {
         options.push({
