@@ -251,7 +251,6 @@ function PromptRelatedTraces(): JSX.Element {
                     setQuery={() => {}}
                     context={tracesQueryContext}
                     uniqueKey="prompt-related-traces"
-                    attachTo={llmPromptLogic}
                 />
             )}
         </div>

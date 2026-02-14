@@ -1172,6 +1172,10 @@ class OrderDirection(StrEnum):
     DESC = "desc"
 
 
+class DomainConnectProviderName(RootModel[Literal["Cloudflare"]]):
+    root: Literal["Cloudflare"] = "Cloudflare"
+
+
 class DurationType(StrEnum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
