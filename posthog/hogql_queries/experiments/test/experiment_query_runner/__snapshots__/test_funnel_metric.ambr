@@ -40,20 +40,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(3, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull(minus(3, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_after_exposure_0_ordered
@@ -97,20 +98,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(3, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull(minus(3, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_after_exposure_1_unordered
@@ -176,20 +178,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(3, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull(minus(3, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_out_of_order
@@ -233,20 +236,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(3, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull(minus(3, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_excludes_different_feature_flags
@@ -290,20 +294,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(3, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull(minus(3, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_excludes_events_after_experiment_end_date
@@ -345,20 +350,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(2, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison
@@ -402,20 +408,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(3, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull(minus(3, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison.1
@@ -481,20 +488,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(3, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull(minus(3, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_action
@@ -538,20 +546,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(3, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull(minus(3, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_conversion_window
@@ -595,20 +604,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(3, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull(minus(3, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_custom_conversion_window
@@ -652,20 +662,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(3, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull(minus(3, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_many_steps
@@ -717,20 +728,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       and isNull(minus(6, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(7, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  and isNull(minus(7, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_multiple_similar_steps
@@ -776,20 +788,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull(minus(3, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(4, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 and isNull(minus(4, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_step_property_filter
@@ -833,20 +846,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(3, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull(minus(3, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_unordered_steps
@@ -912,20 +926,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(3, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      and isNull(minus(3, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_funnel_metric
@@ -967,20 +982,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(2, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_group_aggregation_funnel_metric
@@ -1015,20 +1031,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(2, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter
@@ -1115,20 +1132,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(2, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.2
@@ -1287,20 +1305,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(2, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.2
@@ -1459,20 +1478,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(2, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.2
@@ -1641,20 +1661,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(2, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.2
@@ -1823,20 +1844,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(2, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.2
@@ -2005,20 +2027,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(2, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.2
@@ -2170,20 +2193,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(2, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.2
@@ -2335,20 +2359,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(2, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.2
@@ -2500,20 +2525,21 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                and isNull(minus(1, 1)))), groupArraySampleIf(100)(if(ifNull(notEquals((entity_metrics.value).2, ''), 1), tuple(toString(entity_metrics.entity_id), entity_metrics.uuid_to_session[(entity_metrics.value).2], (entity_metrics.value).2, toString(entity_metrics.uuid_to_timestamp[(entity_metrics.value).2])), tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))), ifNull(equals((entity_metrics.value).1, minus(2, 1)), isNull((entity_metrics.value).1)
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(minus(2, 1))))) AS steps_event_data
   FROM entity_metrics
+
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.2

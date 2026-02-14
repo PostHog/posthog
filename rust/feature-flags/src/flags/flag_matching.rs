@@ -1040,26 +1040,45 @@ impl FeatureFlagMatcher {
         let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
         let mut highest_index = None;
 
-        // Evaluate any super conditions first
-        if let Some(super_groups) = &flag.filters.super_groups {
-            if !super_groups.is_empty() {
-                let super_condition_evaluation = self.is_super_condition_match(
-                    flag,
-                    property_overrides,
-                    hash_key_overrides,
-                    request_hash_key_override,
-                )?;
+        // Lazily compute merged properties only when needed.
+        // For rollout-only flags (no property filters), we skip property fetching entirely.
+        // When properties ARE needed, we compute once and reuse for all conditions.
+        let mut cached_properties: Option<HashMap<String, Value>> = None;
 
-                if super_condition_evaluation.should_evaluate {
-                    let payload = self.get_matching_payload(None, flag);
-                    return Ok(FeatureFlagMatch {
-                        matches: super_condition_evaluation.is_match,
-                        variant: None,
-                        reason: super_condition_evaluation.reason,
-                        condition_index: Some(0),
-                        payload,
-                    });
-                } // if no match, continue to normal conditions
+        // Evaluate any super conditions first.
+        // Super conditions (early access features) always use person properties, even for
+        // group-based flags. This is because early access enrollment is a person-level concept.
+        // The API validates that group-based flags cannot have early access features attached.
+        if let Some(super_groups) = &flag.filters.super_groups {
+            if let Some(super_condition) = super_groups.first() {
+                // Only fetch person properties if the super condition has property filters
+                // Super conditions are used for feature enrollment (aka early access features)
+                // There can only be one condition ever in super conditions.
+                if super_condition
+                    .properties
+                    .as_ref()
+                    .is_some_and(|p| !p.is_empty())
+                {
+                    let person_properties = self.get_person_properties(property_overrides)?;
+                    let super_condition_evaluation = self.is_super_condition_match(
+                        flag,
+                        &person_properties,
+                        hash_key_overrides,
+                        request_hash_key_override,
+                    )?;
+
+                    if super_condition_evaluation.should_evaluate {
+                        let payload = self.get_matching_payload(None, flag);
+                        return Ok(FeatureFlagMatch {
+                            matches: super_condition_evaluation.is_match,
+                            variant: None,
+                            reason: super_condition_evaluation.reason,
+                            condition_index: Some(0),
+                            payload,
+                        });
+                    }
+                    // if no match, continue to normal conditions
+                }
             }
         }
 
@@ -1094,10 +1113,26 @@ impl FeatureFlagMatcher {
 
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
         for (index, condition) in conditions {
+            // Lazily compute properties only when a condition actually needs them.
+            // A condition needs properties if it has non-empty property filters that aren't
+            // purely flag-value filters (which don't require person/group properties).
+            let properties_ref = if Self::condition_needs_properties(condition) {
+                if cached_properties.is_none() {
+                    cached_properties =
+                        Some(self.get_properties_to_check(flag, property_overrides)?);
+                }
+                cached_properties.as_ref().unwrap()
+            } else {
+                // Use a static empty map for conditions that don't need properties
+                static EMPTY_MAP: std::sync::LazyLock<HashMap<String, Value>> =
+                    std::sync::LazyLock::new(HashMap::new);
+                &*EMPTY_MAP
+            };
+
             let (is_match, reason) = self.is_condition_match(
                 flag,
                 condition,
-                property_overrides,
+                properties_ref,
                 hash_key_overrides,
                 request_hash_key_override,
             )?;
@@ -1185,13 +1220,16 @@ impl FeatureFlagMatcher {
     ///
     /// This function evaluates a specific condition of a feature flag to determine if it should be enabled.
     /// It first checks if the condition has any property filters. If not, it performs a rollout check.
-    /// Otherwise, it fetches the relevant properties and checks if they match the condition's filters.
+    /// Otherwise, it checks if the pre-computed merged properties match the condition's filters.
     /// The function returns a tuple indicating whether the condition matched and the reason for the match.
+    ///
+    /// Note: `merged_properties` should be pre-computed by the caller using `get_properties_to_check()`
+    /// to avoid redundant HashMap clones and merges when evaluating multiple conditions.
     pub(crate) fn is_condition_match(
         &self,
         feature_flag: &FeatureFlag,
         condition: &FlagPropertyGroup,
-        property_overrides: Option<&HashMap<String, Value>>,
+        merged_properties: &HashMap<String, Value>,
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
@@ -1230,12 +1268,8 @@ impl FeatureFlagMatcher {
                     .cloned()
                     .partition(|prop| prop.is_cohort());
 
-            // Get the properties we need to check for in this condition match from the flag + any overrides
-            let person_or_group_properties =
-                self.get_properties_to_check(feature_flag, property_overrides)?;
-
             // Evaluate non-cohort filters first, since they're cheaper to evaluate and we can return early if they don't match
-            if !all_properties_match(&non_cohort_filters, &person_or_group_properties) {
+            if !all_properties_match(&non_cohort_filters, merged_properties) {
                 return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
             }
 
@@ -1245,11 +1279,7 @@ impl FeatureFlagMatcher {
                     Some(cohorts) => cohorts.clone(),
                     None => return Ok((false, FeatureFlagMatchReason::NoConditionMatch)),
                 };
-                if !self.evaluate_cohort_filters(
-                    &cohort_filters,
-                    &person_or_group_properties,
-                    cohorts,
-                )? {
+                if !self.evaluate_cohort_filters(&cohort_filters, merged_properties, cohorts)? {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
             }
@@ -1261,6 +1291,15 @@ impl FeatureFlagMatcher {
             hash_key_overrides,
             request_hash_key_override,
         )
+    }
+
+    /// Checks if a condition requires person/group properties to evaluate.
+    /// Returns false for rollout-only conditions or conditions with only flag-value filters.
+    fn condition_needs_properties(condition: &FlagPropertyGroup) -> bool {
+        condition.properties.as_ref().is_some_and(|props| {
+            // Check if there are any non-flag-value property filters
+            props.iter().any(|prop| !prop.depends_on_feature_flag())
+        })
     }
 
     /// Gets the properties to check for a feature flag condition, merging DB properties with overrides.
@@ -1370,13 +1409,16 @@ impl FeatureFlagMatcher {
     /// Check if a super condition matches for a feature flag.
     ///
     /// This function evaluates the super conditions of a feature flag to determine if any of them should be enabled.
-    /// It merges property overrides with cached DB properties, with overrides taking precedence.
+    /// It uses pre-computed person properties (DB properties with overrides applied).
     /// The function returns a struct indicating whether a super condition should be evaluated,
     /// whether it matches if evaluated, and the reason for the match.
+    ///
+    /// Note: Super conditions (early access features) always use person properties, even for
+    /// group-based flags, because early access enrollment is a person-level concept.
     fn is_super_condition_match(
         &self,
         feature_flag: &FeatureFlag,
-        property_overrides: Option<&HashMap<String, Value>>,
+        person_properties: &HashMap<String, Value>,
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<SuperConditionEvaluation, FlagError> {
@@ -1386,21 +1428,18 @@ impl FeatureFlagMatcher {
             .as_ref()
             .and_then(|sc| sc.first())
         {
-            // Merge DB properties with overrides (overrides take precedence)
-            let merged_properties = self.get_person_properties(property_overrides)?;
-
             let has_relevant_super_condition_properties =
                 super_condition.properties.as_ref().is_some_and(|props| {
                     props
                         .iter()
-                        .any(|prop| merged_properties.contains_key(&prop.key))
+                        .any(|prop| person_properties.contains_key(&prop.key))
                 });
 
             if has_relevant_super_condition_properties {
                 let (is_match, _) = self.is_condition_match(
                     feature_flag,
                     super_condition,
-                    Some(&merged_properties),
+                    person_properties,
                     hash_key_overrides,
                     request_hash_key_override,
                 )?;

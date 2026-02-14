@@ -68,7 +68,7 @@ export class PluginServer {
             ...config,
         }
 
-        this.expressApp = setupExpressApp()
+        this.expressApp = setupExpressApp({ internalApiSecret: this.config.INTERNAL_API_SECRET })
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
         this.setupContinuousProfiling()
     }

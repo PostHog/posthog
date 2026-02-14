@@ -329,7 +329,7 @@ INTERVAL_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 POSTGRESQL_DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # PostgreSQL-style date/time functions
     "date_part": HogQLFunctionMeta(
-        "if({0} = 'year', toYear({1}), if({0} = 'month', toMonth({1}), if({0} = 'day', toDayOfMonth({1}), if({0} = 'hour', toHour({1}), if({0} = 'minute', toMinute({1}), if({0} = 'second', toSecond({1}), if({0} = 'dow', toDayOfWeek({1}), if({0} = 'doy', toDayOfYear({1}), if({0} = 'quarter', toQuarter({1}), null)))))))))",
+        "arrayElement(arrayMap((part, dt) -> multiIf(part = 'year', toYear(dt), part = 'month', toMonth(dt), part = 'day', toDayOfMonth(dt), part = 'hour', toHour(dt), part = 'minute', toMinute(dt), part = 'second', toSecond(dt), part = 'dow', toDayOfWeek(dt), part = 'doy', toDayOfYear(dt), part = 'quarter', toQuarter(dt), null), [{0}], [{1}]), 1)",
         # Maps to same implementation as extract
         2,
         2,
