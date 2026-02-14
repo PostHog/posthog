@@ -185,28 +185,31 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             date_to,
             filter_test_accounts,
         }: Record<string, unknown>): void {
-            const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
-
-            if (!objectsEqual(parsedFilters, values.propertyFilters)) {
-                actions.setPropertyFilters(parsedFilters)
+            // Only apply params that are explicitly present in the URL.
+            // Missing params should NOT reset state — this preserves filters
+            // when navigating back from a detail view.
+            if (filters !== undefined) {
+                const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
+                if (!objectsEqual(parsedFilters, values.propertyFilters)) {
+                    actions.setPropertyFilters(parsedFilters)
+                }
             }
 
-            if (
-                (date_from || INITIAL_EVENTS_DATE_FROM) !== values.dateFilter.dateFrom ||
-                (date_to || INITIAL_DATE_TO) !== values.dateFilter.dateTo
-            ) {
-                actions.setDates(
-                    (date_from as string | null) || INITIAL_EVENTS_DATE_FROM,
-                    (date_to as string | null) || INITIAL_DATE_TO
+            if (date_from !== undefined || date_to !== undefined) {
+                const newDateFrom = (date_from as string | null) || INITIAL_EVENTS_DATE_FROM
+                const newDateTo = (date_to as string | null) || INITIAL_DATE_TO
+                if (newDateFrom !== values.dateFilter.dateFrom || newDateTo !== values.dateFilter.dateTo) {
+                    actions.setDates(newDateFrom, newDateTo)
+                }
+            }
+
+            if (filter_test_accounts !== undefined) {
+                const filterTestAccountsValue = [true, 'true', 1, '1'].includes(
+                    filter_test_accounts as string | number | boolean
                 )
-            }
-
-            const filterTestAccountsValue = [true, 'true', 1, '1'].includes(
-                filter_test_accounts as string | number | boolean
-            )
-
-            if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {
-                actions.setShouldFilterTestAccounts(filterTestAccountsValue)
+                if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {
+                    actions.setShouldFilterTestAccounts(filterTestAccountsValue)
+                }
             }
         }
 
