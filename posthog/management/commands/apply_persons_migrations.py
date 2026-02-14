@@ -81,17 +81,15 @@ def _ensure_database_exists(db_alias: str) -> None:
     db_settings = settings.DATABASES[db_alias]
     target_db = db_settings["NAME"]
 
-    conn_kwargs = {
-        "dbname": "postgres",
-        "host": db_settings.get("HOST") or "localhost",
-        "port": int(db_settings.get("PORT") or 5432),
-        "user": db_settings.get("USER") or "posthog",
-        "password": db_settings.get("PASSWORD") or "posthog",
-        "autocommit": True,
-    }
-
     try:
-        with psycopg.connect(**conn_kwargs) as conn:
+        with psycopg.connect(
+            dbname="postgres",
+            host=db_settings.get("HOST") or "localhost",
+            port=int(db_settings.get("PORT") or 5432),
+            user=db_settings.get("USER") or "posthog",
+            password=db_settings.get("PASSWORD") or "posthog",
+            autocommit=True,
+        ) as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (target_db,))
                 if cur.fetchone():
