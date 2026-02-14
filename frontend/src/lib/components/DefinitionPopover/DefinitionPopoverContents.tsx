@@ -618,7 +618,7 @@ export function ControlledDefinitionPopover({
     // objects with the same logical identity.
     useEffect(() => {
         setDefinition(item)
-    }, [value, setDefinition]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [value, setDefinition, item])
 
     if (!value || !item) {
         return null
