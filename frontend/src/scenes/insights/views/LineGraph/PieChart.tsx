@@ -19,7 +19,7 @@ import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
-import { LineGraphProps, onChartClick, onChartHover } from 'scenes/insights/views/LineGraph/LineGraph'
+import { LineGraphProps, onChartClick } from 'scenes/insights/views/LineGraph/LineGraph'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -85,7 +85,8 @@ export function PieChart({
                     responsive: true,
                     maintainAspectRatio: false,
                     hover: {
-                        mode: 'index',
+                        mode: 'point',
+                        intersect: true,
                     },
                     layout: {
                         padding: {
@@ -99,10 +100,23 @@ export function PieChart({
                     borderRadius: 0,
                     hoverOffset: onlyOneValue || disableHoverOffset ? 0 : 16,
                     onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
-                        onChartHover(event, chart, onClick)
+                        const nativeEvent = event.native
+                        if (!nativeEvent) {
+                            return
+                        }
+                        const target = nativeEvent?.target as HTMLDivElement
+                        const point = chart.getElementsAtEventForMode(nativeEvent, 'point', { intersect: true }, true)
+                        target.style.cursor = onClick && point.length ? 'pointer' : 'default'
                     },
                     onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
-                        onChartClick(event, chart, datasets, onClick)
+                        const nativeEvent = event.native
+                        if (!nativeEvent) {
+                            return
+                        }
+                        const point = chart.getElementsAtEventForMode(nativeEvent, 'point', { intersect: true }, true)
+                        if (point.length) {
+                            onChartClick(event, chart, datasets, onClick)
+                        }
                     },
                     plugins: {
                         datalabels: {
