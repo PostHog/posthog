@@ -12,20 +12,22 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="edge",
-            name="dag_fk",
+            name="dag",
             field=models.ForeignKey(
                 blank=True,
                 null=True,
+                db_column="dag_fk",
                 on_delete=django.db.models.deletion.CASCADE,
                 to="data_modeling.dag",
             ),
         ),
         migrations.AddField(
             model_name="node",
-            name="dag_fk",
+            name="dag",
             field=models.ForeignKey(
                 blank=True,
                 null=True,
+                db_column="dag_fk",
                 on_delete=django.db.models.deletion.CASCADE,
                 to="data_modeling.dag",
             ),
