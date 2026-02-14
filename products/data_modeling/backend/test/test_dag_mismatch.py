@@ -35,18 +35,18 @@ class DagMismatchTest(BaseTest):
                 team=cls.team,
                 query=_basic_saved_query_with_label("a3"),
             )
-            a1_node = Node.objects.create(team=cls.team, dag_id=A_DAG_ID, saved_query=a1_query, name="a1")
-            a2_node = Node.objects.create(team=cls.team, dag_id=A_DAG_ID, saved_query=a2_query, name="a2")
+            a1_node = Node.objects.create(team=cls.team, dag_id_text=A_DAG_ID, saved_query=a1_query, name="a1")
+            a2_node = Node.objects.create(team=cls.team, dag_id_text=A_DAG_ID, saved_query=a2_query, name="a2")
             # a3 intentionally left disconnected to test connecting two nodes with same dag id with an edge
             # that has a different dag_id
-            Node.objects.create(team=cls.team, dag_id=A_DAG_ID, saved_query=a3_query, name="a3")
-            Edge.objects.create(team=cls.team, dag_id=A_DAG_ID, source=a1_node, target=a2_node)
+            Node.objects.create(team=cls.team, dag_id_text=A_DAG_ID, saved_query=a3_query, name="a3")
+            Edge.objects.create(team=cls.team, dag_id_text=A_DAG_ID, source=a1_node, target=a2_node)
             b_query = DataWarehouseSavedQuery.objects.create(
                 name="b",
                 team=cls.team,
                 query=_basic_saved_query_with_label("b"),
             )
-            Node.objects.create(team=cls.team, dag_id=B_DAG_ID, saved_query=b_query, name="b")
+            Node.objects.create(team=cls.team, dag_id_text=B_DAG_ID, saved_query=b_query, name="b")
 
     @parameterized.expand(
         [
@@ -65,4 +65,4 @@ class DagMismatchTest(BaseTest):
         source = Node.objects.get(name=source_label)
         target = Node.objects.get(name=target_label)
         with self.assertRaises(DAGMismatchError):
-            Edge.objects.create(team=source.team, dag_id=dag_id, source=source, target=target)
+            Edge.objects.create(team=source.team, dag_id_text=dag_id, source=source, target=target)

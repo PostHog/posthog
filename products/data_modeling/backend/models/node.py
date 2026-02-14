@@ -6,8 +6,6 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
-from .dag import DAG
-
 
 class NodeType(models.TextChoices):
     TABLE = "table"
@@ -19,10 +17,8 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     # models.PROTECT prevents deleting a saved query if its referenced by a Node
     saved_query = models.ForeignKey(DataWarehouseSavedQuery, on_delete=models.PROTECT, null=True, blank=True)
-    # NOTE: initially nullable for clean migrations and will be renamed in future migration
-    dag_fk = models.ForeignKey(DAG, on_delete=models.CASCADE, null=True, blank=True)
     # NOTE: this will be dropped
-    dag_id = models.TextField(max_length=256, default="posthog", db_index=True)
+    dag_id_text = models.TextField(max_length=256, default="posthog", db_index=True)
     # name of the source table, view, matview, etc.
     # for nodes with a saved_query, this is automatically synced from saved_query.name
     name = models.TextField(max_length=2048, db_index=True)
@@ -48,11 +44,11 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             models.UniqueConstraint(
                 condition=models.Q(saved_query__isnull=False),
                 name="saved_query_unique_within_team_dag",
-                fields=["team", "dag_id", "saved_query"],
+                fields=["team", "dag_id_text", "saved_query"],
             ),
             models.UniqueConstraint(
                 condition=models.Q(saved_query__isnull=True),
                 name="name_unique_within_team_dag_for_tables",
-                fields=["team", "dag_id", "name"],
+                fields=["team", "dag_id_text", "name"],
             ),
         ]
