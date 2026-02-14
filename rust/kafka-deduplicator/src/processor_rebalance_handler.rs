@@ -287,7 +287,7 @@ where
                             // With unique Utc::now() timestamps, each import attempt creates a new path,
                             // so there's no collision risk with a new task - it will create its own directory.
                             if path.exists() {
-                                match std::fs::remove_dir_all(&path) {
+                                match tokio::fs::remove_dir_all(&path).await {
                                     Ok(_) => {
                                         metrics::counter!(
                                             CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
@@ -321,13 +321,18 @@ where
                             return;
                         }
 
-                        // Register imported store
-                        match store_manager.restore_imported_store(
-                            partition.topic(),
-                            partition.partition_number(),
-                            &path,
-                        ) {
-                            Ok(_) => {
+                        // Register imported store (sync RocksDB open; run on blocking pool)
+                        let sm = store_manager.clone();
+                        let topic = partition.topic().to_string();
+                        let part_num = partition.partition_number();
+                        let import_path = path.clone();
+                        let restore_result = tokio::task::spawn_blocking(move || {
+                            sm.restore_imported_store(&topic, part_num, &import_path)
+                        })
+                        .await;
+
+                        match restore_result {
+                            Ok(Ok(_)) => {
                                 metrics::counter!(
                                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                                     "result" => "success",
@@ -340,7 +345,7 @@ where
                                     "Imported checkpoint for partition"
                                 );
                             }
-                            Err(e) => {
+                            Ok(Err(e)) => {
                                 metrics::counter!(
                                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                                     "result" => "failed",
@@ -352,6 +357,21 @@ where
                                     partition = partition.partition_number(),
                                     error = ?e,
                                     "Failed to restore checkpoint"
+                                );
+                                fallback_reasons.insert(partition.clone(), "import_failed");
+                            }
+                            Err(join_err) => {
+                                metrics::counter!(
+                                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                                    "result" => "failed",
+                                    "reason" => "restore",
+                                )
+                                .increment(1);
+                                error!(
+                                    topic = partition.topic(),
+                                    partition = partition.partition_number(),
+                                    error = %join_err,
+                                    "Restore task panicked"
                                 );
                                 fallback_reasons.insert(partition.clone(), "import_failed");
                             }

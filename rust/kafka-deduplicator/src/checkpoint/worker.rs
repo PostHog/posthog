@@ -214,8 +214,16 @@ impl CheckpointWorker {
         let local_attempt_path = self.get_local_attempt_path();
 
         // TODO: this should accept CheckpointMode argument to implement incremental local checkpoint step
-        match store.create_checkpoint_with_metadata(&local_attempt_path) {
-            Ok(rocks_metadata) => {
+        // RocksDB checkpoint (flush_wal, flush, create_checkpoint) is sync and can block for tens of seconds; run on blocking pool to avoid starving tokio workers.
+        let store_clone = store.clone();
+        let path_clone = local_attempt_path.clone();
+        let join_result = tokio::task::spawn_blocking(move || {
+            store_clone.create_checkpoint_with_metadata(&path_clone)
+        })
+        .await;
+
+        match join_result {
+            Ok(Ok(rocks_metadata)) => {
                 let checkpoint_duration = start_time.elapsed();
                 metrics::histogram!(CHECKPOINT_DURATION_HISTOGRAM)
                     .record(checkpoint_duration.as_secs_f64());
@@ -237,7 +245,7 @@ impl CheckpointWorker {
                 Ok(rocks_metadata)
             }
 
-            Err(e) => {
+            Ok(Err(e)) => {
                 let tags = [("result", "error"), ("cause", "local_checkpoint")];
                 metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                 error!(
@@ -247,6 +255,18 @@ impl CheckpointWorker {
                 );
 
                 Err(e.context("local checkpoint attempt failed"))
+            }
+
+            Err(join_err) => {
+                let tags = [("result", "error"), ("cause", "local_checkpoint")];
+                metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                error!(
+                    self.worker_id,
+                    local_attempt_path = local_attempt_path.to_string_lossy().to_string(),
+                    "Checkpoint worker: local attempt failed (task panicked): {join_err:#}"
+                );
+
+                Err(anyhow::Error::from(join_err).context("checkpoint task panicked"))
             }
         }
     }
@@ -289,17 +309,41 @@ impl CheckpointWorker {
 
         match self.exporter.as_ref() {
             Some(exporter) => {
-                // Create checkpoint plan
-                let plan = plan_checkpoint(
-                    &self.get_local_attempt_path(),
-                    self.remote_namespace.clone(),
-                    self.partition.clone(),
-                    self.attempt_timestamp,
-                    rocks_metadata.sequence,
-                    consumer_offset,
-                    producer_offset,
-                    previous_metadata,
-                )?;
+                // Create checkpoint plan (sync fs I/O + hashing; run on blocking pool)
+                let local_attempt_path = self.get_local_attempt_path();
+                let remote_namespace = self.remote_namespace.clone();
+                let partition = self.partition.clone();
+                let attempt_timestamp = self.attempt_timestamp;
+                let sequence = rocks_metadata.sequence;
+                let prev_metadata_owned = previous_metadata.cloned();
+                let plan_join_result = tokio::task::spawn_blocking(move || {
+                    plan_checkpoint(
+                        &local_attempt_path,
+                        remote_namespace,
+                        partition,
+                        attempt_timestamp,
+                        sequence,
+                        consumer_offset,
+                        producer_offset,
+                        prev_metadata_owned.as_ref(),
+                    )
+                })
+                .await;
+
+                let plan = match plan_join_result {
+                    Ok(plan_result) => plan_result?,
+                    Err(join_err) => {
+                        error!(
+                            self.worker_id,
+                            local_attempt_path = local_attempt_path_tag,
+                            attempt_type,
+                            "Checkpoint worker: plan failed (task panicked): {join_err:#}"
+                        );
+                        return Err(
+                            anyhow::Error::from(join_err).context("plan_checkpoint task panicked")
+                        );
+                    }
+                };
 
                 info!(
                     self.worker_id,
