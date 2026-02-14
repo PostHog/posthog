@@ -345,6 +345,15 @@ export const PROPERTY_MATH_DEFINITIONS: Record<PropertyMathType, MathDefinition>
         category: MathCategory.PropertyValue,
     },
 }
+export const BOX_PLOT_MATH_DEFINITIONS: Partial<Record<PropertyMathType, MathDefinition>> = {
+    [PropertyMathType.Average]: {
+        name: 'Property value',
+        shortName: 'property value',
+        description: 'Distribution of a numeric property value over time',
+        category: MathCategory.PropertyValue,
+    },
+}
+
 export const HOGQL_MATH_DEFINITIONS: Record<HogQLMathType, MathDefinition> = {
     [HogQLMathType.HogQL]: {
         name: 'SQL expression',
@@ -467,6 +476,12 @@ export const mathsLogic = kea<mathsLogicType>([
                     ...FUNNEL_MATH_DEFINITIONS,
                 }
                 return funnelMathDefinitions
+            },
+        ],
+        boxPlotMathDefinitions: [
+            () => [],
+            (): Partial<Record<MathType, MathDefinition>> => {
+                return Object.fromEntries(Object.entries(BOX_PLOT_MATH_DEFINITIONS) as [MathType, MathDefinition][])
             },
         ],
         // Static means the options do not have nested selectors (like math function)
