@@ -1,5 +1,3 @@
-import posthog from 'posthog-js'
-
 import {
     EventType,
     IncrementalSource,
@@ -13,7 +11,7 @@ import {
 } from '@posthog/rrweb-types'
 
 import { isObject } from 'lib/utils'
-import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from 'scenes/session-recordings/player/rrweb'
+import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from 'scenes/session-recordings/player/rrweb/placeholder'
 
 import {
     fullSnapshotEvent as MobileFullSnapshotEvent,
@@ -155,7 +153,7 @@ export const makeCustomEvent = (
                     },
                 })
             } else {
-                posthog.captureException(new Error('Failed to create keyboard placeholder'), { mobileCustomEvent })
+                console.warn('Failed to create keyboard placeholder', { mobileCustomEvent })
             }
         } else {
             removes.push({
