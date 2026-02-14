@@ -477,11 +477,17 @@ def send_matview_failure_digest() -> None:
     # Schedules paused due to nonretryable errors (e.g. query timeouts).
     # When paused, sync_frequency_interval is set to None and latest_error is populated.
     # We don't check is_materialized since it can be stale.
-    paused_queries = DataWarehouseSavedQuery.objects.filter(
-        deleted=False,
-        sync_frequency_interval__isnull=True,
-        latest_error__isnull=False,
-    ).select_related("team")
+    # Only include newly paused (last 24h) so the digest doesn't nag about old pauses.
+    paused_queries = (
+        DataWarehouseSavedQuery.objects.filter(
+            deleted=False,
+            sync_frequency_interval__isnull=True,
+            latest_error__isnull=False,
+        )
+        .annotate(latest_job_run_at=Subquery(latest_job.values("last_run_at")[:1]))
+        .filter(latest_job_run_at__gte=cutoff)
+        .select_related("team")
+    )
 
     # Group by team
     teams_with_issues: dict[int, dict] = {}
