@@ -4,10 +4,36 @@ from posthog.test.base import BaseTest
 
 from django.core.management import call_command
 
+from parameterized import parameterized
+
 from products.streamlit_apps.backend.models import AllowedStreamlitPackage
+
+EXPECTED_SEED_PACKAGES = [
+    "numpy",
+    "pandas",
+    "polars",
+    "scipy",
+    "scikit-learn",
+    "matplotlib",
+    "seaborn",
+    "plotly",
+    "pyarrow",
+    "duckdb",
+    "requests",
+    "beautifulsoup4",
+    "lxml",
+    "sqlalchemy",
+    "streamlit",
+    "streamlit-aggrid",
+    "streamlit-extras",
+]
 
 
 class TestUpdateStreamlitPackages(BaseTest):
+    def setUp(self):
+        super().setUp()
+        AllowedStreamlitPackage.objects.all().delete()
+
     def _call(self, *args):
         out, err = StringIO(), StringIO()
         call_command("update_streamlit_packages", *args, stdout=out, stderr=err)
@@ -53,3 +79,12 @@ class TestUpdateStreamlitPackages(BaseTest):
     def test_package_names_lowercased(self):
         self._call("--add", "Pandas")
         assert AllowedStreamlitPackage.objects.filter(name="pandas").exists()
+
+
+class TestSeedAllowedPackages(BaseTest):
+    @parameterized.expand(EXPECTED_SEED_PACKAGES)
+    def test_seed_migration_includes_package(self, package_name):
+        assert AllowedStreamlitPackage.objects.filter(name=package_name).exists()
+
+    def test_seed_migration_total_count(self):
+        assert AllowedStreamlitPackage.objects.count() == len(EXPECTED_SEED_PACKAGES)
