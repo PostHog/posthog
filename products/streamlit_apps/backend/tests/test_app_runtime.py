@@ -245,3 +245,92 @@ class TestAppRuntimeRestartApp(BaseTest):
         service = AppRuntimeService()
         with self.assertRaises(AppRuntimeError, msg="Max restart count"):
             service.restart_app(app)
+
+
+class TestBuildSandboxConfig(BaseTest):
+    def test_config_includes_encrypted_ports(self):
+        from products.streamlit_apps.backend.services.app_runtime import STREAMLIT_PORT, _build_sandbox_config
+
+        app = StreamlitApp.objects.create(team=self.team, name="Test App", cpu_cores=1.0, memory_gb=2.0)
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+
+        config = _build_sandbox_config(app, version)
+        assert config.encrypted_ports == [STREAMLIT_PORT]
+
+    def test_config_sets_snapshot_when_available(self):
+        from products.streamlit_apps.backend.services.app_runtime import _build_sandbox_config
+
+        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        version = StreamlitAppVersion.objects.create(
+            app=app, version_number=1, zip_file="a.zip", zip_hash="a", snapshot_id="snap-123"
+        )
+
+        config = _build_sandbox_config(app, version)
+        assert config.snapshot_id == "snap-123"
+
+    def test_config_no_snapshot_when_absent(self):
+        from products.streamlit_apps.backend.services.app_runtime import _build_sandbox_config
+
+        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+
+        config = _build_sandbox_config(app, version)
+        assert config.snapshot_id is None
+
+
+@patch("products.streamlit_apps.backend.services.app_runtime.get_sandbox_class")
+class TestAppRuntimeTunnelAndToken(BaseTest):
+    def _create_running_app(self):
+        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+        app.active_version = version
+        app.save(update_fields=["active_version"])
+        sandbox = StreamlitAppSandbox.objects.create(
+            app=app, version=version, sandbox_id="modal-123", status=StreamlitAppSandbox.Status.RUNNING
+        )
+        return app, sandbox
+
+    def test_get_tunnel_url_returns_url_for_running_sandbox(self, mock_get_sandbox_class):
+        mock_sandbox = MagicMock()
+        tunnel_mock = MagicMock()
+        tunnel_mock.url = "https://abc.modal.host"
+        mock_sandbox._sandbox.tunnels.return_value = {8501: tunnel_mock}
+        mock_cls = _make_mock_sandbox_class(mock_sandbox)
+        mock_get_sandbox_class.return_value = mock_cls
+
+        app, _sandbox = self._create_running_app()
+        service = AppRuntimeService()
+        url = service.get_tunnel_url(app)
+        assert url == "https://abc.modal.host"
+
+    def test_get_tunnel_url_returns_none_for_stopped_sandbox(self, mock_get_sandbox_class):
+        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+        StreamlitAppSandbox.objects.create(
+            app=app, version=version, sandbox_id="modal-123", status=StreamlitAppSandbox.Status.STOPPED
+        )
+
+        service = AppRuntimeService()
+        assert service.get_tunnel_url(app) is None
+
+    def test_get_tunnel_url_returns_none_when_no_sandbox(self, mock_get_sandbox_class):
+        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        service = AppRuntimeService()
+        assert service.get_tunnel_url(app) is None
+
+    def test_get_connect_token_returns_token(self, mock_get_sandbox_class):
+        mock_sandbox = MagicMock()
+        creds = MagicMock()
+        creds.token = "tok_abc123"
+        mock_sandbox._sandbox.create_connect_token.return_value = creds
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app, _sandbox = self._create_running_app()
+        service = AppRuntimeService()
+        token = service.get_connect_token(app, user_id=1, team_id=1)
+        assert token == "tok_abc123"
+
+    def test_get_connect_token_returns_none_when_no_sandbox(self, mock_get_sandbox_class):
+        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        service = AppRuntimeService()
+        assert service.get_connect_token(app, user_id=1, team_id=1) is None

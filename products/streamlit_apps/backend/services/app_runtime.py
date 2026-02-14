@@ -27,6 +27,7 @@ def _build_sandbox_config(app: StreamlitApp, version: StreamlitAppVersion) -> Sa
         cpu_cores=app.cpu_cores,
         memory_gb=app.memory_gb,
         ttl_seconds=60 * 15,
+        encrypted_ports=[STREAMLIT_PORT],
     )
     if version.snapshot_id:
         config.snapshot_id = version.snapshot_id
@@ -178,6 +179,24 @@ class AppRuntimeService:
             return tunnels[STREAMLIT_PORT].url
         except Exception:
             logger.warning("streamlit_tunnel_url_failed", extra={"app_id": str(app.id)})
+            return None
+
+    def get_connect_token(self, app: StreamlitApp, user_id: int, team_id: int) -> str | None:
+        sandbox_record = StreamlitAppSandbox.objects.filter(app=app).first()
+        if not sandbox_record or not sandbox_record.sandbox_id:
+            return None
+        if sandbox_record.status != StreamlitAppSandbox.Status.RUNNING:
+            return None
+
+        try:
+            sandbox_class = get_sandbox_class()
+            sandbox = sandbox_class.get_by_id(sandbox_record.sandbox_id)
+            credentials = sandbox._sandbox.create_connect_token(
+                user_metadata={"user_id": str(user_id), "team_id": str(team_id)}
+            )
+            return credentials.token
+        except Exception:
+            logger.warning("streamlit_connect_token_failed", extra={"app_id": str(app.id)})
             return None
 
     def restart_app(self, app: StreamlitApp, zip_content: bytes | None = None) -> StreamlitAppSandbox:

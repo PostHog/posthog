@@ -318,6 +318,9 @@ class ModalSandbox(SandboxBase):
             if secrets:
                 create_kwargs["secrets"] = secrets
 
+            if config.encrypted_ports:
+                create_kwargs["encrypted_ports"] = config.encrypted_ports
+
             try:
                 modal_output: StringIO | None
                 with capture_modal_output_if_debug() as modal_output:
