@@ -40,16 +40,8 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ] && [ "${DEPLOYMENT:-}" != "hobby" ]; then
             exit 1
         fi
     fi
-    
-    if run_scope "persons"; then
-        echo "Running persons migrations via external non-django migrator..."
-        bash $SCRIPT_DIR/../rust/bin/migrate-persons
-        if [ $? -ne 0 ]; then
-            echo "Error in rust/bin/migrate-persons, exiting."
-            exit 1
-        fi
-    fi
-    
+
+
     if run_scope "behavioral-cohorts"; then
         echo "Running behavioral cohorts migrations via external non-django migrator..."
         bash $SCRIPT_DIR/../rust/bin/migrate-behavioral-cohorts
@@ -157,12 +149,18 @@ if [ "$RUN_POSTGRES" = "1" ]; then
     
 fi
 
-# Hobby deploys: run persons migrations via Django (no sqlx binary needed).
-# Must run AFTER Django postgres migrations so that historical migrations
-# (0001-0872) create the person tables first via CreateModel.
-if [ "${DEPLOYMENT:-}" = "hobby" ] && run_scope "persons"; then
-    echo "Running persons migrations via Django management command..."
-    python manage.py apply_persons_migrations
+# Persons migrations via Django management command.
+# Hobby: runs against default DB, skipping partitioning migrations.
+# Non-hobby (local dev / production): runs against persons_db_writer, creating
+# the database if needed and applying all migrations including partitioning.
+if run_scope "persons"; then
+    if [ "${DEPLOYMENT:-}" = "hobby" ]; then
+        echo "Running persons migrations via Django management command (hobby)..."
+        python manage.py apply_persons_migrations --hobby
+    else
+        echo "Running persons migrations via Django management command..."
+        python manage.py apply_persons_migrations --database=persons_db_writer --ensure-database
+    fi
     if [ $? -ne 0 ]; then
         echo "Error in apply_persons_migrations, exiting."
         exit 1
