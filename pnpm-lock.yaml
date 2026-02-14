@@ -111,6 +111,9 @@ patchedDependencies:
   heatmap.js@2.0.5:
     hash: d95e6638894935a75bd93b60b5243cb825892a1eedcc4c9a125a3e7dce8b64f0
     path: patches/heatmap.js@2.0.5.patch
+  posthog-js@1.347.2:
+    hash: b07a00171c347ad07577dc5c4eb0bf0b78a9c22f869238814a1ac7f8c009f10f
+    path: patches/posthog-js@1.347.2.patch
 
 importers:
 
@@ -956,7 +959,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.347.2
+        version: 1.347.2(patch_hash=b07a00171c347ad07577dc5c4eb0bf0b78a9c22f869238814a1ac7f8c009f10f)
       posthog-js-lite:
         specifier: 4.2.2
         version: 4.2.2
@@ -1826,7 +1829,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.3(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.347.2
+        version: 1.347.2(patch_hash=b07a00171c347ad07577dc5c4eb0bf0b78a9c22f869238814a1ac7f8c009f10f)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -1865,7 +1868,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.3(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.347.2
+        version: 1.347.2(patch_hash=b07a00171c347ad07577dc5c4eb0bf0b78a9c22f869238814a1ac7f8c009f10f)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2026,7 +2029,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.3(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.347.2
+        version: 1.347.2(patch_hash=b07a00171c347ad07577dc5c4eb0bf0b78a9c22f869238814a1ac7f8c009f10f)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2267,7 +2270,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.3(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.347.2
+        version: 1.347.2(patch_hash=b07a00171c347ad07577dc5c4eb0bf0b78a9c22f869238814a1ac7f8c009f10f)
       prettier:
         specifier: '*'
         version: 3.6.2
@@ -2349,7 +2352,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.347.2
+        version: 1.347.2(patch_hash=b07a00171c347ad07577dc5c4eb0bf0b78a9c22f869238814a1ac7f8c009f10f)
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -2670,7 +2673,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.3(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.347.2
+        version: 1.347.2(patch_hash=b07a00171c347ad07577dc5c4eb0bf0b78a9c22f869238814a1ac7f8c009f10f)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2742,7 +2745,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.3(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.347.2
+        version: 1.347.2(patch_hash=b07a00171c347ad07577dc5c4eb0bf0b78a9c22f869238814a1ac7f8c009f10f)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -40466,7 +40469,7 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.347.2:
+  posthog-js@1.347.2(patch_hash=b07a00171c347ad07577dc5c4eb0bf0b78a9c22f869238814a1ac7f8c009f10f):
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/api-logs': 0.208.0
