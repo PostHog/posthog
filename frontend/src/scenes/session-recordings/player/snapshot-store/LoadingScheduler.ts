@@ -94,11 +94,13 @@ export class LoadingScheduler {
             }
         }
 
-        // Step 4: No FullSnapshot found yet, search backward
-        const searchStart = Math.max(0, (this.seekRangeStart ?? targetIndex) - batchSize)
-        const searchEnd = (this.seekRangeStart ?? targetIndex) - 1
+        // Step 4: No FullSnapshot found yet, search backward.
+        // Loop through ranges to skip over already-loaded sections.
+        let currentStart = this.seekRangeStart ?? targetIndex
+        while (currentStart > 0) {
+            const searchStart = Math.max(0, currentStart - batchSize)
+            const searchEnd = currentStart - 1
 
-        if (searchEnd >= 0) {
             const backwardIndices = store.getUnloadedIndicesInRange(searchStart, searchEnd)
             if (backwardIndices.length > 0) {
                 this.seekRangeStart = searchStart
@@ -107,7 +109,10 @@ export class LoadingScheduler {
                     reason: 'seek_backward',
                 }
             }
+            // All sources in this range are loaded — advance past them
+            currentStart = searchStart
         }
+        this.seekRangeStart = 0
 
         // Step 5: Exhausted backward search without finding a FullSnapshot. Give up.
         this.clearSeek()

@@ -444,7 +444,18 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     actions.maybeStartPolling()
                     return
                 }
-                const batchSources = batch.sourceIndices.map((i: number) => sources[i]).filter(Boolean)
+                // The API uses start/end blob keys and returns all data in that range.
+                // Non-contiguous indices would fetch intermediate (already-loaded) sources
+                // whose data gets mis-bucketed. Truncate at the first gap.
+                const indices = batch.sourceIndices
+                const contiguous = [indices[0]]
+                for (let i = 1; i < indices.length; i++) {
+                    if (indices[i] !== indices[i - 1] + 1) {
+                        break
+                    }
+                    contiguous.push(indices[i])
+                }
+                const batchSources = contiguous.map((i: number) => sources[i]).filter(Boolean)
                 if (batchSources.length > 0) {
                     return actions.loadSnapshotsForSource(batchSources)
                 }

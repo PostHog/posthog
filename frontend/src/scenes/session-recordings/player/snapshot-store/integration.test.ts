@@ -296,6 +296,46 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
         }
     })
 
+    it('non-contiguous batch indices are split into contiguous sub-batches', () => {
+        const store = new SnapshotStore()
+        const scheduler = new LoadingScheduler()
+        store.setSources(makeSources(20))
+
+        // Pre-load sources 3-6 so the scheduler's next batch will have a gap
+        for (let i = 3; i <= 6; i++) {
+            store.markLoaded(i, [makeSnapshot(tsForMinute(i))])
+        }
+
+        const batch = scheduler.getNextBatch(store, 10, tsForMinute(0))!
+        expect(batch.reason).toBe('buffer_ahead')
+        // Batch should be [0,1,2, 7,8,9,...] — non-contiguous because 3-6 are loaded
+        expect(batch.sourceIndices).toContain(0)
+        expect(batch.sourceIndices).toContain(7)
+        expect(batch.sourceIndices).not.toContain(3)
+
+        // Simulate snapshotDataLogic's contiguous truncation
+        const indices = batch.sourceIndices
+        const contiguous = [indices[0]]
+        for (let i = 1; i < indices.length; i++) {
+            if (indices[i] !== indices[i - 1] + 1) {
+                break
+            }
+            contiguous.push(indices[i])
+        }
+
+        // First contiguous group should be [0,1,2]
+        expect(contiguous).toEqual([0, 1, 2])
+
+        // Load just the first contiguous group
+        for (const idx of contiguous) {
+            store.markLoaded(idx, [idx === 0 ? makeFullSnapshot(tsForMinute(idx)) : makeSnapshot(tsForMinute(idx))])
+        }
+
+        // Next batch should pick up from source 7 (the next unloaded)
+        const nextBatch = scheduler.getNextBatch(store, 10, tsForMinute(0))!
+        expect(nextBatch.sourceIndices[0]).toBe(7)
+    })
+
     it('eviction does not cause infinite loading loop', () => {
         const store = new SnapshotStore()
         const scheduler = new LoadingScheduler()

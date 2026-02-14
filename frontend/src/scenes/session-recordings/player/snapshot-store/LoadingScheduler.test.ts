@@ -201,6 +201,19 @@ describe('LoadingScheduler', () => {
             expect(batch?.sourceIndices.every((i) => i < 8)).toBe(true)
         })
 
+        it('skips over loaded ranges when searching backward', () => {
+            // Sources 3-7 loaded (no FullSnapshot), 0-2 unloaded, target window 8-17 loaded
+            const loaded = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+            const store = createLoadedStore(20, loaded, [])
+            const scheduler = new LoadingScheduler()
+            scheduler.seekTo(tsForMinute(10))
+
+            // Should skip over 3-7 (loaded) and find 0-2 (unloaded)
+            const batch = scheduler.getNextBatch(store, 10)
+            expect(batch?.reason).toBe('seek_backward')
+            expect(batch?.sourceIndices).toEqual([0, 1, 2])
+        })
+
         it('gives up and falls to buffer_ahead when backward search exhausted', () => {
             const allIndices = Array.from({ length: 20 }, (_, i) => i)
             const store = createLoadedStore(20, allIndices, [])
