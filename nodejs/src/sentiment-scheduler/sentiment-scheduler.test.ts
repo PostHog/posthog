@@ -6,6 +6,7 @@ import { TemporalService } from '../llm-analytics/services/temporal.service'
 import {
     SampleRateProvider,
     checkSampleRate,
+    chunk,
     eachBatchSentimentScheduler,
     filterAndParseMessages,
     parseSampleRatePayload,
@@ -129,6 +130,26 @@ describe('Sentiment Scheduler', () => {
             // Should be roughly 1%, allow 0.5% variance
             expect(included.length).toBeGreaterThan(500)
             expect(included.length).toBeLessThan(1500)
+        })
+    })
+
+    describe('chunk', () => {
+        it.each([
+            [
+                'splits evenly',
+                [1, 2, 3, 4],
+                2,
+                [
+                    [1, 2],
+                    [3, 4],
+                ],
+            ],
+            ['handles remainder', [1, 2, 3], 2, [[1, 2], [3]]],
+            ['single chunk when under size', [1, 2], 5, [[1, 2]]],
+            ['empty array', [], 3, []],
+            ['size of 1', [1, 2, 3], 1, [[1], [2], [3]]],
+        ])('%s', (_label, input, size, expected) => {
+            expect(chunk(input, size)).toEqual(expected)
         })
     })
 
@@ -309,6 +330,20 @@ describe('Sentiment Scheduler', () => {
             await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider, null)
 
             expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(1)
+        })
+
+        it('splits sampled events into batches by batchSize', async () => {
+            const messages: Message[] = Array.from({ length: 5 }, () => ({
+                headers: [{ productTrack: Buffer.from('llma') }],
+                value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamId))),
+            })) as any[]
+
+            await eachBatchSentimentScheduler(messages, mockTemporalService, sampleRateProvider, null, 2)
+
+            expect(mockTemporalService.startSentimentClassificationWorkflow).toHaveBeenCalledTimes(3)
+            expect(mockTemporalService.startSentimentClassificationWorkflow.mock.calls[0][0]).toHaveLength(2)
+            expect(mockTemporalService.startSentimentClassificationWorkflow.mock.calls[1][0]).toHaveLength(2)
+            expect(mockTemporalService.startSentimentClassificationWorkflow.mock.calls[2][0]).toHaveLength(1)
         })
 
         it('handles workflow start failure gracefully', async () => {
