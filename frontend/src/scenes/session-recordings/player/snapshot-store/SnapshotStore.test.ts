@@ -200,6 +200,18 @@ describe('SnapshotStore', () => {
             const ts = new Date(Date.UTC(2023, 7, 11, 12, minute, second)).getTime()
             expect(store.getSourceIndexForTimestamp(ts)).toBe(expected)
         })
+
+        it('handles timestamp in gap between non-contiguous sources', () => {
+            const store = new SnapshotStore()
+            // Source 0: minute 0-1, Source 1: minute 5-6 (gap between 1 and 5)
+            store.setSources([makeSource(0, 0, 1), makeSource(1, 5, 6)])
+
+            // Timestamp at minute 3 falls in the gap
+            const gapTs = new Date(Date.UTC(2023, 7, 11, 12, 3, 0)).getTime()
+            const result = store.getSourceIndexForTimestamp(gapTs)
+            // Should return source 0 (the one before the gap) since ts < source 1's startMs
+            expect(result).toBe(0)
+        })
     })
 
     describe('canPlayAt', () => {
@@ -244,6 +256,18 @@ describe('SnapshotStore', () => {
             expect(store.canPlayAt(targetTs)).toBe(false)
         })
 
+        it('returns true when FullSnapshot is in the same source as the target', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(3))
+
+            const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 1, 10)).getTime()
+            const targetTs = new Date(Date.UTC(2023, 7, 11, 12, 1, 50)).getTime()
+            store.markLoaded(0, [makeSnapshot(1000)])
+            store.markLoaded(1, [makeFullSnapshot(fsTs), makeSnapshot(targetTs)])
+
+            expect(store.canPlayAt(targetTs)).toBe(true)
+        })
+
         it('returns false when timestamp is beyond all source data', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(5))
@@ -281,6 +305,20 @@ describe('SnapshotStore', () => {
             const target = new Date(Date.UTC(2023, 7, 11, 12, 4, 0)).getTime()
             const result = store.findNearestFullSnapshot(target)
             expect(result).toEqual({ sourceIndex: 3, timestamp: fs3 })
+        })
+
+        it('picks the latest when multiple FullSnapshots exist in the same source', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(3))
+
+            const fs1 = new Date(Date.UTC(2023, 7, 11, 12, 1, 10)).getTime()
+            const fs2 = new Date(Date.UTC(2023, 7, 11, 12, 1, 40)).getTime()
+
+            store.markLoaded(1, [makeFullSnapshot(fs1), makeFullSnapshot(fs2)])
+
+            const target = new Date(Date.UTC(2023, 7, 11, 12, 2, 0)).getTime()
+            const result = store.findNearestFullSnapshot(target)
+            expect(result).toEqual({ sourceIndex: 1, timestamp: fs2 })
         })
     })
 

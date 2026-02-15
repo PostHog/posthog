@@ -262,6 +262,21 @@ describe('LoadingScheduler', () => {
         })
     })
 
+    describe('truncateToContiguous', () => {
+        it.each([
+            { description: 'stops at loaded source in the middle', loaded: [5], expected: [3, 4] },
+            { description: 'stops at two loaded sources', loaded: [5, 6], expected: [3, 4] },
+            { description: 'single unloaded before loaded block', loaded: [4, 5, 6], expected: [3] },
+        ])('$description', ({ loaded, expected }) => {
+            // Sources 0-9, pre-load 0-2 so buffer_ahead starts at 3
+            const store = createLoadedStore(10, [0, 1, 2, ...loaded])
+            const scheduler = new LoadingScheduler()
+
+            const batch = scheduler.getNextBatch(store, 10, tsForMinute(0))
+            expect(batch?.sourceIndices).toEqual(expected)
+        })
+    })
+
     describe('isSeeking', () => {
         it('is false in buffer_ahead mode', () => {
             const scheduler = new LoadingScheduler()

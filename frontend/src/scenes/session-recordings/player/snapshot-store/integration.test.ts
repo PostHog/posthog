@@ -310,4 +310,57 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
         // Should converge within the iteration limit (not hit maxIterations)
         expect(batches.length).toBeLessThan(20)
     })
+
+    it('live source growth mid-loading preserves progress and continues', () => {
+        const store = new SnapshotStore()
+        const scheduler = new LoadingScheduler()
+        store.setSources(makeSources(5))
+
+        // Load the first 5 sources
+        runLoadingLoop(store, scheduler, {
+            snapshotFactory: (i) =>
+                i === 0
+                    ? [makeFullSnapshot(tsForMinute(i)), makeSnapshot(tsForMinute(i) + 100)]
+                    : [makeSnapshot(tsForMinute(i))],
+            batchSize: 5,
+        })
+
+        expect(store.allLoaded).toBe(true)
+        const snapshotCountBefore = store.getAllLoadedSnapshots().length
+
+        // Live recording adds 3 new sources
+        store.setSources(makeSources(8))
+
+        expect(store.sourceCount).toBe(8)
+        expect(store.allLoaded).toBe(false)
+        // Previously loaded sources still loaded
+        for (let i = 0; i < 5; i++) {
+            expect(store.getEntry(i)?.state).toBe('loaded')
+        }
+        // Previously loaded snapshots still present
+        expect(store.getAllLoadedSnapshots().length).toBe(snapshotCountBefore)
+
+        // Scheduler picks up the new unloaded sources
+        const newBatches = runLoadingLoop(store, scheduler, {
+            snapshotFactory: (i) => [makeSnapshot(tsForMinute(i))],
+            batchSize: 5,
+        })
+
+        expect(newBatches.length).toBeGreaterThan(0)
+        expect(newBatches[0].sourceIndices[0]).toBe(5)
+        expect(store.allLoaded).toBe(true)
+    })
+
+    it('seek to position 0 in buffer_ahead mode does not enter seek mode', () => {
+        const store = new SnapshotStore()
+        const scheduler = new LoadingScheduler()
+        store.setSources(makeSources(10))
+
+        // Scheduler starts in buffer_ahead — requesting batches at position 0
+        // should stay in buffer_ahead, not switch to seek
+        const batch = scheduler.getNextBatch(store, 5, tsForMinute(0))
+        expect(batch?.reason).toBe('buffer_ahead')
+        expect(batch?.sourceIndices[0]).toBe(0)
+        expect(scheduler.currentMode).toEqual({ kind: 'buffer_ahead' })
+    })
 })
