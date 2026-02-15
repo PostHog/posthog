@@ -18,6 +18,9 @@ import { SETTINGS_MAP } from './SettingsMap'
 import type { settingsLogicType } from './settingsLogicType'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
 
+// Explicitly avoid "heat" matching "feature flags", but still allowing "heature" to match it
+const FUSE_THRESHOLD = 0.2
+
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface SettingsFuse extends FuseClass<Setting> {}
 export interface SectionsFuse extends FuseClass<SettingSection> {}
@@ -404,7 +407,7 @@ export const settingsLogic = kea<settingsLogicType>([
 
                 return new FuseClass(settingsWithSearchValues || [], {
                     keys: ['searchValue', 'id'],
-                    threshold: 0.3,
+                    threshold: FUSE_THRESHOLD,
                 })
             },
         ],
@@ -420,7 +423,7 @@ export const settingsLogic = kea<settingsLogicType>([
 
                 return new FuseClass(sectionsWithSearchValues || [], {
                     keys: ['searchValue', 'settingsSearchValues', 'id'],
-                    threshold: 0.3,
+                    threshold: FUSE_THRESHOLD,
                 })
             },
         ],
@@ -472,7 +475,7 @@ export const settingsLogic = kea<settingsLogicType>([
                         { name: 'description', weight: 0.5 },
                         { name: 'settingId', weight: 0.5 },
                     ],
-                    threshold: 0.3,
+                    threshold: FUSE_THRESHOLD,
                     includeScore: true,
                 })
             },
