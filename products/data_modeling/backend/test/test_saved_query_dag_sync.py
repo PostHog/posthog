@@ -6,6 +6,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from products.data_modeling.backend.models import Edge, Node
+from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import NodeType
 from products.data_modeling.backend.services.saved_query_dag_sync import (
     HasDependentsError,
@@ -33,6 +34,31 @@ class TestGetDagId(BaseTest):
 
 @pytest.mark.django_db
 class TestSyncSavedQueryToDag(BaseTest):
+    def test_sync_creates_dag_model(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="test_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+
+        sync_saved_query_to_dag(saved_query)
+
+        dag = DAG.objects.get(team=self.team, name=get_dag_id(self.team.id))
+        self.assertEqual(dag.name, f"posthog_{self.team.id}")
+
+    def test_sync_reuses_existing_dag_model(self):
+        existing_dag = DAG.objects.create(team=self.team, name=get_dag_id(self.team.id))
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="test_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(saved_query)
+
+        self.assertEqual(DAG.objects.filter(team=self.team, name=get_dag_id(self.team.id)).count(), 1)
+        self.assertEqual(DAG.objects.get(team=self.team, name=get_dag_id(self.team.id)).id, existing_dag.id)
+
     def test_sync_creates_node_for_saved_query(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
