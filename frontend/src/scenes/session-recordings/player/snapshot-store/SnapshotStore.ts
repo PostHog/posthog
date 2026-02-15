@@ -15,16 +15,30 @@ export class SnapshotStore {
     }
 
     setSources(sources: SessionRecordingSnapshotSource[]): void {
-        this.entries = sources.map((source, index) => ({
-            source,
-            index,
-            state: 'unloaded',
-            processedSnapshots: null,
-            fullSnapshotTimestamps: [],
-            metaTimestamps: [],
-            startMs: source.start_timestamp ? new Date(source.start_timestamp).getTime() : 0,
-            endMs: source.end_timestamp ? new Date(source.end_timestamp).getTime() : 0,
-        }))
+        const existingByKey = new Map<string, SourceEntry>()
+        for (const entry of this.entries) {
+            if (entry.source.blob_key) {
+                existingByKey.set(entry.source.blob_key, entry)
+            }
+        }
+
+        this.entries = sources.map((source, index) => {
+            const existing = source.blob_key ? existingByKey.get(source.blob_key) : undefined
+            if (existing) {
+                existing.index = index
+                return existing
+            }
+            return {
+                source,
+                index,
+                state: 'unloaded' as const,
+                processedSnapshots: null,
+                fullSnapshotTimestamps: [],
+                metaTimestamps: [],
+                startMs: source.start_timestamp ? new Date(source.start_timestamp).getTime() : 0,
+                endMs: source.end_timestamp ? new Date(source.end_timestamp).getTime() : 0,
+            }
+        })
         this.bump()
     }
 
@@ -116,6 +130,14 @@ export class SnapshotStore {
     }
 
     canPlayAt(ts: number): boolean {
+        if (this.entries.length === 0) {
+            return false
+        }
+        // Timestamp is beyond all known source data — can't play yet
+        if (ts > this.entries[this.entries.length - 1].endMs) {
+            return false
+        }
+
         const fullSnapshotInfo = this.findNearestFullSnapshot(ts)
         if (!fullSnapshotInfo) {
             return false

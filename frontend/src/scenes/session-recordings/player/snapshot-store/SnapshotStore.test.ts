@@ -72,6 +72,35 @@ describe('SnapshotStore', () => {
             store.setSources(makeSources(1))
             expect(store.version).toBeGreaterThan(v0)
         })
+
+        it('preserves loaded entries when sources grow', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(3))
+            store.markLoaded(0, [makeFullSnapshot(1000)])
+            store.markLoaded(1, [makeSnapshot(2000)])
+
+            // Live recording adds 2 new sources
+            store.setSources(makeSources(5))
+
+            expect(store.sourceCount).toBe(5)
+            expect(store.getEntry(0)?.state).toBe('loaded')
+            expect(store.getEntry(1)?.state).toBe('loaded')
+            expect(store.getEntry(2)?.state).toBe('unloaded')
+            expect(store.getEntry(3)?.state).toBe('unloaded')
+            expect(store.getEntry(4)?.state).toBe('unloaded')
+            expect(store.getEntry(0)?.fullSnapshotTimestamps).toEqual([1000])
+        })
+
+        it('preserves loaded snapshots through source growth', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(2))
+            store.markLoaded(0, [makeFullSnapshot(1000)])
+
+            store.setSources(makeSources(3))
+
+            expect(store.getAllLoadedSnapshots()).toHaveLength(1)
+            expect(store.getAllLoadedSnapshots()[0].timestamp).toBe(1000)
+        })
     })
 
     describe('markLoaded', () => {
@@ -174,6 +203,11 @@ describe('SnapshotStore', () => {
     })
 
     describe('canPlayAt', () => {
+        it('returns false when store has no sources', () => {
+            const store = new SnapshotStore()
+            expect(store.canPlayAt(1000)).toBe(false)
+        })
+
         it('returns false when no FullSnapshot exists', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(3))
@@ -208,6 +242,20 @@ describe('SnapshotStore', () => {
 
             const targetTs = new Date(Date.UTC(2023, 7, 11, 12, 5, 30)).getTime()
             expect(store.canPlayAt(targetTs)).toBe(false)
+        })
+
+        it('returns false when timestamp is beyond all source data', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(5))
+
+            const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
+            for (let i = 0; i < 5; i++) {
+                store.markLoaded(i, i === 0 ? [makeFullSnapshot(fsTs)] : [makeSnapshot(fsTs + i * 60000)])
+            }
+
+            // All sources loaded, but timestamp is beyond the last source's endMs
+            const beyondTs = new Date(Date.UTC(2023, 7, 11, 13, 0, 0)).getTime()
+            expect(store.canPlayAt(beyondTs)).toBe(false)
         })
     })
 
