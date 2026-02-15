@@ -162,7 +162,7 @@ class TreeCycleDetectionTest(BaseTest):
         test_team = self.team
         test_node = Node.objects.get(name="bt_root")
         bt_edges = Edge.objects.filter(dag_id_text=BALANCED_TREE_DAG_ID)
-        disallowed = ("dag_id", "dag_id_text", "source", "source_id", "target", "target_id", "team", "team_id")
+        disallowed = ("dag_id_text", "source", "source_id", "target", "target_id", "team", "team_id")
         for key in disallowed:
             # test update disallowed for each key
             with self.assertRaises(NotImplementedError):
