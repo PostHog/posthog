@@ -15,7 +15,6 @@ from temporalio import activity
 
 from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering import constants
-from posthog.temporal.ai.video_segment_clustering.centroid_cache import get_workflow_id_from_activity, store_centroids
 from posthog.temporal.ai.video_segment_clustering.models import (
     Cluster,
     ClusteringResult,
@@ -62,7 +61,6 @@ async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> Cl
     5. Repeat until convergence or max iterations
     6. Remaining segments are marked as noise
 
-    Centroids are stored in Redis (keyed by workflow ID) to avoid large Temporal payloads.
     """
     team = await Team.objects.aget(id=inputs.team_id)
     # We fetch segments here instead of passing via Temporal, to avoid large Temporal payloads (each embedding is 3 KB)
@@ -70,10 +68,6 @@ async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> Cl
 
     # Run in to_thread as clustering is CPU-bound
     clustering_with_centroids = await asyncio.to_thread(_perform_clustering, segments)
-
-    # Store centroids in Redis for downstream activities
-    workflow_id = get_workflow_id_from_activity()
-    await store_centroids(workflow_id, clustering_with_centroids.centroids)
 
     return clustering_with_centroids.result
 

@@ -15,22 +15,17 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
     from posthog.temporal.ai.video_segment_clustering.activities import (
         cluster_segments_activity,
+        emit_signals_from_clusters_activity,
         fetch_segments_activity,
         get_sessions_to_prime_activity,
-        label_clusters_activity,
-        match_clusters_activity,
-        persist_reports_activity,
     )
     from posthog.temporal.ai.video_segment_clustering.models import (
-        ClusterForLabeling,
         ClusteringWorkflowInputs,
         ClusterSegmentsActivityInputs,
+        EmitSignalsActivityInputs,
+        EmitSignalsResult,
         FetchSegmentsActivityInputs,
-        LabelClustersActivityInputs,
-        MatchClustersActivityInputs,
-        PersistReportsActivityInputs,
         PrimeSessionEmbeddingsActivityInputs,
-        WorkflowResult,
     )
 
     from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL
@@ -38,15 +33,13 @@ with workflow.unsafe.imports_passed_through():
 
 @workflow.defn(name="video-segment-clustering")
 class VideoSegmentClusteringWorkflow(PostHogWorkflow):
-    """Per-team workflow to cluster video segments and create SignalReports.
+    """Per-team workflow to cluster video segments and emit signals.
 
-    This workflow orchestrates 6 activities:
+    This workflow orchestrates activities:
     0. Prime: Run session summarization on recently-ended sessions to populate embeddings
     1. Fetch: Query recent video segments from ClickHouse
-    2. Cluster: Clustering segments into groups, i.e. potential reports
-    3. Match: Match clusters to existing SignalReports (deduplication)
-    4. Label: Generate LLM-based labels for new clusters
-    5. Persist: Create/update SignalReports and SignalReportArtefacts
+    2. Cluster: Clustering segments into groups
+    3. Emit: Label clusters with LLM, then emit each as a signal via emit_signal()
     """
 
     @staticmethod
@@ -56,7 +49,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
         return ClusteringWorkflowInputs(**loaded)
 
     @workflow.run
-    async def run(self, inputs: ClusteringWorkflowInputs) -> WorkflowResult:
+    async def run(self, inputs: ClusteringWorkflowInputs) -> EmitSignalsResult | None:
         """Execute the video segment clustering workflow for a single team."""
         # Step 1: Prime the document_embeddings table with analysis of latest sessions
         prime_info = None
@@ -109,16 +102,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
             workflow.logger.info(
                 f"Skipping clustering: only {len(segments)} segments, need at least {inputs.min_segments}"
             )
-            return WorkflowResult(
-                team_id=inputs.team_id,
-                segments_processed=None,
-                clusters_found=0,
-                reports_created=0,
-                reports_updated=0,
-                artefacts_created=0,
-                success=True,
-                error=None,
-            )
+            return None
 
         document_ids = [s.document_id for s in segments]
 
@@ -144,80 +128,18 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
 
         if not all_clusters:
             workflow.logger.info("No clusters found")
-            return WorkflowResult(
-                team_id=inputs.team_id,
-                segments_processed=len(segments),
-                clusters_found=0,
-                reports_created=0,
-                reports_updated=0,
-                artefacts_created=0,
-                success=True,
-                error=None,
-            )
+            return None
 
-        # Activity 4: Match clusters to existing SignalReports
-        matching_result = await workflow.execute_activity(
-            match_clusters_activity,
+        # Activity 4: Label clusters and emit as signals
+        emit_result = await workflow.execute_activity(
+            emit_signals_from_clusters_activity,
             args=[
-                MatchClustersActivityInputs(
+                EmitSignalsActivityInputs(
                     team_id=inputs.team_id,
                     clusters=all_clusters,
-                )
-            ],
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RetryPolicy(
-                maximum_attempts=3,
-                initial_interval=timedelta(seconds=1),
-                maximum_interval=timedelta(seconds=10),
-                backoff_coefficient=2.0,
-            ),
-        )
-
-        # Activity 5: Generate labels for NEW clusters only
-        labeling_result = None
-        if matching_result.new_clusters:
-            clusters_for_labeling = [
-                ClusterForLabeling(cluster_id=c.cluster_id, segment_ids=c.segment_ids)
-                for c in matching_result.new_clusters
-            ]
-
-            labeling_result = await workflow.execute_activity(
-                label_clusters_activity,
-                args=[
-                    LabelClustersActivityInputs(
-                        team_id=inputs.team_id,
-                        clusters=clusters_for_labeling,
-                        segments=segments,
-                    )
-                ],
-                start_to_close_timeout=timedelta(seconds=300),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=2,
-                    initial_interval=timedelta(seconds=5),
-                    maximum_interval=timedelta(seconds=30),
-                    backoff_coefficient=2.0,
-                ),
-            )
-
-        # Filter out non-actionable clusters
-        actionable_new_clusters = []
-        if labeling_result:
-            for cluster in matching_result.new_clusters:
-                label = labeling_result.labels.get(cluster.cluster_id)
-                if label and label.actionable:
-                    actionable_new_clusters.append(cluster)
-
-        # Activity 6: Persist reports and artefacts
-        persist_result = await workflow.execute_activity(
-            persist_reports_activity,
-            args=[
-                PersistReportsActivityInputs(
-                    team_id=inputs.team_id,
-                    new_clusters=actionable_new_clusters,
-                    matched_clusters=matching_result.matched_clusters,
-                    labels=labeling_result.labels if labeling_result else {},
                     segments=segments,
                     segment_to_cluster=clustering_result.segment_to_cluster,
+                    workflow_run_id=workflow.info().run_id,
                 )
             ],
             start_to_close_timeout=timedelta(seconds=300),
@@ -229,16 +151,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
             ),
         )
 
-        return WorkflowResult(
-            team_id=inputs.team_id,
-            segments_processed=len(segments),
-            clusters_found=len(all_clusters),
-            reports_created=persist_result.reports_created,
-            reports_updated=persist_result.reports_updated,
-            artefacts_created=persist_result.artefacts_created,
-            success=True,
-            error=None,
-        )
+        return emit_result
 
     async def run_priming_child_workflows(self, *, team_id: int, prime_info: GetSessionsToPrimeResult) -> None:
         sessions_summarized = 0

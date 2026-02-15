@@ -1,4 +1,3 @@
-from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from posthog.models.utils import UUIDModel
@@ -31,15 +30,6 @@ class SignalReport(UUIDModel):
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
     relevant_user_count = models.IntegerField(blank=True, null=True)
-
-    # Video segment clustering fields
-    cluster_centroid = ArrayField(
-        base_field=models.FloatField(),
-        blank=True,
-        null=True,
-        help_text="Embedding centroid for this report's video segment cluster",
-    )
-    cluster_centroid_updated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         indexes = [
