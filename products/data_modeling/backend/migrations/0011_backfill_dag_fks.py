@@ -12,11 +12,11 @@ def backfill_dag_fks(apps, _):
     dag_subquery = Subquery(
         DAG.objects.filter(
             team_id=OuterRef("team_id"),
-            name=OuterRef("dag_id"),
+            name=OuterRef("dag_id_text"),
         ).values("id")[:1]
     )
-    Node.objects.filter(dag_fk__isnull=True).update(dag_fk=dag_subquery)
-    Edge.objects.filter(dag_fk__isnull=True).update(dag_fk=dag_subquery)
+    Node.objects.filter(dag__isnull=True).update(dag=dag_subquery)
+    Edge.objects.filter(dag__isnull=True).update(dag=dag_subquery)
 
 
 class Migration(migrations.Migration):
