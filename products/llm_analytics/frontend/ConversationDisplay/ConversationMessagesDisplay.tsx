@@ -13,6 +13,7 @@ import { isObject } from 'lib/utils'
 
 import { LLMInputOutput } from '../LLMInputOutput'
 import { SearchHighlight } from '../SearchHighlight'
+import { MessageSentiment, MessageSentimentBar } from '../components/SentimentTag'
 import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { containsSearchQuery } from '../searchUtils'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
@@ -41,6 +42,7 @@ export function ConversationMessagesDisplay({
     raisedError,
     bordered = false,
     searchQuery,
+    messageSentiments,
 }: {
     inputNormalized: CompatMessage[]
     outputNormalized: CompatMessage[]
@@ -49,6 +51,7 @@ export function ConversationMessagesDisplay({
     raisedError?: boolean
     bordered?: boolean
     searchQuery?: string
+    messageSentiments?: MessageSentiment[]
 }): JSX.Element {
     const {
         inputMessageShowStates,
@@ -139,21 +142,37 @@ export function ConversationMessagesDisplay({
             </div>
         ) : undefined
 
+    // Match per-message sentiments to user messages, aligned from the end.
+    // The backend only classifies the last N user messages, so if there are
+    // more user messages than sentiments we skip the earliest ones.
+    const totalUserMessages = inputNormalized.filter((m) => m.role === 'user').length
+    const sentimentOffset = totalUserMessages - (messageSentiments?.length ?? 0)
+    let userMessageIndex = 0
     const inputDisplay =
         inputNormalized.length > 0 ? (
-            inputNormalized.map((message, i) => (
-                <React.Fragment key={i}>
-                    <LLMMessageDisplay
-                        message={message}
-                        show={inputMessageShowStates[i] || false}
-                        onToggle={() => toggleMessage('input', i)}
-                        searchQuery={searchQuery}
-                    />
-                    {i < inputNormalized.length - 1 && (
-                        <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
-                    )}
-                </React.Fragment>
-            ))
+            inputNormalized.map((message, i) => {
+                const isUserMsg = message.role === 'user'
+                const sentimentIdx = userMessageIndex - sentimentOffset
+                const sentiment =
+                    isUserMsg && messageSentiments && sentimentIdx >= 0 ? messageSentiments[sentimentIdx] : undefined
+                if (isUserMsg) {
+                    userMessageIndex++
+                }
+                return (
+                    <React.Fragment key={i}>
+                        <LLMMessageDisplay
+                            message={message}
+                            show={inputMessageShowStates[i] || false}
+                            onToggle={() => toggleMessage('input', i)}
+                            searchQuery={searchQuery}
+                            messageSentiment={sentiment}
+                        />
+                        {i < inputNormalized.length - 1 && (
+                            <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
+                        )}
+                    </React.Fragment>
+                )
+            })
         ) : (
             <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No input</div>
         )
@@ -372,6 +391,7 @@ export const LLMMessageDisplay = React.memo(
         minimal = false,
         onToggle,
         searchQuery,
+        messageSentiment,
     }: {
         message: CompatMessage
         isOutput?: boolean
@@ -381,6 +401,7 @@ export const LLMMessageDisplay = React.memo(
         minimal?: boolean
         onToggle?: () => void
         searchQuery?: string
+        messageSentiment?: MessageSentiment
     }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
         let { isRenderingMarkdown, isRenderingXml } = useValues(llmAnalyticsTraceLogic)
@@ -583,7 +604,10 @@ export const LLMMessageDisplay = React.memo(
                             }
                         }}
                     >
-                        <span className="grow">{role}</span>
+                        <span className="grow flex items-center gap-1.5">
+                            {role}
+                            {messageSentiment && <MessageSentimentBar sentiment={messageSentiment} />}
+                        </span>
                         {(content || Object.keys(additionalKwargsEntries).length > 0) && (
                             <>
                                 <LemonButton
