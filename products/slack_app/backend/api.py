@@ -21,6 +21,7 @@ from posthog.temporal.ai.slack_conversation import (
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
+from posthog.utils import get_instance_region
 
 from ee.models.assistant import Conversation
 
@@ -147,7 +148,9 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
                     text="Sorry, I couldn't find your email address in Slack. Please make sure your email is visible in your Slack profile.",
                 )
                 return
-
+            if get_instance_region() == "DEV":
+                # In dev deploymenet, always go to the test account - this is to let the Slack folks test on the test account
+                slack_email = "michael+slacktest@posthog.com"
             # Find PostHog user by email
             membership = (
                 OrganizationMembership.objects.filter(
