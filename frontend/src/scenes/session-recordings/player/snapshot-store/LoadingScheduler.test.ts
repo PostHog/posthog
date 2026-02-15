@@ -110,11 +110,11 @@ describe('LoadingScheduler', () => {
             const scheduler = new LoadingScheduler()
 
             // With playback at 0, should buffer ahead up to BUFFER_AHEAD_SOURCES (30)
+            // i.e. indices 0-29 inclusive
             const batch = scheduler.getNextBatch(store, 100, tsForMinute(0))
             expect(batch?.sourceIndices.length).toBeLessThanOrEqual(100)
-            // Last index in batch should be at most anchor + 30
             const maxIdx = Math.max(...batch!.sourceIndices)
-            expect(maxIdx).toBeLessThanOrEqual(30)
+            expect(maxIdx).toBe(29)
         })
 
         it('does not load backward from playback position', () => {

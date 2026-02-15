@@ -80,6 +80,8 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
                 if (!props.sessionRecordingId) {
                     return null
                 }
+                // Cancel orphaned loaders from StrictMode's unmounted logic
+                await breakpoint(1)
                 const headers: Record<string, string> = {}
                 if (props.accessToken) {
                     headers.Authorization = `Bearer ${props.accessToken}`

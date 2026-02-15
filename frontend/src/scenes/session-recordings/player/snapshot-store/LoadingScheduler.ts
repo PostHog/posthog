@@ -125,7 +125,7 @@ export class LoadingScheduler {
                 ? store.getSourceIndexForTimestamp(playbackPosition)
                 : (this.seekRangeEnd ?? 0)
 
-        const bufferEnd = Math.min(store.sourceCount - 1, anchorIndex + BUFFER_AHEAD_SOURCES)
+        const bufferEnd = Math.min(store.sourceCount - 1, anchorIndex + BUFFER_AHEAD_SOURCES - 1)
         const aheadIndices = store.getUnloadedIndicesInRange(anchorIndex, bufferEnd)
         if (aheadIndices.length > 0) {
             return {
