@@ -18,7 +18,7 @@ class EdgeSerializer(serializers.ModelSerializer):
             "id",
             "source_id",
             "target_id",
-            "dag_id_text",
+            "dag_id",
             "properties",
             "created_at",
             "updated_at",
@@ -40,11 +40,11 @@ class EdgeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = EdgeSerializer
     pagination_class = EdgePagination
     filter_backends = [filters.SearchFilter]
-    search_fields = ["dag_id_text"]
+    search_fields = ["dag_id"]
     ordering = "-created_at"
 
     def get_serializer_context(self) -> dict[str, Any]:
         return super().get_serializer_context()
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team_id, dag_id_text=f"posthog_{self.team_id}").order_by(self.ordering)
+        return queryset.filter(team_id=self.team_id, dag_id=f"posthog_{self.team_id}").order_by(self.ordering)
