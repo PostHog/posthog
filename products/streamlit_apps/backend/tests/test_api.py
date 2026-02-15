@@ -368,15 +368,16 @@ class TestStreamlitAppSandboxControlAPI(APIBaseTest):
 
     # -- Start --
 
+    @patch("posthog.storage.object_storage.read_bytes", return_value=b"zipdata")
     @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
-    def test_start_app(self, mock_runtime_cls):
+    def test_start_app(self, mock_runtime_cls, _mock_read):
         mock_runtime = MagicMock()
         mock_runtime_cls.return_value = mock_runtime
         app = self._create_app_with_version()
 
         response = self.client.post(self._url(app.short_id, "start/"))
         assert response.status_code == status.HTTP_200_OK
-        mock_runtime.start_app.assert_called_once_with(app)
+        mock_runtime.start_app.assert_called_once()
 
     def test_start_app_no_version_400(self):
         app = StreamlitApp.objects.create(team=self.team, name="No Version", created_by=self.user)
@@ -384,8 +385,9 @@ class TestStreamlitAppSandboxControlAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "No active version" in response.json()["detail"]
 
+    @patch("posthog.storage.object_storage.read_bytes", return_value=b"zipdata")
     @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
-    def test_start_app_runtime_error_503(self, mock_runtime_cls):
+    def test_start_app_runtime_error_503(self, mock_runtime_cls, _mock_read):
         mock_runtime = MagicMock()
         mock_runtime.start_app.side_effect = RuntimeError("Modal down")
         mock_runtime_cls.return_value = mock_runtime
@@ -427,3 +429,69 @@ class TestStreamlitAppSandboxControlAPI(APIBaseTest):
 
         response = self.client.post(self._url(app.short_id, "restart/"))
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    # -- Connect URL --
+
+    @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
+    def test_connect_url_returns_url_and_token(self, mock_runtime_cls):
+        mock_runtime = MagicMock()
+        mock_runtime.get_connect_url.return_value = {"url": "https://abc.modal.run", "token": "tok_123"}
+        mock_runtime_cls.return_value = mock_runtime
+
+        app = self._create_app_with_version()
+        StreamlitAppSandbox.objects.create(app=app, version=app.active_version, sandbox_id="sb_1", status="running")
+
+        response = self.client.get(self._url(app.short_id, "connect_url/"))
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["url"] == "https://abc.modal.run"
+        assert data["token"] == "tok_123"
+
+    def test_connect_url_not_running_returns_503(self):
+        app = self._create_app_with_version()
+        response = self.client.get(self._url(app.short_id, "connect_url/"))
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
+    def test_connect_url_at_max_viewers_returns_503(self, mock_runtime_cls):
+        app = self._create_app_with_version()
+        StreamlitAppSandbox.objects.create(
+            app=app,
+            version=app.active_version,
+            sandbox_id="sb_1",
+            status="running",
+            current_viewers=20,
+            max_viewers=20,
+        )
+
+        response = self.client.get(self._url(app.short_id, "connect_url/"))
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "busy" in response.json()["detail"].lower()
+
+    @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
+    def test_connect_url_updates_last_activity(self, mock_runtime_cls):
+        mock_runtime = MagicMock()
+        mock_runtime.get_connect_url.return_value = {"url": "https://x.modal.run", "token": "tok"}
+        mock_runtime_cls.return_value = mock_runtime
+
+        app = self._create_app_with_version()
+        sandbox_record = StreamlitAppSandbox.objects.create(
+            app=app, version=app.active_version, sandbox_id="sb_1", status="running"
+        )
+        assert sandbox_record.last_activity_at is None
+
+        self.client.get(self._url(app.short_id, "connect_url/"))
+        sandbox_record.refresh_from_db()
+        assert sandbox_record.last_activity_at is not None
+
+    @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
+    def test_connect_url_runtime_failure_returns_502(self, mock_runtime_cls):
+        mock_runtime = MagicMock()
+        mock_runtime.get_connect_url.return_value = None
+        mock_runtime_cls.return_value = mock_runtime
+
+        app = self._create_app_with_version()
+        StreamlitAppSandbox.objects.create(app=app, version=app.active_version, sandbox_id="sb_1", status="running")
+
+        response = self.client.get(self._url(app.short_id, "connect_url/"))
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY

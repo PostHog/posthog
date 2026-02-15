@@ -241,8 +241,11 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         latest_version = app.versions.order_by("-version_number").first()
         next_version_number = (latest_version.version_number + 1) if latest_version else 1
 
-        # Store the zip file path (in production this would be S3)
         zip_path = f"streamlit_apps/{app.team_id}/{app.id}/v{next_version_number}.zip"
+
+        from posthog.storage import object_storage
+
+        object_storage.write(zip_path, file_content)
 
         version = StreamlitAppVersion.objects.create(
             id=uuid.uuid4(),
@@ -331,8 +334,11 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
+            from posthog.storage import object_storage
+
+            zip_content = object_storage.read_bytes(app.active_version.zip_file)
             runtime = AppRuntimeService()
-            runtime.start_app(app)
+            runtime.start_app(app, zip_content=zip_content)
         except Exception as e:
             logger.exception("streamlit_app_start_failed", app_id=str(app.id), error=str(e))
             return Response({"detail": "Failed to start app."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -351,6 +357,28 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "Failed to stop app."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         return Response(StreamlitAppSerializer(app, context=self.get_serializer_context()).data)
+
+    @action(methods=["GET"], detail=True, url_path="connect_url")
+    def connect_url(self, request: Request, **kwargs: Any) -> Response:
+        app = self.get_object()
+        sandbox_record = StreamlitAppSandbox.objects.filter(app=app).first()
+        if not sandbox_record or sandbox_record.status != StreamlitAppSandbox.Status.RUNNING:
+            return Response({"detail": "App is not running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        if sandbox_record.current_viewers >= sandbox_record.max_viewers:
+            return Response(
+                {"detail": "App is busy, please try again later."}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
+        runtime = AppRuntimeService()
+        connect_data = runtime.get_connect_url(app, user_id=request.user.id, team_id=self.team_id)
+        if not connect_data:
+            return Response({"detail": "Unable to get connect URL."}, status=status.HTTP_502_BAD_GATEWAY)
+
+        sandbox_record.last_activity_at = timezone.now()
+        sandbox_record.save(update_fields=["last_activity_at"])
+
+        return Response(connect_data)
 
     @action(methods=["POST"], detail=True, url_path="restart")
     def restart(self, request: Request, **kwargs: Any) -> Response:

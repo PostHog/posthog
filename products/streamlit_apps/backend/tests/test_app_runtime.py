@@ -21,7 +21,7 @@ def _make_zip_bytes(files: dict[str, str]) -> bytes:
 def _make_mock_sandbox():
     sandbox = MagicMock()
     sandbox.id = "modal-sandbox-123"
-    sandbox.execute.return_value = MagicMock(exit_code=0, stdout="", stderr="")
+    sandbox.execute.return_value = MagicMock(exit_code=0, stdout="200", stderr="")
     sandbox.write_file.return_value = MagicMock(exit_code=0)
     sandbox.create_snapshot.return_value = "snapshot-abc"
     return sandbox
@@ -36,6 +36,7 @@ def _make_mock_sandbox_class(sandbox=None):
     return cls
 
 
+@patch("products.streamlit_apps.backend.services.app_runtime._wait_for_proxy_ready", return_value=True)
 @patch("products.streamlit_apps.backend.services.app_runtime.get_sandbox_class")
 class TestAppRuntimeStartApp(BaseTest):
     def _create_app_with_version(self, has_requirements=False, snapshot_id=None):
@@ -52,7 +53,7 @@ class TestAppRuntimeStartApp(BaseTest):
         app.save(update_fields=["active_version"])
         return app, version
 
-    def test_cold_start_creates_sandbox_and_snapshot(self, mock_get_sandbox_class):
+    def test_cold_start_creates_sandbox_and_snapshot(self, mock_get_sandbox_class, _mock_wait):
         mock_sandbox = _make_mock_sandbox()
         mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
 
@@ -71,7 +72,7 @@ class TestAppRuntimeStartApp(BaseTest):
         assert version.snapshot_id == "snapshot-abc"
         assert version.snapshot_created_at is not None
 
-    def test_cold_start_with_requirements_runs_pip_install(self, mock_get_sandbox_class):
+    def test_cold_start_with_requirements_runs_pip_install(self, mock_get_sandbox_class, _mock_wait):
         mock_sandbox = _make_mock_sandbox()
         mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
 
@@ -84,7 +85,7 @@ class TestAppRuntimeStartApp(BaseTest):
         pip_calls = [c for c in mock_sandbox.execute.call_args_list if "pip install" in str(c)]
         assert len(pip_calls) == 1
 
-    def test_warm_start_skips_upload_and_snapshot(self, mock_get_sandbox_class):
+    def test_warm_start_skips_upload_and_snapshot(self, mock_get_sandbox_class, _mock_wait):
         mock_sandbox = _make_mock_sandbox()
         mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
 
@@ -97,14 +98,14 @@ class TestAppRuntimeStartApp(BaseTest):
         mock_sandbox.write_file.assert_not_called()
         mock_sandbox.create_snapshot.assert_not_called()
 
-    def test_start_app_no_active_version_raises(self, mock_get_sandbox_class):
+    def test_start_app_no_active_version_raises(self, mock_get_sandbox_class, _mock_wait):
         app = StreamlitApp.objects.create(team=self.team, name="No Version")
 
         service = AppRuntimeService()
         with self.assertRaises(AppRuntimeError, msg="App has no active version"):
             service.start_app(app)
 
-    def test_start_app_already_running_returns_existing(self, mock_get_sandbox_class):
+    def test_start_app_already_running_returns_existing(self, mock_get_sandbox_class, _mock_wait):
         app, version = self._create_app_with_version(snapshot_id="snap")
         existing = StreamlitAppSandbox.objects.create(
             app=app,
@@ -117,7 +118,7 @@ class TestAppRuntimeStartApp(BaseTest):
         record = service.start_app(app)
         assert record.id == existing.id
 
-    def test_start_app_error_sets_error_status(self, mock_get_sandbox_class):
+    def test_start_app_error_sets_error_status(self, mock_get_sandbox_class, _mock_wait):
         mock_sandbox = _make_mock_sandbox()
         mock_sandbox.execute.side_effect = Exception("Boom")
         mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
@@ -131,6 +132,32 @@ class TestAppRuntimeStartApp(BaseTest):
         record = StreamlitAppSandbox.objects.get(app=app)
         assert record.status == StreamlitAppSandbox.Status.ERROR
         assert "Boom" in record.last_error
+
+    def test_start_app_starts_auth_proxy_and_streamlit(self, mock_get_sandbox_class, _mock_wait):
+        mock_sandbox = _make_mock_sandbox()
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app, _version = self._create_app_with_version(snapshot_id="snap")
+
+        service = AppRuntimeService()
+        service.start_app(app)
+
+        execute_calls = [str(c) for c in mock_sandbox.execute.call_args_list]
+        proxy_calls = [c for c in execute_calls if "streamlit_auth_proxy" in c]
+        streamlit_calls = [c for c in execute_calls if "streamlit run" in c]
+        assert len(proxy_calls) == 1
+        assert len(streamlit_calls) == 1
+
+    def test_start_app_fails_when_proxy_not_ready(self, mock_get_sandbox_class, mock_wait):
+        mock_wait.return_value = False
+        mock_sandbox = _make_mock_sandbox()
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app, _version = self._create_app_with_version(snapshot_id="snap")
+
+        service = AppRuntimeService()
+        with self.assertRaises(AppRuntimeError, msg="Auth proxy failed to become ready"):
+            service.start_app(app)
 
 
 @patch("products.streamlit_apps.backend.services.app_runtime.get_sandbox_class")
@@ -196,9 +223,10 @@ class TestAppRuntimeGetStatus(BaseTest):
         assert status["status"] == expected
 
 
+@patch("products.streamlit_apps.backend.services.app_runtime._wait_for_proxy_ready", return_value=True)
 @patch("products.streamlit_apps.backend.services.app_runtime.get_sandbox_class")
 class TestAppRuntimeRestartApp(BaseTest):
-    def test_restart_increments_count(self, mock_get_sandbox_class):
+    def test_restart_increments_count(self, mock_get_sandbox_class, _mock_wait):
         mock_sandbox = _make_mock_sandbox()
         mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
 
@@ -224,7 +252,7 @@ class TestAppRuntimeRestartApp(BaseTest):
         assert record.restart_count == 1
         assert record.status == StreamlitAppSandbox.Status.RUNNING
 
-    def test_restart_exceeds_max_raises(self, mock_get_sandbox_class):
+    def test_restart_exceeds_max_raises(self, mock_get_sandbox_class, _mock_wait):
         app = StreamlitApp.objects.create(team=self.team, name="Test App")
         version = StreamlitAppVersion.objects.create(
             app=app,
@@ -248,14 +276,14 @@ class TestAppRuntimeRestartApp(BaseTest):
 
 
 class TestBuildSandboxConfig(BaseTest):
-    def test_config_includes_encrypted_ports(self):
-        from products.streamlit_apps.backend.services.app_runtime import STREAMLIT_PORT, _build_sandbox_config
+    def test_config_has_no_encrypted_ports(self):
+        from products.streamlit_apps.backend.services.app_runtime import _build_sandbox_config
 
         app = StreamlitApp.objects.create(team=self.team, name="Test App", cpu_cores=1.0, memory_gb=2.0)
         version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
 
         config = _build_sandbox_config(app, version)
-        assert config.encrypted_ports == [STREAMLIT_PORT]
+        assert config.encrypted_ports is None
 
     def test_config_sets_snapshot_when_available(self):
         from products.streamlit_apps.backend.services.app_runtime import _build_sandbox_config
@@ -279,7 +307,7 @@ class TestBuildSandboxConfig(BaseTest):
 
 
 @patch("products.streamlit_apps.backend.services.app_runtime.get_sandbox_class")
-class TestAppRuntimeTunnelAndToken(BaseTest):
+class TestAppRuntimeConnectUrl(BaseTest):
     def _create_running_app(self):
         app = StreamlitApp.objects.create(team=self.team, name="Test App")
         version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
@@ -290,47 +318,51 @@ class TestAppRuntimeTunnelAndToken(BaseTest):
         )
         return app, sandbox
 
-    def test_get_tunnel_url_returns_url_for_running_sandbox(self, mock_get_sandbox_class):
-        mock_sandbox = MagicMock()
-        tunnel_mock = MagicMock()
-        tunnel_mock.url = "https://abc.modal.host"
-        mock_sandbox._sandbox.tunnels.return_value = {8501: tunnel_mock}
-        mock_cls = _make_mock_sandbox_class(mock_sandbox)
-        mock_get_sandbox_class.return_value = mock_cls
-
-        app, _sandbox = self._create_running_app()
-        service = AppRuntimeService()
-        url = service.get_tunnel_url(app)
-        assert url == "https://abc.modal.host"
-
-    def test_get_tunnel_url_returns_none_for_stopped_sandbox(self, mock_get_sandbox_class):
-        app = StreamlitApp.objects.create(team=self.team, name="Test App")
-        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
-        StreamlitAppSandbox.objects.create(
-            app=app, version=version, sandbox_id="modal-123", status=StreamlitAppSandbox.Status.STOPPED
-        )
-
-        service = AppRuntimeService()
-        assert service.get_tunnel_url(app) is None
-
-    def test_get_tunnel_url_returns_none_when_no_sandbox(self, mock_get_sandbox_class):
-        app = StreamlitApp.objects.create(team=self.team, name="Test App")
-        service = AppRuntimeService()
-        assert service.get_tunnel_url(app) is None
-
-    def test_get_connect_token_returns_token(self, mock_get_sandbox_class):
+    def test_get_connect_url_returns_url_and_token(self, mock_get_sandbox_class):
         mock_sandbox = MagicMock()
         creds = MagicMock()
+        creds.url = "https://abc.modal.run"
         creds.token = "tok_abc123"
         mock_sandbox._sandbox.create_connect_token.return_value = creds
         mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
 
         app, _sandbox = self._create_running_app()
         service = AppRuntimeService()
-        token = service.get_connect_token(app, user_id=1, team_id=1)
-        assert token == "tok_abc123"
+        result = service.get_connect_url(app, user_id=1, team_id=1)
+        assert result == {"url": "https://abc.modal.run", "token": "tok_abc123"}
 
-    def test_get_connect_token_returns_none_when_no_sandbox(self, mock_get_sandbox_class):
+    @parameterized.expand(
+        [
+            ("stopped", StreamlitAppSandbox.Status.STOPPED),
+            ("starting", StreamlitAppSandbox.Status.STARTING),
+            ("error", StreamlitAppSandbox.Status.ERROR),
+        ]
+    )
+    def test_get_connect_url_returns_none_for_non_running(self, _name, sandbox_status, mock_get_sandbox_class):
+        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+        StreamlitAppSandbox.objects.create(app=app, version=version, sandbox_id="modal-123", status=sandbox_status)
+
+        service = AppRuntimeService()
+        assert service.get_connect_url(app, user_id=1, team_id=1) is None
+
+    def test_get_connect_url_returns_none_when_no_sandbox(self, mock_get_sandbox_class):
         app = StreamlitApp.objects.create(team=self.team, name="Test App")
         service = AppRuntimeService()
-        assert service.get_connect_token(app, user_id=1, team_id=1) is None
+        assert service.get_connect_url(app, user_id=1, team_id=1) is None
+
+    def test_get_connect_url_passes_user_metadata(self, mock_get_sandbox_class):
+        mock_sandbox = MagicMock()
+        creds = MagicMock()
+        creds.url = "https://x.modal.run"
+        creds.token = "tok"
+        mock_sandbox._sandbox.create_connect_token.return_value = creds
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app, _sandbox = self._create_running_app()
+        service = AppRuntimeService()
+        service.get_connect_url(app, user_id=42, team_id=7)
+
+        mock_sandbox._sandbox.create_connect_token.assert_called_once_with(
+            user_metadata={"user_id": "42", "team_id": "7"}
+        )

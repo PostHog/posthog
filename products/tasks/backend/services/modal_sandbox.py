@@ -270,6 +270,7 @@ class ModalSandbox(SandboxBase):
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
         try:
+            modal.enable_output()
             app = cls._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
             image = base_image
