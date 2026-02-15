@@ -257,19 +257,40 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         segments: [
-            (s) => [s.snapshots, s.start, s.end, s.trackedWindow, s.snapshotsByWindowId, s.isLoadingSnapshots],
+            (s) => [
+                s.snapshots,
+                s.start,
+                s.end,
+                s.trackedWindow,
+                s.snapshotsByWindowId,
+                s.isLoadingSnapshots,
+                s.snapshotStore,
+                s.storeVersion,
+            ],
             (
                 snapshots: RecordingSnapshot[],
                 start: Dayjs | null,
                 end: Dayjs | null,
                 trackedWindow: number | null,
                 snapshotsByWindowId: Record<number, eventWithTime[]>,
-                isLoadingSnapshots: boolean
+                isLoadingSnapshots: boolean,
+                snapshotStore: SnapshotStore | null
             ): RecordingSegment[] => {
                 const segments = createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
 
                 return segments.map((segment) => {
                     if (segment.kind === 'buffer') {
+                        // Store path: if all sources covering this buffer range are already
+                        // loaded, the data isn't pending — it's a gap with no events.
+                        // Guard on sourceCount > 0: an empty store has no entries, so
+                        // getUnloadedIndicesInRange returns [] which would falsely convert.
+                        if (snapshotStore && snapshotStore.sourceCount > 0) {
+                            const startIdx = snapshotStore.getSourceIndexForTimestamp(segment.startTimestamp)
+                            const endIdx = snapshotStore.getSourceIndexForTimestamp(segment.endTimestamp)
+                            if (snapshotStore.getUnloadedIndicesInRange(startIdx, endIdx).length === 0) {
+                                return { ...segment, kind: 'gap' as const }
+                            }
+                        }
                         return {
                             ...segment,
                             isLoading: isLoadingSnapshots,

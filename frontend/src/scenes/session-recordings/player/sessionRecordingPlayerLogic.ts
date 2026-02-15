@@ -1754,12 +1754,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
             let newTimestamp = values.fromRRWebPlayerTime(rrwebPlayerTime)
 
-            if (newTimestamp == undefined && values.currentTimestamp) {
-                // This can happen if the player is not loaded due to us being in a "gap" segment
-                // In this case, we should progress time forward manually
-                if (values.currentSegment?.kind === 'gap') {
-                    newTimestamp = values.currentTimestamp + values.roughAnimationFPS
-                }
+            // Detect when the replayer is stuck (same timestamp for consecutive frames).
+            // This happens in gap segments (no events) and in window segments where
+            // the replayer has no events at the current offset (e.g. inactive segments
+            // deep into a window's timeline). After a few stuck frames, advance time
+            // manually so playback doesn't freeze.
+            if (newTimestamp !== undefined && newTimestamp === cache._lastAnimTimestamp) {
+                cache._stuckFrames = (cache._stuckFrames || 0) + 1
+            } else {
+                cache._stuckFrames = 0
+            }
+            cache._lastAnimTimestamp = newTimestamp
+
+            const isStuck = cache._stuckFrames >= 3
+            if (values.currentSegment?.kind === 'gap' && values.currentTimestamp) {
+                newTimestamp = values.currentTimestamp + values.roughAnimationFPS
+            } else if (isStuck && values.currentTimestamp) {
+                newTimestamp = values.currentTimestamp + values.roughAnimationFPS
             }
 
             // If we're beyond buffered position, set to buffering
