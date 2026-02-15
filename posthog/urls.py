@@ -56,6 +56,7 @@ from products.slack_app.backend.api import (
     slack_event_handler,
 )
 from products.surveys.backend.api.survey import public_survey_page, surveys
+from products.streamlit_apps.backend.api.bridge import StreamlitBridgeView
 from products.streamlit_apps.backend.api.proxy import StreamlitProxyView
 from products.tasks.backend.webhooks import github_pr_webhook
 
@@ -211,6 +212,11 @@ urlpatterns = [
         r"^api/projects/(?P<team_id>\d+)/streamlit_apps/(?P<short_id>[^/]+)/proxy/(?P<path>.*)$",
         csrf_exempt(StreamlitProxyView.as_view()),
         name="streamlit_app_proxy",
+    ),
+    path(
+        "api/streamlit_bridge/query/",
+        csrf_exempt(StreamlitBridgeView.as_view()),
+        name="streamlit_bridge_query",
     ),
     path("api/", include(router.urls)),
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
