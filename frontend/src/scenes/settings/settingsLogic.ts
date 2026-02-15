@@ -22,6 +22,33 @@ import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, S
 export interface SettingsFuse extends FuseClass<Setting> {}
 export interface SectionsFuse extends FuseClass<SettingSection> {}
 
+export interface SearchIndexEntry {
+    settingId: SettingId
+    settingTitle: string
+    sectionId: SettingSectionId
+    sectionTitle: string
+    level: SettingLevelId
+    keywords: string
+    description: string
+}
+
+export interface SearchResult {
+    settingId: SettingId
+    settingTitle: string
+    sectionId: SettingSectionId
+    sectionTitle: string
+    level: SettingLevelId
+}
+
+export interface SearchResultGroup {
+    sectionId: SettingSectionId
+    sectionTitle: string
+    level: SettingLevelId
+    results: SearchResult[]
+}
+
+export interface GlobalSearchFuse extends FuseClass<SearchIndexEntry> {}
+
 const getSettingStringValue = (setting: Setting): string => {
     if (setting.searchTerm) {
         return setting.searchTerm
@@ -71,6 +98,7 @@ export const settingsLogic = kea<settingsLogicType>([
         toggleLevelCollapse: (level: SettingLevelId) => ({ level }),
         toggleGroupCollapse: (group: string) => ({ group }),
         loadSettingsAsOf: (at: string, scope?: string | string[]) => ({ at, scope }),
+        navigateToSetting: (sectionId: SettingSectionId, settingId: SettingId) => ({ sectionId, settingId }),
     }),
 
     reducers(({ props }) => ({
@@ -166,7 +194,7 @@ export const settingsLogic = kea<settingsLogicType>([
         ],
     })),
 
-    listeners({
+    listeners(({ actions, values }) => ({
         selectSection: () => {
             setTimeout(() => {
                 const mainElement = document.querySelector('main')
@@ -175,7 +203,20 @@ export const settingsLogic = kea<settingsLogicType>([
                 }
             }, 100)
         },
-    }),
+        navigateToSetting: ({ sectionId, settingId }) => {
+            const section = values.sections.find((s) => s.id === sectionId)
+            if (section) {
+                actions.selectSection(sectionId, section.level)
+                actions.setSearchTerm('')
+                setTimeout(() => {
+                    const element = document.getElementById(settingId)
+                    if (element) {
+                        element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    }
+                }, 200)
+            }
+        },
+    })),
 
     selectors({
         levels: [
@@ -259,19 +300,45 @@ export const settingsLogic = kea<settingsLogicType>([
                 return selectedSectionIdRaw
             },
         ],
+        defaultSectionId: [
+            (s) => [s.sections, s.selectedLevel],
+            (sections, selectedLevel): SettingSectionId | null => {
+                const firstSection = sections.find((s) => s.level === selectedLevel)
+                return firstSection?.id ?? null
+            },
+        ],
         selectedSection: [
-            (s) => [s.sections, s.selectedSectionId],
-            (sections, selectedSectionId): SettingSection | null => {
-                return sections.find((x) => x.id === selectedSectionId) ?? null
+            (s) => [s.sections, s.selectedSectionId, s.defaultSectionId],
+            (sections, selectedSectionId, defaultSectionId): SettingSection | null => {
+                const effectiveId = selectedSectionId ?? defaultSectionId
+                return sections.find((x) => x.id === effectiveId) ?? null
             },
         ],
         settings: [
-            (s) => [s.selectedLevel, s.selectedSectionId, s.sections, s.doesMatchFlags, s.preflight, s.currentTeam],
-            (selectedLevel, selectedSectionId, sections, doesMatchFlags, preflight, currentTeam): Setting[] => {
+            (s) => [
+                s.selectedLevel,
+                s.selectedSectionId,
+                s.defaultSectionId,
+                s.sections,
+                s.doesMatchFlags,
+                s.preflight,
+                s.currentTeam,
+            ],
+            (
+                selectedLevel,
+                selectedSectionId,
+                defaultSectionId,
+                sections,
+                doesMatchFlags,
+                preflight,
+                currentTeam
+            ): Setting[] => {
+                const effectiveSectionId = selectedSectionId ?? defaultSectionId
+
                 let settings: Setting[] = []
 
-                if (selectedSectionId) {
-                    settings = sections.find((x) => x.id === selectedSectionId)?.settings || []
+                if (effectiveSectionId) {
+                    settings = sections.find((x) => x.id === effectiveSectionId)?.settings || []
                 } else {
                     settings = sections
                         .filter((section) => section.level === selectedLevel)
@@ -285,7 +352,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     if (x.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
                         return false
                     }
-                    if (x.hideWhenNoSection && !selectedSectionId) {
+                    if (x.hideWhenNoSection && !effectiveSectionId) {
                         return false
                     }
                     if (x.allowForTeam) {
@@ -358,46 +425,104 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
 
-        filteredLevels: [
-            (s) => [s.levels, s.sections, s.searchTerm, s.sectionsFuse, s.settingsFuse],
-            (
-                levels: SettingLevelId[],
-                sections: SettingSection[],
-                searchTerm: string,
-                sectionsFuse: SectionsFuse
-            ): SettingLevelId[] => {
-                if (!searchTerm.trim()) {
-                    return levels
+        isSearching: [(s) => [s.searchTerm], (searchTerm: string): boolean => searchTerm.trim().length > 0],
+
+        globalSearchIndex: [
+            (s) => [s.sections, s.doesMatchFlags, s.preflight, s.currentTeam],
+            (sections, doesMatchFlags, preflight, currentTeam): GlobalSearchFuse => {
+                const entries: SearchIndexEntry[] = []
+
+                for (const section of sections) {
+                    const sectionTitle =
+                        typeof section.title === 'string' ? section.title : section.id.replace(/[-]/g, ' ')
+
+                    for (const setting of section.settings) {
+                        if (!doesMatchFlags(setting)) {
+                            continue
+                        }
+                        if (setting.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
+                            continue
+                        }
+                        if (setting.allowForTeam && !setting.allowForTeam(currentTeam)) {
+                            continue
+                        }
+
+                        const settingTitle =
+                            typeof setting.title === 'string' ? setting.title : setting.id.replace(/[-]/g, ' ')
+
+                        entries.push({
+                            settingId: setting.id,
+                            settingTitle,
+                            sectionId: section.id,
+                            sectionTitle,
+                            level: section.level,
+                            keywords: (setting.keywords ?? []).join(' '),
+                            description:
+                                setting.searchDescription ??
+                                (typeof setting.description === 'string' ? setting.description : ''),
+                        })
+                    }
                 }
 
-                return levels.filter((level: SettingLevelId) => {
-                    // Check if level name matches
-                    if (level.toLowerCase().includes(searchTerm.toLowerCase())) {
-                        return true
-                    }
-
-                    // Check if any section in this level matches using FuseJS
-                    const levelSections = sections.filter((section: SettingSection) => section.level === level)
-                    const matchingSections = sectionsFuse.search(searchTerm)
-
-                    return matchingSections.some((result) =>
-                        levelSections.some((section) => section.id === result.item.id)
-                    )
+                return new FuseClass(entries, {
+                    keys: [
+                        { name: 'settingTitle', weight: 2 },
+                        { name: 'keywords', weight: 1.5 },
+                        { name: 'sectionTitle', weight: 1 },
+                        { name: 'description', weight: 0.5 },
+                        { name: 'settingId', weight: 0.5 },
+                    ],
+                    threshold: 0.3,
+                    includeScore: true,
                 })
             },
         ],
 
-        filteredSections: [
-            (s) => [s.sections, s.searchTerm, s.sectionsFuse],
-            (sections: SettingSection[], searchTerm: string, sectionsFuse: SectionsFuse): SettingSection[] => {
+        searchResults: [
+            (s) => [s.searchTerm, s.globalSearchIndex],
+            (searchTerm, globalSearchIndex): SearchResultGroup[] => {
                 if (!searchTerm.trim()) {
+                    return []
+                }
+
+                const results = globalSearchIndex.search(searchTerm, { limit: 30 })
+                const groupMap = new Map<SettingSectionId, SearchResultGroup>()
+
+                for (const result of results) {
+                    const { sectionId, sectionTitle, level, settingId, settingTitle } = result.item
+                    let group = groupMap.get(sectionId)
+                    if (!group) {
+                        group = { sectionId, sectionTitle, level, results: [] }
+                        groupMap.set(sectionId, group)
+                    }
+                    group.results.push({ settingId, settingTitle, sectionId, sectionTitle, level })
+                }
+
+                return Array.from(groupMap.values())
+            },
+        ],
+
+        filteredLevels: [
+            (s) => [s.levels, s.searchResults, s.isSearching],
+            (levels, searchResults, isSearching): SettingLevelId[] => {
+                if (!isSearching) {
+                    return levels
+                }
+
+                const levelsWithResults = new Set(searchResults.map((g) => g.level))
+                return levels.filter((level) => levelsWithResults.has(level))
+            },
+        ],
+
+        filteredSections: [
+            (s) => [s.sections, s.searchResults, s.isSearching],
+            (sections, searchResults, isSearching): SettingSection[] => {
+                if (!isSearching) {
                     return sections
                 }
 
-                const matchingResults = sectionsFuse.search(searchTerm)
-                const matchingIds = new Set(matchingResults.map((result) => result.item.id))
-
-                return sections.filter((section) => matchingIds.has(section.id))
+                const sectionIds = new Set(searchResults.map((g) => g.sectionId))
+                return sections.filter((section) => sectionIds.has(section.id))
             },
         ],
     }),

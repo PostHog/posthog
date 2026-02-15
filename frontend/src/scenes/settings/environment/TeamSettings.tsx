@@ -11,6 +11,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { JSSnippet, JSSnippetV2 } from 'lib/components/JSSnippet'
 import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { debounce, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
@@ -160,66 +161,87 @@ export function TeamVariables(): JSX.Element {
 
     const region = preflight?.region
 
+    const RESET_CONFIRMATION = 'RESET'
+
     const openDialog = (): void => {
-        LemonDialog.open({
+        LemonDialog.openForm({
+            maxWidth: 480,
             title: 'Reset project API key?',
-            description: 'This will invalidate the current API key and cannot be undone.',
-            primaryButton: {
-                children: 'Reset',
-                type: 'primary',
-                onClick: resetToken,
+            description:
+                'This will immediately invalidate your current API key. Any apps, websites, or services using it will stop sending data to PostHog until you update them with the new key. This action cannot be undone.',
+            initialValues: { confirmation: '' },
+            content: (
+                <LemonField name="confirmation">
+                    <LemonInput
+                        placeholder={`Type "${RESET_CONFIRMATION}" to confirm`}
+                        autoFocus
+                        data-attr="reset-api-key-confirmation-input"
+                    />
+                </LemonField>
+            ),
+            errors: {
+                confirmation: (value: string) =>
+                    (value || '').toUpperCase() !== RESET_CONFIRMATION
+                        ? `Type "${RESET_CONFIRMATION}" to confirm`
+                        : undefined,
             },
-            secondaryButton: {
-                children: 'Cancel',
-                type: 'secondary',
+            primaryButtonProps: {
+                status: 'danger',
+                children: 'Reset API key',
+            },
+            onSubmit: () => {
+                resetToken()
             },
         })
     }
 
     return (
-        <div className="flex items-start gap-4 flex-wrap">
-            <div className="flex-1">
-                <h3 id="project-api-key" className="min-w-[25rem]">
-                    Project API key
-                </h3>
-                <p>
-                    You can use this write-only key in any one of{' '}
-                    <Link to="https://posthog.com/docs/libraries">our libraries</Link>.
-                </p>
+        <div className="space-y-4 max-w-200">
+            <div className="border rounded p-4 space-y-3 bg-bg-light">
+                <LemonLabel className="mb-0">Project API key</LemonLabel>
                 <CodeSnippet
+                    compact
+                    thing="project API key"
                     actions={
                         isTeamTokenResetAvailable ? (
-                            <LemonButton icon={<IconRefresh />} noPadding onClick={openDialog} />
+                            <LemonButton
+                                icon={<IconRefresh />}
+                                noPadding
+                                onClick={openDialog}
+                                tooltip="Reset API key"
+                            />
                         ) : undefined
                     }
-                    thing="project API key"
                 >
                     {currentTeam?.api_token || ''}
                 </CodeSnippet>
-                <p>
-                    Write-only means it can only create new events. It can't read events or any of your other data
-                    stored with PostHog, so it's safe to use in public apps.
+                <p className="text-muted text-xs mb-0">
+                    Write-only key for use in <Link to="https://posthog.com/docs/libraries">client libraries</Link>.
+                    Safe to use in public apps.
                 </p>
             </div>
-            <div className="flex-1">
-                <h3 id="project-id" className="min-w-[25rem]">
-                    Project ID
-                </h3>
-                <p>
-                    You can use this ID to reference your project in our{' '}
-                    <Link to="https://posthog.com/docs/api">API</Link>.
-                </p>
-                <CodeSnippet thing="project ID">{String(currentTeam?.id || '')}</CodeSnippet>
-            </div>
-            {region ? (
-                <div className="flex-1">
-                    <h3 id="project-region" className="min-w-[25rem]">
-                        Project region
-                    </h3>
-                    <p>This is the region where your PostHog data is hosted.</p>
-                    <CodeSnippet thing="project region">{`${region} Cloud`}</CodeSnippet>
+
+            <div className="flex gap-4 flex-wrap">
+                <div className="border rounded p-4 space-y-3 bg-bg-light flex-1 min-w-60">
+                    <LemonLabel className="mb-0">Project ID</LemonLabel>
+                    <CodeSnippet compact thing="project ID">
+                        {String(currentTeam?.id || '')}
+                    </CodeSnippet>
+                    <p className="text-muted text-xs mb-0">
+                        Use this ID in the <Link to="https://posthog.com/docs/api">PostHog API</Link>.
+                    </p>
                 </div>
-            ) : null}
+                {region ? (
+                    <div className="border rounded p-4 space-y-3 bg-bg-light flex-1 min-w-60">
+                        <LemonLabel className="mb-0">Region</LemonLabel>
+                        <CodeSnippet compact thing="project region">
+                            {`${region} Cloud`}
+                        </CodeSnippet>
+                        <p className="text-muted text-xs mb-0">Where your PostHog data is hosted.</p>
+                    </div>
+                ) : null}
+            </div>
+
             <DebugInfoPanel />
         </div>
     )
