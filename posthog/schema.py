@@ -3760,7 +3760,7 @@ class TaxonomicFilterGroupType(StrEnum):
     ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
     MAX_AI_CONTEXT = "max_ai_context"
     WORKFLOW_VARIABLES = "workflow_variables"
-    QUICK_FILTERS = "quick_filters"
+    SUGGESTED_FILTERS = "suggested_filters"
     EMPTY = "empty"
 
 
