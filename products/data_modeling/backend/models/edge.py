@@ -57,14 +57,13 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     source = models.ForeignKey(Node, related_name="outgoing_edges", on_delete=models.CASCADE, editable=False)
     # the target node of the edge (i.e. the node this edge is pointed toward)
     target = models.ForeignKey(Node, related_name="incoming_edges", on_delete=models.CASCADE, editable=False)
-    # NOTE: this will be dropped
-    dag_id_text = models.TextField(max_length=256, default="posthog", db_index=True, editable=False)
+    dag_id_text = models.TextField(max_length=256, default="posthog", editable=False)
     properties = models.JSONField(default=dict)
 
     class Meta:
         db_table = "posthog_datamodelingedge"
         constraints = [
-            models.UniqueConstraint(fields=["dag_id_text", "source", "target"], name="unique_within_dag"),
+            models.UniqueConstraint(fields=["dag_id_text", "source", "target"], name="unique_within_dag_text"),
         ]
 
     def save(self, *args, skip_validation: bool = False, **kwargs):
