@@ -1,5 +1,5 @@
+import { mapAuthErrorResponse } from '@/lib/auth-error-response'
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
-import { ErrorCode } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { matchAuthServerRedirect } from '@/lib/routing'
 import { hash } from '@/lib/utils'
@@ -62,18 +62,6 @@ function getRegionFromRequest(request: Request): CloudRegion | null {
     const url = new URL(request.url)
     const queryRegion = url.searchParams.get('region') as CloudRegion | null
     return queryRegion
-}
-
-// Detect error codes and return appropriate responses
-const errorHandler = async (response: Response): Promise<Response> => {
-    if (!response.ok) {
-        const body = await response.clone().text()
-        if (body.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
-            return new Response('OAuth token is inactive', { status: 401 })
-        }
-    }
-
-    return response
 }
 
 const handleRequest = async (
@@ -212,11 +200,11 @@ const handleRequest = async (
     log.extend({ features, version })
 
     if (url.pathname.startsWith('/mcp')) {
-        return MCP.serve('/mcp').fetch(request, env, ctx).then(errorHandler)
+        return MCP.serve('/mcp').fetch(request, env, ctx).then(mapAuthErrorResponse)
     }
 
     if (url.pathname.startsWith('/sse')) {
-        return MCP.serveSSE('/sse').fetch(request, env, ctx).then(errorHandler)
+        return MCP.serveSSE('/sse').fetch(request, env, ctx).then(mapAuthErrorResponse)
     }
 
     log.extend({ error: 'route_not_found' })
