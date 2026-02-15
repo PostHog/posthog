@@ -1766,7 +1766,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             cache._lastAnimTimestamp = newTimestamp
 
-            const isStuck = cache._stuckFrames >= 3
+            const isStuck = cache._stuckFrames >= 5
             if (values.currentSegment?.kind === 'gap' && values.currentTimestamp) {
                 newTimestamp = values.currentTimestamp + values.roughAnimationFPS
             } else if (isStuck && values.currentTimestamp) {
