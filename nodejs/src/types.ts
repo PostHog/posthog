@@ -57,6 +57,7 @@ export enum PluginServerMode {
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
+    sentiment_scheduler = 'sentiment-scheduler',
     ingestion_logs = 'ingestion-logs',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
     cdp_cyclotron_shadow_worker = 'cdp-cyclotron-shadow-worker',
@@ -468,10 +469,14 @@ export interface PluginsServerConfig
     TEMPORAL_CLIENT_ROOT_CA: string | undefined
     TEMPORAL_CLIENT_CERT: string | undefined
     TEMPORAL_CLIENT_KEY: string | undefined
+    LLMA_SENTIMENT_SAMPLE_RATE: number
+    LLMA_SENTIMENT_TEAM_IDS: string
+    LLMA_SENTIMENT_BATCH_SIZE: number
+    LLMA_SENTIMENT_FLUSH_INTERVAL_MS: number
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     PLUGIN_SERVER_MODE: PluginServerMode | null
-    /** Comma-separated list of capability groups for local dev: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags */
+    /** Comma-separated list of capability groups for local dev: cdp, cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags, llm_analytics */
     NODEJS_CAPABILITY_GROUPS: string | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
@@ -575,6 +580,7 @@ export interface PluginServerCapabilities {
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
+    sentimentScheduler?: boolean
     cdpCyclotronShadowWorker?: boolean
     recordingApi?: boolean
 }

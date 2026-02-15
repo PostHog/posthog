@@ -365,6 +365,13 @@ class TestIntentMapLoading:
         for intent in key_intents:
             assert intent in intent_map.intents, f"Missing intent: {intent}"
 
+    def test_llm_analytics_intent_enables_nodejs_llm_analytics_group(self) -> None:
+        """llm_analytics should include the nodejs_llm_analytics capability group."""
+        intent_map = load_intent_map()
+        llm_analytics = intent_map.intents["llm_analytics"]
+
+        assert "nodejs_llm_analytics" in llm_analytics.capabilities
+
     def test_real_intent_map_resolves_without_errors(self) -> None:
         """All intents in real map resolve successfully."""
         intent_map = load_intent_map()

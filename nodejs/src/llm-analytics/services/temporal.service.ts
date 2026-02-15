@@ -1,4 +1,5 @@
 import { Client, Connection, TLSConfig, WorkflowHandle } from '@temporalio/client'
+import * as crypto from 'crypto'
 import fs from 'fs/promises'
 import { Counter } from 'prom-client'
 
@@ -18,10 +19,17 @@ export type TemporalServiceHub = Pick<
 >
 
 const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'llm-analytics-evals-task-queue'
+const SENTIMENT_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'llm-analytics-task-queue'
 
 const temporalWorkflowsStarted = new Counter({
     name: 'evaluation_run_workflows_started',
     help: 'Number of evaluation run workflows started',
+    labelNames: ['status'],
+})
+
+const sentimentWorkflowsStarted = new Counter({
+    name: 'sentiment_classification_workflows_started',
+    help: 'Number of sentiment classification workflows started',
     labelNames: ['status'],
 })
 
@@ -129,6 +137,39 @@ export class TemporalService {
             evaluationId,
             targetEventId: event.uuid,
             timestamp: event.timestamp,
+        })
+
+        return handle
+    }
+
+    async startSentimentClassificationWorkflow(events: RawKafkaEvent[]): Promise<WorkflowHandle> {
+        const client = await this.ensureConnected()
+
+        const sortedUuids = events
+            .map((e) => e.uuid)
+            .sort()
+            .join(',')
+        const hash = crypto.createHash('md5').update(sortedUuids).digest('hex')
+        const workflowId = `llma-sentiment-batch-${hash}`
+
+        const handle = await client.workflow.start('llma-run-sentiment-classification', {
+            args: [
+                {
+                    events: events,
+                },
+            ],
+            taskQueue: SENTIMENT_TASK_QUEUE,
+            workflowId,
+            workflowIdConflictPolicy: 'USE_EXISTING',
+            workflowTaskTimeout: '2 minutes',
+            workflowExecutionTimeout: '10 minutes',
+        })
+
+        sentimentWorkflowsStarted.labels({ status: 'success' }).inc()
+
+        logger.debug('Started sentiment batch workflow', {
+            workflowId,
+            eventCount: events.length,
         })
 
         return handle
