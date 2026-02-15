@@ -101,9 +101,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             null as SessionRecordingSnapshotSource[] | null,
             {
                 loadSnapshotSources: async ({ breakpointLength }, breakpoint) => {
-                    if (breakpointLength) {
-                        await breakpoint(breakpointLength)
-                    }
+                    // Always breakpoint before the API call so orphaned loaders
+                    // from StrictMode's unmounted logic get cancelled.
+                    await breakpoint(breakpointLength || 1)
 
                     const headers: Record<string, string> = {}
                     if (props.accessToken) {
@@ -195,19 +195,16 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                             actions.registerWindowId(uuid)
                         }
                     }
-                    // we store the data in the cache because we want to avoid copying this data as much as possible
-                    // and kea's immutability means we were copying all the data on every snapshot call
-                    if (!cache.snapshotsBySource) {
-                        cache.snapshotsBySource = {}
-                    }
-
-                    // it doesn't matter which source we use as the key, since we combine the snapshots anyway
-                    const storageKey = keyForSource(sources[0])
-                    cache.snapshotsBySource[storageKey] = { snapshots: parsedSnapshots }
-
-                    // Mark each source as loaded so the legacy path doesn't re-fetch them.
-                    // The store path tracks this via SnapshotStore entries instead.
-                    if (!cache.useSnapshotStore) {
+                    if (cache.useSnapshotStore) {
+                        // Store path: stash parsed snapshots for the success handler to bucket
+                        cache.pendingBatch = { sources, snapshots: parsedSnapshots }
+                    } else {
+                        // Legacy path: accumulate in cache.snapshotsBySource
+                        if (!cache.snapshotsBySource) {
+                            cache.snapshotsBySource = {}
+                        }
+                        const storageKey = keyForSource(sources[0])
+                        cache.snapshotsBySource[storageKey] = { snapshots: parsedSnapshots }
                         sources.forEach((s) => {
                             const k = keyForSource(s)
                             cache.snapshotsBySource[k] = cache.snapshotsBySource[k] || {}
@@ -314,9 +311,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 actions.setPollingInterval(newInterval)
             }
 
-            // Initialize the snapshot store with sources when flag is on.
-            // Only call setSources when sources actually changed — otherwise it wipes
-            // all loaded/evicted entries, causing a full reload cycle on every poll.
             if (cache.useSnapshotStore && sourcesChanged) {
                 cache.store.setSources(snapshotSources)
             }
@@ -327,28 +321,22 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadSnapshotsForSourceSuccess: ({ snapshotsForSource }) => {
             cache.loadFailureCount = 0
             const sources = values.snapshotSources
-            const sourceKey = snapshotsForSource.sources
-                ? keyForSource(snapshotsForSource.sources[0])
-                : keyForSource(snapshotsForSource.source)
-            const snapshotsData = (cache.snapshotsBySource || {})[sourceKey]
-            const snapshots = snapshotsData?.snapshots || []
 
-            if (!snapshots.length && sources?.length === 1 && sources[0].source !== SnapshotSourceType.file) {
-                // We got only a single source to load, loaded it successfully, but it had no snapshots.
-                posthog.capture('recording_snapshots_v2_empty_response', {
-                    source: sources[0],
-                })
-            }
-
-            // When using SnapshotStore, split batch snapshots across sources and store
             if (cache.useSnapshotStore && sources) {
-                const loadedSources = snapshotsForSource.sources || [snapshotsForSource.source]
-                // The API returns all snapshots for the batch combined under the first source key.
-                // Split them across individual sources using sorted sequential assignment
-                // to avoid dropping snapshots that fall in timestamp gaps between sources.
-                const batchKey = keyForSource(loadedSources[0])
-                const batchData = (cache.snapshotsBySource || {})[batchKey]
-                const allBatchSnapshots: RecordingSnapshot[] = batchData?.snapshots || []
+                // Store path: read from pendingBatch, bucket into SnapshotStore
+                const pending = cache.pendingBatch
+                cache.pendingBatch = null
+                const allBatchSnapshots: RecordingSnapshot[] = pending?.snapshots || []
+                const loadedSources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[] = pending?.sources ||
+                    snapshotsForSource.sources || [snapshotsForSource.source]
+
+                if (
+                    !allBatchSnapshots.length &&
+                    sources.length === 1 &&
+                    sources[0].source !== SnapshotSourceType.file
+                ) {
+                    posthog.capture('recording_snapshots_v2_empty_response', { source: sources[0] })
+                }
 
                 // Build ordered list of (sourceIndex, endMs) for the loaded sources
                 const sourceEntries: { sourceIndex: number; endMs: number }[] = []
@@ -365,36 +353,40 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 }
                 sourceEntries.sort((a, b) => a.endMs - b.endMs)
 
-                // Assign each snapshot to the first source whose endMs >= snapshot timestamp.
-                // Snapshots are already sorted by timestamp from the API.
+                // Split snapshots across sources by timestamp range
                 const buckets = new Map<number, RecordingSnapshot[]>()
                 for (const se of sourceEntries) {
                     buckets.set(se.sourceIndex, [])
                 }
-
                 let seIdx = 0
                 for (const snap of allBatchSnapshots) {
-                    // Advance to the source that covers this timestamp
+                    if (sourceEntries.length === 0) {
+                        break
+                    }
                     while (seIdx < sourceEntries.length - 1 && snap.timestamp > sourceEntries[seIdx].endMs) {
                         seIdx++
                     }
-                    buckets.get(sourceEntries[seIdx].sourceIndex)!.push(snap)
+                    buckets.get(sourceEntries[seIdx].sourceIndex)?.push(snap)
                 }
-
                 for (const se of sourceEntries) {
                     cache.store.markLoaded(se.sourceIndex, buckets.get(se.sourceIndex)!)
                 }
 
-                // Clear raw snapshot data from cache — the store is now the sole owner
-                for (const loaded of loadedSources) {
-                    const k = keyForSource(loaded)
-                    if (cache.snapshotsBySource?.[k]) {
-                        delete cache.snapshotsBySource[k].snapshots
-                    }
-                }
+                actions.loadNextSnapshotSource()
+                return
             }
 
-            // whenever we load a set of data, we try to load the next set right away
+            // Legacy path: snapshots are already in cache.snapshotsBySource from the loader
+            const sourceKey = snapshotsForSource.sources
+                ? keyForSource(snapshotsForSource.sources[0])
+                : keyForSource(snapshotsForSource.source)
+            const snapshotsData = (cache.snapshotsBySource || {})[sourceKey]
+            const snapshots = snapshotsData?.snapshots || []
+
+            if (!snapshots.length && sources?.length === 1 && sources[0].source !== SnapshotSourceType.file) {
+                posthog.capture('recording_snapshots_v2_empty_response', { source: sources[0] })
+            }
+
             actions.loadNextSnapshotSource()
         },
 
@@ -424,7 +416,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
 
         loadNextSnapshotSource: async (_, breakpoint) => {
-            if (cache.useSnapshotStore && !cache.playerActive) {
+            if (!cache.playerActive) {
                 return
             }
             if (values.snapshotsForSourceLoading) {
@@ -438,7 +430,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 return
             }
 
-            // New store-based path
             if (cache.useSnapshotStore) {
                 if (!cache.scheduler || !cache.store) {
                     return
@@ -602,10 +593,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
     })),
     afterMount(({ actions, cache, values }) => {
-        // Initialize store + scheduler when flag is on
+        cache.playerActive = true
         const useStore = values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test'
         cache.useSnapshotStore = useStore
-        cache.playerActive = true
         if (useStore) {
             cache.store = new SnapshotStore()
             cache.scheduler = new LoadingScheduler()
@@ -628,12 +618,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         }, 'visibilityChangeHandler')
     }),
     beforeUnmount(({ cache }) => {
-        cache.useSnapshotStore = false
         cache.snapshotsBySource = undefined
+        cache.pendingBatch = undefined
         cache.previousSourceKeys = undefined
         cache.lastSourcesChangeTime = undefined
-        cache.store = undefined
-        cache.scheduler = undefined
         cache.playbackPosition = undefined
         cache.loadFailureCount = undefined
     }),
