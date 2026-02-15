@@ -225,6 +225,13 @@ import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
+import {
+    StreamlitAppConnectUrl,
+    StreamlitAppMinimalType,
+    StreamlitAppSandbox,
+    StreamlitAppType,
+    StreamlitAppVersion,
+} from 'products/streamlit_apps/frontend/types'
 import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
@@ -1166,6 +1173,15 @@ export class ApiRequest {
 
     public signalReport(id: SignalReport['id'], teamId?: TeamType['id']): ApiRequest {
         return this.signalReports(teamId).addPathComponent(id)
+    }
+
+    // # Streamlit Apps
+    public streamlitApps(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('streamlit_apps')
+    }
+
+    public streamlitApp(shortId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.streamlitApps(teamId).addPathComponent(shortId)
     }
 
     // # Signal Source Configs
@@ -4561,6 +4577,53 @@ const api = {
         },
         async delete(id: string): Promise<void> {
             return await new ApiRequest().signalSourceConfig(id).delete()
+        },
+    },
+
+    streamlitApps: {
+        async list(): Promise<PaginatedResponse<StreamlitAppMinimalType>> {
+            return await new ApiRequest().streamlitApps().get()
+        },
+        async get(shortId: string): Promise<StreamlitAppType> {
+            return await new ApiRequest().streamlitApp(shortId).get()
+        },
+        async create(data: Partial<StreamlitAppType>): Promise<StreamlitAppType> {
+            return await new ApiRequest().streamlitApps().create({ data })
+        },
+        async update(shortId: string, data: Partial<StreamlitAppType>): Promise<StreamlitAppType> {
+            return await new ApiRequest().streamlitApp(shortId).update({ data })
+        },
+        async delete(shortId: string): Promise<void> {
+            return await new ApiRequest().streamlitApp(shortId).delete()
+        },
+        async uploadVersion(shortId: string, file: File): Promise<StreamlitAppVersion> {
+            const formData = new FormData()
+            formData.append('file', file)
+            return await new ApiRequest().streamlitApp(shortId).withAction('upload_version').create({ data: formData })
+        },
+        async versions(shortId: string): Promise<{ results: StreamlitAppVersion[] }> {
+            return await new ApiRequest().streamlitApp(shortId).withAction('versions').get()
+        },
+        async activateVersion(shortId: string, versionNumber: number): Promise<StreamlitAppType> {
+            return await new ApiRequest()
+                .streamlitApp(shortId)
+                .withAction('activate_version')
+                .create({ data: { version_number: versionNumber } })
+        },
+        async status(shortId: string): Promise<StreamlitAppSandbox> {
+            return await new ApiRequest().streamlitApp(shortId).withAction('status').get()
+        },
+        async start(shortId: string): Promise<StreamlitAppType> {
+            return await new ApiRequest().streamlitApp(shortId).withAction('start').create()
+        },
+        async stop(shortId: string): Promise<StreamlitAppType> {
+            return await new ApiRequest().streamlitApp(shortId).withAction('stop').create()
+        },
+        async restart(shortId: string): Promise<StreamlitAppType> {
+            return await new ApiRequest().streamlitApp(shortId).withAction('restart').create()
+        },
+        async connectUrl(shortId: string): Promise<StreamlitAppConnectUrl> {
+            return await new ApiRequest().streamlitApp(shortId).withAction('connect_url').get()
         },
     },
 
