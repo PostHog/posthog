@@ -10,6 +10,7 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir \
     streamlit==1.31.0 \
+    aiohttp \
     numpy \
     pandas \
     polars \
@@ -25,12 +26,10 @@ RUN pip install --no-cache-dir \
     lxml \
     sqlalchemy
 
-RUN mkdir -p /root/.streamlit
-COPY streamlit_config.toml /root/.streamlit/config.toml
+RUN mkdir -p /root/.streamlit && printf '[server]\nport = 8501\nheadless = true\nenableCORS = false\nenableXsrfProtection = false\n\n[browser]\ngatherUsageStats = false\n\n[theme]\nbase = "light"\n' > /root/.streamlit/config.toml
 
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN printf '#!/bin/bash\nset -e\nif [ -f /app/requirements.txt ]; then\n    pip install --no-cache-dir -r /app/requirements.txt\nfi\nexec streamlit run /app/app.py\n' > /entrypoint.sh && chmod +x /entrypoint.sh
+
+RUN printf 'import sys\nfrom aiohttp import ClientSession, WSMsgType, web\n\nLISTEN_PORT = 8080\nUPSTREAM = "http://localhost:8501"\nVERIFIED_HEADER = "X-Verified-User-Data"\nHOP_BY_HOP = frozenset({"connection","keep-alive","proxy-authenticate","proxy-authorization","te","trailers","transfer-encoding","upgrade","host"})\n\ndef _fh(headers):\n    return {k: v for k, v in headers.items() if k.lower() not in HOP_BY_HOP}\n\nasync def healthz(r):\n    return web.Response(text="ok")\n\nasync def proxy_handler(request):\n    if not request.headers.get(VERIFIED_HEADER):\n        return web.Response(status=403, text="Missing verified user data")\n    path = request.match_info.get("path", "")\n    target = f"{UPSTREAM}/{path}"\n    if request.query_string:\n        target = f"{target}?{request.query_string}"\n    if request.headers.get("Upgrade", "").lower() == "websocket":\n        return await _proxy_ws(request, target)\n    return await _proxy_http(request, target)\n\nasync def _proxy_http(request, target):\n    headers = _fh(request.headers)\n    async with ClientSession(auto_decompress=False) as session:\n        async with session.request(method=request.method, url=target, headers=headers, data=await request.read(), allow_redirects=False) as resp:\n            body = await resp.read()\n            return web.Response(status=resp.status, body=body, headers=_fh(resp.headers))\n\ndef _get_protocols(request):\n    protos = []\n    for p in request.headers.getall("Sec-WebSocket-Protocol", []):\n        protos.extend(s.strip() for s in p.split(",") if s.strip())\n    return tuple(protos)\n\nasync def _proxy_ws(request, target):\n    protocols = _get_protocols(request)\n    ws_client = web.WebSocketResponse(protocols=protocols)\n    await ws_client.prepare(request)\n    ws_target = target.replace("http://", "ws://", 1)\n    async with ClientSession() as session:\n        async with session.ws_connect(ws_target, protocols=protocols) as ws_up:\n            import asyncio\n            async def c2u():\n                async for msg in ws_client:\n                    if msg.type == WSMsgType.TEXT: await ws_up.send_str(msg.data)\n                    elif msg.type == WSMsgType.BINARY: await ws_up.send_bytes(msg.data)\n                    elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR): break\n            async def u2c():\n                async for msg in ws_up:\n                    if msg.type == WSMsgType.TEXT: await ws_client.send_str(msg.data)\n                    elif msg.type == WSMsgType.BINARY: await ws_client.send_bytes(msg.data)\n                    elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR): break\n            await asyncio.gather(c2u(), u2c(), return_exceptions=True)\n    return ws_client\n\ndef create_app():\n    app = web.Application()\n    app.router.add_get("/healthz", healthz)\n    app.router.add_route("*", "/{path:.*}", proxy_handler)\n    return app\n\nif __name__ == "__main__":\n    port = int(sys.argv[1]) if len(sys.argv) > 1 else LISTEN_PORT\n    web.run_app(create_app(), host="0.0.0.0", port=port)\n' > /usr/local/bin/streamlit_auth_proxy.py
 
 EXPOSE 8501
-
-ENTRYPOINT ["/entrypoint.sh"]

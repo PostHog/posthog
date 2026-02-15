@@ -2,6 +2,18 @@
 
 You are implementing the Streamlit Apps product for PostHog. This is a new product that allows users to upload and host Streamlit applications in isolated Modal sandboxes with access to their PostHog data via HogQL.
 
+## Architecture: Auth Proxy (Secure Sandbox Access)
+
+Streamlit apps run in Modal sandboxes with a two-layer security model:
+
+1. **Auth proxy on port 8080** — baked into the Docker image at `/usr/local/bin/streamlit_auth_proxy.py`. Validates `X-Verified-User-Data` header, reverse proxies HTTP + WebSocket to Streamlit on localhost:8501.
+
+2. **Modal connect tokens** — port 8080 is Modal's authenticated port. Requests require a valid token (generated server-side). The frontend gets a token via the `connect_url` API endpoint and loads an iframe with `?_modal_connect_token={token}`.
+
+User-uploaded code goes to `/app/` only. The auth proxy is in the Docker image — users cannot modify or bypass it.
+
+Flow: Browser → iframe → Modal (validates token) → Auth Proxy :8080 (validates header) → Streamlit :8501
+
 ## Instructions
 
 1. **Study the spec thoroughly** - Read `products/streamlit_apps/spec.md` to understand the full product requirements, data models, API design, and architecture. Pay special attention to the "Existing Infrastructure (Reuse)" section.
@@ -20,7 +32,7 @@ You are implementing the Streamlit Apps product for PostHog. This is a new produ
    - Never modify a test just to make it pass
    - If a test seems wrong, stop and reconsider your implementation
 
-7. **Commit your work** - Create a commit with a conventional commit message (e.g., `feat(streamlit-apps): add StreamlitApp model`). No Claude attribution in commits.
+7. **Commit your work** - Create a commit with a conventional commit message (e.g., `feat(streamlit-apps): add StreamlitApp model`) using Graphite's gt CLI. No Claude attribution in commits.
 
 When all tasks in `implementation_plan.md` are complete, output:
 
@@ -123,7 +135,8 @@ products/streamlit_apps/
 - `products/notebooks/backend/models.py` - Model patterns
 - `products/notebooks/backend/api/notebook.py` - ViewSet patterns
 - `products/notebooks/frontend/Notebooks.tsx` - List page patterns
-- `products/tasks/backend/services/modal_sandbox.py` - Modal sandbox patterns
+- `products/tasks/backend/services/modal_sandbox.py` - Modal sandbox patterns (see `get_connect_credentials` at line 432 for connect token pattern)
+- `products/tasks/backend/sandbox/images/streamlit_auth_proxy.py` - Auth proxy script (reference implementation)
 - `products/notebooks/backend/kernel_runtime.py` - Sandbox lifecycle patterns
 
 **Registration points:**

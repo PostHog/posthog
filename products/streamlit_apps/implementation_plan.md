@@ -180,40 +180,61 @@ This checklist contains all tasks needed to implement Streamlit Apps hosting. Ta
 
 ---
 
-## Phase 5: HTTP Proxy (via Modal Tunnels)
+## Phase 5: Auth Proxy & Secure Access
 
-### 5.1 Modal Tunnel Integration
+Modal `encrypted_ports` tunnel URLs are publicly accessible (unguessable but unauthenticated).
+This phase replaces the tunnel-based proxy with a two-layer security model:
 
-- [x] Ensure `AppRuntime.start_app()` uses `encrypted_ports=[8501]`
-- [x] Implement `get_tunnel_url(sandbox_record)`:
-  - Reconnect to Modal sandbox via `modal.Sandbox.from_id(sandbox_record.sandbox_id)`
-  - Fetch tunnel URL via `sandbox.tunnels()[8501].url`
-  - Return URL (do NOT store it - it's ephemeral)
-- [x] Add `get_connect_token(app, user_id, team_id)` for proxy auth
-- [x] Write tests for tunnel URL retrieval and connect token generation
+1. **Auth proxy on port 8080** — baked into the Docker image, validates `X-Verified-User-Data` header
+2. **Modal connect tokens** — port 8080 requires a valid token, frontend loads iframe directly
 
-### 5.2 HTTP Proxy with Connect Tokens
+### 5.1 Auth Proxy Script (baked into Docker image)
 
-- [x] Create `products/streamlit_apps/backend/api/proxy.py`
-- [x] Implement `StreamlitProxyView` (extends `View`)
-  - Authenticate user via Django session, verify team membership
-  - Check concurrent viewer limit
-  - Generate Connect Token via `sandbox.create_connect_token(user_metadata={...})`
-  - Forward request to Modal tunnel URL with `Authorization: Bearer {token}`
-  - Return response
-- [x] Register proxy URL: `/api/projects/{team_id}/streamlit_apps/{short_id}/proxy/`
-- [x] Write tests for proxy authentication, token generation, and forwarding
+- [x] Create `products/tasks/backend/sandbox/images/streamlit_auth_proxy.py`
+  - Lightweight Python reverse proxy using `aiohttp` (handles HTTP + WebSocket)
+  - Listens on port 8080 (Modal connect token port)
+  - Validates `X-Verified-User-Data` header exists (defense-in-depth)
+  - Reverse proxies HTTP requests to `http://localhost:8501/{path}`
+  - Reverse proxies WebSocket connections to `ws://localhost:8501/{path}`
+  - Adds `/healthz` endpoint returning 200 for startup health checks
 
-### 5.3 Concurrent Viewer Handling
+### 5.2 Update Docker Image
 
-- [x] `current_viewers` tracking exists in `StreamlitAppSandbox` model (from Phase 1)
-- [x] Return "App is busy" (503) when `current_viewers >= max_viewers`
-- [x] Write tests for concurrent viewer limits
+- [x] Update `products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit`
+  - Add `aiohttp` to pip install
+  - Inline auth proxy script to `/usr/local/bin/streamlit_auth_proxy.py` via `RUN printf`
+  - Keep `EXPOSE 8501` (informational), no ENTRYPOINT
 
-### 5.4 Activity Tracking & Logging
+### 5.3 Update Sandbox Config & Startup
 
-- [x] Update `last_activity_at` on each proxied request
-- [x] Write tests for activity tracking
+- [x] Remove `encrypted_ports=[STREAMLIT_PORT]` from `_build_sandbox_config`
+- [x] Update startup to start auth proxy first, then Streamlit
+- [x] Add `_wait_for_proxy_ready` health check on port 8080
+- [x] Replace `get_tunnel_url` + `get_connect_token` with `get_connect_url(app, user_id, team_id)` → returns `{"url": str, "token": str}`
+- [x] Write tests for updated startup sequence and connect URL generation
+
+### 5.4 Connect URL API Endpoint
+
+- [x] Add `@action connect_url` (GET) to `StreamlitAppViewSet`
+  - Authenticates user via Django session
+  - Checks app is running and not at max viewers
+  - Returns `{"url": "https://...", "token": "tok_..."}`
+  - Updates `last_activity_at` for activity tracking
+- [x] Write tests for the endpoint (auth required, running check, 503 when stopped, 502 when connect fails)
+
+### 5.5 Legacy HTTP Proxy (kept for backwards compatibility)
+
+- [x] `products/streamlit_apps/backend/api/proxy.py` — kept but deprecated
+  - No longer the primary access path: frontend will use connect URL + iframe
+  - May be removed in a future phase
+- [x] Proxy URL still registered in `posthog/urls.py`
+
+### Bugs Fixed During Implementation
+
+1. **Dockerfile COPY → inline RUN** — Modal's `from_dockerfile()` doesn't send build context
+2. **Removed ENTRYPOINT** — Startup controlled by `_start_streamlit_process` via `sandbox.execute()`
+3. **Zip storage** — `upload_version` writes zip bytes to MinIO, `start` reads them back
+4. **Added `modal.enable_output()`** — For visible build logs during development
 
 ---
 
@@ -339,7 +360,9 @@ This checklist contains all tasks needed to implement Streamlit Apps hosting. Ta
 - [ ] Create `products/streamlit_apps/frontend/StreamlitApp.tsx`
   - Header: back link, app name, edit button
   - Show loading state while sandbox starts
-  - Embed iframe pointing to proxy URL when running
+  - Fetch connect URL via `GET /api/projects/{team_id}/streamlit_apps/{short_id}/connect_url/`
+  - Construct iframe src: `${url}?_modal_connect_token=${token}`
+  - Periodically refresh the connect token (tokens are short-lived)
   - Show error state with error message (not full traceback)
   - Show "App is busy" state when concurrent limit reached
 - [ ] Add route for `/project/:id/apps/:appId`
