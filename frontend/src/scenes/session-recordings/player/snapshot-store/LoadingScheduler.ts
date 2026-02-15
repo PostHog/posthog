@@ -51,7 +51,7 @@ export class LoadingScheduler {
 
         // Step 1: Load window around target if not loaded
         const targetIndex = store.getSourceIndexForTimestamp(targetTs)
-        const windowStart = Math.max(0, targetIndex - 2)
+        const windowStart = Math.max(0, targetIndex - 3)
         const windowEnd = Math.min(store.sourceCount - 1, targetIndex + 7)
 
         const unloadedInWindow = store.getUnloadedIndicesInRange(windowStart, windowEnd)

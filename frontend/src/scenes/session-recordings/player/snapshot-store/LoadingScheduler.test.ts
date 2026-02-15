@@ -143,10 +143,10 @@ describe('LoadingScheduler', () => {
             const scheduler = new LoadingScheduler()
             scheduler.seekTo(tsForMinute(10))
 
-            const batch = scheduler.getNextBatch(store, 10)
+            const batch = scheduler.getNextBatch(store, 11)
             expect(batch?.reason).toBe('seek_target')
-            // Window: [target-2, target+7] = [8, 17]
-            expect(batch?.sourceIndices[0]).toBe(8)
+            // Window: [target-3, target+7] = [7, 17]
+            expect(batch?.sourceIndices[0]).toBe(7)
             expect(batch?.sourceIndices[batch.sourceIndices.length - 1]).toBe(17)
         })
 
@@ -191,7 +191,7 @@ describe('LoadingScheduler', () => {
         })
 
         it('searches backward when no FullSnapshot found', () => {
-            const loaded = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+            const loaded = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
             const store = createLoadedStore(20, loaded, [])
             const scheduler = new LoadingScheduler()
             scheduler.seekTo(tsForMinute(10))
