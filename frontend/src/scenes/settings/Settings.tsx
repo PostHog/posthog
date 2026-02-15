@@ -227,25 +227,28 @@ export function Settings({
                     {showOptions ? (
                         <div className="Settings__sections">
                             {!settingsInSidebar && (
-                                <LemonInput
-                                    type="search"
-                                    placeholder="Search settings..."
-                                    value={searchTerm}
-                                    onChange={setSearchTerm}
-                                    size="small"
-                                    fullWidth
-                                    className="mb-2"
-                                />
+                                <div className="Settings__sections__search">
+                                    <LemonInput
+                                        type="search"
+                                        placeholder="Search settings..."
+                                        value={searchTerm}
+                                        onChange={setSearchTerm}
+                                        size="small"
+                                        fullWidth
+                                    />
+                                </div>
                             )}
-                            {isSearching && !settingsInSidebar ? (
-                                <SearchResults
-                                    results={searchResults}
-                                    onSelect={navigateToSetting}
-                                    handleLocally={handleLocally}
-                                />
-                            ) : (
-                                <OptionGroup options={options} />
-                            )}
+                            <div className="Settings__sections__list">
+                                {isSearching && !settingsInSidebar ? (
+                                    <SearchResults
+                                        results={searchResults}
+                                        onSelect={navigateToSetting}
+                                        handleLocally={handleLocally}
+                                    />
+                                ) : (
+                                    <OptionGroup options={options} />
+                                )}
+                            </div>
                         </div>
                     ) : (
                         <LemonButton fullWidth sideIcon={<IconChevronRight />} onClick={() => openCompactNavigation()}>
@@ -257,7 +260,7 @@ export function Settings({
             )}
 
             <AuthenticationAreaComponent>
-                <div className="flex-1 w-full min-w-0 space-y-2 self-start mt-2">
+                <div className="flex-1 w-full min-w-0 min-h-screen space-y-2 self-start">
                     {!hideSections && selectedLevel === 'project' && (
                         <LemonBanner type="info">
                             These settings only apply to the current project{' '}
