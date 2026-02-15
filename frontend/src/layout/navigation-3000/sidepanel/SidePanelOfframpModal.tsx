@@ -8,7 +8,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { StopSignHog } from 'lib/components/hedgehogs'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
+import { DialogPrimitive, DialogPrimitiveClose, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
 import sidepanelNewImage from './images/sidepanel-new.gif'
@@ -106,6 +106,7 @@ export function SidePanelOfframpModal(): JSX.Element {
             }}
             className="group bg-surface-popover w-[300px] md:w-[640px] max-h-[none] has-[:focus-visible]:outline-2 outline-transparent has-[:focus-visible]:outline-accent outline-inset"
         >
+            <DialogPrimitiveClose className="z-10" />
             <DialogPrimitiveTitle>Hey there, we've changed some things!</DialogPrimitiveTitle>
             <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
                 <Tabs.List className="sr-only">

@@ -1,5 +1,7 @@
 import { Dialog } from '@base-ui/react/dialog'
 
+import { IconX } from '@posthog/icons'
+
 import { cn } from 'lib/utils/css-classes'
 
 function DialogPrimitive({
@@ -40,4 +42,18 @@ function DialogPrimitiveTitle({
     return <Dialog.Title className={className}>{children}</Dialog.Title>
 }
 
-export { DialogPrimitive, DialogPrimitiveTitle }
+function DialogPrimitiveClose({ className }: { className?: string } = {}): JSX.Element {
+    return (
+        <Dialog.Close
+            className={cn(
+                'absolute top-1 right-1 flex items-center justify-center size-7 rounded-sm text-secondary hover:text-primary hover:bg-fill-button-tertiary-hover transition-colors cursor-pointer',
+                className
+            )}
+            aria-label="Close"
+        >
+            <IconX className="size-4" />
+        </Dialog.Close>
+    )
+}
+
+export { DialogPrimitive, DialogPrimitiveClose, DialogPrimitiveTitle }
