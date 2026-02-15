@@ -285,6 +285,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             groupType,
             results,
         }),
+        appendTopMatch: (item: TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType }) => ({ item }),
     })),
     reducers(({ props, selectors }) => ({
         searchQuery: [
@@ -296,8 +297,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         activeTab: [
             (state: any): TaxonomicFilterGroupType => {
                 const groupTypes = selectors.taxonomicGroupTypes(state)
-                if (groupTypes.includes(TaxonomicFilterGroupType.QuickFilters)) {
-                    return TaxonomicFilterGroupType.QuickFilters
+                if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
+                    return TaxonomicFilterGroupType.SuggestedFilters
                 }
                 return selectors.groupType(state) || groupTypes[0]
             },
@@ -314,6 +315,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 moveDown: () => false,
                 setActiveTab: () => true,
                 enableMouseInteractions: () => true,
+            },
+        ],
+        topMatchItems: [
+            [] as (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[],
+            {
+                setSearchQuery: () => [],
+                appendTopMatch: (
+                    state: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[],
+                    { item }: { item: TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType } }
+                ) => {
+                    const existingIndex = state.findIndex((i) => i.group === item.group)
+                    if (existingIndex >= 0) {
+                        const next = [...state]
+                        next[existingIndex] = item
+                        return next
+                    }
+                    return [...state, item]
+                },
             },
         ],
     })),
@@ -1036,10 +1055,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'On this page',
                     },
                     {
-                        name: 'Quick filters',
-                        searchPlaceholder: 'quick filters',
-                        categoryLabel: (count: number) => 'Quick filters' + (count > 0 ? `: ${count}` : ''),
-                        type: TaxonomicFilterGroupType.QuickFilters,
+                        name: 'Suggested filters',
+                        searchPlaceholder: 'suggested filters',
+                        categoryLabel: (count: number) => 'Suggested filters' + (count > 0 ? `: ${count}` : ''),
+                        type: TaxonomicFilterGroupType.SuggestedFilters,
                         options: [],
                         localItemsSearch: (_items: TaxonomicDefinitionTypes[], q: string): QuickFilterItem[] =>
                             buildQuickFilterSuggestions(q, propGroupTypes, getProjectEventExistence()),
@@ -1047,7 +1066,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             item.propertyFilterType === PropertyFilterType.Person ? <IconPerson /> : <IconEye />,
                         getName: (item: QuickFilterItem) => item.name,
                         getValue: (item: QuickFilterItem) => item.filterValue,
-                        getPopoverHeader: () => 'Quick filters',
+                        getPopoverHeader: () => 'Suggested filters',
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
@@ -1071,7 +1090,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 return resolvedGroupTypes.filter(
                     (groupType) =>
                         availableGroupTypes.has(groupType) &&
-                        (groupType !== TaxonomicFilterGroupType.QuickFilters || quickFiltersEnabled)
+                        (groupType !== TaxonomicFilterGroupType.SuggestedFilters || quickFiltersEnabled)
                 )
             },
         ],
@@ -1128,24 +1147,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     ])
                 ),
         ],
-        exactMatchItems: [
-            (s) => [
-                (state, props) => {
-                    if (s.activeTab(state, props) !== TaxonomicFilterGroupType.QuickFilters) {
-                        return []
-                    }
-                    const logics = s.infiniteListLogics(state, props)
-                    return Object.entries(logics)
-                        .filter(([type, logic]) => type !== TaxonomicFilterGroupType.QuickFilters && logic.isMounted())
-                        .map(([type, logic]) => {
-                            const match = logic.selectors.exactMatchForQuery(state, logic.props)
-                            return match ? { ...match, group: type as TaxonomicFilterGroupType } : null
-                        })
-                        .filter(Boolean)
-                },
-            ],
-            (exactMatchItems: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[]) => exactMatchItems,
-        ],
         infiniteListCounts: [
             (s) => [
                 (state, props) =>
@@ -1170,6 +1171,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 if (searchGroupTypes.length > 1) {
                     searchGroupTypes = searchGroupTypes.filter(
                         (type) =>
+                            type &&
                             !type.startsWith(TaxonomicFilterGroupType.GroupsPrefix) &&
                             !type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
                     )
@@ -1209,7 +1211,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         })
                     }
                     if (isQuickFilterItem(item)) {
-                        posthog.capture('taxonomic quick filter selected', {
+                        posthog.capture('taxonomic suggested filter selected', {
                             query: originalQuery,
                             filterName: item.name,
                             propertyKey: item.propertyKey,
@@ -1217,6 +1219,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             filterValue: item.filterValue,
                             propertyFilterType: item.propertyFilterType,
                             eventName: item.eventName,
+                        })
+                    } else {
+                        posthog.capture('taxonomic non-suggested filter selected', {
+                            group: group.type,
+                            value,
+                            activeTab: values.activeTab,
                         })
                     }
                 } catch (e) {
@@ -1300,7 +1308,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             // or is this a Taxonomic group with a local data source, zero results after searching.
             const shouldOtherwiseTabRight =
                 activeTaxonomicGroup &&
-                activeTaxonomicGroup.type !== TaxonomicFilterGroupType.QuickFilters &&
+                activeTaxonomicGroup.type !== TaxonomicFilterGroupType.SuggestedFilters &&
                 !activeTaxonomicGroup.endpoint &&
                 infiniteListCounts[activeTaxonomicGroup.type] === 0
             if (shouldTabRightBecauseReplay || shouldOtherwiseTabRight) {
@@ -1319,8 +1327,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         infiniteListResultsReceived: ({ groupType, results }) => {
             const activeTabHasNoResults = groupType === values.activeTab && !results.count && !results.expandedCount
 
-            if (activeTabHasNoResults && values.activeTab !== TaxonomicFilterGroupType.QuickFilters) {
+            if (activeTabHasNoResults && values.activeTab !== TaxonomicFilterGroupType.SuggestedFilters) {
                 actions.tabRight()
+            }
+
+            if (
+                values.activeTab === TaxonomicFilterGroupType.SuggestedFilters &&
+                groupType !== TaxonomicFilterGroupType.SuggestedFilters
+            ) {
+                const logic = values.infiniteListLogics[groupType]
+                if (logic?.isMounted()) {
+                    const match = logic.values.topMatchForQuery
+                    if (match) {
+                        actions.appendTopMatch({
+                            ...match,
+                            group: groupType as TaxonomicFilterGroupType,
+                        })
+                    }
+                }
             }
 
             // Update app-wide cached property metadata
@@ -1339,6 +1363,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     ])
                 )
                 updatePropertyDefinitions(newPropertyDefinitions)
+            }
+        },
+
+        setActiveTab: ({ activeTab }) => {
+            if (values.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
+                posthog.capture('taxonomic filter tab switched', {
+                    activeTab,
+                    searchQuery: values.searchQuery,
+                })
             }
         },
     })),
