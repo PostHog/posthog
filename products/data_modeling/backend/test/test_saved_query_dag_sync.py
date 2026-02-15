@@ -67,13 +67,15 @@ class TestSyncSavedQueryToDag(BaseTest):
         )
 
         node = sync_saved_query_to_dag(saved_query)
-        # use explicit assert for mypy's dumb ass
         assert node is not None
         self.assertEqual(node.name, "test_view")
         self.assertEqual(node.team, self.team)
         self.assertEqual(node.dag_id_text, get_dag_id(self.team.id))
         self.assertEqual(node.type, NodeType.VIEW)
         self.assertEqual(node.saved_query, saved_query)
+
+        dag = DAG.objects.get(team=self.team, name=get_dag_id(self.team.id))
+        self.assertEqual(node.dag_id, dag.id)
 
     def test_sync_creates_table_node_for_posthog_source(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -94,9 +96,14 @@ class TestSyncSavedQueryToDag(BaseTest):
         self.assertEqual(events_node.type, NodeType.TABLE)
         self.assertEqual(events_node.properties.get("origin"), "posthog")
 
+        dag = DAG.objects.get(team=self.team, name=get_dag_id(self.team.id))
+        self.assertEqual(events_node.dag_id, dag.id)
+
         # edge from events -> test_view
         edge = Edge.objects.filter(source=events_node, target=node).first()
         self.assertIsNotNone(edge)
+        assert edge is not None
+        self.assertEqual(edge.dag_id, dag.id)
 
     def test_sync_creates_edges_for_multiple_dependencies(self):
         saved_query = DataWarehouseSavedQuery.objects.create(

@@ -22,7 +22,7 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     # NOTE: initially nullable for smooth migration
     dag = models.ForeignKey(DAG, on_delete=models.CASCADE, null=True, blank=True)
     # NOTE: this will be dropped
-    dag_id_text = models.TextField(max_length=256, default="posthog", db_index=True)
+    dag_id_text = models.TextField(max_length=256, default="posthog")
     # name of the source table, view, matview, etc.
     # for nodes with a saved_query, this is automatically synced from saved_query.name
     name = models.TextField(max_length=2048, db_index=True)

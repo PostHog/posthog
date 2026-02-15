@@ -61,7 +61,7 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     # NOTE: initially nullable for smooth migration
     dag = models.ForeignKey(DAG, on_delete=models.CASCADE, null=True, blank=True)
     # NOTE: this will be dropped
-    dag_id_text = models.TextField(max_length=256, default="posthog", db_index=True, editable=False)
+    dag_id_text = models.TextField(max_length=256, default="posthog", editable=False)
     properties = models.JSONField(default=dict)
 
     class Meta:
