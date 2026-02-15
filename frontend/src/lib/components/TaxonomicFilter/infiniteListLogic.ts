@@ -85,7 +85,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
     connect((props: InfiniteListLogicProps) => ({
         values: [
             taxonomicFilterLogic(props),
-            ['searchQuery', 'value', 'groupType', 'taxonomicGroups', 'exactMatchItems'],
+            ['searchQuery', 'value', 'groupType', 'taxonomicGroups', 'topMatchItems'],
             teamLogic,
             ['currentTeamId'],
         ],
@@ -256,11 +256,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             null as string | null,
             {
                 setSearchQuery: (_, { searchQuery }) => {
+                    if (props.taxonomicGroupTypes?.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
+                        return null
+                    }
                     if (props.listGroupType === TaxonomicFilterGroupType.EventProperties && isURL(searchQuery)) {
                         return '$current_url'
                     }
-                    // TODO not everyone will call this email 🤷
-                    // but this is an obvious option to add
                     if (props.listGroupType === TaxonomicFilterGroupType.PersonProperties && isEmail(searchQuery)) {
                         return 'email'
                     }
@@ -403,29 +404,34 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return createEmptyListStorage()
             },
         ],
-        exactMatchForQuery: [
+        topMatchForQuery: [
             (s) => [s.localItems, s.remoteItems, s.swappedInQuery, s.searchQuery, s.group],
             (localItems, remoteItems, swappedInQuery, searchQuery, group): TaxonomicDefinitionTypes | undefined => {
                 if (!searchQuery) {
                     return undefined
                 }
-                const lowerQuery = searchQuery.toLowerCase()
                 const remoteIsFresh = remoteItems.searchQuery === (swappedInQuery || searchQuery)
                 const results = remoteIsFresh ? [...localItems.results, ...remoteItems.results] : localItems.results
-                const count = remoteIsFresh ? localItems.count + remoteItems.count : localItems.count
 
-                const exactMatch = results.find((item) => group?.getName?.(item)?.toLowerCase() === lowerQuery)
-                const singleMatch = count === 1 ? results[0] : undefined
-                return exactMatch ?? singleMatch
+                // Find the first non-disabled item that has a valid value
+                return results.find((item) => {
+                    // Skip disabled items
+                    if (group?.getIsDisabled?.(item)) {
+                        return false
+                    }
+                    // If getValue is not defined, return the first non-disabled item
+                    // If getValue is defined, return the first item with a non-null value
+                    return !group?.getValue ? true : group.getValue(item) != null
+                })
             },
         ],
         items: [
-            (s) => [s.remoteItems, s.localItems, s.listGroupType, s.exactMatchItems],
-            (remoteItems, localItems, listGroupType, exactMatchItems) => {
-                const exactMatches = listGroupType === TaxonomicFilterGroupType.QuickFilters ? exactMatchItems : []
+            (s) => [s.remoteItems, s.localItems, s.listGroupType, s.topMatchItems],
+            (remoteItems, localItems, listGroupType, topMatchItems) => {
+                const topMatches = listGroupType === TaxonomicFilterGroupType.SuggestedFilters ? topMatchItems : []
                 return {
-                    results: [...localItems.results, ...remoteItems.results, ...exactMatches],
-                    count: localItems.count + remoteItems.count + exactMatches.length,
+                    results: [...localItems.results, ...remoteItems.results, ...topMatches],
+                    count: localItems.count + remoteItems.count + topMatches.length,
                     searchQuery: remoteItems.searchQuery || localItems.searchQuery,
                     originalQuery: remoteItems.originalQuery || localItems.originalQuery,
                     expandedCount: remoteItems.expandedCount,
@@ -477,8 +483,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         setSearchQuery: async () => {
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
-            } else if (props.autoSelectItem) {
-                actions.setIndex(0)
+            } else {
+                // For local items, dispatch results received so parent logic can process them
+                actions.infiniteListResultsReceived(props.listGroupType, values.localItems)
+                if (props.autoSelectItem) {
+                    actions.setIndex(0)
+                }
             }
         },
         setEventOrdering: async () => {
@@ -488,8 +498,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
-            } else if (props.autoSelectItem) {
-                actions.setIndex(0)
+            } else {
+                // For local items, dispatch results received so parent logic can process them
+                actions.infiniteListResultsReceived(props.listGroupType, values.localItems)
+                if (props.autoSelectItem) {
+                    actions.setIndex(0)
+                }
             }
         },
         moveUp: () => {
@@ -510,11 +524,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                 if (!isDisabledItem) {
                     const itemValue = selectedItem ? itemGroup?.getValue?.(selectedItem) : null
+                    const isPromotedItem = itemGroup?.type !== props.listGroupType
                     actions.selectItem(
                         itemGroup,
                         itemValue ?? null,
                         selectedItem,
-                        values.swappedInQuery ? values.searchQuery : undefined
+                        isPromotedItem || values.swappedInQuery ? values.searchQuery : undefined
                     )
                 }
             }
