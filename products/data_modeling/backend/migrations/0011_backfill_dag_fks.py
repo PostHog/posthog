@@ -21,7 +21,7 @@ def backfill_dag_fks(apps, _):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_modeling", "0009_edge_dag_fk_node_dag_fk"),
+        ("data_modeling", "0010_edge_dag_node_dag"),
     ]
 
     operations = [
