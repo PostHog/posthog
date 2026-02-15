@@ -5,9 +5,11 @@ import logging
 from io import BytesIO
 from zipfile import ZipFile
 
+from django.conf import settings
 from django.utils import timezone
 
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
+from products.streamlit_apps.backend.services.bridge import generate_bridge_token
 from products.tasks.backend.services.sandbox import SandboxConfig, SandboxProtocol, SandboxTemplate, get_sandbox_class
 
 logger = logging.getLogger(__name__)
@@ -23,12 +25,19 @@ class AppRuntimeError(Exception):
 
 
 def _build_sandbox_config(app: StreamlitApp, version: StreamlitAppVersion) -> SandboxConfig:
+    bridge_url = f"{settings.SITE_URL}/api/streamlit_bridge/query/"
+    bridge_token = generate_bridge_token(team_id=app.team_id, app_id=str(app.id))
+
     config = SandboxConfig(
         name=f"streamlit-{app.short_id}",
         template=SandboxTemplate.STREAMLIT_BASE,
         cpu_cores=app.cpu_cores,
         memory_gb=app.memory_gb,
         ttl_seconds=60 * 15,
+        environment_variables={
+            "POSTHOG_BRIDGE_URL": bridge_url,
+            "POSTHOG_BRIDGE_TOKEN": bridge_token,
+        },
     )
     if version.snapshot_id:
         config.snapshot_id = version.snapshot_id

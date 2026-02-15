@@ -242,15 +242,18 @@ This phase replaces the tunnel-based proxy with a two-layer security model:
 
 ### 6.1 PostHog Query Package
 
-- [ ] Create `posthog` package for sandbox (NOT the standard posthog-python SDK)
+- [x] Create `posthog` package for sandbox (NOT the standard posthog-python SDK)
   - `posthog.query(hogql_string)` → returns pandas DataFrame
-  - Uses marker-based IPC under the hood (same as notebooks)
-- [ ] Study `products/notebooks/backend/kernel_runtime.py` for bridge patterns
-- [ ] Implement bridge handler in `products/streamlit_apps/backend/services/bridge.py`
-  - Intercept markers from Streamlit stdout
-  - Execute HogQL with team context from `StreamlitApp.team_id`
-  - Return results to sandbox
-- [ ] Write tests for HogQL query execution via bridge
+  - Uses HTTP bridge (sandbox calls PostHog API with signed token)
+- [x] Study `products/notebooks/backend/kernel_runtime.py` for bridge patterns
+- [x] Implement bridge handler in `products/streamlit_apps/backend/services/bridge.py`
+  - Signed token auth (Django TimestampSigner, 1h TTL)
+  - Execute HogQL with team context from token claims
+  - API endpoint at `/api/streamlit_bridge/query/`
+- [x] Create `posthog` package baked into Docker image via `printf`
+  - `posthog.query(hogql)` → HTTP POST to bridge endpoint → pandas DataFrame
+  - Bridge URL + token passed as env vars at sandbox creation
+- [x] Write tests for HogQL query execution via bridge
 
 ---
 

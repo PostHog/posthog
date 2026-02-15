@@ -305,6 +305,18 @@ class TestBuildSandboxConfig(BaseTest):
         config = _build_sandbox_config(app, version)
         assert config.snapshot_id is None
 
+    def test_config_includes_bridge_env_vars(self):
+        from products.streamlit_apps.backend.services.app_runtime import _build_sandbox_config
+
+        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+
+        config = _build_sandbox_config(app, version)
+        assert config.environment_variables is not None
+        assert "POSTHOG_BRIDGE_URL" in config.environment_variables
+        assert "POSTHOG_BRIDGE_TOKEN" in config.environment_variables
+        assert "/api/streamlit_bridge/query/" in config.environment_variables["POSTHOG_BRIDGE_URL"]
+
 
 @patch("products.streamlit_apps.backend.services.app_runtime.get_sandbox_class")
 class TestAppRuntimeConnectUrl(BaseTest):
