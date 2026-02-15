@@ -1,16 +1,26 @@
+import clsx from 'clsx'
 import { useState } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
+
+const DATE_TIME_FORMAT_24H = 'MMM D, YYYY HH:mm'
+const DATE_TIME_FORMAT_12H = 'MMM D, YYYY h:mm A'
 
 export interface FixedRangeWithTimePickerProps {
     rangeDateFrom: dayjs.Dayjs | null
     rangeDateTo: dayjs.Dayjs | null
     setDate: (dateFrom: string | null, dateTo: string | null, keepPopoverOpen: boolean, explicitDate: boolean) => void
     onClose: () => void
+    /** Use 24-hour format instead of 12-hour with AM/PM */
+    use24HourFormat?: boolean
+    /** Whether to show the "Include time?" toggle */
+    showTimeToggle?: boolean
+    /** Callback when time toggle is changed */
+    onToggleTime?: (includeTime: boolean) => void
 }
 
 export function FixedRangeWithTimePicker({
@@ -18,6 +28,9 @@ export function FixedRangeWithTimePicker({
     rangeDateTo,
     setDate,
     onClose,
+    use24HourFormat = false,
+    showTimeToggle,
+    onToggleTime,
 }: FixedRangeWithTimePickerProps): JSX.Element {
     const [selectingStart, setSelectingStart] = useState(true)
     const [localFrom, setLocalFrom] = useState<dayjs.Dayjs | null>(rangeDateFrom)
@@ -42,14 +55,20 @@ export function FixedRangeWithTimePicker({
                     size="small"
                     onClick={() => setSelectingStart(true)}
                 >
-                    Start: {localFrom ? localFrom.format('MMM D, YYYY h:mm A') : 'Not set'}
+                    Start:{' '}
+                    {localFrom
+                        ? localFrom.format(use24HourFormat ? DATE_TIME_FORMAT_24H : DATE_TIME_FORMAT_12H)
+                        : 'Not set'}
                 </LemonButton>
                 <LemonButton
                     type={!selectingStart ? 'primary' : 'secondary'}
                     size="small"
                     onClick={() => setSelectingStart(false)}
                 >
-                    End: {localTo ? localTo.format('MMM D, YYYY h:mm A') : 'Not set'}
+                    End:{' '}
+                    {localTo
+                        ? localTo.format(use24HourFormat ? DATE_TIME_FORMAT_24H : DATE_TIME_FORMAT_12H)
+                        : 'Not set'}
                 </LemonButton>
             </div>
             <div className="p-2">
@@ -79,16 +98,53 @@ export function FixedRangeWithTimePicker({
                         }
                     }}
                     leftmostMonth={(selectingStart ? localFrom : localTo)?.startOf('month')}
-                    getLemonButtonProps={({ date, props }) => {
-                        const currentValue = selectingStart ? localFrom : localTo
-                        if (date.isSame(currentValue, 'd')) {
-                            return { ...props, status: 'default', type: 'primary' }
+                    getLemonButtonProps={({ date, props, dayIndex }) => {
+                        if ((localFrom && date.isSame(localFrom, 'd')) || (localTo && date.isSame(localTo, 'd'))) {
+                            const isStart = localFrom && date.isSame(localFrom, 'd')
+                            const isEnd = localTo && date.isSame(localTo, 'd')
+                            return {
+                                ...props,
+                                className:
+                                    isStart && isEnd
+                                        ? props.className
+                                        : clsx(
+                                              props.className,
+                                              {
+                                                  'rounded-r-none': isStart && dayIndex < 6,
+                                                  'rounded-l-none': isEnd && dayIndex > 0,
+                                              },
+                                              'LemonCalendar__range--boundary'
+                                          ),
+                                type: 'primary',
+                            }
+                        } else if (
+                            localFrom &&
+                            localTo &&
+                            date.isAfter(localFrom, 'd') &&
+                            date.isBefore(localTo, 'd')
+                        ) {
+                            return {
+                                ...props,
+                                className: clsx(
+                                    props.className,
+                                    dayIndex === 0
+                                        ? 'rounded-r-none'
+                                        : dayIndex === 6
+                                          ? 'rounded-l-none'
+                                          : 'rounded-none'
+                                ),
+                                active: true,
+                            }
                         }
                         return props
                     }}
                     getLemonButtonTimeProps={(timeProps) => {
                         const currentValue = selectingStart ? localFrom : localTo
-                        const selected = currentValue ? currentValue.format(timeProps.unit) : null
+                        const selected = currentValue
+                            ? timeProps.unit === 'h' && use24HourFormat
+                                ? String(currentValue.hour())
+                                : currentValue.format(timeProps.unit)
+                            : null
 
                         return {
                             active: selected === String(timeProps.value),
@@ -98,14 +154,18 @@ export function FixedRangeWithTimePicker({
                                 if (currentValue) {
                                     let newDate = currentValue
                                     if (timeProps.unit === 'h') {
-                                        const isPM = currentValue.format('a') === 'pm'
-                                        newDate = currentValue.hour(
-                                            isPM && timeProps.value !== 12
-                                                ? Number(timeProps.value) + 12
-                                                : !isPM && timeProps.value === 12
-                                                  ? 0
-                                                  : Number(timeProps.value)
-                                        )
+                                        if (use24HourFormat) {
+                                            newDate = currentValue.hour(Number(timeProps.value))
+                                        } else {
+                                            const isPM = currentValue.format('a') === 'pm'
+                                            newDate = currentValue.hour(
+                                                isPM && timeProps.value !== 12
+                                                    ? Number(timeProps.value) + 12
+                                                    : !isPM && timeProps.value === 12
+                                                      ? 0
+                                                      : Number(timeProps.value)
+                                            )
+                                        }
                                     } else if (timeProps.unit === 'm') {
                                         newDate = currentValue.minute(Number(timeProps.value))
                                     } else if (timeProps.unit === 'a') {
@@ -132,15 +192,27 @@ export function FixedRangeWithTimePicker({
                         }
                     }}
                     granularity="minute"
+                    use24HourFormat={use24HourFormat}
                 />
             </div>
-            <div className="flex justify-end gap-2 border-t p-2 pt-4" data-attr="lemon-calendar-range-with-time-footer">
-                <LemonButton type="secondary" onClick={onClose}>
-                    Cancel
-                </LemonButton>
-                <LemonButton type="primary" disabled={!localFrom || !localTo} onClick={handleApply}>
-                    Apply
-                </LemonButton>
+            <div
+                className={clsx(
+                    'flex gap-2 items-center border-t p-2 pt-4',
+                    showTimeToggle ? 'justify-between' : 'justify-end'
+                )}
+                data-attr="lemon-calendar-range-with-time-footer"
+            >
+                {showTimeToggle && (
+                    <LemonSwitch label="Include time?" checked={true} onChange={() => onToggleTime?.(false)} bordered />
+                )}
+                <div className="flex gap-2">
+                    <LemonButton type="secondary" onClick={onClose}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton type="primary" disabled={!localFrom || !localTo} onClick={handleApply}>
+                        Apply
+                    </LemonButton>
+                </div>
             </div>
         </div>
     )

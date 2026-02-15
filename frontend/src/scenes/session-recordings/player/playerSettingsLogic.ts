@@ -36,7 +36,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistOpen: (open: boolean) => ({ open }),
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
-        setIsCinemaMode: (isCinemaMode: boolean) => ({ isCinemaMode }),
+        setPlaylistCollapsed: (collapsed: boolean) => ({ collapsed }),
+        setShowMetadataFooter: (showMetadataFooter: boolean) => ({ showMetadataFooter }),
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
@@ -108,11 +109,18 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
             },
         ],
-        isCinemaMode: [
+        isPlaylistCollapsed: [
             false,
             { persist: true },
             {
-                setIsCinemaMode: (_, { isCinemaMode }) => isCinemaMode,
+                setPlaylistCollapsed: (_, { collapsed }) => collapsed,
+            },
+        ],
+        showMetadataFooter: [
+            false,
+            // Don't persist this setting as required for export only
+            {
+                setShowMetadataFooter: (_, { showMetadataFooter }) => showMetadataFooter,
             },
         ],
     })),
@@ -170,12 +178,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        '*': (_, searchParams, hashParams) => {
-            const inspectorSideBarOpen = searchParams.inspectorSideBar === true || hashParams.inspectorSideBar === true
-            if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
-                actions.setSidebarOpen(inspectorSideBarOpen)
-            }
-        },
         ['**/shared/*']: (_, searchParams) => {
             // when sharing a recording, you can specify whether the inspector should be open.
             // we should obey that regardless of the preference stored here.
@@ -191,6 +193,20 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             const playerSpeed = Number(searchParams.playerSpeed ?? 1)
             if (values.speed !== playerSpeed) {
                 actions.setSpeed(playerSpeed)
+            }
+            const showMetadataFooter =
+                'showMetadataFooter' in searchParams && (searchParams.showMetadataFooter ?? false)
+            if (values.showMetadataFooter !== showMetadataFooter) {
+                actions.setShowMetadataFooter(showMetadataFooter)
+                // If we display metadata footer (for analysis purposes), we also want to skip inactivity to speed up rendering
+                actions.setSkipInactivitySetting(showMetadataFooter)
+            }
+        },
+        // Putting `*` last to match it only if more specific routes don't match, as the matching seems to be exclusive
+        '*': (_, searchParams, hashParams) => {
+            const inspectorSideBarOpen = searchParams.inspectorSideBar === true || hashParams.inspectorSideBar === true
+            if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
+                actions.setSidebarOpen(inspectorSideBarOpen)
             }
         },
     })),

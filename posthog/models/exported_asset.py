@@ -1,5 +1,5 @@
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 
 from django.conf import settings
@@ -89,6 +89,8 @@ class ExportedAsset(models.Model):
     exception = models.TextField(null=True, blank=True)
     # The exception class name (e.g., "QueryError", "TimeoutError") for categorization
     exception_type = models.CharField(max_length=255, null=True, blank=True)
+    # Classification of the failure, see failure_handler.py for details
+    failure_type = models.CharField(max_length=255, null=True, blank=True)
 
     # DEPRECATED: We now use JWT for accessing assets
     access_token = models.CharField(max_length=400, null=True, blank=True, default=get_default_access_token)
@@ -98,27 +100,27 @@ class ExportedAsset(models.Model):
     objects_including_ttl_deleted: models.Manager["ExportedAsset"] = models.Manager()
 
     def save(self, *args, **kwargs):
-        # Only set expires_after on initial creation or when it's explicitly being updated
-        update_fields = kwargs.get("update_fields")
-        if not self.expires_after and (update_fields is None or "expires_after" in update_fields):
-            expiry_delta = SIX_MONTHS
+        if not self.expires_after:
+            self.expires_after = self.compute_expires_after(self.export_format)
 
-            if self.export_format in (self.ExportFormat.CSV, self.ExportFormat.XLSX):
-                expiry_delta = SEVEN_DAYS
-            elif self.export_format in (
-                self.ExportFormat.MP4,
-                self.ExportFormat.WEBM,
-                self.ExportFormat.GIF,
-            ):
-                expiry_delta = TWELVE_MONTHS
-
-            expiry_datetime = now() + expiry_delta
-            self.expires_after = expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
-
-            if update_fields is not None and "expires_after" not in update_fields:
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
                 kwargs["update_fields"] = {*update_fields, "expires_after"}
 
         super().save(*args, **kwargs)
+
+    @classmethod
+    def get_expiry_delta(cls, export_format: str) -> timedelta:
+        if export_format in (cls.ExportFormat.CSV, cls.ExportFormat.XLSX):
+            return SEVEN_DAYS
+        elif export_format in (cls.ExportFormat.MP4, cls.ExportFormat.WEBM, cls.ExportFormat.GIF):
+            return TWELVE_MONTHS
+        return SIX_MONTHS
+
+    @classmethod
+    def compute_expires_after(cls, export_format: str) -> datetime:
+        expiry_datetime = now() + cls.get_expiry_delta(export_format)
+        return expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
 
     @property
     def has_content(self):
@@ -135,6 +137,10 @@ class ExportedAsset(models.Model):
             filename = f"{filename}-{slugify(self.dashboard.name)}"
         elif self.insight:
             filename = f"{filename}-{slugify(self.insight.name or self.insight.derived_name)}"
+
+        timestamp = self.created_at.strftime("%Y-%m-%d") if self.created_at else ""
+        if timestamp:
+            filename = f"{filename}-{timestamp}"
 
         filename = f"{filename}.{ext}"
 
@@ -237,3 +243,35 @@ def save_content_to_object_storage(exported_asset: ExportedAsset, content: bytes
     object_storage.write(object_path, content)
     exported_asset.content_location = object_path
     exported_asset.save(update_fields=["content_location"])
+
+
+def _get_object_path(exported_asset: ExportedAsset) -> str:
+    path_parts: list[str] = [
+        settings.OBJECT_STORAGE_EXPORTS_FOLDER,
+        exported_asset.export_format.split("/")[1],
+        f"team-{exported_asset.team.id}",
+        f"task-{exported_asset.id}",
+        str(UUIDT()),
+    ]
+    return "/".join(path_parts)
+
+
+def save_content_from_file(exported_asset: ExportedAsset, file_path: str) -> None:
+    """Save content from a file to object storage, with fallback to storing in the database."""
+    try:
+        if settings.OBJECT_STORAGE_ENABLED:
+            object_path = _get_object_path(exported_asset)
+            object_storage.write_from_file(object_path, file_path)
+            exported_asset.content_location = object_path
+            exported_asset.save(update_fields=["content_location"])
+            return
+    except ObjectStorageError as ose:
+        capture_exception(ose)
+        logger.error(
+            "exported_asset.object-storage-error",
+            exported_asset_id=exported_asset.id,
+            exception=ose,
+            exc_info=True,
+        )
+    with open(file_path, "rb") as f:
+        save_content_to_exported_asset(exported_asset, f.read())

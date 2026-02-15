@@ -27,7 +27,7 @@ export const ORDER_BY_OPTIONS: Record<ErrorTrackingQueryOrderBy, string> = {
 }
 const DEFAULT_ORDER_BY: ErrorTrackingQueryOrderBy = 'last_seen'
 const DEFAULT_ORDER_DIRECTION = 'DESC'
-const DEFAULT_REVENUE_PERIOD = 'last_30_days'
+const DEFAULT_REVENUE_PERIOD = 'mrr'
 const DEFAULT_REVENUE_ENTITY = 'person'
 const DEFAULT_ASSIGNEE = null
 const DEFAULT_STATUS = 'active'
@@ -47,7 +47,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         setRevenueEntity: (revenueEntity: ErrorTrackingQueryRevenueEntity) => ({ revenueEntity }),
         setRevenuePeriod: (revenuePeriod: ErrorTrackingQueryRevenuePeriod) => ({ revenuePeriod }),
         setAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
-        setStatus: (status: ErrorTrackingQuery['status']) => ({ status }),
+        setStatus: (status: ErrorTrackingQueryStatus) => ({ status }),
     }),
 
     reducers({

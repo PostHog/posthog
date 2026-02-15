@@ -3,13 +3,11 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 import React from 'react'
 
-import { IconAtSign, IconDashboard, IconGraph, IconPageChart, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconAtSign, IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ModeSelector } from './components/ModeSelector'
 import { maxContextLogic } from './maxContextLogic'
@@ -300,8 +298,7 @@ interface ContextDisplayProps {
 }
 
 export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { deepResearchMode, showContextUI, contextDisabledReason } = useValues(maxThreadLogic)
+    const { showContextUI, contextDisabledReason } = useValues(maxThreadLogic)
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType, toolContextItems } =
         useValues(maxContextLogic)
     const { handleTaxonomicFilterChange } = useActions(maxContextLogic)
@@ -315,35 +312,23 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
     return (
         <div className="px-2 w-full">
             <div className="flex flex-wrap items-start gap-1 w-full">
-                {featureFlags[FEATURE_FLAGS.AGENT_MODES] && <ModeSelector />}
-                {deepResearchMode ? (
-                    <LemonButton
+                <ModeSelector />
+                <Tooltip title={contextDisabledReason ?? 'Add context to help PostHog AI answer your question'}>
+                    <TaxonomicPopover
                         size="xxsmall"
                         type="tertiary"
                         className="flex-shrink-0 border"
-                        icon={<IconWarning />}
-                        disabledReason="Deep research mode doesn't currently support adding context"
-                    >
-                        Turn off deep research to add context
-                    </LemonButton>
-                ) : (
-                    <Tooltip title={contextDisabledReason ?? 'Add context to help PostHog AI answer your question'}>
-                        <TaxonomicPopover
-                            size="xxsmall"
-                            type="tertiary"
-                            className="flex-shrink-0 border"
-                            groupType={mainTaxonomicGroupType}
-                            groupTypes={taxonomicGroupTypes}
-                            onChange={handleTaxonomicFilterChange}
-                            icon={<IconAtSign className="text-secondary" />}
-                            placeholder={!hasData && !hasToolContext ? 'Add context' : null}
-                            placeholderClass="text-secondary"
-                            maxContextOptions={contextOptions}
-                            width={450}
-                            disabledReason={contextDisabledReason}
-                        />
-                    </Tooltip>
-                )}
+                        groupType={mainTaxonomicGroupType}
+                        groupTypes={taxonomicGroupTypes}
+                        onChange={handleTaxonomicFilterChange}
+                        icon={<IconAtSign className="text-secondary" />}
+                        placeholder={!hasData && !hasToolContext ? 'Add context' : null}
+                        placeholderClass="text-secondary"
+                        maxContextOptions={contextOptions}
+                        width={450}
+                        disabledReason={contextDisabledReason}
+                    />
+                </Tooltip>
                 <ContextToolInfoTags size={size} />
                 <ContextTags size={size} />
             </div>

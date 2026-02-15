@@ -3,21 +3,21 @@ import { connect, kea, key, path, props, selectors } from 'kea'
 import { PropertyFilterType } from '~/types'
 
 import type { attributeBreakdownLogicType } from './attributeBreakdownLogicType'
-import { logsLogic } from './logsLogic'
+import { logsViewerDataLogic } from './components/LogsViewer/data/logsViewerDataLogic'
 
 export interface AttributeBreakdownLogicProps {
     attribute: string
     type: PropertyFilterType
-    tabId: string
+    id: string
 }
 
 export const attributeBreakdownLogic = kea<attributeBreakdownLogicType>([
     props({} as AttributeBreakdownLogicProps),
-    key((props) => `${props.tabId}-${props.type}-${props.attribute}`),
+    key((props) => `${props.id}-${props.type}-${props.attribute}`),
     path((key) => ['products', 'logs', 'frontend', 'logsAttributeBreakdownsLogic', key]),
 
     connect((props: AttributeBreakdownLogicProps) => ({
-        values: [logsLogic({ tabId: props.tabId }), ['logs']],
+        values: [logsViewerDataLogic({ id: props.id }), ['parsedLogs as logs']],
     })),
 
     selectors(({ props }) => ({

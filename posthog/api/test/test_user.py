@@ -22,7 +22,7 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.api.test.test_oauth import generate_rsa_key
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -982,6 +982,26 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
 
+    @patch("posthog.api.user.send_password_changed_email.delay")
+    def test_user_without_password_can_set_password(self, mock_send_email):
+        # Create a user without a password (e.g., SSO user)
+        self.user.set_unusable_password()
+        self.user.save()
+
+        # Re-authenticate with force_login since password is now unusable
+        self.client.force_login(self.user)
+
+        # User should be able to set password without providing current_password
+        # Use a strong password that meets validation requirements
+        new_password = "NewSecurePassword123!"
+        response = self.client.patch("/api/users/@me/", {"password": new_password})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Password should be set
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.has_usable_password())
+        self.assertTrue(self.user.check_password(new_password))
+
     def test_unauthenticated_user_cannot_update_anything(self):
         self.client.logout()
         response = self.client.patch(
@@ -1219,13 +1239,22 @@ class TestUserAPI(APIBaseTest):
         assert_allowed_url("https://sub.subdomain.otherexample.com")
 
     @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_prepare_toolbar_preloaded_flags_with_feature_flags(self, patched_token):
+    @patch("posthog.api.user.get_flags_from_service")
+    def test_prepare_toolbar_preloaded_flags_with_feature_flags(self, mock_get_flags, patched_token):
         """Test that prepare_toolbar_preloaded_flags creates a cache entry with feature flags"""
         from django.core.cache import cache
 
         from posthog.models import FeatureFlag
 
         patched_token.return_value = "test-cache-key-123"
+
+        # Mock the Rust service V2 response format
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag-1": {"enabled": True, "variant": None},
+                "test-flag-2": {"enabled": True, "variant": "test-variant"},
+            }
+        }
 
         # Create some feature flags
         FeatureFlag.objects.create(team=self.team, key="test-flag-1", created_by=self.user, rollout_percentage=100)
@@ -1337,9 +1366,9 @@ class TestUserAPI(APIBaseTest):
 
         for field, value in fields.items():
             response = self.client.patch("/api/users/@me/", {field: value})
-            assert (
-                response.json()[field] == initial_user[field]
-            ), f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+            assert response.json()[field] == initial_user[field], (
+                f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+            )
 
     def test_can_update_notification_settings(self):
         response = self.client.patch(
@@ -1351,6 +1380,8 @@ class TestUserAPI(APIBaseTest):
                     "error_tracking_issue_assigned": False,
                     "project_weekly_digest_disabled": {123: True},
                     "all_weekly_digest_disabled": True,
+                    "data_pipeline_error_threshold": 0.1,
+                    "materialized_view_sync_failed": True,
                 }
             },
         )
@@ -1365,6 +1396,9 @@ class TestUserAPI(APIBaseTest):
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
+                "data_pipeline_error_threshold": 0.1,
+                "project_api_key_exposed": True,
+                "materialized_view_sync_failed": True,
             },
         )
 
@@ -1377,6 +1411,9 @@ class TestUserAPI(APIBaseTest):
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
+                "data_pipeline_error_threshold": 0.1,
+                "project_api_key_exposed": True,
+                "materialized_view_sync_failed": True,
             },
         )
 
@@ -1443,6 +1480,9 @@ class TestUserAPI(APIBaseTest):
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
+                "data_pipeline_error_threshold": 0.01,  # Default value
+                "project_api_key_exposed": True,  # Default value
+                "materialized_view_sync_failed": False,  # Default value
             },
         )
 
@@ -1467,6 +1507,84 @@ class TestUserSlackWebhook(APIBaseTest):
         response = self.send_request({"webhook": "http://localhost/bla"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["error"], "invalid webhook URL")
+
+
+class TestSessionAuthEndpoints(APIBaseTest):
+    """
+    Tests that certain endpoints require session authentication and reject Personal API Keys.
+
+    These endpoints (redirect_to_site, test_slack_webhook, etc.) are browser-interactive
+    features that should not be accessible via API keys.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test API Key",
+            user=self.user,
+            secure_value=hash_key_value(self.api_key_value),
+            scopes=["*"],
+        )
+        self.team.app_urls = ["http://127.0.0.1:8010"]
+        self.team.save()
+
+    def test_redirect_to_site_rejects_personal_api_key(self):
+        """Personal API Keys should not be able to call redirect_to_site to mint temporary tokens."""
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}")
+
+        response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["detail"], "Authentication credentials were not provided.")
+
+    def test_redirect_to_site_works_with_session_auth(self):
+        """Session authentication should still work for redirect_to_site."""
+        response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+    def test_test_slack_webhook_rejects_personal_api_key(self):
+        """Personal API Keys should not be able to call test_slack_webhook."""
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}")
+
+        response = self.client.post("/api/user/test_slack_webhook/", {"webhook": "https://hooks.slack.com/test"})
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["detail"], "Authentication credentials were not provided.")
+
+    def test_test_slack_webhook_works_with_session_auth(self):
+        """Session authentication should still work for test_slack_webhook."""
+        response = self.client.post("/api/user/test_slack_webhook/", {"webhook": "invalid"})
+
+        # Returns 200 with error message (not 401) - endpoint is accessible
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_prepare_toolbar_preloaded_flags_rejects_personal_api_key(self):
+        """Personal API Keys should not be able to call prepare_toolbar_preloaded_flags."""
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}")
+
+        response = self.client.post(
+            "/api/user/prepare_toolbar_preloaded_flags/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["detail"], "Authentication credentials were not provided.")
+
+    def test_get_toolbar_preloaded_flags_rejects_personal_api_key(self):
+        """Personal API Keys should not be able to call get_toolbar_preloaded_flags."""
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}")
+
+        response = self.client.get("/api/user/get_toolbar_preloaded_flags/?key=test-key")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["detail"], "Authentication credentials were not provided.")
 
 
 class TestLoginViews(APIBaseTest):
@@ -1859,6 +1977,9 @@ class TestUserTwoFactor(APIBaseTest):
                 "is_enabled": False,
                 "backup_codes": [],
                 "method": None,
+                "has_passkeys": False,
+                "has_totp": False,
+                "passkeys_enabled_for_2fa": False,
             },
         )
 
@@ -1881,6 +2002,143 @@ class TestUserTwoFactor(APIBaseTest):
                 "is_enabled": True,
                 "backup_codes": ["123456", "789012"],
                 "method": "TOTP",
+                "has_passkeys": False,
+                "has_totp": True,
+                "passkeys_enabled_for_2fa": False,
+            },
+        )
+
+    def test_two_factor_status_with_passkeys_only(self):
+        """Test two_factor_status when user has passkeys but no TOTP"""
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"test-credential-id",
+            label="Test Passkey",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+        # Enable passkeys for 2FA
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
+
+        response = self.client.get(f"/api/users/@me/two_factor_status/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "is_enabled": True,
+                "backup_codes": [],
+                "method": "passkey",
+                "has_passkeys": True,
+                "has_totp": False,
+                "passkeys_enabled_for_2fa": True,
+            },
+        )
+
+    def test_two_factor_status_with_both_totp_and_passkeys(self):
+        """Test two_factor_status when user has both TOTP and passkeys (TOTP takes precedence)"""
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        # Create TOTP device
+        totp_device = TOTPDevice.objects.create(user=self.user, name="default")
+
+        # Create passkey
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"test-credential-id",
+            label="Test Passkey",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+        # Enable passkeys for 2FA
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
+
+        # Create backup codes
+        static_device = StaticDevice.objects.create(user=self.user, name="backup")
+        static_device.token_set.create(token="123456")
+
+        with patch("posthog.api.user.default_device", return_value=totp_device):
+            response = self.client.get(f"/api/users/@me/two_factor_status/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(
+                response.json(),
+                {
+                    "is_enabled": True,
+                    "backup_codes": ["123456"],
+                    "method": "TOTP",
+                    "has_passkeys": True,
+                    "has_totp": True,
+                    "passkeys_enabled_for_2fa": True,
+                },
+            )
+
+    def test_two_factor_status_with_unverified_passkeys(self):
+        """Test two_factor_status when user has unverified passkeys (should not count as 2FA)"""
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"test-credential-id",
+            label="Test Passkey",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=False,  # Unverified
+        )
+
+        response = self.client.get(f"/api/users/@me/two_factor_status/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "is_enabled": False,
+                "backup_codes": [],
+                "method": None,
+                "has_passkeys": False,
+                "has_totp": False,
+                "passkeys_enabled_for_2fa": False,
+            },
+        )
+
+    def test_two_factor_status_with_passkeys_disabled_for_2fa(self):
+        """Test two_factor_status when user has passkeys but passkeys_enabled_for_2fa is False"""
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"test-credential-id",
+            label="Test Passkey",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+        # Ensure passkeys_enabled_for_2fa is False (default)
+        self.user.passkeys_enabled_for_2fa = False
+        self.user.save()
+
+        response = self.client.get(f"/api/users/@me/two_factor_status/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "is_enabled": False,
+                "backup_codes": [],
+                "method": None,
+                "has_passkeys": True,
+                "has_totp": False,
+                "passkeys_enabled_for_2fa": False,
             },
         )
 
@@ -1894,7 +2152,7 @@ class TestUserTwoFactor(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         backup_codes = response.json()["backup_codes"]
-        self.assertEqual(len(backup_codes), 5)  # Verify 5 backup codes are generated
+        self.assertEqual(len(backup_codes), 10)  # Verify 10 backup codes are generated
 
         # Verify codes are stored in database
         static_device = StaticDevice.objects.get(user=self.user)

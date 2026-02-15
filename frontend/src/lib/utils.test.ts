@@ -26,6 +26,7 @@ import {
     eventToDescription,
     floorMsToClosestSecond,
     formatDateTimeRange,
+    formatPercentageDiff,
     genericOperatorMap,
     getDefaultInterval,
     getFormattedLastWeekDate,
@@ -47,6 +48,7 @@ import {
     parseTagsFilter,
     pluralize,
     range,
+    retryWithBackoff,
     reverseColonDelimitedDuration,
     roundToDecimal,
     selectorOperatorMap,
@@ -155,6 +157,15 @@ describe('lib/utils', () => {
                 )
             ).toEqual(false)
         })
+
+        it('rejects dangerous protocols (XSS prevention)', () => {
+            expect(isURL('javascript:alert(1)')).toEqual(false)
+            expect(isURL('javascript:alert(document.cookie)')).toEqual(false)
+            expect(isURL('JAVASCRIPT:alert(1)')).toEqual(false)
+            expect(isURL('data:text/html,<script>alert(1)</script>')).toEqual(false)
+            expect(isURL('vbscript:msgbox(1)')).toEqual(false)
+            expect(isURL('file:///etc/passwd')).toEqual(false)
+        })
     })
 
     describe('isExternalLink()', () => {
@@ -260,6 +271,69 @@ describe('lib/utils', () => {
                 expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Last month')
             })
 
+            // The frontend DateFilter emits YYYY-MM-DD (without allowTimePrecision) or
+            // YYYY-MM-DDTHH:mm:ss (with allowTimePrecision, used by recordings).
+            // The AI agent (filter_session_recordings) emits YYYY-MM-DDTHH:mm:ss.SSS.
+            // All cross-combinations must display correctly.
+
+            it('handles ISO datetime without milliseconds (frontend DateFilter format)', () => {
+                // Both dates as YYYY-MM-DDTHH:mm:ss
+                expect(dateFilterToText('2026-02-01T00:00:00', '2026-02-04T23:59:59', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // Non-midnight times
+                expect(dateFilterToText('2026-02-01T14:30:00', '2026-02-04T18:45:00', 'default')).toEqual(
+                    'February 1, 14:30 - February 4, 18:45'
+                )
+            })
+
+            it('handles ISO datetime with milliseconds (AI agent format)', () => {
+                // Both dates as YYYY-MM-DDTHH:mm:ss.SSS
+                expect(dateFilterToText('2026-02-01T00:00:00.000', '2026-02-04T23:59:59.999', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+            })
+
+            it('handles mixed datetime formats (frontend × AI agent)', () => {
+                // YYYY-MM-DDTHH:mm:ss from + YYYY-MM-DDTHH:mm:ss.SSS to
+                expect(dateFilterToText('2026-02-01T00:00:00', '2026-02-04T23:59:59.999', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // YYYY-MM-DDTHH:mm:ss.SSS from + YYYY-MM-DDTHH:mm:ss to
+                expect(dateFilterToText('2026-02-01T00:00:00.000', '2026-02-04T23:59:59', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+            })
+
+            it('handles plain date + datetime (either direction)', () => {
+                // YYYY-MM-DD from + YYYY-MM-DDTHH:mm:ss to
+                expect(dateFilterToText('2026-02-01', '2026-02-04T23:59:59', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // YYYY-MM-DD from + YYYY-MM-DDTHH:mm:ss.SSS to
+                expect(dateFilterToText('2026-02-01', '2026-02-04T23:59:59.999', 'default')).toEqual(
+                    'February 1, 00:00:00 - February 4, 23:59:59'
+                )
+                // YYYY-MM-DDTHH:mm:ss from + YYYY-MM-DD to (both resolve to midnight → times omitted)
+                expect(dateFilterToText('2026-02-01T00:00:00', '2026-02-04', 'default')).toEqual(
+                    'February 1 - February 4'
+                )
+                // YYYY-MM-DDTHH:mm:ss.SSS from + YYYY-MM-DD to (both resolve to midnight → times omitted)
+                expect(dateFilterToText('2026-02-01T00:00:00.000', '2026-02-04', 'default')).toEqual(
+                    'February 1 - February 4'
+                )
+                // Non-midnight datetime from + YYYY-MM-DD to
+                expect(dateFilterToText('2026-02-01T14:30:00', '2026-02-04', 'default')).toEqual(
+                    'February 1, 14:30 - February 4, 00:00'
+                )
+            })
+
+            it('handles same-day datetime range', () => {
+                expect(dateFilterToText('2026-02-01T09:00:00', '2026-02-01T17:00:00', 'default')).toEqual(
+                    'February 1, 09:00 - 17:00'
+                )
+            })
+
             it('can have overridden date options', () => {
                 expect(dateFilterToText('-21d', null, 'default', [{ key: 'Last 3 weeks', values: ['-21d'] }])).toEqual(
                     'Last 3 weeks'
@@ -319,6 +393,40 @@ describe('lib/utils', () => {
                 expect(dateFilterToText(from, to, 'custom', dateMapping, true, 'YYYY-MM-DD hh:mm:ss')).toEqual(
                     '2018-04-04 12:00:00 - 2018-04-09 11:05:00'
                 )
+            })
+        })
+
+        describe('week formatting respects weekStartDay', () => {
+            // 2012-03-02 is a Friday
+            beforeEach(() => {
+                tk.freeze(new Date(1330688329321))
+            })
+            afterEach(() => {
+                tk.reset()
+            })
+
+            it('This week with Sunday start (default)', () => {
+                expect(
+                    dateFilterToText('wStart', undefined, 'default', dateMapping, true, undefined, undefined, 0)
+                ).toEqual('February 26 - March 2, 2012')
+            })
+
+            it('This week with Monday start', () => {
+                expect(
+                    dateFilterToText('wStart', undefined, 'default', dateMapping, true, undefined, undefined, 1)
+                ).toEqual('February 27 - March 2, 2012')
+            })
+
+            it('Last week with Sunday start (default)', () => {
+                expect(
+                    dateFilterToText('-1wStart', '-1wEnd', 'default', dateMapping, true, undefined, undefined, 0)
+                ).toEqual('February 19 - February 25, 2012')
+            })
+
+            it('Last week with Monday start', () => {
+                expect(
+                    dateFilterToText('-1wStart', '-1wEnd', 'default', dateMapping, true, undefined, undefined, 1)
+                ).toEqual('February 20 - February 26, 2012')
             })
         })
     })
@@ -413,6 +521,10 @@ describe('lib/utils', () => {
 
         it('should return days for month to date', () => {
             expect(getDefaultInterval('mStart', null)).toEqual('day')
+        })
+
+        it('should return days for week to date', () => {
+            expect(getDefaultInterval('wStart', null)).toEqual('day')
         })
 
         it('should return month for year to date', () => {
@@ -1273,6 +1385,187 @@ describe('lib/utils', () => {
             const from = dayjs('2025-03-15T12:00:00')
             const to = dayjs('2025-03-15T12:01:00')
             expect(formatDateTimeRange(from, to)).toEqual('12:00 - 12:01')
+        })
+    })
+
+    describe('formatPercentageDiff()', () => {
+        it.each([
+            { current: 150, previous: 100, expected: '(+50.0%)' },
+            { current: 200, previous: 100, expected: '(+100.0%)' },
+            { current: 100, previous: 100, expected: '(+0.0%)' },
+            { current: 50, previous: 100, expected: '(-50.0%)' },
+            { current: 0, previous: 100, expected: '(-100.0%)' },
+            { current: 125, previous: 100, expected: '(+25.0%)' },
+            { current: 75, previous: 100, expected: '(-25.0%)' },
+        ])('formats $current vs $previous as $expected', ({ current, previous, expected }) => {
+            expect(formatPercentageDiff(current, previous)).toEqual(expected)
+        })
+
+        it.each([
+            { current: 100, previous: 0, description: 'division by zero' },
+            { current: 0, previous: 0, description: 'zero divided by zero' },
+        ])('returns null for $description', ({ current, previous }) => {
+            expect(formatPercentageDiff(current, previous)).toBeNull()
+        })
+    })
+
+    describe('retryWithBackoff()', () => {
+        it('returns result on first successful attempt', async () => {
+            const fn = jest.fn().mockResolvedValue('success')
+            const result = await retryWithBackoff(fn, { initialDelayMs: 0 })
+            expect(result).toBe('success')
+            expect(fn).toHaveBeenCalledTimes(1)
+        })
+
+        it('retries on failure and succeeds', async () => {
+            const fn = jest
+                .fn()
+                .mockRejectedValueOnce(new Error('fail 1'))
+                .mockRejectedValueOnce(new Error('fail 2'))
+                .mockResolvedValue('success')
+
+            const result = await retryWithBackoff(fn, { maxAttempts: 3, initialDelayMs: 0 })
+            expect(result).toBe('success')
+            expect(fn).toHaveBeenCalledTimes(3)
+        })
+
+        it('throws last error after all attempts exhausted', async () => {
+            const errors = [new Error('fail 1'), new Error('fail 2'), new Error('fail 3')]
+            let callCount = 0
+            const fn = jest.fn().mockImplementation(() => Promise.reject(errors[callCount++]))
+
+            await expect(retryWithBackoff(fn, { maxAttempts: 3, initialDelayMs: 0 })).rejects.toThrow('fail 3')
+            expect(fn).toHaveBeenCalledTimes(3)
+        })
+
+        it('re-throws AbortError immediately without retrying', async () => {
+            const fn = jest.fn().mockImplementation(() => {
+                const error = new DOMException('Aborted', 'AbortError')
+                return Promise.reject(error)
+            })
+
+            await expect(retryWithBackoff(fn, { maxAttempts: 3, initialDelayMs: 0 })).rejects.toThrow('Aborted')
+            expect(fn).toHaveBeenCalledTimes(1)
+        })
+
+        it('throws immediately if signal is already aborted', async () => {
+            const controller = new AbortController()
+            controller.abort()
+
+            const fn = jest.fn().mockResolvedValue('success')
+            await expect(retryWithBackoff(fn, { signal: controller.signal })).rejects.toThrow('Aborted')
+            expect(fn).not.toHaveBeenCalled()
+        })
+
+        it('applies exponential backoff between retries', async () => {
+            jest.useFakeTimers()
+            try {
+                let callCount = 0
+                const fn = jest.fn().mockImplementation(() => {
+                    callCount++
+                    if (callCount < 3) {
+                        return Promise.reject(new Error('fail'))
+                    }
+                    return Promise.resolve('success')
+                })
+
+                const promise = retryWithBackoff(fn, {
+                    maxAttempts: 3,
+                    initialDelayMs: 1000,
+                    backoffMultiplier: 2,
+                })
+
+                // First call happens immediately
+                await Promise.resolve()
+                expect(fn).toHaveBeenCalledTimes(1)
+
+                // After 1000ms (initialDelayMs * 2^0), second attempt
+                await jest.advanceTimersByTimeAsync(1000)
+                expect(fn).toHaveBeenCalledTimes(2)
+
+                // After 2000ms (initialDelayMs * 2^1), third attempt
+                await jest.advanceTimersByTimeAsync(2000)
+                expect(fn).toHaveBeenCalledTimes(3)
+
+                await expect(promise).resolves.toBe('success')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('uses default options when none provided', async () => {
+            const errors = [new Error('fail'), new Error('fail'), new Error('fail')]
+            let callCount = 0
+            const fn = jest.fn().mockImplementation(() => Promise.reject(errors[callCount++]))
+
+            await expect(retryWithBackoff(fn, { initialDelayMs: 0 })).rejects.toThrow('fail')
+            expect(fn).toHaveBeenCalledTimes(3) // default maxAttempts is 3
+        })
+
+        it('handles maxAttempts of 1 (no retries)', async () => {
+            const fn = jest.fn().mockImplementation(() => Promise.reject(new Error('fail')))
+
+            await expect(retryWithBackoff(fn, { maxAttempts: 1, initialDelayMs: 0 })).rejects.toThrow('fail')
+            expect(fn).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not retry when shouldRetry returns false', async () => {
+            const error = new Error('non-retryable')
+            const fn = jest.fn().mockImplementation(() => Promise.reject(error))
+
+            await expect(
+                retryWithBackoff(fn, {
+                    maxAttempts: 3,
+                    initialDelayMs: 0,
+                    shouldRetry: () => false,
+                })
+            ).rejects.toThrow('non-retryable')
+            expect(fn).toHaveBeenCalledTimes(1)
+        })
+
+        it('retries when shouldRetry returns true', async () => {
+            let callCount = 0
+            const fn = jest.fn().mockImplementation(() => {
+                callCount++
+                if (callCount < 3) {
+                    return Promise.reject(new Error('retryable'))
+                }
+                return Promise.resolve('success')
+            })
+
+            const result = await retryWithBackoff(fn, {
+                maxAttempts: 3,
+                initialDelayMs: 0,
+                shouldRetry: () => true,
+            })
+            expect(result).toBe('success')
+            expect(fn).toHaveBeenCalledTimes(3)
+        })
+
+        it('stops retrying when shouldRetry returns false for specific error', async () => {
+            const errors = [new Error('retry-me'), new Error('stop-here'), new Error('never-reached')]
+            let callCount = 0
+            const fn = jest.fn().mockImplementation(() => Promise.reject(errors[callCount++]))
+
+            await expect(
+                retryWithBackoff(fn, {
+                    maxAttempts: 3,
+                    initialDelayMs: 0,
+                    shouldRetry: (e) => e instanceof Error && e.message !== 'stop-here',
+                })
+            ).rejects.toThrow('stop-here')
+            expect(fn).toHaveBeenCalledTimes(2)
+        })
+
+        it('receives the error in shouldRetry callback', async () => {
+            const testError = new Error('test-error')
+            const fn = jest.fn().mockImplementation(() => Promise.reject(testError))
+            const shouldRetry = jest.fn().mockReturnValue(false)
+
+            await expect(retryWithBackoff(fn, { maxAttempts: 3, initialDelayMs: 0, shouldRetry })).rejects.toThrow(
+                'test-error'
+            )
+            expect(shouldRetry).toHaveBeenCalledWith(testError)
         })
     })
 })

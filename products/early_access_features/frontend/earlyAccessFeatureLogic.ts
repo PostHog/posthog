@@ -6,6 +6,7 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -233,6 +234,9 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             if (_earlyAccessFeature.id) {
                 refreshTreeItem('early_access_feature', _earlyAccessFeature.id)
                 router.actions.replace(urls.earlyAccessFeature(_earlyAccessFeature.id))
+
+                // Mark feature creation task as completed
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateEarlyAccessFeature)
             }
         },
         showGAPromotionConfirmation: async ({ onConfirm }) => {
@@ -253,13 +257,18 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             })
         },
         updateStage: async ({ stage }) => {
+            const save = (): void => {
+                actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
+
+                // Mark stage update task as completed when user changes stage
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureStage)
+            }
+
             // If promoting to General Availability, show confirmation dialog
             if (stage === EarlyAccessFeatureStage.GeneralAvailability) {
-                actions.showGAPromotionConfirmation(() =>
-                    actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
-                )
+                actions.showGAPromotionConfirmation(save)
             } else {
-                actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
+                save()
             }
         },
         deleteEarlyAccessFeature: async ({ earlyAccessFeatureId }) => {

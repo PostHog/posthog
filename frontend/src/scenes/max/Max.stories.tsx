@@ -18,20 +18,24 @@ import { twMerge } from 'tailwind-merge'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import {
+    MaxErrorTrackingIssuePreview,
+    MaxErrorTrackingSearchResponse,
+} from '~/queries/schema/schema-assistant-error-tracking'
+import {
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
+    MultiQuestionFormQuestion,
     MultiVisualizationMessage,
-    NotebookUpdateMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { ArtifactContentType, NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { recordings } from '~/scenes/session-recordings/__mocks__/recordings'
-import { FilterLogicalOperator, InsightShortId, PropertyFilterType, PropertyOperator } from '~/types'
+import { FilterLogicalOperator, InsightShortId, PendingApproval, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { MaxInstance, MaxInstanceProps } from './Max'
 import conversationList from './__mocks__/conversationList.json'
-import { ToolRegistration } from './max-constants'
+import { AlertEntry, ChangelogEntry, maxChangelogLogic } from './maxChangelogLogic'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
@@ -740,124 +744,6 @@ ChatWithUIContext.parameters = {
     },
 }
 
-export const MaxInstanceWithContextualTools: StoryFn = () => {
-    const { registerTool } = useActions(maxGlobalLogic)
-
-    useEffect(() => {
-        // Register various contextual tools for MaxInstance
-        registerTool({
-            identifier: 'query_insights' as ToolRegistration['identifier'],
-            name: 'Query insights',
-            description: 'PostHog AI can query insights and their properties',
-            context: {
-                available_insights: ['pageview_trends', 'user_retention', 'conversion_rates'],
-                active_filters: { date_from: '-7d', properties: [{ key: 'browser', value: 'Chrome' }] },
-                user_permissions: ['read_insights', 'create_insights'],
-            },
-            callback: (toolOutput) => {
-                console.info('Querying insights:', toolOutput)
-            },
-        })
-
-        registerTool({
-            identifier: 'manage_cohorts' as ToolRegistration['identifier'],
-            name: 'Manage cohorts',
-            description: 'PostHog AI can manage cohorts and their properties',
-            context: {
-                existing_cohorts: [
-                    { id: 1, name: 'Power Users', size: 1250 },
-                    { id: 2, name: 'New Signups', size: 3400 },
-                ],
-                cohort_types: ['behavioral', 'demographic', 'custom'],
-            },
-            callback: (toolOutput) => {
-                console.info('Managing cohorts:', toolOutput)
-            },
-        })
-
-        registerTool({
-            identifier: 'feature_flags' as ToolRegistration['identifier'],
-            name: 'Feature flags',
-            description: 'PostHog AI can manage feature flags and their properties',
-            context: {
-                active_flags: ['new-dashboard', 'beta-feature', 'experiment-checkout'],
-                flag_stats: { total: 15, active: 8, inactive: 7 },
-                rollout_percentages: { 'new-dashboard': 25, 'beta-feature': 50 },
-            },
-            callback: (toolOutput) => {
-                console.info('Feature flag action:', toolOutput)
-            },
-        })
-    }, [registerTool])
-
-    return <Template />
-}
-MaxInstanceWithContextualTools.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
-    },
-}
-
-export const NotebookUpdateComponent: StoryFn = () => {
-    const notebookMessage: NotebookUpdateMessage = {
-        type: AssistantMessageType.Notebook,
-        notebook_id: 'nb_123456',
-        content: {
-            type: 'doc',
-            content: [
-                {
-                    type: 'paragraph',
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Analysis notebook has been updated with new insights',
-                        },
-                    ],
-                },
-            ],
-        },
-        id: 'notebook-update-message',
-    }
-
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                res(
-                    ctx.text(
-                        generateChunk([
-                            'event: conversation',
-                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                            'event: message',
-                            `data: ${JSON.stringify({ ...humanMessage, content: 'Update my analysis notebook' })}`,
-                            'event: message',
-                            `data: ${JSON.stringify(notebookMessage)}`,
-                        ])
-                    )
-                ),
-        },
-    })
-
-    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
-    const { askMax } = useActions(threadLogic)
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-
-    useEffect(() => {
-        if (dataProcessingAccepted) {
-            setTimeout(() => {
-                setConversationId(CONVERSATION_ID)
-                askMax('Update my analysis notebook')
-            }, 0)
-        }
-    }, [dataProcessingAccepted, setConversationId, askMax])
-
-    if (!dataProcessingAccepted) {
-        return <></>
-    }
-
-    return <Template />
-}
-
 export const PlanningComponent: StoryFn = () => {
     // Planning is now derived from AssistantMessage with todo_write tool call
     const planningMessage: AssistantMessage = {
@@ -1008,13 +894,13 @@ export const TaskExecutionComponent: StoryFn = () => {
         tool_calls: [
             {
                 id: 'task_1',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
             {
                 id: 'task_2',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {
                     commentary: 'Identifying peak usage times and user segments',
@@ -1038,7 +924,7 @@ export const TaskExecutionComponent: StoryFn = () => {
             },
             {
                 id: 'task_5',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
@@ -1178,19 +1064,19 @@ export const TaskExecutionWithFailure: StoryFn = () => {
             },
             {
                 id: 'task_3',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
             {
                 id: 'task_4',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
             {
                 id: 'task_5',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
@@ -1641,35 +1527,526 @@ SearchSessionRecordingsWithResults.parameters = {
     },
 }
 
+export const SearchErrorTrackingIssuesEmpty: StoryFn = () => {
+    const toolCallMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'Let me search for those error tracking issues...',
+        id: 'search-errors-empty-msg',
+        tool_calls: [
+            {
+                id: 'search_errors_tool_1',
+                name: 'search_error_tracking_issues',
+                type: 'tool_call',
+                args: {},
+            },
+        ],
+    }
+
+    const toolCallResult: AssistantToolCallMessage = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'search_errors_tool_1',
+        content: 'No issues found matching your criteria',
+        id: 'tool-result-errors-empty',
+        ui_payload: {
+            search_error_tracking_issues: {
+                status: 'active',
+                search_query: 'payment',
+                date_from: '-7d',
+                date_to: null,
+                order_by: 'last_seen',
+                order_direction: 'DESC',
+                has_more: false,
+                issues: [],
+            } as MaxErrorTrackingSearchResponse,
+        },
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Show me active payment errors from the last week',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResult)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show me active payment errors from the last week')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+SearchErrorTrackingIssuesEmpty.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const SearchErrorTrackingIssuesWithResults: StoryFn = () => {
+    const mockIssues: MaxErrorTrackingIssuePreview[] = [
+        {
+            id: 'issue-1',
+            name: 'TypeError: Cannot read property of undefined',
+            description: "Cannot read property 'user' of undefined at CheckoutPage.render",
+            status: 'active',
+            library: 'web',
+            first_seen: '2025-01-10T10:00:00.000000Z',
+            last_seen: '2025-01-13T14:30:00.000000Z',
+            occurrences: 1247,
+            users: 89,
+            sessions: 156,
+        },
+        {
+            id: 'issue-2',
+            name: 'NetworkError: Failed to fetch',
+            description: 'Network request failed in PaymentService.processPayment',
+            status: 'active',
+            library: 'web',
+            first_seen: '2025-01-08T08:15:00.000000Z',
+            last_seen: '2025-01-13T12:45:00.000000Z',
+            occurrences: 523,
+            users: 67,
+            sessions: 98,
+        },
+        {
+            id: 'issue-3',
+            name: 'ValidationError: Invalid card number',
+            description: 'Card validation failed for input: ****-****-****-1234',
+            status: 'resolved',
+            library: 'python',
+            first_seen: '2025-01-05T16:20:00.000000Z',
+            last_seen: '2025-01-11T09:00:00.000000Z',
+            occurrences: 89,
+            users: 23,
+            sessions: 31,
+        },
+    ]
+
+    const toolCallMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'Let me search for those error tracking issues...',
+        id: 'search-errors-results-msg',
+        tool_calls: [
+            {
+                id: 'search_errors_tool_2',
+                name: 'search_error_tracking_issues',
+                type: 'tool_call',
+                args: {},
+            },
+        ],
+    }
+
+    const toolCallResult: AssistantToolCallMessage = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'search_errors_tool_2',
+        content: 'Found 3 issues matching your criteria',
+        id: 'tool-result-errors-with-results',
+        ui_payload: {
+            search_error_tracking_issues: {
+                status: null,
+                search_query: 'payment',
+                date_from: '-30d',
+                date_to: null,
+                order_by: 'occurrences',
+                order_direction: 'DESC',
+                has_more: true,
+                next_cursor: '3',
+                issues: mockIssues,
+            } as MaxErrorTrackingSearchResponse,
+        },
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content:
+                                    'Show me all payment-related errors from the last month, sorted by occurrences',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResult)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show me all payment-related errors from the last month, sorted by occurrences')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+SearchErrorTrackingIssuesWithResults.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const DangerousOperationPendingApproval: StoryFn = () => {
+    const toolCallMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: "I'll update that dashboard for you. This requires your approval first.",
+        id: 'dangerous-op-msg',
+        tool_calls: [
+            {
+                id: 'dangerous_op_tool_1',
+                name: 'upsert_dashboard',
+                type: 'tool_call',
+                args: {
+                    dashboard_id: 'dashboard-123',
+                    tiles: [],
+                },
+            },
+        ],
+    }
+
+    const previewText = `This will update the dashboard "Sales Analytics Q1":
+
+Changes:
+• Remove 3 existing tiles
+• Add 2 new insight tiles
+• Update dashboard filters
+
+Tiles to be removed:
+  - Weekly Revenue (insight-456)
+  - Monthly Users (insight-789)
+  - Conversion Rate (insight-012)
+
+Tiles to be added:
+  - Daily Active Users trend
+  - Funnel: Signup to Purchase
+
+⚠️ This will modify the existing dashboard layout.`
+
+    // PendingApproval event - this populates pendingApprovalsData in the logic
+    const pendingApproval: PendingApproval = {
+        proposal_id: 'proposal-abc-123',
+        decision_status: 'pending',
+        tool_name: 'upsert_dashboard',
+        preview: previewText,
+        payload: {
+            dashboard_id: 'dashboard-123',
+            tiles: [],
+        },
+        original_tool_call_id: 'dangerous_op_tool_1',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Update my Sales Analytics dashboard with new metrics',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: approval',
+                            `data: ${JSON.stringify(pendingApproval)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Update my Sales Analytics dashboard with new metrics')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+DangerousOperationPendingApproval.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const DangerousOperationPendingApprovalLongContent: StoryFn = () => {
+    const toolCallMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: "I'll perform the comprehensive migration. This requires your approval first.",
+        id: 'dangerous-op-long-msg',
+        tool_calls: [
+            {
+                id: 'dangerous_op_tool_long_1',
+                name: 'upsert_dashboard',
+                type: 'tool_call',
+                args: {
+                    dashboard_id: 'dashboard-long-preview',
+                    tiles: [],
+                },
+            },
+        ],
+    }
+
+    const longPreviewText = `# Database Migration Plan
+
+This migration will update **multiple tables** across the system.
+
+## Summary
+
+- **Total tables affected**: 15
+- **Total records to migrate**: 2,453,891
+- **Estimated downtime**: 0 (zero-downtime migration)
+- **Rollback strategy**: Automated via migration versioning
+
+## Phase 1: Schema Updates
+
+### Table: users
+\`\`\`sql
+ALTER TABLE users ADD COLUMN preferences JSONB DEFAULT '{}';
+ALTER TABLE users ADD COLUMN last_active_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN notification_settings JSONB;
+\`\`\`
+
+### Table: organizations
+\`\`\`sql
+ALTER TABLE organizations ADD COLUMN billing_tier VARCHAR(50);
+ALTER TABLE organizations ADD COLUMN feature_flags JSONB DEFAULT '{}';
+ALTER TABLE organizations ADD COLUMN quota_limits JSONB;
+\`\`\`
+
+### Table: projects
+\`\`\`sql
+ALTER TABLE projects ADD COLUMN archived_at TIMESTAMP;
+ALTER TABLE projects ADD COLUMN metadata JSONB DEFAULT '{}';
+\`\`\`
+
+## Phase 2: Data Migration
+
+The following data transformations will be applied:
+
+1. **User preferences migration**
+   - Migrate legacy \`settings\` column to new \`preferences\` JSONB
+   - Parse and normalize date formats
+   - Apply default values for missing fields
+
+2. **Organization billing tier**
+   - Map existing \`plan_id\` to new \`billing_tier\`
+   - Free → \`starter\`
+   - Pro → \`growth\`
+   - Enterprise → \`scale\`
+
+3. **Project metadata**
+   - Consolidate \`extra_data\` and \`config\` into \`metadata\`
+   - Remove deprecated fields
+
+## Phase 3: Index Creation
+
+New indexes to improve query performance:
+
+| Table | Index Name | Columns | Type |
+|-------|-----------|---------|------|
+| users | idx_users_last_active | last_active_at | BTREE |
+| users | idx_users_preferences | preferences | GIN |
+| organizations | idx_org_billing | billing_tier | BTREE |
+| projects | idx_projects_archived | archived_at | BTREE |
+| events | idx_events_timestamp | timestamp, team_id | BTREE |
+
+## Phase 4: Cleanup
+
+After successful migration:
+
+- Drop legacy columns: \`users.old_settings\`, \`organizations.plan_id\`
+- Remove temporary migration tables
+- Update materialized views
+
+## Affected Services
+
+The following services will need to be notified:
+
+- ✅ API Gateway
+- ✅ Event Ingestion Pipeline
+- ✅ Query Engine
+- ✅ Billing Service
+- ✅ Notification Service
+- ✅ Export Service
+
+## Risks and Mitigations
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Data loss | Low | High | Full backup before migration |
+| Performance degradation | Medium | Medium | Run during low-traffic hours |
+| Service interruption | Low | High | Blue-green deployment |
+| Rollback failure | Very Low | Critical | Tested rollback procedure |
+
+⚠️ **This is a significant operation that will modify your production database.**`
+
+    const pendingApproval: PendingApproval = {
+        proposal_id: 'proposal-long-content-123',
+        decision_status: 'pending',
+        tool_name: 'upsert_dashboard',
+        preview: longPreviewText,
+        payload: {
+            dashboard_id: 'dashboard-long-preview',
+            tiles: [],
+        },
+        original_tool_call_id: 'dangerous_op_tool_long_1',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Run the database migration',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: approval',
+                            `data: ${JSON.stringify(pendingApproval)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Run the database migration')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+DangerousOperationPendingApprovalLongContent.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
 export const ThreadWithMultiQuestionForm: StoryFn = () => {
     // Multi-question form with several questions - uses tool_calls format
-    const formQuestions = [
+    const formQuestions: MultiQuestionFormQuestion[] = [
         {
             id: 'use_case',
+            title: 'Use case',
             question: 'What is your primary use case for PostHog?',
             options: [
-                { value: 'Product Analytics' },
-                { value: 'A/B Testing' },
-                { value: 'Session Replay' },
-                { value: 'User Surveys' },
+                { value: 'Product Analytics', description: 'Track your product metrics and KPIs' },
+                {
+                    value: 'A/B Testing',
+                    description: 'Test different versions of your product to see which one performs better',
+                },
+                {
+                    value: 'Session Replay',
+                    description: 'Record and replay user sessions to understand how they interact with your product',
+                },
+                { value: 'User Surveys', description: 'Collect feedback from your users to improve your product' },
             ],
             allow_custom_answer: true,
         },
         {
             id: 'team_size',
             question: 'How large is your team?',
+            title: 'Team size',
             options: [
-                { value: 'Just me' },
-                { value: '2-10 people' },
-                { value: '11-50 people' },
-                { value: '50+ people' },
+                { value: 'Just me', description: 'I work alone on my product' },
+                { value: '2-10 people', description: 'I have a small team working on my product' },
+                { value: '11-50 people', description: 'I have a medium-sized team working on my product' },
+                { value: '50+ people', description: 'I have a large team working on my product' },
             ],
             allow_custom_answer: false,
         },
         {
             id: 'experience',
+            title: 'Experience',
             question: 'How familiar are you with analytics tools?',
-            options: [{ value: 'Beginner' }, { value: 'Intermediate' }, { value: 'Expert' }],
+            options: [
+                { value: 'Beginner', description: 'I have no experience with analytics tools' },
+                { value: 'Intermediate', description: 'I have some experience with analytics tools' },
+                { value: 'Expert', description: 'I have a lot of experience with analytics tools' },
+            ],
         },
     ]
 
@@ -1687,13 +2064,6 @@ export const ThreadWithMultiQuestionForm: StoryFn = () => {
         ],
     }
 
-    const toolCallResponseMessage: AssistantToolCallMessage = {
-        type: AssistantMessageType.ToolCall,
-        content: 'The user has not answered the questions yet.',
-        id: 'tool-call-response-1',
-        tool_call_id: 'create-form-tool-call-1',
-    }
-
     useStorybookMocks({
         post: {
             '/api/environments/:team_id/conversations/': (_, res, ctx) =>
@@ -1709,8 +2079,6 @@ export const ThreadWithMultiQuestionForm: StoryFn = () => {
                             })}`,
                             'event: message',
                             `data: ${JSON.stringify(multiQuestionFormMessage)}`,
-                            'event: message',
-                            `data: ${JSON.stringify(toolCallResponseMessage)}`,
                         ])
                     )
                 ),
@@ -1745,9 +2113,10 @@ ThreadWithMultiQuestionForm.parameters = {
 
 export const ThreadWithSingleQuestionForm: StoryFn = () => {
     // Single question form - uses tool_calls format
-    const formQuestions = [
+    const formQuestions: MultiQuestionFormQuestion[] = [
         {
             id: 'data_volume',
+            title: 'Data volume',
             question: 'What is your approximate monthly event volume?',
             options: [
                 { value: 'Under 1 million events' },
@@ -1773,13 +2142,6 @@ export const ThreadWithSingleQuestionForm: StoryFn = () => {
         ],
     }
 
-    const toolCallResponseMessage: AssistantToolCallMessage = {
-        type: AssistantMessageType.ToolCall,
-        content: 'The user has not answered the questions yet.',
-        id: 'tool-call-response-2',
-        tool_call_id: 'create-form-tool-call-2',
-    }
-
     useStorybookMocks({
         post: {
             '/api/environments/:team_id/conversations/': (_, res, ctx) =>
@@ -1795,8 +2157,6 @@ export const ThreadWithSingleQuestionForm: StoryFn = () => {
                             })}`,
                             'event: message',
                             `data: ${JSON.stringify(singleQuestionFormMessage)}`,
-                            'event: message',
-                            `data: ${JSON.stringify(toolCallResponseMessage)}`,
                         ])
                     )
                 ),
@@ -1834,51 +2194,79 @@ export const ThreadWithMultiQuestionFormLongContent: StoryFn = () => {
     const formQuestions = [
         {
             id: 'research_scope',
+            title: 'Research scope',
             question:
                 'I found multiple potential areas to investigate regarding your user retention issues. Which aspect should I prioritize in my analysis?',
             options: [
-                { value: 'Onboarding flow completion rates and drop-off points across different user segments' },
-                { value: 'Feature adoption patterns and correlation with long-term retention metrics' },
-                { value: 'User engagement frequency analysis including session duration and return visit patterns' },
-                { value: 'Cohort-based comparison of retained vs churned users over the past 6 months' },
+                {
+                    value: 'Onboarding',
+                    description: 'Onboarding flow completion rates and drop-off points across different user segments',
+                },
+                {
+                    value: 'Feature adoption',
+                    description: 'Feature adoption patterns and correlation with long-term retention metrics',
+                },
+                {
+                    value: 'User engagement',
+                    description:
+                        'User engagement frequency analysis including session duration and return visit patterns',
+                },
+                {
+                    value: 'Cohort',
+                    description: 'Cohort-based comparison of retained vs churned users over the past 6 months',
+                },
             ],
             allow_custom_answer: true,
         },
         {
             id: 'data_timeframe',
+            title: 'Data timeframe',
             question:
                 'What time period should I focus on for this analysis? Longer periods provide more data but may include outdated patterns, while shorter periods give more recent insights but with less statistical significance.',
             options: [
-                { value: 'Last 30 days - Most recent data, best for identifying current issues' },
-                { value: 'Last 90 days - Good balance of recency and data volume' },
-                { value: 'Last 6 months - Comprehensive view including seasonal variations' },
-                { value: 'Last 12 months - Full year analysis for long-term trend identification' },
+                { value: 'Last 30 days', description: 'Most recent data, best for identifying current issues' },
+                { value: 'Last 90 days', description: 'Good balance of recency and data volume' },
+                { value: 'Last 6 months', description: 'Comprehensive view including seasonal variations' },
+                { value: 'Last 12 months', description: 'Full year analysis for long-term trend identification' },
             ],
             allow_custom_answer: false,
         },
         {
             id: 'user_segment',
+            title: 'User segment',
             question:
                 'Should I focus on a specific user segment, or analyze all users? Focusing on a segment can provide more actionable insights for that group, while analyzing all users gives a broader picture.',
             options: [
-                { value: 'All users - Comprehensive analysis across the entire user base' },
-                { value: 'New users (signed up in last 30 days) - Focus on early retention' },
-                { value: 'Power users (top 20% by activity) - Understand what keeps engaged users' },
-                { value: 'At-risk users (declining activity) - Identify churn prevention opportunities' },
+                { value: 'All users', description: 'Comprehensive analysis across the entire user base' },
+                { value: 'New users', description: 'Focus on early retention' },
+                { value: 'Power users', description: 'Understand what keeps engaged users' },
+                { value: 'At-risk users', description: 'Identify churn prevention opportunities' },
             ],
             allow_custom_answer: true,
         },
         {
             id: 'output_format',
+            title: 'Output format',
             question:
                 'How would you like me to present the findings? I can create different types of deliverables depending on your needs and who will be reviewing the results.',
             options: [
                 {
-                    value: 'Executive summary with key findings and recommended actions (best for stakeholder presentations)',
+                    value: 'Executive summary',
+                    description:
+                        'Executive summary with key findings and recommended actions (best for stakeholder presentations)',
                 },
-                { value: 'Detailed analytical report with methodology, data tables, and statistical analysis' },
-                { value: 'Interactive dashboard with visualizations that you can explore and filter' },
-                { value: 'Prioritized list of action items with expected impact and implementation complexity' },
+                {
+                    value: 'Detailed analytical report',
+                    description: 'Detailed analytical report with methodology, data tables, and statistical analysis',
+                },
+                {
+                    value: 'Interactive dashboard',
+                    description: 'Interactive dashboard with visualizations that you can explore and filter',
+                },
+                {
+                    value: 'Prioritized list of action items',
+                    description: 'Prioritized list of action items with expected impact and implementation complexity',
+                },
             ],
             allow_custom_answer: true,
         },
@@ -1887,7 +2275,7 @@ export const ThreadWithMultiQuestionFormLongContent: StoryFn = () => {
     const longContentFormMessage: AssistantMessage = {
         type: AssistantMessageType.Assistant,
         content:
-            "I've analyzed your request and identified several areas that need investigation. Before I proceed with the deep research, I need to confirm a few things to ensure I focus on what matters most to you.",
+            "I've analyzed your request and identified several areas that need investigation. Before I proceed with the research, I need to confirm a few things to ensure I focus on what matters most to you.",
         id: 'long-content-form-msg',
         tool_calls: [
             {
@@ -1897,13 +2285,6 @@ export const ThreadWithMultiQuestionFormLongContent: StoryFn = () => {
                 type: 'tool_call',
             },
         ],
-    }
-
-    const toolCallResponseMessage: AssistantToolCallMessage = {
-        type: AssistantMessageType.ToolCall,
-        content: 'The user has not answered the questions yet.',
-        id: 'tool-call-response-3',
-        tool_call_id: 'create-form-tool-call-3',
     }
 
     useStorybookMocks({
@@ -1922,8 +2303,6 @@ export const ThreadWithMultiQuestionFormLongContent: StoryFn = () => {
                             })}`,
                             'event: message',
                             `data: ${JSON.stringify(longContentFormMessage)}`,
-                            'event: message',
-                            `data: ${JSON.stringify(toolCallResponseMessage)}`,
                         ])
                     )
                 ),
@@ -1960,10 +2339,11 @@ ThreadWithMultiQuestionFormLongContent.parameters = {
 
 export const ThreadWithMultiQuestionFormNoCustomAnswer: StoryFn = () => {
     // Form without custom answer options - uses tool_calls format
-    const formQuestions = [
+    const formQuestions: MultiQuestionFormQuestion[] = [
         {
             id: 'priority',
             question: 'What is your top priority right now?',
+            title: 'Priority',
             options: [
                 { value: 'Growing user base' },
                 { value: 'Improving retention' },
@@ -1975,6 +2355,7 @@ export const ThreadWithMultiQuestionFormNoCustomAnswer: StoryFn = () => {
         {
             id: 'timeline',
             question: 'What is your timeline?',
+            title: 'Timeline',
             options: [{ value: 'This week' }, { value: 'This month' }, { value: 'This quarter' }],
             allow_custom_answer: false,
         },
@@ -1994,13 +2375,6 @@ export const ThreadWithMultiQuestionFormNoCustomAnswer: StoryFn = () => {
         ],
     }
 
-    const toolCallResponseMessage: AssistantToolCallMessage = {
-        type: AssistantMessageType.ToolCall,
-        content: 'The user has not answered the questions yet.',
-        id: 'tool-call-response-4',
-        tool_call_id: 'create-form-tool-call-4',
-    }
-
     useStorybookMocks({
         post: {
             '/api/environments/:team_id/conversations/': (_, res, ctx) =>
@@ -2016,8 +2390,6 @@ export const ThreadWithMultiQuestionFormNoCustomAnswer: StoryFn = () => {
                             })}`,
                             'event: message',
                             `data: ${JSON.stringify(formMessage)}`,
-                            'event: message',
-                            `data: ${JSON.stringify(toolCallResponseMessage)}`,
                         ])
                     )
                 ),
@@ -2406,4 +2778,146 @@ export const NotebookArtifactWithLoadingAndErrors: StoryFn = () => {
     }
 
     return <Template />
+}
+NotebookArtifactWithLoadingAndErrors.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+// Changelog Stories
+
+const SAMPLE_CHANGELOG_ENTRIES: ChangelogEntry[] = [
+    {
+        title: 'SQL generation',
+        description: 'Max can now write and run SQL queries for you',
+        tag: 'new',
+    },
+    {
+        title: 'Faster responses',
+        description: 'Improved response times by up to 40%',
+        tag: 'improved',
+    },
+    {
+        title: 'Chart editing',
+        description: 'Edit visualization settings directly in conversation',
+        tag: 'beta',
+    },
+]
+
+const SAMPLE_WARNING_ALERT: AlertEntry = {
+    title: 'Service degraded',
+    description: 'Some AI features may be slower than usual',
+    severity: 'warning',
+}
+
+const SAMPLE_OUTAGE_ALERT: AlertEntry = {
+    title: 'Service outage',
+    description: 'AI features are temporarily unavailable. We are working on a fix.',
+    severity: 'error',
+}
+
+export const ChangelogOnly: StoryFn = () => {
+    const { setEntries, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, openChangelog])
+
+    return <Template />
+}
+ChangelogOnly.parameters = {
+    featureFlags: ['posthog-ai-changelog'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const AlertsOnly: StoryFn = () => {
+    const { setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setAlerts([SAMPLE_WARNING_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setAlerts, openChangelog])
+
+    return <Template />
+}
+AlertsOnly.parameters = {
+    featureFlags: ['posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const OutageAlert: StoryFn = () => {
+    const { setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setAlerts([SAMPLE_OUTAGE_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setAlerts, openChangelog])
+
+    return <Template />
+}
+OutageAlert.parameters = {
+    featureFlags: ['posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const AlertsWithChangelog: StoryFn = () => {
+    const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setAlerts([SAMPLE_WARNING_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, setAlerts, openChangelog])
+
+    return <Template />
+}
+AlertsWithChangelog.parameters = {
+    featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const OutageWithChangelog: StoryFn = () => {
+    const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setAlerts([SAMPLE_OUTAGE_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, setAlerts, openChangelog])
+
+    return <Template />
+}
+OutageWithChangelog.parameters = {
+    featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const MultipleAlerts: StoryFn = () => {
+    const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setAlerts([SAMPLE_WARNING_ALERT, SAMPLE_OUTAGE_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, setAlerts, openChangelog])
+
+    return <Template />
+}
+MultipleAlerts.parameters = {
+    featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }

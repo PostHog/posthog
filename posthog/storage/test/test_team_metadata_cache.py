@@ -2,6 +2,7 @@
 Tests for team metadata HyperCache functionality.
 """
 
+from decimal import Decimal
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -9,9 +10,12 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models.team.team import Team
 from posthog.storage.team_metadata_cache import (
     TEAM_METADATA_FIELDS,
+    _serialize_team_field,
     clear_team_metadata_cache,
     get_team_metadata,
     get_teams_with_expiring_caches,
@@ -28,7 +32,7 @@ class TestTeamMetadataCache(BaseTest):
     def test_get_and_update_team_metadata(self, mock_hypercache):
         """Test basic cache read and write operations."""
         # Mock the cache to return metadata
-        mock_metadata: dict[str, Any] = {field: None for field in TEAM_METADATA_FIELDS}
+        mock_metadata: dict[str, Any] = dict.fromkeys(TEAM_METADATA_FIELDS)
         mock_metadata.update({"id": self.team.id, "name": self.team.name})
         mock_hypercache.get_from_cache.return_value = mock_metadata
         mock_hypercache.update_cache.return_value = True
@@ -183,6 +187,45 @@ class TestTeamMetadataCacheSignals(BaseTest):
 
         # Cache should NOT be cleared
         mock_clear.assert_not_called()
+
+    @patch("posthog.models.project_secret_api_key.invalidate_project_secret_api_key_cache")
+    def test_team_delete_clears_project_secret_api_key_cache(self, mock_invalidate):
+        """Test that deleting a team clears its project secret API key caches."""
+        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+
+        team = Team.objects.create(
+            organization=self.organization,
+            name="Test Team",
+        )
+
+        ProjectSecretAPIKey.objects.create(
+            team=team,
+            label="Key 1",
+            secure_value="hashed_value_1",
+        )
+        ProjectSecretAPIKey.objects.create(
+            team=team,
+            label="Key 2",
+            secure_value="hashed_value_2",
+        )
+
+        team.delete()
+
+        self.assertEqual(mock_invalidate.call_count, 2)
+        invalidated_values = {call.args[0] for call in mock_invalidate.call_args_list}
+        self.assertEqual(invalidated_values, {"hashed_value_1", "hashed_value_2"})
+
+    @patch("posthog.models.project_secret_api_key.invalidate_project_secret_api_key_cache")
+    def test_team_delete_handles_no_project_secret_api_keys(self, mock_invalidate):
+        """Test that deleting a team without project secret API keys doesn't error."""
+        team = Team.objects.create(
+            organization=self.organization,
+            name="Test Team",
+        )
+
+        team.delete()
+
+        mock_invalidate.assert_not_called()
 
 
 class TestCacheStats(BaseTest):
@@ -415,3 +458,108 @@ class TestWarmCachesExpiryTracking(BaseTest):
             identifier_dict,
             f"Found team ID '{self.team.id}' as identifier, but token-based caches should use API tokens.",
         )
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test", TEST=True)
+class TestTeamMetadataGracePeriod(BaseTest):
+    """Test grace period functionality for team metadata cache verification."""
+
+    def test_recently_updated_team_is_in_skip_set(self):
+        """Test that a recently updated team is included in the skip set."""
+        from posthog.storage.team_metadata_cache import _get_team_ids_with_recently_updated_teams
+
+        # Team was just created, so updated_at is recent
+        result = _get_team_ids_with_recently_updated_teams([self.team.id])
+        self.assertIn(self.team.id, result)
+
+    def test_old_team_is_not_in_skip_set(self):
+        """Test that a team updated long ago is not in the skip set."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from posthog.storage.team_metadata_cache import _get_team_ids_with_recently_updated_teams
+
+        # Update the team to have an old updated_at
+        old_time = timezone.now() - timedelta(hours=1)
+        Team.objects.filter(id=self.team.id).update(updated_at=old_time)
+
+        result = _get_team_ids_with_recently_updated_teams([self.team.id])
+        self.assertNotIn(self.team.id, result)
+
+    @override_settings(TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
+    def test_grace_period_disabled_returns_empty(self):
+        """Test that setting grace period to 0 disables the feature."""
+        from posthog.storage.team_metadata_cache import _get_team_ids_with_recently_updated_teams
+
+        result = _get_team_ids_with_recently_updated_teams([self.team.id])
+        self.assertEqual(result, set())
+
+    def test_empty_team_ids_returns_empty(self):
+        """Test that empty input returns empty set."""
+        from posthog.storage.team_metadata_cache import _get_team_ids_with_recently_updated_teams
+
+        result = _get_team_ids_with_recently_updated_teams([])
+        self.assertEqual(result, set())
+
+    def test_config_has_skip_fix_function(self):
+        """Test that the config is wired up with the skip fix function."""
+        from posthog.storage.team_metadata_cache import TEAM_HYPERCACHE_MANAGEMENT_CONFIG
+
+        self.assertIsNotNone(TEAM_HYPERCACHE_MANAGEMENT_CONFIG.get_team_ids_to_skip_fix_fn)
+
+
+class TestSampleRateSerializationForRustCompatibility(BaseTest):
+    """
+    Test that session_recording_sample_rate serialization is compatible with Rust.
+
+    The Rust flags service (session_recording.rs) compares sr.to_string() against "1.00"
+    to decide whether to return null for 100% sampling.
+
+    For the cache path, we store None directly for 100% sampling to avoid precision issues
+    when Rust deserializes floats. For other values, we store strings with fixed precision.
+
+    See: rust/feature-flags/src/handler/session_recording.rs:18 (SAMPLE_RATE_FULL = "1.00")
+    """
+
+    @parameterized.expand(
+        [
+            # 100% sampling should be None (no sampling = record everything)
+            ("100% should serialize to None (no sampling needed)", Decimal("1.00"), None),
+            # Other values should be strings with 2 decimal places for Rust compatibility
+            ("80% should be string with precision", Decimal("0.80"), "0.80"),
+            ("50% should be string with precision", Decimal("0.50"), "0.50"),
+            ("0% should be string '0.00'", Decimal("0.00"), "0.00"),
+            ("None should remain None", None, None),
+        ]
+    )
+    def test_sample_rate_serialization_matches_rust_expectations(
+        self, _name: str, db_value: Decimal | None, expected: str | None
+    ) -> None:
+        """
+        Verify sample rate serialization produces values compatible with Rust.
+
+        - 100% (1.00) should become None so Rust returns null to SDKs
+        - Other values should be strings like "0.80" so Rust can pass them through
+        - None should remain None
+        """
+        result = _serialize_team_field("session_recording_sample_rate", db_value)
+
+        assert result == expected
+
+    def test_sample_rate_schema_prevents_more_than_two_decimal_places(self) -> None:
+        """
+        Verify the DB schema prevents storing values with more than 2 decimal places.
+
+        This is a regression test - our serialization logic relies on the fact that
+        values like 0.996 (which would round to "1.00" as a string) cannot be stored.
+        If this test fails, the serialization logic needs to handle rounding.
+        """
+        from django.core.exceptions import ValidationError
+
+        self.team.session_recording_sample_rate = Decimal("0.996")
+
+        with self.assertRaises(ValidationError) as context:
+            self.team.full_clean()
+
+        self.assertIn("session_recording_sample_rate", str(context.exception))

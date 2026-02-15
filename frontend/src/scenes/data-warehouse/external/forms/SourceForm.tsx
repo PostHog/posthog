@@ -13,6 +13,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
@@ -24,12 +25,14 @@ import { parseConnectionString } from './parseConnectionString'
 export interface SourceFormProps {
     sourceConfig: SourceConfig
     showPrefix?: boolean
+    showDescription?: boolean
     jobInputs?: Record<string, any>
     setSourceConfigValue?: (key: FieldName, value: any) => void
 }
 
 const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
     Postgres: 5432,
+    Redshift: 5439,
 }
 
 const sourceFieldToElement = (
@@ -207,7 +210,12 @@ const sourceFieldToElement = (
     }
 
     return (
-        <LemonField key={field.name} name={field.name} label={field.label}>
+        <LemonField
+            key={field.name}
+            name={field.name}
+            label={field.label}
+            help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
+        >
             {({ value, onChange }) => (
                 <LemonInput
                     className="ph-ignore-input"
@@ -233,10 +241,14 @@ export default function SourceFormContainer(props: SourceFormProps): JSX.Element
 export function SourceFormComponent({
     sourceConfig,
     showPrefix = true,
+    showDescription,
     jobInputs,
     setSourceConfigValue,
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+
+    // Default showDescription to same as showPrefix for backward compatibility
+    const shouldShowDescription = showDescription ?? showPrefix
 
     useEffect(() => {
         if (jobInputs && setSourceConfigValue) {
@@ -254,6 +266,23 @@ export function SourceFormComponent({
 
     return (
         <div className="deprecated-space-y-4">
+            {shouldShowDescription && (
+                <LemonField
+                    name="description"
+                    label="Description (optional)"
+                    help="A description to help you identify this source, e.g. 'Production EU database' or 'Billing Stripe account'."
+                >
+                    {({ value, onChange }) => (
+                        <LemonInput
+                            className="ph-ignore-input"
+                            data-attr="description"
+                            placeholder="e.g. Production database"
+                            value={value || ''}
+                            onChange={onChange}
+                        />
+                    )}
+                </LemonField>
+            )}
             <Group name="payload">
                 {availableSources[sourceConfig.name].fields.map((field) =>
                     sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode)

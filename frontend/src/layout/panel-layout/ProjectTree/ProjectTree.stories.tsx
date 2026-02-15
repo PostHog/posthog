@@ -27,11 +27,9 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
             FEATURE_FLAGS.ENDPOINTS,
             FEATURE_FLAGS.LINKS,
             FEATURE_FLAGS.LIVE_DEBUGGER,
-            FEATURE_FLAGS.LOGS_PRE_EARLY_ACCESS,
             FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
             FEATURE_FLAGS.PRODUCT_TOURS,
             FEATURE_FLAGS.USER_INTERVIEWS,
-            FEATURE_FLAGS.WORKFLOWS,
         ],
     },
 }

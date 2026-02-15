@@ -7,12 +7,14 @@ from zoneinfo import ZoneInfo
 from django.db.models import Case, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
 
+import pydantic
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentMetric
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
@@ -45,6 +47,8 @@ from products.product_tours.backend.models import ProductTour
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+
+DEFAULT_ROLLOUT_PERCENTAGE = 100
 
 
 class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -87,6 +91,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "metrics",
             "metrics_secondary",
             "stats_config",
+            "scheduling_config",
             "_create_in_folder",
             "conclusion",
             "conclusion_comment",
@@ -105,6 +110,15 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "saved_metrics",
             "user_access_level",
         ]
+
+    def get_fields(self):
+        fields = super().get_fields()
+        team_id = self.context.get("team_id")
+        if team_id:
+            fields["holdout_id"].queryset = ExperimentHoldout.objects.filter(team_id=team_id)  # type: ignore[attr-defined]
+        else:
+            fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
+        return fields
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -190,6 +204,10 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         if len(variants) >= 21:
             raise ValidationError("Feature flag variants must be less than 21")
         elif len(variants) > 0:
+            if len(variants) < 2:
+                raise ValidationError(
+                    "Feature flag must have at least 2 variants (control and at least one test variant)"
+                )
             if "control" not in [variant["key"] for variant in variants]:
                 raise ValidationError("Feature flag variants must contain a control variant")
 
@@ -198,12 +216,13 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     def validate_existing_feature_flag_for_experiment(self, feature_flag: FeatureFlag):
         variants = feature_flag.filters.get("multivariate", {}).get("variants", [])
 
-        if len(variants) and len(variants) > 1:
-            if variants[0].get("key") != "control":
-                raise ValidationError("Feature flag must have control as the first variant.")
-            return True
+        if len(variants) < 2:
+            raise ValidationError("Feature flag must have at least 2 variants (control and at least one test variant)")
 
-        raise ValidationError("Feature flag is not eligible for experiments.")
+        if "control" not in [variant["key"] for variant in variants]:
+            raise ValidationError("Feature flag must have a variant with key 'control'")
+
+        return feature_flag
 
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
         if not exposure_criteria:
@@ -224,6 +243,38 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 raise ValidationError("Invalid exposure criteria")
 
         return exposure_criteria
+
+    VALID_METRIC_KINDS = {"ExperimentMetric", "ExperimentTrendsQuery", "ExperimentFunnelsQuery"}
+
+    def _validate_metrics_list(self, metrics: list | None) -> list | None:
+        if metrics is None:
+            return metrics
+
+        if not isinstance(metrics, list):
+            raise ValidationError("Metrics must be a list")
+
+        for i, metric in enumerate(metrics):
+            if not isinstance(metric, dict):
+                raise ValidationError(f"Invalid metric at index {i}: must be a dict")
+
+            kind = metric.get("kind")
+            if kind not in self.VALID_METRIC_KINDS:
+                raise ValidationError(f"Invalid metric at index {i}: unknown kind '{kind}'")
+
+            # Only ExperimentMetric needs Pydantic validation (legacy kinds are pass-through)
+            if kind == "ExperimentMetric":
+                try:
+                    ExperimentMetric.model_validate(metric)
+                except pydantic.ValidationError as e:
+                    raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
+
+        return metrics
+
+    def validate_metrics(self, value):
+        return self._validate_metrics_list(value)
+
+    def validate_metrics_secondary(self, value):
+        return self._validate_metrics_list(value)
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
@@ -261,8 +312,12 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
             ]
 
+            # Pass experiment parameters to the feature flag
+            parameters = validated_data.get("parameters") or {}
+            experiment_rollout_percentage = parameters.get("rollout_percentage", DEFAULT_ROLLOUT_PERCENTAGE)
+
             feature_flag_filters = {
-                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
                 "multivariate": {"variants": variants or default_variants},
                 "aggregation_group_type_index": aggregation_group_type_index,
                 "holdout_groups": holdout_groups,
@@ -275,9 +330,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 "active": not is_draft,
                 "creation_context": "experiments",
             }
-
-            # Pass ensure_experience_continuity from experiment parameters
-            parameters = validated_data.get("parameters") or {}
             if parameters.get("ensure_experience_continuity") is not None:
                 feature_flag_data["ensure_experience_continuity"] = parameters["ensure_experience_continuity"]
             if validated_data.get("_create_in_folder") is not None:
@@ -291,13 +343,27 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             feature_flag = feature_flag_serializer.save()
 
         # Ensure stats_config has a method set, preserving any other fields passed from frontend
-        stats_config = validated_data.get("stats_config", {})
+        stats_config = validated_data.get("stats_config", {}) or {}
+        team = Team.objects.get(id=self.context["team_id"])
+
         if not stats_config.get("method"):
-            # Get organization's default stats method setting
-            team = Team.objects.get(id=self.context["team_id"])
-            default_method = team.organization.default_experiment_stats_method
+            # Get team's default stats method setting
+            default_method = team.default_experiment_stats_method or "bayesian"
             stats_config["method"] = default_method
-            validated_data["stats_config"] = stats_config
+
+        # Set default confidence level from team setting if not already set
+        if team.default_experiment_confidence_level is not None:
+            confidence_level = float(team.default_experiment_confidence_level)
+            bayesian_config = stats_config.get("bayesian") or {}
+            frequentist_config = stats_config.get("frequentist") or {}
+            # Set for Bayesian if ci_level not already configured
+            if bayesian_config.get("ci_level") is None:
+                stats_config["bayesian"] = {**bayesian_config, "ci_level": confidence_level}
+            # Set for Frequentist if alpha not already configured
+            if frequentist_config.get("alpha") is None:
+                stats_config["frequentist"] = {**frequentist_config, "alpha": 1 - confidence_level}
+
+        validated_data["stats_config"] = stats_config
 
         # Add fingerprints to metrics
         # UI creates experiments without metrics (adds them later in draft mode)
@@ -309,6 +375,23 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                     metric["fingerprint"] = compute_metric_fingerprint(
                         metric, validated_data.get("start_date"), stats_method, validated_data.get("exposure_criteria")
                     )
+
+        # Sync ordering arrays for inline metrics (all metrics are "new" in create)
+        if "metrics" in validated_data:
+            primary_ordering = list(validated_data.get("primary_metrics_ordered_uuids") or [])
+            for metric in validated_data["metrics"]:
+                if uuid := metric.get("uuid"):
+                    if uuid not in primary_ordering:
+                        primary_ordering.append(uuid)
+            validated_data["primary_metrics_ordered_uuids"] = primary_ordering
+
+        if "metrics_secondary" in validated_data:
+            secondary_ordering = list(validated_data.get("secondary_metrics_ordered_uuids") or [])
+            for metric in validated_data["metrics_secondary"]:
+                if uuid := metric.get("uuid"):
+                    if uuid not in secondary_ordering:
+                        secondary_ordering.append(uuid)
+            validated_data["secondary_metrics_ordered_uuids"] = secondary_ordering
 
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
@@ -339,8 +422,36 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 )
                 saved_metric_serializer.is_valid(raise_exception=True)
                 saved_metric_serializer.save()
-                # TODO: Going the above route means we can still sometimes fail when validation fails?
-                # But this shouldn't really happen, if it does its a bug in our validation logic (validate_saved_metrics_ids)
+
+            # Sync ordering arrays for saved metrics (all are "new" in create)
+            primary_ordering = list(experiment.primary_metrics_ordered_uuids or [])
+            secondary_ordering = list(experiment.secondary_metrics_ordered_uuids or [])
+            ordering_changed = False
+
+            saved_metric_ids = [sm["id"] for sm in saved_metrics_data]
+            saved_metrics_map = {
+                sm.id: sm
+                for sm in ExperimentSavedMetric.objects.filter(id__in=saved_metric_ids, team_id=self.context["team_id"])
+            }
+
+            for sm_data in saved_metrics_data:
+                saved_metric = saved_metrics_map.get(sm_data["id"])
+                if saved_metric and saved_metric.query:
+                    if uuid := saved_metric.query.get("uuid"):
+                        metric_type = (sm_data.get("metadata") or {}).get("type", "primary")
+                        if metric_type == "primary":
+                            if uuid not in primary_ordering:
+                                primary_ordering.append(uuid)
+                                ordering_changed = True
+                        else:
+                            if uuid not in secondary_ordering:
+                                secondary_ordering.append(uuid)
+                                ordering_changed = True
+
+            if ordering_changed:
+                experiment.primary_metrics_ordered_uuids = primary_ordering
+                experiment.secondary_metrics_ordered_uuids = secondary_ordering
+                experiment.save(update_fields=["primary_metrics_ordered_uuids", "secondary_metrics_ordered_uuids"])
 
         self._validate_metric_ordering(experiment, {})
 
@@ -358,6 +469,19 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         update_saved_metrics = "saved_metrics_ids" in validated_data
         saved_metrics_data = validated_data.pop("saved_metrics_ids", []) or []
+
+        # Capture old saved metric UUIDs BEFORE delete for ordering sync
+        old_saved_metric_uuids: dict[str, set[str]] = {"primary": set(), "secondary": set()}
+        if update_saved_metrics:
+            for link in instance.experimenttosavedmetric_set.select_related("saved_metric").all():
+                if link.saved_metric.query:
+                    uuid = link.saved_metric.query.get("uuid")
+                    if uuid:
+                        metric_type = (link.metadata or {}).get("type", "primary")
+                        if metric_type == "primary":
+                            old_saved_metric_uuids["primary"].add(uuid)
+                        else:
+                            old_saved_metric_uuids["secondary"].add(uuid)
 
         # We replace all saved metrics on update to avoid issues with partial updates
         if update_saved_metrics:
@@ -392,6 +516,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "metrics",
             "metrics_secondary",
             "stats_config",
+            "scheduling_config",
             "conclusion",
             "conclusion_comment",
             "primary_metrics_ordered_uuids",
@@ -448,7 +573,19 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 ]
 
                 feature_flag_filters = feature_flag.filters
-                feature_flag_filters["groups"] = feature_flag.filters.get("groups", [])
+
+                # When experiments are edited, they have already a linked feature flag. That feature flag can me modified to have
+                # complex release conditions across multiple groups. An initial backend implementation rejected updates with the
+                # rollout_percentage, as the the frontend shows such linked feature flag as display (not a form). That way the backend
+                # would have notified about a change of implementation. However, the frontend still carries the param in the state.
+                # To be consistent with the current frontend/backend interaction, we allow receiving rollout_percentage and default
+                # to the first group of release conditions.
+                existing_groups = feature_flag.filters.get("groups", [])
+                experiment_rollout_percentage = validated_data["parameters"].get("rollout_percentage")
+                if experiment_rollout_percentage is not None and existing_groups:
+                    existing_groups[0]["rollout_percentage"] = experiment_rollout_percentage
+
+                feature_flag_filters["groups"] = existing_groups
                 feature_flag_filters["multivariate"] = {"variants": variants or default_variants}
                 feature_flag_filters["aggregation_group_type_index"] = aggregation_group_type_index
                 feature_flag_filters["holdout_groups"] = holdout_groups
@@ -497,6 +634,13 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
                 validated_data[metric_field] = updated_metrics
 
+        self._sync_ordering_with_metric_changes(instance, validated_data)
+        self._sync_ordering_for_saved_metrics(
+            instance,
+            validated_data,
+            old_saved_metric_uuids,
+            saved_metrics_data if update_saved_metrics else None,
+        )
         self._validate_metric_ordering(instance, validated_data)
 
         if instance.is_draft and has_start_date:
@@ -507,6 +651,130 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             # Not a draft, doesn't have start date
             # Or draft without start date
             return super().update(instance, validated_data)
+
+    def _sync_ordering_with_metric_changes(self, instance: Experiment, validated_data: dict) -> None:
+        """
+        Sync ordering arrays with inline metric changes in this request.
+
+        When metrics are added/removed, their UUIDs should be added/removed from
+        the ordering arrays. This handles the case where API consumers send metrics
+        without also updating the ordering arrays.
+        """
+        if "metrics" in validated_data:
+            old_uuids = {m.get("uuid") for m in instance.metrics or [] if m.get("uuid")}
+            new_uuids = {m.get("uuid") for m in validated_data.get("metrics") or [] if m.get("uuid")}
+
+            added = new_uuids - old_uuids
+            removed = old_uuids - new_uuids
+
+            if added or removed:
+                # Use ordering from request if explicitly provided, otherwise use instance's ordering
+                if "primary_metrics_ordered_uuids" in validated_data:
+                    current_ordering = list(validated_data["primary_metrics_ordered_uuids"] or [])
+                else:
+                    current_ordering = list(instance.primary_metrics_ordered_uuids or [])
+
+                current_ordering = [u for u in current_ordering if u not in removed]
+                for uuid in added:
+                    if uuid not in current_ordering:
+                        current_ordering.append(uuid)
+
+                validated_data["primary_metrics_ordered_uuids"] = current_ordering
+
+        if "metrics_secondary" in validated_data:
+            old_uuids = {m.get("uuid") for m in instance.metrics_secondary or [] if m.get("uuid")}
+            new_uuids = {m.get("uuid") for m in validated_data.get("metrics_secondary") or [] if m.get("uuid")}
+
+            added = new_uuids - old_uuids
+            removed = old_uuids - new_uuids
+
+            if added or removed:
+                if "secondary_metrics_ordered_uuids" in validated_data:
+                    current_ordering = list(validated_data["secondary_metrics_ordered_uuids"] or [])
+                else:
+                    current_ordering = list(instance.secondary_metrics_ordered_uuids or [])
+
+                current_ordering = [u for u in current_ordering if u not in removed]
+
+                for uuid in added:
+                    if uuid not in current_ordering:
+                        current_ordering.append(uuid)
+
+                validated_data["secondary_metrics_ordered_uuids"] = current_ordering
+
+    def _sync_ordering_for_saved_metrics(
+        self,
+        instance: Experiment,
+        validated_data: dict,
+        old_saved_metric_uuids: dict[str, set[str]],
+        saved_metrics_data: list[dict] | None,
+    ) -> None:
+        """
+        Sync ordering arrays with saved metric changes in this request.
+
+        Since saved_metrics_ids is popped from validated_data early and saved metrics
+        are deleted/recreated before this runs, we need the old UUIDs passed in.
+
+        Args:
+            instance: The experiment being updated
+            validated_data: The validated data dict (will be modified)
+            old_saved_metric_uuids: Dict with 'primary' and 'secondary' keys containing old UUIDs
+            saved_metrics_data: The new saved_metrics_ids from the request, or None if not updating
+        """
+        if saved_metrics_data is None:
+            return
+
+        new_primary_uuids: set[str] = set()
+        new_secondary_uuids: set[str] = set()
+
+        saved_metric_ids_list = [sm["id"] for sm in saved_metrics_data]
+        if saved_metric_ids_list:
+            saved_metrics = {
+                sm.id: sm
+                for sm in ExperimentSavedMetric.objects.filter(
+                    id__in=saved_metric_ids_list, team_id=self.context["team_id"]
+                )
+            }
+
+            for sm_data in saved_metrics_data:
+                saved_metric = saved_metrics.get(sm_data["id"])
+                if saved_metric and saved_metric.query:
+                    uuid = saved_metric.query.get("uuid")
+                    if uuid:
+                        metric_type = (sm_data.get("metadata") or {}).get("type", "primary")
+                        if metric_type == "primary":
+                            new_primary_uuids.add(uuid)
+                        else:
+                            new_secondary_uuids.add(uuid)
+
+        added_primary = new_primary_uuids - old_saved_metric_uuids["primary"]
+        removed_primary = old_saved_metric_uuids["primary"] - new_primary_uuids
+        added_secondary = new_secondary_uuids - old_saved_metric_uuids["secondary"]
+        removed_secondary = old_saved_metric_uuids["secondary"] - new_secondary_uuids
+
+        if added_primary or removed_primary:
+            if "primary_metrics_ordered_uuids" in validated_data:
+                current_ordering = list(validated_data["primary_metrics_ordered_uuids"] or [])
+            else:
+                current_ordering = list(instance.primary_metrics_ordered_uuids or [])
+
+            current_ordering = [u for u in current_ordering if u not in removed_primary]
+            for uuid in added_primary:
+                if uuid not in current_ordering:
+                    current_ordering.append(uuid)
+            validated_data["primary_metrics_ordered_uuids"] = current_ordering
+
+        if added_secondary or removed_secondary:
+            if "secondary_metrics_ordered_uuids" in validated_data:
+                current_ordering = list(validated_data["secondary_metrics_ordered_uuids"] or [])
+            else:
+                current_ordering = list(instance.secondary_metrics_ordered_uuids or [])
+
+            current_ordering = [u for u in current_ordering if u not in removed_secondary]
+            for uuid in added_secondary:
+                if uuid not in current_ordering:
+                    current_ordering.append(uuid)
+            validated_data["secondary_metrics_ordered_uuids"] = current_ordering
 
     def _validate_metric_ordering(self, instance: Experiment, validated_data: dict) -> None:
         """
@@ -582,12 +850,20 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
 
 class ExperimentStatus(str, Enum):
+    """
+    Note: The frontend also uses a "ProgressStatus.Paused" status, but this is purely a
+    virtual status to have better UX for the user. Technically, paused experiments have
+    feature flags disabled while the experiment is still "running" in the backend, i.e.
+    they have start_date but no end_date).
+    """
+
     DRAFT = "draft"
     RUNNING = "running"
     COMPLETE = "complete"
     ALL = "all"
 
 
+@extend_schema(tags=["experiments"])
 class EnterpriseExperimentsViewSet(
     ForbidDestroyModel, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
 ):
@@ -740,6 +1016,7 @@ class EnterpriseExperimentsViewSet(
             "metrics": source_experiment.metrics,
             "metrics_secondary": source_experiment.metrics_secondary,
             "stats_config": source_experiment.stats_config,
+            "scheduling_config": source_experiment.scheduling_config,
             "exposure_criteria": source_experiment.exposure_criteria,
             "saved_metrics_ids": saved_metrics_data,
             "feature_flag_key": feature_flag_key,  # Use provided key or fall back to existing
@@ -879,6 +1156,7 @@ class EnterpriseExperimentsViewSet(
         queryset = FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False)
 
         # Filter for multivariate flags with at least 2 variants and first variant is "control"
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
         queryset = queryset.extra(
             where=[
                 """

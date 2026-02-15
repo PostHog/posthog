@@ -89,10 +89,10 @@ def sync_saved_query_workflow(
     return saved_query
 
 
-def delete_saved_query_schedule(schedule_id: str):
+def delete_saved_query_schedule(saved_query: "DataWarehouseSavedQuery"):
     temporal = sync_connect()
     try:
-        delete_schedule(temporal, schedule_id=schedule_id)
+        delete_schedule(temporal, schedule_id=str(saved_query.id))
     except temporalio.service.RPCError as e:
         # Swallow error if schedule does not exist already
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
@@ -100,24 +100,29 @@ def delete_saved_query_schedule(schedule_id: str):
         raise
 
 
-def pause_saved_query_schedule(id: str) -> None:
+def pause_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> None:
     temporal = sync_connect()
-    pause_schedule(temporal, schedule_id=id)
+    pause_schedule(temporal, schedule_id=str(saved_query.id))
 
 
-async def a_pause_saved_query_schedule(id: str) -> None:
+async def a_pause_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> None:
     temporal = await async_connect()
-    await a_pause_schedule(temporal, schedule_id=id)
+    await a_pause_schedule(temporal, schedule_id=str(saved_query.id))
 
 
-def unpause_saved_query_schedule(id: str) -> None:
+def unpause_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> None:
     temporal = sync_connect()
-    unpause_schedule(temporal, schedule_id=id)
+    unpause_schedule(temporal, schedule_id=str(saved_query.id))
+    # reset the automatic sync interval for rev analytics
+    viewset = saved_query.managed_viewset
+    if viewset and viewset.kind == "revenue_analytics":
+        saved_query.sync_frequency_interval = timedelta(hours=12)
+        saved_query.save()
 
 
-def saved_query_workflow_exists(id: str) -> bool:
+def saved_query_workflow_exists(saved_query: "DataWarehouseSavedQuery") -> bool:
     temporal = sync_connect()
-    return schedule_exists(temporal, schedule_id=id)
+    return schedule_exists(temporal, schedule_id=str(saved_query.id))
 
 
 def trigger_saved_query_schedule(saved_query: "DataWarehouseSavedQuery"):

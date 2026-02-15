@@ -5,6 +5,7 @@ from datetime import datetime
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.models import Team
 from posthog.session_recordings.models.session_recording import SessionRecording
 
@@ -49,6 +50,7 @@ class RecordingsHelper:
                     {having_predicates}
                 """
 
+        tag_queries(team_id=self.team.id, product=Product.REPLAY)
         response = execute_hogql_query(
             query,
             placeholders={

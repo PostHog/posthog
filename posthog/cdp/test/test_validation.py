@@ -2,7 +2,15 @@ import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
-from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, MappingsSerializer
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
+
+from posthog.cdp.validation import (
+    HogFunctionFiltersSerializer,
+    InputsSchemaItemSerializer,
+    MappingsSerializer,
+    compile_hog,
+)
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
@@ -465,3 +473,43 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             "properties": [{"key": "email", "value": ["test@posthog.com"], "operator": "exact", "type": "person"}],
             "bytecode": ["_H", 1, 32, "test@posthog.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
         }
+
+    @parameterized.expand(
+        [
+            ("valid_dotted", "{person.properties.email}", False),
+            ("valid_bracket", "{person.properties['self-serve']}", False),
+            ("hyphenated_single", "{person.properties.self-serve}", True),
+            ("hyphenated_multi", "{event.properties.multi-word-name}", True),
+            ("subtraction_with_spaces", "{event.properties.count - total}", False),
+            ("subtraction_field_minus_field", "{event.properties.amount - event.properties.discount}", False),
+        ]
+    )
+    def test_hyphenated_property_detection(self, _name, template, should_error):
+        inputs_schema = [{"key": "msg", "type": "string", "required": True}]
+        inputs = {"msg": {"value": template}}
+
+        if should_error:
+            with self.assertRaises(ValidationError) as ctx:
+                validate_inputs(inputs_schema, inputs)
+            error_msg = str(ctx.exception)
+            assert "Hyphens are not supported" in error_msg
+            assert "bracket notation" in error_msg
+        else:
+            validate_inputs(inputs_schema, inputs)
+
+    @parameterized.expand(
+        [
+            ("valid_code", "let x := person.properties.email", False),
+            ("hyphenated_code", "let x := person.properties.self-serve", True),
+            ("subtraction_code", "let x := event.properties.count - total", False),
+        ]
+    )
+    def test_hyphenated_property_detection_in_hog(self, _name, hog_code, should_error):
+        if should_error:
+            with self.assertRaises(ValidationError) as ctx:
+                compile_hog(hog_code, "destination")
+            error_msg = str(ctx.exception)
+            assert "Hyphens are not supported" in error_msg
+            assert "bracket notation" in error_msg
+        else:
+            compile_hog(hog_code, "destination")

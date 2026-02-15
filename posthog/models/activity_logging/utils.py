@@ -8,7 +8,7 @@ import structlog
 from asgiref.local import Local
 
 if TYPE_CHECKING:
-    from posthog.models.activity_logging.activity_log import ActivityLog, ActivityScope
+    from posthog.models.activity_logging.activity_log import ActivityLog
 
 logger = structlog.get_logger(__name__)
 
@@ -60,22 +60,24 @@ class ActivityLogVisibilityManager:
     """
 
     @classmethod
-    def _get_restrictions(cls) -> dict["ActivityScope", dict[str, Any]]:
+    def _get_restrictions(cls) -> list[dict[str, Any]]:
         from posthog.models.activity_logging.activity_log import activity_visibility_restrictions
 
         return activity_visibility_restrictions
 
     @classmethod
     def is_restricted(cls, instance: "ActivityLog", restrict_for_staff: bool = False) -> bool:
-        for restriction_scope, config in cls._get_restrictions().items():
+        for config in cls._get_restrictions():
             if not restrict_for_staff and config.get("allow_staff"):
                 continue
-            if instance.scope != restriction_scope:
+            if instance.scope != config.get("scope"):
                 continue
             if instance.activity not in config.get("activities", []):
                 continue
             exclude_conditions = config.get("exclude_when", {})
-            if all(getattr(instance, field, None) == value for field, value in exclude_conditions.items()):
+            if not exclude_conditions or all(
+                getattr(instance, field, None) == value for field, value in exclude_conditions.items()
+            ):
                 return True
         return False
 
@@ -88,10 +90,11 @@ class ActivityLogVisibilityManager:
         """
         exclusion_queries: list[Q] = []
 
-        for scope, config in cls._get_restrictions().items():
+        for config in cls._get_restrictions():
             if config.get("allow_staff") and is_staff:
                 continue
 
+            scope = config.get("scope")
             activities = config.get("activities", [])
             exclude_conditions = config.get("exclude_when", {})
 
@@ -137,8 +140,17 @@ def get_changed_fields_local(before_update: models.Model, after_update: models.M
     all_excluded_fields = field_exclusions.get(model_name, []) + common_field_exclusions + signal_excluded_fields
 
     changed_fields = []
+    # Get deferred fields to skip - accessing deferred fields causes Django to
+    # refresh the entire model from DB, losing any pending unsaved changes
+    before_deferred = before_update.get_deferred_fields() if hasattr(before_update, "get_deferred_fields") else set()
+    after_deferred = after_update.get_deferred_fields() if hasattr(after_update, "get_deferred_fields") else set()
+
     for field in before_update._meta.get_fields():
         if not hasattr(field, "name") or field.name in all_excluded_fields:
+            continue
+
+        # Skip deferred fields to avoid triggering DB refresh which would lose pending changes
+        if field.name in before_deferred or field.name in after_deferred:
             continue
 
         if hasattr(before_update, field.name) and hasattr(after_update, field.name):
@@ -149,7 +161,6 @@ def get_changed_fields_local(before_update: models.Model, after_update: models.M
                 if old_val != new_val:
                     changed_fields.append(field.name)
             except Exception:
-                # If we can't safely compare, assume it changed to be safe
                 logger.warning(
                     "Field comparison failed",
                     model_name=model_name,
@@ -158,7 +169,6 @@ def get_changed_fields_local(before_update: models.Model, after_update: models.M
                     after_update=after_update,
                     error=traceback.format_exc(),
                 )
-
                 changed_fields.append(field.name)
 
     return changed_fields

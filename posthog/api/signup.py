@@ -1,4 +1,5 @@
 import json
+import uuid as uuid_module
 from typing import Any, Optional, Union, cast
 from urllib.parse import urlencode
 
@@ -12,13 +13,19 @@ from django.urls.base import reverse
 
 import structlog
 import posthoganalytics
-from rest_framework import exceptions, generics, permissions, response, serializers
+from rest_framework import exceptions, generics, permissions, response, serializers, status
 from rest_framework.request import Request
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
+from webauthn.helpers import base64url_to_bytes
 
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.webauthn import (
+    WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
+    WEBAUTHN_SIGNUP_EMAIL_KEY,
+    WEBAUTHN_SIGNUP_USER_UUID_KEY,
+)
 from posthog.demo.matrix import MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.email import is_email_available
@@ -26,9 +33,11 @@ from posthog.event_usage import alias_invite_id, report_user_joined_organization
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
+from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
-from posthog.rate_limit import SignupIPThrottle
+from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle
 from posthog.utils import get_can_create_org, is_relative_url
+from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 logger = structlog.get_logger(__name__)
 
@@ -71,15 +80,19 @@ class SignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128)
     last_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email: serializers.Field = serializers.EmailField()
-    password: serializers.Field = serializers.CharField(allow_null=True, required=True)
-    organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    password: serializers.Field = serializers.CharField(allow_null=True, required=False, allow_blank=True)
+    organization_name: serializers.Field = serializers.CharField(max_length=64, required=False, allow_blank=True)
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )
     referral_source: serializers.Field = serializers.CharField(max_length=1000, required=False, allow_blank=True)
+    referral_source_ai_prompt: serializers.Field = serializers.CharField(
+        max_length=1000, required=False, allow_blank=True
+    )
 
     # Slightly hacky: self vars for internal use
     is_social_signup: bool
+    is_passkey_signup: bool
     _user: User
     _team: Team
     _organization: Organization
@@ -87,6 +100,7 @@ class SignupSerializer(serializers.Serializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.is_social_signup = False
+        self.is_passkey_signup = False
 
     def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
@@ -97,11 +111,46 @@ class SignupSerializer(serializers.Serializer):
         return fields
 
     def validate_password(self, value):
-        if value is not None:
+        if value is not None and value != "":
             password_validation.validate_password(value)
         return value
 
+    def validate(self, data):
+        request = self.context.get("request")
+        passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY) if request else None
+        password = data.get("password")
+
+        # Passkey signup: credential in session, no password needed
+        if passkey_credential:
+            self.is_passkey_signup = True
+        # Social signup: password not required
+        elif self.is_social_signup:
+            pass
+        # Demo mode: password not required
+        elif settings.DEMO:
+            pass
+        # Regular signup: password required
+        elif not password:
+            raise serializers.ValidationError(
+                {"password": serializers.ErrorDetail("This field is required.", code="required")}
+            )
+
+        return data
+
     def validate_email(self, value):
+        request = self.context.get("request")
+        passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY) if request else None
+        session_email = request.session.get(WEBAUTHN_SIGNUP_EMAIL_KEY) if request else None
+
+        # For passkey signup, use the email from session (already validated during registration)
+        if passkey_credential and session_email:
+            if session_email.lower() != value.lower():
+                raise serializers.ValidationError(
+                    "Email does not match the email used for passkey registration", code="email_mismatch"
+                )
+
+            return session_email
+
         if not settings.DEMO and EmailValidationHelper.user_exists(value):
             raise serializers.ValidationError("There is already an account with this email address.", code="unique")
         return value
@@ -113,27 +162,79 @@ class SignupSerializer(serializers.Serializer):
         if settings.DEMO:
             return self.enter_demo(validated_data)
 
+        request = self.context["request"]
+        passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
+
+        # Evaluate signup attempt with WorkOS Radar (log-only mode, does not block)
+        auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
+        evaluate_auth_attempt(
+            request=request._request,
+            email=validated_data["email"],
+            action=RadarAction.SIGNUP,
+            auth_method=auth_method,
+        )
+
         is_instance_first_user: bool = not User.objects.exists()
 
-        organization_name = validated_data.pop("organization_name", f"{validated_data['first_name']}'s Organization")
+        default_org_name = f"{validated_data['first_name']}'s Organization"[:64]
+        organization_name = validated_data.pop("organization_name", default_org_name)
         role_at_organization = validated_data.pop("role_at_organization", "")
         referral_source = validated_data.pop("referral_source", "")
+        referral_source_ai_prompt = validated_data.pop("referral_source_ai_prompt", "")
+
+        # For passkey signup, set password to None and use the pre-generated UUID
+        if passkey_credential:
+            validated_data["password"] = None
+            user_uuid_str = request.session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY)
+            if user_uuid_str:
+                validated_data["uuid"] = uuid_module.UUID(user_uuid_str)
 
         try:
-            self._organization, self._team, self._user = User.objects.bootstrap(
-                organization_name=organization_name,
-                create_team=self.create_team,
-                is_staff=is_instance_first_user,
-                is_email_verified=self.is_email_auto_verified(),
-                role_at_organization=role_at_organization,
-                **validated_data,
+            with transaction.atomic():
+                self._organization, self._team, self._user = User.objects.bootstrap(
+                    organization_name=organization_name,
+                    create_team=self.create_team,
+                    is_staff=is_instance_first_user,
+                    is_email_verified=self.is_email_auto_verified(),
+                    role_at_organization=role_at_organization,
+                    **validated_data,
+                )
+
+                # Create WebauthnCredential from session data for passkey signup
+                if passkey_credential:
+                    WebauthnCredential.objects.create(
+                        user=self._user,
+                        credential_id=base64url_to_bytes(passkey_credential["credential_id"]),
+                        public_key=base64url_to_bytes(passkey_credential["public_key"]),
+                        algorithm=passkey_credential["algorithm"],
+                        counter=passkey_credential["sign_count"],
+                        transports=passkey_credential.get("transports", []),
+                        verified=True,
+                        label="Passkey",
+                    )
+
+        except IntegrityError as e:
+            # This can happen if:
+            # 1. A user with this email was created between validation and creation (race condition)
+            # 2. For passkey signup, a user was created after passkey registration but before signup completion
+            # 3. A user is created with uuid that another user has
+            logger.warning(
+                "signup_integrity_error",
+                email=validated_data.get("email"),
+                is_passkey_signup=bool(passkey_credential),
+                error=str(e),
             )
-        except IntegrityError:
-            # This should be rare now due to the check above, but kept for safety
             raise exceptions.ValidationError(
                 {"email": "There is already an account with this email address."},
                 code="unique",
             )
+
+        # Clear passkey signup session data
+        if passkey_credential:
+            request.session.pop(WEBAUTHN_SIGNUP_CREDENTIAL_KEY, None)
+            request.session.pop(WEBAUTHN_SIGNUP_EMAIL_KEY, None)
+            request.session.pop(WEBAUTHN_SIGNUP_USER_UUID_KEY, None)
+            request.session.save()
 
         user = self._user
 
@@ -147,9 +248,10 @@ class SignupSerializer(serializers.Serializer):
             org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
             role_at_organization=role_at_organization,
             referral_source=referral_source,
+            referral_source_ai_prompt=referral_source_ai_prompt,
         )
 
-        verify_email_or_login(self.context["request"], user)
+        verify_email_or_login(request, user)
 
         return user
 
@@ -192,6 +294,32 @@ class SignupSerializer(serializers.Serializer):
         return data
 
 
+class SignupEmailPrecheckSerializer(serializers.Serializer):
+    email: serializers.Field = serializers.EmailField()
+
+
+class SignupEmailPrecheckViewset(generics.GenericAPIView):
+    serializer_class = SignupEmailPrecheckSerializer
+    permission_classes = (permissions.AllowAny,)
+    throttle_classes = [] if settings.E2E_TESTING else [SignupEmailPrecheckThrottle]
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        email_exists = False if settings.DEMO else EmailValidationHelper.user_exists(email)
+        if email_exists:
+            return response.Response(
+                {
+                    "email_exists": True,
+                    "code": "account_exists",
+                    "detail": "There is already an account with this email address.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return response.Response({"email_exists": False}, status=status.HTTP_200_OK)
+
+
 class SignupViewset(generics.CreateAPIView):
     serializer_class = SignupSerializer
     # Enables E2E testing of signup flow
@@ -216,10 +344,17 @@ class InviteSignupSerializer(serializers.Serializer):
         return data
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        if "request" not in self.context or not self.context["request"].user.is_authenticated:
+        request = self.context.get("request")
+        passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY) if request else None
+
+        if not request or not request.user.is_authenticated:
             # If there's no authenticated user and we're creating a new one, attributes are required.
 
-            for attr in ["first_name", "password"]:
+            required_fields = ["first_name"]
+            if not passkey_credential:
+                required_fields.append("password")
+
+            for attr in required_fields:
                 if not data.get(attr):
                     raise serializers.ValidationError({attr: "This field is required."}, code="required")
 
@@ -234,15 +369,32 @@ class InviteSignupSerializer(serializers.Serializer):
 
         role_at_organization = validated_data.pop("role_at_organization", "")
 
-        if self.context["request"].user.is_authenticated:
-            user = cast(User, self.context["request"].user)
+        request = self.context["request"]
+        passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
+        session_email = request.session.get(WEBAUTHN_SIGNUP_EMAIL_KEY)
+        session_user_uuid = request.session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY)
+
+        if request.user.is_authenticated:
+            user = cast(User, request.user)
 
         invite_id = self.context["view"].kwargs.get("invite_id")
 
         try:
+            # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
         except OrganizationInvite.DoesNotExist:
             raise serializers.ValidationError("The provided invite ID is not valid.")
+
+        # Evaluate signup attempt with WorkOS Radar (log-only mode, does not block)
+        # Only for new users, not existing authenticated users
+        if not user and invite.target_email:
+            auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
+            evaluate_auth_attempt(
+                request=request._request,
+                email=invite.target_email,
+                action=RadarAction.SIGNUP,
+                auth_method=auth_method,
+            )
 
         # Only check SSO enforcement if we're not already logged in
         if (
@@ -258,14 +410,38 @@ class InviteSignupSerializer(serializers.Serializer):
         with transaction.atomic():
             if not user:
                 is_new_user = True
+                if passkey_credential and (not session_email or not session_user_uuid):
+                    raise serializers.ValidationError(
+                        "Passkey signup session expired. Please register your passkey again.",
+                        code="passkey_session_expired",
+                    )
+
+                if (
+                    passkey_credential
+                    and session_email
+                    and invite.target_email
+                    and session_email.lower() != invite.target_email.lower()
+                ):
+                    raise serializers.ValidationError(
+                        "Email does not match the email used for passkey registration", code="email_mismatch"
+                    )
+
                 try:
+                    if passkey_credential:
+                        validated_data.pop("password", None)
+                    password = None if passkey_credential else validated_data.pop("password")
+                    first_name = validated_data.pop("first_name")
+                    extra_fields: dict[str, Any] = {**validated_data}
+                    if passkey_credential and session_user_uuid:
+                        extra_fields["uuid"] = uuid_module.UUID(session_user_uuid)
+
                     user = User.objects.create_user(
                         invite.target_email,
-                        validated_data.pop("password"),
-                        validated_data.pop("first_name"),
+                        password,
+                        first_name,
                         is_email_verified=False,
                         role_at_organization=role_at_organization,
-                        **validated_data,
+                        **extra_fields,
                     )
                 except IntegrityError:
                     raise serializers.ValidationError(
@@ -276,6 +452,18 @@ class InviteSignupSerializer(serializers.Serializer):
                 invite.use(user)
             except ValueError as e:
                 raise serializers.ValidationError(str(e))
+
+            if passkey_credential:
+                WebauthnCredential.objects.create(
+                    user=user,
+                    credential_id=base64url_to_bytes(passkey_credential["credential_id"]),
+                    public_key=base64url_to_bytes(passkey_credential["public_key"]),
+                    algorithm=passkey_credential["algorithm"],
+                    counter=passkey_credential["sign_count"],
+                    transports=passkey_credential.get("transports", []),
+                    verified=True,
+                    label="Passkey",
+                )
 
         if is_new_user:
             verify_email_or_login(self.context["request"], user)
@@ -297,6 +485,12 @@ class InviteSignupSerializer(serializers.Serializer):
 
         alias_invite_id(user, str(invite.id))
 
+        if passkey_credential:
+            request.session.pop(WEBAUTHN_SIGNUP_CREDENTIAL_KEY, None)
+            request.session.pop(WEBAUTHN_SIGNUP_EMAIL_KEY, None)
+            request.session.pop(WEBAUTHN_SIGNUP_USER_UUID_KEY, None)
+            request.session.save()
+
         return user
 
 
@@ -315,6 +509,7 @@ class InviteSignupViewset(generics.CreateAPIView):
             raise exceptions.ValidationError("Please provide an invite ID to continue.")
 
         try:
+            # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.get(id=invite_id)
         except (OrganizationInvite.DoesNotExist, ValidationError):
             raise serializers.ValidationError("The provided invite ID is not valid.")
@@ -345,9 +540,15 @@ class SocialSignupSerializer(serializers.Serializer):
     Pre-processes information not obtained from SSO provider to create organization.
     """
 
-    organization_name: serializers.Field = serializers.CharField(max_length=128)
+    organization_name: serializers.Field = serializers.CharField(max_length=64)
     first_name: serializers.Field = serializers.CharField(max_length=128)
     role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
+    referral_source: serializers.Field = serializers.CharField(
+        max_length=1000, required=False, allow_blank=True, default=""
+    )
+    referral_source_ai_prompt: serializers.Field = serializers.CharField(
+        max_length=1000, required=False, allow_blank=True, default=""
+    )
 
     def create(self, validated_data, **kwargs):
         request = self.context["request"]
@@ -360,6 +561,8 @@ class SocialSignupSerializer(serializers.Serializer):
         email = request.session.get("email")
         organization_name = validated_data["organization_name"]
         role_at_organization = validated_data["role_at_organization"]
+        referral_source = validated_data.get("referral_source", "")
+        referral_source_ai_prompt = validated_data.get("referral_source_ai_prompt", "")
         first_name = validated_data["first_name"]
 
         serializer = SignupSerializer(
@@ -369,6 +572,8 @@ class SocialSignupSerializer(serializers.Serializer):
                 "email": email,
                 "password": None,
                 "role_at_organization": role_at_organization,
+                "referral_source": referral_source,
+                "referral_source_ai_prompt": referral_source_ai_prompt,
             },
             context={"request": request},
         )
@@ -414,6 +619,7 @@ class CompanyNameForm(forms.Form):
 
 
 def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[OrganizationInvite]:
+    # nosemgrep: idor-lookup-without-org (ID from SAML response)
     organization_domain = OrganizationDomain.objects.get(id=organization_domain_id)
     if not organization_domain:
         return None
@@ -428,6 +634,7 @@ def process_social_invite_signup(
     strategy: DjangoStrategy, invite_id: str, email: str, full_name: str, user: Optional[User] = None
 ) -> User:
     try:
+        # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
         invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
             "organization"
         ).get(id=invite_id)

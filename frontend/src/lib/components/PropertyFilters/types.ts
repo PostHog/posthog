@@ -51,6 +51,7 @@ export interface PropertyFilterInternalProps {
     propertyAllowList?: AllowedProperties
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
+    dataWarehouseTableName?: string
     propertyGroupType?: FilterLogicalOperator | null
     orFiltering?: boolean
     addText?: string | null

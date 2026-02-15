@@ -292,6 +292,7 @@ class BaseHyperCacheCommand(BaseCommand):
                 "error": 0,
                 "fixed": 0,
                 "fix_failed": 0,
+                "skipped_for_grace_period": 0,
             }
 
             mismatches: list[dict] = []
@@ -360,6 +361,14 @@ class BaseHyperCacheCommand(BaseCommand):
         except Exception as e:
             self.stdout.write(self.style.WARNING(f"Expiry tracking check failed, skipping: {e}"))
 
+        # Batch-check which teams should skip fixes (e.g., grace period for recently updated data)
+        team_ids_to_skip_fix: set[int] = set()
+        if fix and config.get_team_ids_to_skip_fix_fn:
+            try:
+                team_ids_to_skip_fix = config.get_team_ids_to_skip_fix_fn([t.id for t in teams])
+            except Exception as e:
+                self.stdout.write(self.style.WARNING(f"Skip-fix check failed, proceeding without skips: {e}"))
+
         for team in teams:
             stats["total"] += 1
 
@@ -379,14 +388,14 @@ class BaseHyperCacheCommand(BaseCommand):
                 identifier = config.hypercache.get_cache_identifier(team)
                 if expiry_status and not expiry_status.get(identifier, True):
                     stats["expiry_missing"] += 1
-                    self._handle_expiry_issue(team, stats, mismatches, fix, config)
+                    self._handle_expiry_issue(team, stats, mismatches, fix, config, team_ids_to_skip_fix)
 
             elif result["status"] == "miss":
                 stats["cache_miss"] += 1
-                self._handle_cache_issue(team, result, stats, mismatches, fix)
+                self._handle_cache_issue(team, result, stats, mismatches, fix, team_ids_to_skip_fix)
             elif result["status"] == "mismatch":
                 stats["cache_mismatch"] += 1
-                self._handle_cache_issue(team, result, stats, mismatches, fix)
+                self._handle_cache_issue(team, result, stats, mismatches, fix, team_ids_to_skip_fix)
 
     def _handle_cache_issue(
         self,
@@ -395,6 +404,7 @@ class BaseHyperCacheCommand(BaseCommand):
         stats: dict[str, int],
         mismatches: list[dict],
         fix: bool,
+        team_ids_to_skip_fix: set[int],
     ):
         """Handle a cache issue (miss or mismatch)."""
         issue_detail = {
@@ -408,7 +418,15 @@ class BaseHyperCacheCommand(BaseCommand):
             issue_detail["diffs"] = result["diffs"]
 
         if fix:
-            issue_detail["fixed"] = self._fix_team_cache(team, stats)
+            # Check if we should skip fixing (e.g., grace period for recently updated data)
+            if team.id in team_ids_to_skip_fix:
+                stats["skipped_for_grace_period"] += 1
+                issue_detail["skipped"] = True
+                self.stdout.write(
+                    self.style.WARNING(f"  ⏳ Skipped fix for team {team.id} ({team.name}) - within grace period")
+                )
+            else:
+                issue_detail["fixed"] = self._fix_team_cache(team, stats)
 
         mismatches.append(issue_detail)
 
@@ -450,6 +468,7 @@ class BaseHyperCacheCommand(BaseCommand):
         mismatches: list[dict],
         fix: bool,
         config: HyperCacheManagementConfig,
+        team_ids_to_skip_fix: set[int],
     ):
         """Handle a team missing from expiry tracking."""
         issue_detail: dict = {
@@ -460,7 +479,15 @@ class BaseHyperCacheCommand(BaseCommand):
         }
 
         if fix:
-            issue_detail["fixed"] = self._fix_team_cache(team, stats, "expiry tracking", config)
+            # Check if we should skip fixing (e.g., grace period for recently updated data)
+            if team.id in team_ids_to_skip_fix:
+                stats["skipped_for_grace_period"] += 1
+                issue_detail["skipped"] = True
+                self.stdout.write(
+                    self.style.WARNING(f"  ⏳ Skipped fix for team {team.id} ({team.name}) - within grace period")
+                )
+            else:
+                issue_detail["fixed"] = self._fix_team_cache(team, stats, "expiry tracking", config)
 
         mismatches.append(issue_detail)
 
@@ -506,6 +533,12 @@ class BaseHyperCacheCommand(BaseCommand):
                         f"Cache fixes failed:   {stats['fix_failed']} ({self.format_percentage(stats['fix_failed'], stats['total'])})"
                     )
                 )
+            if stats.get("skipped_for_grace_period", 0) > 0:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"Skipped (grace period): {stats['skipped_for_grace_period']} ({self.format_percentage(stats['skipped_for_grace_period'], stats['total'])})"
+                    )
+                )
 
         if mismatches:
             self.stdout.write("\n" + "=" * 70)
@@ -515,11 +548,16 @@ class BaseHyperCacheCommand(BaseCommand):
             for mismatch in mismatches:
                 issue_prefix = f"[{mismatch['issue']}] Team {mismatch['team_id']} ({mismatch['team_name']})"
 
-                if fix and "fixed" in mismatch:
-                    if mismatch["fixed"]:
-                        self.stdout.write(self.style.SUCCESS(f"\n{issue_prefix} - FIXED"))
+                if fix:
+                    if mismatch.get("skipped"):
+                        self.stdout.write(self.style.WARNING(f"\n{issue_prefix} - SKIPPED (grace period)"))
+                    elif "fixed" in mismatch:
+                        if mismatch["fixed"]:
+                            self.stdout.write(self.style.SUCCESS(f"\n{issue_prefix} - FIXED"))
+                        else:
+                            self.stdout.write(self.style.ERROR(f"\n{issue_prefix} - FIX FAILED"))
                     else:
-                        self.stdout.write(self.style.ERROR(f"\n{issue_prefix} - FIX FAILED"))
+                        self.stdout.write(self.style.ERROR(f"\n{issue_prefix}"))
                 else:
                     self.stdout.write(self.style.ERROR(f"\n{issue_prefix}"))
 
@@ -537,17 +575,24 @@ class BaseHyperCacheCommand(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f"\n✓ All {cache_name} caches verified successfully!\n"))
         else:
             if fix:
+                skipped = stats.get("skipped_for_grace_period", 0)
+                skipped_suffix = f", {skipped} skipped (grace period)" if skipped > 0 else ""
+
                 if stats["fixed"] > 0 and stats["fix_failed"] == 0:
                     self.stdout.write(
                         self.style.SUCCESS(
-                            f"\n✓ Found and fixed {stats['fixed']} issue(s) with {len(mismatches)} team(s)\n"
+                            f"\n✓ Found and fixed {stats['fixed']} issue(s) with {len(mismatches)} team(s){skipped_suffix}\n"
                         )
                     )
                 elif stats["fix_failed"] > 0:
                     self.stdout.write(
                         self.style.WARNING(
-                            f"\n⚠ Fixed {stats['fixed']} issue(s), but {stats['fix_failed']} fixes failed\n"
+                            f"\n⚠ Fixed {stats['fixed']} issue(s), but {stats['fix_failed']} fixes failed{skipped_suffix}\n"
                         )
+                    )
+                elif skipped > 0:
+                    self.stdout.write(
+                        self.style.WARNING(f"\n⚠ Found {len(mismatches)} issue(s), all skipped due to grace period\n")
                     )
             else:
                 if stats["error"] > 0:

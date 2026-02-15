@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import ClassVar, Literal, Self
+from typing import Any, ClassVar, Literal, Self
 
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
@@ -129,7 +129,9 @@ Assistant: Let me first search for a company with name "eleventy".
 *Uses the search tool to find a property value with the "eleventy" value in the project*
 Assistant: I've found a property value with the "Eleventy.ai" value. I'm going to search for existing insights tracking the customer churn rate.
 *Uses the search tools to find insights tracking the customer churn rate in the project*
-Assistant: I've found 0 matching insights. Let me create a new insight checking if the company "Eleventy.ai" has churned. I'm going to create a todo list to track these changes.
+Assistant: I've found 0 matching insights. Let me find matching insights in the data.
+*Uses the list_data tool with the "insights" kind to iterate over project insights*
+Assistant: No matches. Let me create a new insight checking if the company "Eleventy.ai" has churned. I'm going to create a todo list to track these changes.
 *Creates a todo list with specific steps to create a new insight*
 """.strip()
 
@@ -225,6 +227,42 @@ class TodoWriteTool(MaxTool):
             "The to-dos were updated successfully. Please keep using the to-do list to track your progress, and continue with any active tasks as appropriate.",
             None,
         )
+
+    @staticmethod
+    def format_todo_list(todos: list[TodoItem] | dict[str, Any]) -> str:
+        """
+        Format a todo list into human-readable content.
+
+        Args:
+            todos: Either a list of TodoItem objects or a dict with 'todos' key (tool call args)
+
+        Returns:
+            Formatted string representation of the todo list
+        """
+        # Parse args dict if needed
+        if isinstance(todos, dict):
+            parsed_args = TodoWriteToolArgs(**todos)
+            todos = parsed_args.todos
+
+        if not todos:
+            return "Your todo list is empty."
+
+        lines = ["Your current todo list:"]
+        for todo in todos:
+            status = todo.status
+            content = todo.content
+
+            # Use status emoji/indicator
+            if status == "completed":
+                indicator = "✓"
+            elif status == "in_progress":
+                indicator = "→"
+            else:  # pending
+                indicator = "○"
+
+            lines.append(f"{indicator} [{status}] {content}")
+
+        return "\n".join(lines)
 
     @classmethod
     async def create_tool_class(

@@ -1,9 +1,7 @@
 import { LogicWrapper } from 'kea'
 
-import type { FileSystemIconType } from '~/queries/schema/schema-general'
+import type { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
-
-import { SettingSectionId } from './settings/types'
 
 // The enum here has to match the first and only exported component of the scene.
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
@@ -14,6 +12,7 @@ export enum Scene {
     AdvancedActivityLogs = 'AdvancedActivityLogs',
     Annotations = 'Annotations',
     Approval = 'Approval',
+    Apps = 'Apps',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
     BatchExportNew = 'BatchExportNew',
@@ -32,13 +31,13 @@ export enum Scene {
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
     DataManagement = 'DataManagement',
-    DataPipelines = 'DataPipelines',
     DataPipelinesNew = 'DataPipelinesNew',
     DataWarehouse = 'DataWarehouse',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     DataWarehouseSource = 'DataWarehouseSource',
     DataWarehouseSourceNew = 'DataWarehouseSourceNew',
     DeadLetterQueue = 'DeadLetterQueue',
+    Destinations = 'Destinations',
     DebugHog = 'DebugHog',
     DebugQuery = 'DebugQuery',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
@@ -55,23 +54,25 @@ export enum Scene {
     EventDefinitionEdit = 'EventDefinitionEdit',
     Experiment = 'Experiment',
     Experiments = 'Experiments',
+    Exports = 'Exports',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExploreEvents = 'ExploreEvents',
     ExploreSessions = 'ExploreSessions',
     FeatureFlag = 'FeatureFlag',
     FeatureFlags = 'FeatureFlags',
-    Feed = 'Feed',
     Game368 = 'Game368',
     Group = 'Group',
     Groups = 'Groups',
     GroupsNew = 'GroupsNew',
     Heatmaps = 'Heatmaps',
     Heatmap = 'Heatmap',
+    Inbox = 'Inbox',
     HeatmapNew = 'HeatmapNew',
     HeatmapRecording = 'HeatmapRecording',
     HogFunction = 'HogFunction',
     Insight = 'Insight',
+    InsightOptions = 'InsightOptions',
     IntegrationsRedirect = 'IntegrationsRedirect',
     IngestionWarnings = 'IngestionWarnings',
     InviteSignup = 'InviteSignup',
@@ -86,6 +87,7 @@ export enum Scene {
     EmailMFAVerify = 'EmailMFAVerify',
     MaterializedColumns = 'MaterializedColumns',
     Max = 'Max',
+    Models = 'Models',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     NewTab = 'NewTab',
     Notebook = 'Notebook',
@@ -97,16 +99,16 @@ export enum Scene {
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     PasswordReset = 'PasswordReset',
     PasswordResetComplete = 'PasswordResetComplete',
+    TwoFactorReset = 'TwoFactorReset',
     Person = 'Person',
     Persons = 'Persons',
     Pipeline = 'Pipeline',
+    PipelineStatus = 'PipelineStatus',
     PipelineNode = 'PipelineNode',
     PipelineNodeNew = 'PipelineNodeNew',
     PreflightCheck = 'PreflightCheck',
     ProductTour = 'ProductTour',
     ProductTours = 'ProductTours',
-    Products = 'Products',
-    UseCaseSelection = 'UseCaseSelection',
     ProjectCreateFirst = 'ProjectCreate',
     ProjectHomepage = 'ProjectHomepage',
     PropertyDefinition = 'PropertyDefinition',
@@ -117,9 +119,13 @@ export enum Scene {
     ReplayPlaylist = 'ReplayPlaylist',
     ReplaySettings = 'ReplaySettings',
     ReplaySingle = 'ReplaySingle',
+    ReplayKiosk = 'ReplayKiosk',
     RevenueAnalytics = 'RevenueAnalytics',
+    SqlVariableEdit = 'SqlVariableEdit',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
+    Health = 'Health',
+    SdkDoctor = 'SdkDoctor',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     SessionGroupSummariesTable = 'SessionGroupSummariesTable',
     SessionGroupSummary = 'SessionGroupSummary',
@@ -127,23 +133,29 @@ export enum Scene {
     SessionProfile = 'SessionProfile',
     Settings = 'Settings',
     Signup = 'Signup',
+    SignalsDebug = 'SignalsDebug',
     Site = 'Site',
     Coupons = 'Coupons',
+    Sources = 'Sources',
     StartupProgram = 'StartupProgram',
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
+    SurveyWizard = 'SurveyWizard',
     Surveys = 'Surveys',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
+    Transformations = 'Transformations',
     Unsubscribe = 'Unsubscribe',
     UserInterview = 'UserInterview',
     UserInterviews = 'UserInterviews',
+    VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsMarketing = 'WebAnalyticsMarketing',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     WebAnalyticsHealth = 'WebAnalyticsHealth',
+    WebAnalyticsLive = 'WebAnalyticsLive',
     Endpoints = 'Endpoints',
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
@@ -151,7 +163,6 @@ export enum Scene {
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
-    EndpointsUsage = 'EndpointsUsage',
     Game368Hedgehogs = 'Game368Hedgehogs',
     LLMAnalytics = 'LLMAnalytics',
     LLMAnalyticsDataset = 'LLMAnalyticsDataset',
@@ -180,8 +191,8 @@ export interface SceneExport<T = SceneProps> {
     component: SceneComponent<T>
     /** logic to mount for this scene */
     logic?: LogicWrapper
-    /** setting section id to open when clicking the settings button */
-    settingSectionId?: SettingSectionId
+    /** product key associated with this scene - used for Quick Start setup tracking */
+    productKey?: ProductKey
     /** convert URL parameters from scenes.ts into logic props */
     paramsToProps?: (params: SceneParams) => T
     /** when was the scene last touched, unix timestamp for sortability */
@@ -256,6 +267,10 @@ export interface SceneConfig {
     activityScope?: ActivityScope | string
     /** Default docs path - what the docs side panel will open by default when this scene is active  */
     defaultDocsPath?: string | (() => string) | (() => Promise<string>)
+    /** Team slug for changelog - appended as ?team= to the changelog URL in the side panel */
+    changelogTeamSlug?: string
+    /** Category for changelog - appended as ?category= to the changelog URL in the side panel */
+    changelogCategory?: string
     /** Component import, used only in manifests */
     import?: () => Promise<any>
     /** Custom icon for the tabs */
@@ -316,4 +331,17 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Experiments
     [Scene.Experiment]: AccessControlResourceType.Experiment,
     [Scene.Experiments]: AccessControlResourceType.Experiment,
+
+    // LLM Analytics
+    [Scene.LLMAnalytics]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsDataset]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsDatasets]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsEvaluation]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsEvaluations]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsPlayground]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsTrace]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsUsers]: AccessControlResourceType.LlmAnalytics,
+
+    // Data warehouse sources - not included here because self-managed sources don't have access control.
+    // Managed sources handle access control at the logic level via SIDE_PANEL_CONTEXT_KEY.
 }

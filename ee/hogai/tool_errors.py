@@ -91,3 +91,23 @@ class MaxToolRetryableError(MaxToolError):
     @property
     def retry_strategy(self) -> Literal["never", "once", "adjusted"]:
         return "adjusted"
+
+
+class MaxToolAccessDeniedError(MaxToolFatalError):
+    """
+    Access denied error when user doesn't have permission to use a tool or access a resource.
+    This is a fatal error - the user needs to contact their admin to get access.
+    """
+
+    def __init__(
+        self,
+        resource: str,
+        required_level: str,
+        action: str = "access",
+    ):
+        self.resource = resource
+        self.required_level = required_level
+        self.action = action
+
+        message = f"The user does not have {required_level} access to {action} {resource}s. Suggest the user to contact their project admin to request access."
+        super().__init__(message)

@@ -26,11 +26,14 @@ export type SettingSectionId =
     | 'environment-replay'
     | 'environment-surveys'
     | 'environment-feature-flags'
+    | 'environment-experiments'
     | 'environment-error-tracking'
+    | 'environment-logs'
     | 'environment-csp-reporting'
     | 'environment-max'
     | 'environment-integrations'
     | 'environment-activity-logs'
+    | 'environment-discussions'
     | 'environment-access-control'
     | 'environment-danger-zone'
     | 'project-details'
@@ -42,12 +45,13 @@ export type SettingSectionId =
     | 'project-integrations' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'organization-details'
+    | 'organization-integrations'
     | 'organization-members'
     | 'organization-roles'
     | 'organization-authentication'
     | 'organization-proxy'
     | 'organization-security'
-    | 'organization-approvals'
+    | 'environment-approvals'
     | 'organization-danger-zone'
     | 'organization-billing'
     | 'organization-startup-program'
@@ -58,10 +62,10 @@ export type SettingSectionId =
     | 'user-danger-zone'
     | 'user-feature-previews'
     | 'mcp-server'
-    | 'product-logs'
 
 export type SettingId =
     | 'replay-triggers'
+    | 'replay-integrations'
     | 'display-name'
     | 'snippet'
     | 'authorized-urls'
@@ -91,6 +95,9 @@ export type SettingId =
     | 'replay-retention'
     | 'surveys-interface'
     | 'feature-flags-interface'
+    | 'environment-experiment-stats-method'
+    | 'environment-experiment-confidence-level'
+    | 'environment-experiment-recalculation-time'
     | 'error-tracking-exception-autocapture'
     | 'error-tracking-custom-grouping'
     | 'error-tracking-user-groups'
@@ -102,6 +109,7 @@ export type SettingId =
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-error-tracking'
+    | 'integration-linear'
     | 'integration-github'
     | 'integration-other'
     | 'integration-ip-allowlist'
@@ -111,6 +119,7 @@ export type SettingId =
     | 'project-move'
     | 'organization-logo'
     | 'organization-display-name'
+    | 'organization-integrations-list'
     | 'invites'
     | 'members'
     | 'email-members'
@@ -124,6 +133,7 @@ export type SettingId =
     | 'details'
     | 'change-password'
     | '2fa'
+    | 'passkeys'
     | 'personal-api-keys'
     | 'notifications'
     | 'feature-previews'
@@ -161,16 +171,22 @@ export type SettingId =
     | 'activity-log-settings'
     | 'activity-log-org-level-settings'
     | 'activity-log-notifications'
+    | 'discussion-mention-integrations'
+    | 'logs'
+    | 'logs-json-parse'
+    | 'logs-retention'
     | 'organization-ip-anonymization-default'
     | 'allow-impersonation'
     | 'approval-policies'
     | 'change-requests'
+    | 'banner'
+    | 'sql-editor-tab-preference'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
 export type Setting = {
     id: SettingId
-    title: JSX.Element | string
+    title: JSX.Element | string | null
     description?: JSX.Element | string
     component: JSX.Element
     searchTerm?: string
@@ -214,4 +230,10 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
         resourceType: AccessControlResourceType
         minimumAccessLevel: AccessControlLevel
     }
+
+    /**
+     * Optional group name to organize sections under collapsible headers.
+     * Sections with the same group will be nested under a group header.
+     */
+    group?: string
 }

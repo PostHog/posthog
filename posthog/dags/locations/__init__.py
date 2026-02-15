@@ -5,7 +5,15 @@ import dagster_slack
 from dagster_aws.s3.io_manager import s3_pickle_io_manager
 from dagster_aws.s3.resources import S3Resource
 
-from posthog.dags.common.resources import ClickhouseClusterResource, PostgresResource, RedisResource
+from posthog.dags.common.resources import (
+    ClayWebhookResource,
+    ClickhouseClusterResource,
+    PostgresResource,
+    PostgresURLResource,
+    PostHogAnalyticsResource,
+    RedisResource,
+    kafka_producer_resource,
+)
 
 # Define resources for different environments
 resources_by_env = {
@@ -26,6 +34,25 @@ resources_by_env = {
             user=dagster.EnvVar("POSTGRES_USER"),
             password=dagster.EnvVar("POSTGRES_PASSWORD"),
         ),
+        "posthoganalytics": dagster.ResourceDefinition.none_resource(
+            description="Dummy PostHogAnalytics resource since posthoganalytics is configured properly in production."
+        ),
+        # Persons DB resource (parses connection URL)
+        "persons_database": PostgresURLResource(
+            connection_url=dagster.EnvVar("PERSONS_DB_WRITER_URL"),
+        ),
+        # Kafka producer (auto-configured from Django settings)
+        "kafka_producer": kafka_producer_resource,
+        # Clay webhook for job switchers pipeline
+        "clay_webhook_job_switchers": ClayWebhookResource(
+            webhook_url=dagster.EnvVar("CLAY_JOB_SWITCHERS_WEBHOOK_URL"),
+            api_key=dagster.EnvVar("CLAY_JOB_SWITCHERS_API_KEY"),
+        ),
+        # Clay webhook for product-led outbound pipeline
+        "clay_webhook_plo": ClayWebhookResource(
+            webhook_url=dagster.EnvVar("CLAY_PRODUCT_LED_OUTBOUND_WEBHOOK_URL"),
+            api_key=dagster.EnvVar("CLAY_PRODUCT_LED_OUTBOUND_API_KEY"),
+        ),
     },
     "local": {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
@@ -44,6 +71,23 @@ resources_by_env = {
             database=dagster.EnvVar("POSTGRES_DATABASE"),
             user=dagster.EnvVar("POSTGRES_USER"),
             password=dagster.EnvVar("POSTGRES_PASSWORD"),
+        ),
+        "posthoganalytics": PostHogAnalyticsResource(personal_api_key=dagster.EnvVar("PERSONAL_API_KEY")),
+        # Persons DB resource (parses connection URL)
+        "persons_database": PostgresURLResource(
+            connection_url=dagster.EnvVar("PERSONS_DB_WRITER_URL"),
+        ),
+        # Kafka producer (auto-configured from Django settings)
+        "kafka_producer": kafka_producer_resource,
+        # Clay webhook for job switchers pipeline
+        "clay_webhook_job_switchers": ClayWebhookResource(
+            webhook_url=dagster.EnvVar("CLAY_JOB_SWITCHERS_WEBHOOK_URL"),
+            api_key=dagster.EnvVar("CLAY_JOB_SWITCHERS_API_KEY"),
+        ),
+        # Clay webhook for product-led outbound pipeline
+        "clay_webhook_plo": ClayWebhookResource(
+            webhook_url=dagster.EnvVar("CLAY_PRODUCT_LED_OUTBOUND_WEBHOOK_URL"),
+            api_key=dagster.EnvVar("CLAY_PRODUCT_LED_OUTBOUND_API_KEY"),
         ),
     },
 }

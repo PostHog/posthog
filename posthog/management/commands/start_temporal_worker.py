@@ -10,7 +10,6 @@ from collections import defaultdict
 
 import structlog
 from temporalio import workflow
-from temporalio.worker import Worker
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -19,12 +18,15 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.temporal.ai import (
-    ACTIVITIES as AI_ACTIVITIES,
-    WORKFLOWS as AI_WORKFLOWS,
+from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, SIGNALS_ACTIVITIES, SIGNALS_WORKFLOWS
+from posthog.temporal.cleanup_property_definitions import (
+    ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
+    WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
 )
+from posthog.temporal.common.health_server import HealthCheckServer
+from posthog.temporal.common.liveness_tracker import get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
-from posthog.temporal.common.worker import create_worker
+from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_imports.settings import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
@@ -53,6 +55,10 @@ from posthog.temporal.enforce_max_replay_retention import (
     ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
     WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
+from posthog.temporal.experiments import (
+    ACTIVITIES as EXPERIMENTS_ACTIVITIES,
+    WORKFLOWS as EXPERIMENTS_WORKFLOWS,
+)
 from posthog.temporal.export_recording import (
     ACTIVITIES as EXPORT_RECORDING_ACTIVITIES,
     WORKFLOWS as EXPORT_RECORDING_WORKFLOWS,
@@ -65,8 +71,14 @@ from posthog.temporal.import_recording import (
     ACTIVITIES as IMPORT_RECORDING_ACTIVITIES,
     WORKFLOWS as IMPORT_RECORDING_WORKFLOWS,
 )
+from posthog.temporal.ingestion_acceptance_test import (
+    ACTIVITIES as INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
+    WORKFLOWS as INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
+)
 from posthog.temporal.llm_analytics import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
+    EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
+    EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
 from posthog.temporal.messaging import (
@@ -92,6 +104,10 @@ from posthog.temporal.salesforce_enrichment import (
 from posthog.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
+)
+from posthog.temporal.sync_person_distinct_ids import (
+    ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
+    WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
 )
 from posthog.temporal.tests.utils.workflow import (
     ACTIVITIES as TEST_ACTIVITIES,
@@ -130,6 +146,11 @@ _task_queue_specs = [
     ),
     (
         settings.DATA_WAREHOUSE_TASK_QUEUE,
+        DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
+        DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
+    ),
+    (
+        settings.DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,
         DATA_SYNC_WORKFLOWS,
         DATA_SYNC_ACTIVITIES,
     ),
@@ -146,7 +167,11 @@ _task_queue_specs = [
         + SALESFORCE_ENRICHMENT_WORKFLOWS
         + PRODUCT_ANALYTICS_WORKFLOWS
         + LLM_ANALYTICS_WORKFLOWS
-        + DLQ_REPLAY_WORKFLOWS,
+        + DLQ_REPLAY_WORKFLOWS
+        + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
+        + EXPERIMENTS_WORKFLOWS
+        + CLEANUP_PROPDEFS_WORKFLOWS
+        + INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
@@ -154,7 +179,11 @@ _task_queue_specs = [
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + PRODUCT_ANALYTICS_ACTIVITIES
         + LLM_ANALYTICS_ACTIVITIES
-        + DLQ_REPLAY_ACTIVITIES,
+        + DLQ_REPLAY_ACTIVITIES
+        + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
+        + EXPERIMENTS_ACTIVITIES
+        + CLEANUP_PROPDEFS_ACTIVITIES
+        + INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
     ),
     (
         settings.DUCKLAKE_TASK_QUEUE,
@@ -188,8 +217,8 @@ _task_queue_specs = [
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        VIDEO_EXPORT_WORKFLOWS,
-        VIDEO_EXPORT_ACTIVITIES,
+        VIDEO_EXPORT_WORKFLOWS + SIGNALS_WORKFLOWS,
+        VIDEO_EXPORT_ACTIVITIES + SIGNALS_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
@@ -211,6 +240,16 @@ _task_queue_specs = [
         settings.WEEKLY_DIGEST_TASK_QUEUE,
         WEEKLY_DIGEST_WORKFLOWS,
         WEEKLY_DIGEST_ACTIVITIES,
+    ),
+    (
+        settings.LLMA_EVALS_TASK_QUEUE,
+        LLM_ANALYTICS_EVAL_WORKFLOWS,
+        LLM_ANALYTICS_EVAL_ACTIVITIES,
+    ),
+    (
+        settings.LLMA_TASK_QUEUE,
+        LLM_ANALYTICS_WORKFLOWS,
+        LLM_ANALYTICS_ACTIVITIES,
     ),
 ]
 
@@ -314,6 +353,24 @@ class Command(BaseCommand):
             default=settings.TARGET_CPU_USAGE,
             help="Fraction of available CPU to use",
         )
+        parser.add_argument(
+            "--health-port",
+            type=int,
+            default=settings.TEMPORAL_HEALTH_PORT,
+            help="Port for health check endpoints (/healthz, /readyz)",
+        )
+        parser.add_argument(
+            "--health-max-idle-seconds",
+            type=float,
+            default=settings.TEMPORAL_HEALTH_MAX_IDLE_SECONDS,
+            help="Maximum seconds without workflow/activity execution before unhealthy",
+        )
+        parser.add_argument(
+            "--disable-combined-metrics-server",
+            action="store_true",
+            default=not settings.TEMPORAL_COMBINED_METRICS_SERVER_ENABLED,
+            help="Disable the combined metrics server (useful for workers with GIL contention issues)",
+        )
 
     def handle(self, *args, **options):
         temporal_host = options["temporal_host"]
@@ -329,6 +386,9 @@ class Command(BaseCommand):
         use_pydantic_converter = options["use_pydantic_converter"]
         target_memory_usage = options.get("target_memory_usage", None)
         target_cpu_usage = options.get("target_cpu_usage", None)
+        health_port = options.get("health_port", None)
+        health_max_idle_seconds = options.get("health_max_idle_seconds", None)
+        disable_combined_metrics_server = options.get("disable_combined_metrics_server", False)
 
         try:
             workflows = list(WORKFLOWS_DICT[task_queue])
@@ -347,21 +407,42 @@ class Command(BaseCommand):
         metrics_port = int(options["metrics_port"])
 
         shutdown_task = None
+        health_server: HealthCheckServer | None = None
 
         tag_queries(kind="temporal")
 
-        def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
-            """Shutdown Temporal worker on receiving signal."""
+        async def shutdown_all(
+            worker: ManagedWorker, health_srv: HealthCheckServer | None, sig: signal.Signals
+        ) -> None:
+            """Shutdown worker and health server."""
             nonlocal shutdown_task
 
             logger.info("Signal %s received", sig)
 
-            if worker.is_shutdown:
+            if worker.is_shutdown():
                 logger.info("Temporal worker already shut down")
                 return
 
-            logger.info("Initiating Temporal worker shutdown")
-            shutdown_task = loop.create_task(worker.shutdown())
+            logger.info("Initiating shutdown")
+
+            # Shutdown health server first so k8s stops sending traffic
+            if health_srv:
+                await health_srv.stop()
+
+            # Then shutdown the worker
+            await worker.shutdown()
+
+        def shutdown_on_signal(
+            worker: ManagedWorker,
+            health_srv: HealthCheckServer | None,
+            sig: signal.Signals,
+            loop: asyncio.AbstractEventLoop,
+        ):
+            """Signal handler that initiates shutdown."""
+            nonlocal shutdown_task
+
+            if shutdown_task is None:
+                shutdown_task = loop.create_task(shutdown_all(worker, health_srv, sig))
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
@@ -377,6 +458,9 @@ class Command(BaseCommand):
                 max_concurrent_activities=max_concurrent_activities,
                 target_memory_usage=target_memory_usage,
                 target_cpu_usage=target_cpu_usage,
+                health_port=health_port,
+                health_max_idle_seconds=health_max_idle_seconds,
+                combined_metrics_server_enabled=not disable_combined_metrics_server,
             )
             logger.info("Starting Temporal Worker")
 
@@ -403,13 +487,27 @@ class Command(BaseCommand):
                     use_pydantic_converter=use_pydantic_converter,
                     target_memory_usage=target_memory_usage,
                     target_cpu_usage=target_cpu_usage,
+                    enable_combined_metrics_server=not disable_combined_metrics_server,
                 )
             )
+
+            # Create and start health check server
+            if health_port and health_max_idle_seconds:
+                health_server = HealthCheckServer(
+                    port=health_port,
+                    liveness_tracker=get_liveness_tracker(),
+                    max_idle_seconds=health_max_idle_seconds,
+                )
+                runner.run(health_server.start())
+            else:
+                logger.warning(
+                    f"No healthcheck server due to health_port={health_port} and health_max_idle_seconds={health_max_idle_seconds}"
+                )
 
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(
                     sig,
-                    functools.partial(shutdown_worker_on_signal, worker=worker, sig=sig, loop=loop),
+                    functools.partial(shutdown_on_signal, worker=worker, health_srv=health_server, sig=sig, loop=loop),
                 )
 
             runner.run(worker.run())

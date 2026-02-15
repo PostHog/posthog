@@ -70,7 +70,10 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
    }
    ```
 
-For an example, see `products/replay/backend/max_tools.py`, which defines the `search_session_recordings` tool, and `products/data_warehouse/backend/max_tools.py`, which defines the `generate_hogql_query` tool.
+For an example, see `ee/hogai/tools`:
+
+- `execute_sql` – SQL generation and execution.
+- `upsert_dashboard` – creating and editing dashboards.
 
 ### Mounting
 
@@ -115,6 +118,43 @@ Once you have an initial version of the tool in place, **test the heck out of it
 When developing, get full visibility into what the tool is doing using local PostHog LLM analytics: [http://localhost:8010/llm-analytics/traces](http://localhost:8010/llm-analytics/traces). Each _trace_ represents one human message submitted to Max, and shows the whole sequence of steps taken to answer that message.
 
 If you've got any requests for Max, including around tools, let us know at #team-posthog-ai in Slack!
+
+### Access control
+
+MaxTools support two levels of access control: resource-level and object-level. Both raise `MaxToolAccessDeniedError` if the user lacks permission.
+The main access check logic lives in `posthog/rbac/user_access_control.py`.
+
+#### Resource-level access control
+
+Restricts tool execution based on user permissions for a resource type (e.g., prevent creating feature flags if the user lacks editor access). Runs automatically before `_arun_impl()` is called.
+
+1. Override `get_required_resource_access()` in your tool:
+
+```python
+def get_required_resource_access(self):
+    return [("feature_flag", "editor")]  # Single resource
+    # Or multiple: return [("dashboard", "editor"), ("insight", "viewer")]
+```
+
+2. Update `TOOLS_WITHOUT_ACCESS_CONTROL` in `ee/hogai/test/test_tool.py` to remove your tool from the exempt list.
+
+Supported resources: see `APIScopeObject` in `posthog/scopes.py` (e.g., `feature_flag`, `dashboard`, `insight`, `experiment`, `survey`)
+Access levels: `none`, `viewer`, `editor`, `manager`
+
+#### Object-level access control
+
+Restricts access to specific object instances (e.g., a particular dashboard or insight). Call `check_object_access()` after fetching the object:
+
+```python
+async def _arun_impl(self, dashboard_id: str) -> tuple[str, Any]:
+    dashboard = await Dashboard.objects.aget(id=dashboard_id)
+    await self.check_object_access(dashboard, "editor", resource="dashboard", action="edit")
+    # ... rest of implementation
+```
+
+#### Opting out
+
+If your tool doesn't need access control (read-only, no protected resources), add it to `TOOLS_WITHOUT_ACCESS_CONTROL` in `ee/hogai/test/test_tool.py`.
 
 ### Best practices for LLM-based tools
 

@@ -8,6 +8,7 @@ on:
 
 permissions:
     contents: read
+    pull-requests: read
 
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
@@ -43,11 +44,11 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   clean: false
 
-            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -60,6 +61,7 @@ jobs:
                         - 'products/**/*'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
+                        - .github/clickhouse-versions.json
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
@@ -68,18 +70,40 @@ jobs:
                         # These scripts are used in the CI
                         - bin/check_kafka_clickhouse_up
 
+    get_clickhouse_versions:
+        name: Get ClickHouse versions
+        needs: [changes]
+        if: needs.changes.outputs.dagster == 'true'
+        runs-on: ubuntu-latest
+        outputs:
+            oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  sparse-checkout: .github/clickhouse-versions.json
+                  sparse-checkout-cone-mode: false
+            - name: Read ClickHouse versions from JSON
+              id: read-versions
+              run: |
+                  oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
+                  if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
+                    echo "::error::No oldest_supported version found in .github/clickhouse-versions.json"
+                    exit 1
+                  fi
+                  echo "oldest_supported=[\"$oldest_supported\"]" >> $GITHUB_OUTPUT
+
     dagster:
         name: Dagster tests
-        needs: changes
+        needs: [changes, get_clickhouse_versions]
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.12.129']
+                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
         if: needs.changes.outputs.dagster == 'true'
         runs-on: depot-ubuntu-latest
         steps:
             - name: 'Checkout repo'
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
               with:
                   fetch-depth: 1
                   clean: false
@@ -91,20 +115,21 @@ jobs:
 
             - name: Start stack with Docker Compose
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE_VERSION=${{ matrix.clickhouse-server-image }}
+                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image }}
                   docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml up -d --wait
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
@@ -125,7 +150,11 @@ jobs:
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               run: |
@@ -153,11 +182,18 @@ jobs:
 
             - name: Run Dagster tests
               run: |
-                  pytest posthog/dags
+                  pytest posthog/dags --junitxml=junit-dagster.xml
 
             - name: Run products Dagster tests
               run: |
-                  pytest products/**/dags
+                  pytest products/**/dags --junitxml=junit-products.xml
+
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-dagster
+                  path: junit-*.xml
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     dagster_tests:

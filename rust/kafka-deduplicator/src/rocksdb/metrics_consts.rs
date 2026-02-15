@@ -44,5 +44,8 @@ pub const ROCKSDB_SST_FILES_COUNT_GAUGE: &str = "rocksdb_sst_files_count";
 /// Gauge for estimated number of keys in a column family
 pub const ROCKSDB_ESTIMATE_NUM_KEYS_GAUGE: &str = "rocksdb_estimate_num_keys";
 
+/// Gauge for age of oldest data in seconds (how far back the data goes)
+pub const ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE: &str = "rocksdb_oldest_data_age_seconds";
+
 /// Counter for RocksDB errors
 pub const ROCKSDB_ERRORS_COUNTER: &str = "rocksdb_errors_total";

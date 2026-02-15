@@ -231,7 +231,7 @@ pub struct Config {
     // How long to wait for a connection from the pool before timing out
     // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
     // - Decrease for faster failure detection (minimum 1s)
-    #[envconfig(default = "20")]
+    #[envconfig(default = "5")]
     pub acquire_timeout_secs: u64,
 
     // Close connections that have been idle for this many seconds
@@ -249,26 +249,27 @@ pub struct Config {
 
     // PostgreSQL statement_timeout for non-persons reader queries (milliseconds)
     // - Set to 0 to use database default (typically unlimited)
-    // - Non-persons readers may run longer analytical queries
-    // - Default: 5000ms (5 seconds)
+    // - Flag definitions and team lookups should complete well under 2s (P99 hold time is 5ms)
+    // - Default: 2000ms (2 seconds)
     // - This timeout is enforced server-side and properly kills queries
-    #[envconfig(default = "5000")]
+    #[envconfig(default = "2000")]
     pub non_persons_reader_statement_timeout_ms: u64,
 
     // PostgreSQL statement_timeout for persons reader queries (milliseconds)
     // - Set to 0 to use database default (typically unlimited)
-    // - Persons readers may run longer analytical queries
-    // - Default: 5000ms (5 seconds)
+    // - Person and cohort queries should complete well under 3s (P99 hold time is 25ms)
+    // - Default: 3000ms (3 seconds)
     // - This timeout is enforced server-side and properly kills queries
-    #[envconfig(default = "5000")]
+    #[envconfig(default = "3000")]
     pub persons_reader_statement_timeout_ms: u64,
 
     // PostgreSQL statement_timeout for writer database queries (milliseconds)
     // - Set to 0 to use database default (typically unlimited)
-    // - Writers should be fast transactional operations
-    // - Default: 10000ms (10 seconds)
+    // - Hash key override writes have retry logic (2 attempts, 100ms backoff)
+    // - 3s per attempt with retries gives 6s total before failure
+    // - Default: 3000ms (3 seconds)
     // - This timeout is enforced server-side and properly kills queries
-    #[envconfig(default = "10000")]
+    #[envconfig(default = "3000")]
     pub writer_statement_timeout_ms: u64,
 
     // How often to report database pool metrics (seconds)
@@ -339,42 +340,6 @@ pub struct Config {
 
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
-
-    /// Redis TTL for team cache entries in seconds
-    ///
-    /// Controls how long team data is cached in Redis before expiring.
-    /// This prevents indefinite cache growth and ensures stale data is refreshed.
-    ///
-    /// Default: 432000 seconds (5 days) - matches Django's FIVE_DAYS constant
-    /// Environment variable: TEAM_CACHE_TTL_SECONDS
-    ///
-    /// Common values:
-    /// - 3600 (1 hour) - For frequently changing team data
-    /// - 86400 (1 day) - For moderate refresh rate
-    /// - 432000 (5 days) - Default, balances performance and freshness
-    ///
-    /// Minimum value: 1 second (Redis setex does not accept 0 or negative values)
-    #[envconfig(from = "TEAM_CACHE_TTL_SECONDS", default = "432000")]
-    pub team_cache_ttl_seconds: u64,
-
-    /// Redis TTL for feature flags cache entries in seconds
-    ///
-    /// Controls how long feature flag data is cached in Redis before expiring.
-    /// This prevents indefinite cache growth and ensures flag changes are visible
-    /// within a reasonable time.
-    ///
-    /// Default: 432000 seconds (5 days) - matches Django's FIVE_DAYS constant
-    /// Environment variable: FLAGS_CACHE_TTL_SECONDS
-    ///
-    /// Common values:
-    /// - 300 (5 minutes) - For rapid flag development/testing
-    /// - 3600 (1 hour) - For frequently changing flags
-    /// - 86400 (1 day) - For stable flag deployments
-    /// - 432000 (5 days) - Default, balances performance and freshness
-    ///
-    /// Minimum value: 1 second (Redis setex does not accept 0 or negative values)
-    #[envconfig(from = "FLAGS_CACHE_TTL_SECONDS", default = "432000")]
-    pub flags_cache_ttl_seconds: u64,
 
     // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
@@ -475,6 +440,20 @@ pub struct Config {
     #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
     pub flags_ip_rate_limit_log_only: FlexBool,
 
+    // How often to clean up stale rate limiter entries (seconds)
+    // The governor crate's keyed rate limiters accumulate entries for every unique key.
+    // Without periodic cleanup, this leads to unbounded memory growth.
+    // This interval controls how often retain_recent() is called to remove stale entries.
+    #[envconfig(from = "RATE_LIMITER_CLEANUP_INTERVAL_SECS", default = "60")]
+    pub rate_limiter_cleanup_interval_secs: u64,
+
+    // Experience continuity optimization
+    // When enabled, skip hash key override lookups for flags that don't need them:
+    // - Flags at 100% rollout with no multivariate variants OR where a single variant is at 100%
+    // These flags return the same value regardless of user bucketing, so the lookup is wasted work.
+    #[envconfig(from = "OPTIMIZE_EXPERIENCE_CONTINUITY_LOOKUPS", default = "true")]
+    pub optimize_experience_continuity_lookups: FlexBool,
+
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
     // The `default_test_config()` sets this to true for test/development scenarios.
@@ -486,6 +465,13 @@ pub struct Config {
     // Set to 0 to disable retries (fail immediately on first error)
     #[envconfig(from = "REDIS_CLIENT_RETRY_COUNT", default = "3")]
     pub redis_client_retry_count: u32,
+
+    // Threshold for parallel flag evaluation
+    // Below this count, flags are evaluated sequentially (faster for small counts)
+    // Above this count, flags are evaluated in parallel using rayon
+    // Default: 100 (sequential is faster for typical workloads of ~50 flags)
+    #[envconfig(from = "PARALLEL_EVAL_THRESHOLD", default = "100")]
+    pub parallel_eval_threshold: usize,
 }
 
 impl Config {
@@ -559,9 +545,9 @@ impl Config {
             acquire_timeout_secs: 3,
             idle_timeout_secs: 300,
             test_before_acquire: FlexBool(true),
-            non_persons_reader_statement_timeout_ms: 5000,
-            persons_reader_statement_timeout_ms: 5000,
-            writer_statement_timeout_ms: 5000,
+            non_persons_reader_statement_timeout_ms: 2000,
+            persons_reader_statement_timeout_ms: 3000,
+            writer_statement_timeout_ms: 3000,
             db_monitor_interval_secs: 30,
             cohort_cache_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
@@ -573,8 +559,6 @@ impl Config {
             team_ids_to_track: TeamIdCollection::All,
             cohort_cache_capacity_bytes: 268_435_456, // 256 MB
             cache_ttl_seconds: 300,
-            team_cache_ttl_seconds: 432000,
-            flags_cache_ttl_seconds: 432000,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 345600,
@@ -603,8 +587,11 @@ impl Config {
             flags_ip_replenish_rate: 100.0,
             flags_rate_limit_log_only: FlexBool(true),
             flags_ip_rate_limit_log_only: FlexBool(true),
+            rate_limiter_cleanup_interval_secs: 60,
             redis_compression_enabled: FlexBool(true),
             redis_client_retry_count: 3,
+            optimize_experience_continuity_lookups: FlexBool(true),
+            parallel_eval_threshold: 100,
         }
     }
 

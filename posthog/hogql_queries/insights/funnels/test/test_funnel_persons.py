@@ -35,9 +35,6 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
-MAX_STEP_COLUMN = 0
-COUNT_COLUMN = 1
-PERSON_ID_COLUMN = 2
 
 
 def get_actors_legacy_filters(
@@ -49,8 +46,33 @@ def get_actors_legacy_filters(
     funnel_trends_entrance_period_start: Optional[str] = None,
     offset: Optional[int] = None,
     include_recordings: bool = False,
+    limit: Optional[int] = None,
 ) -> list[list]:
     funnels_query = cast(FunnelsQuery, filter_to_query(filters))
+    return get_actors(
+        funnels_query,
+        team,
+        funnel_step,
+        funnel_step_breakdown,
+        funnel_trends_drop_off,
+        funnel_trends_entrance_period_start,
+        offset,
+        include_recordings,
+        limit,
+    )
+
+
+def get_actors(
+    funnels_query: FunnelsQuery,
+    team: Team,
+    funnel_step: Optional[int] = None,
+    funnel_step_breakdown: Optional[str | float | list[str | float]] = None,
+    funnel_trends_drop_off: Optional[bool] = None,
+    funnel_trends_entrance_period_start: Optional[str] = None,
+    offset: Optional[int] = None,
+    include_recordings: bool = False,
+    limit: Optional[int] = None,
+) -> list[list]:
     funnel_actors_query = FunnelsActorsQuery(
         source=funnels_query,
         funnelStep=funnel_step,
@@ -62,6 +84,7 @@ def get_actors_legacy_filters(
     actors_query = ActorsQuery(
         source=funnel_actors_query,
         offset=offset,
+        limit=limit,
         select=["id", "person", *(["matched_recordings"] if include_recordings else [])],
     )
     response = ActorsQueryRunner(query=actors_query, team=team).calculate()
@@ -291,11 +314,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         }
 
         # fetch first 100 people
-        results = get_actors_legacy_filters(filters, self.team, funnel_step=1)
+        results = get_actors_legacy_filters(filters, self.team, funnel_step=1, limit=100)
         self.assertEqual(100, len(results))
 
         # fetch next 100 people (just 10 remaining)
-        results = get_actors_legacy_filters(filters, self.team, funnel_step=1, offset=100)
+        results = get_actors_legacy_filters(filters, self.team, funnel_step=1, offset=100, limit=100)
         self.assertEqual(10, len(results))
 
     @also_test_with_materialized_columns(["$browser"])

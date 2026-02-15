@@ -13,19 +13,23 @@ use hyper_util::server::conn::auto::Builder as AutoBuilder;
 use hyper_util::server::graceful::GracefulShutdown;
 use limiters::redis::ServiceName;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tower::Service;
 use tracing::{debug, error, info, warn};
 
 use crate::ai_s3::AiBlobStorage;
 use crate::config::CaptureMode;
 use crate::config::Config;
-use crate::limiters::{is_exception_event, is_llm_event, is_survey_event};
+use crate::event_restrictions::{EventRestrictionService, RedisRestrictionsRepository};
+use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::quota_limiters::{is_exception_event, is_llm_event, is_survey_event};
 use crate::s3_client::{S3Client, S3Config};
 
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY};
 
-use crate::limiters::CaptureQuotaLimiter;
+use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
 use crate::sinks::fallback::FallbackSink;
@@ -240,6 +244,48 @@ where
         .expect("failed to create redis client"),
     );
 
+    let global_rate_limiter = if config.global_rate_limit_enabled {
+        // Use dedicated Redis if configured, otherwise fall back to shared client
+        let grl_redis_client: Arc<dyn common_redis::Client + Send + Sync> =
+            if let Some(ref grl_redis_url) = config.global_rate_limit_redis_url {
+                let response_timeout = config
+                    .global_rate_limit_redis_response_timeout_ms
+                    .unwrap_or(config.redis_response_timeout_ms);
+                let connection_timeout = config
+                    .global_rate_limit_redis_connection_timeout_ms
+                    .unwrap_or(config.redis_connection_timeout_ms);
+
+                Arc::new(
+                    RedisClient::with_config(
+                        grl_redis_url.clone(),
+                        common_redis::CompressionConfig::disabled(),
+                        common_redis::RedisValueFormat::default(),
+                        if response_timeout == 0 {
+                            None
+                        } else {
+                            Some(Duration::from_millis(response_timeout))
+                        },
+                        if connection_timeout == 0 {
+                            None
+                        } else {
+                            Some(Duration::from_millis(connection_timeout))
+                        },
+                    )
+                    .await
+                    .expect("failed to create global rate limiter redis client"),
+                )
+            } else {
+                redis_client.clone()
+            };
+
+        Some(Arc::new(
+            GlobalRateLimiter::new(&config, vec![grl_redis_client])
+                .expect("failed to create global rate limiter"),
+        ))
+    } else {
+        None
+    };
+
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
     // global billing limiter applied here to every event batch. You must supply the
@@ -262,8 +308,8 @@ where
     // size crosses the kafka limit. In the Events mode, we can unpack the batch and send each
     // event individually, so we should instead allow for some small multiple of our max compressed
     // body size to be unpacked. If a single event is still too big, we'll drop it at kafka send time.
-    let event_max_bytes = match config.capture_mode {
-        CaptureMode::Events => BATCH_BODY_SIZE * 5,
+    let event_payload_max_bytes = match config.capture_mode {
+        CaptureMode::Events | CaptureMode::Ai => BATCH_BODY_SIZE * 5,
         CaptureMode::Recordings => config.kafka.kafka_producer_message_max_bytes as usize,
     };
 
@@ -323,18 +369,80 @@ where
             None
         };
 
+    // Create event restriction service if enabled and redis URL is configured
+    let (event_restriction_service, event_restrictions_cancel, event_restrictions_handle): (
+        Option<EventRestrictionService>,
+        Option<CancellationToken>,
+        Option<JoinHandle<()>>,
+    ) = if config.event_restrictions_enabled {
+        if let Some(ref redis_url) = config.event_restrictions_redis_url {
+            let repository = Arc::new(
+                RedisRestrictionsRepository::new(
+                    redis_url.clone(),
+                    if config.redis_response_timeout_ms == 0 {
+                        None
+                    } else {
+                        Some(Duration::from_millis(config.redis_response_timeout_ms))
+                    },
+                    if config.redis_connection_timeout_ms == 0 {
+                        None
+                    } else {
+                        Some(Duration::from_millis(config.redis_connection_timeout_ms))
+                    },
+                )
+                .await
+                .expect("failed to create event restrictions repository"),
+            );
+
+            let service = EventRestrictionService::new(
+                config.capture_mode,
+                Duration::from_secs(config.event_restrictions_fail_open_after_secs),
+            );
+
+            // Create cancellation token for graceful shutdown
+            let cancel_token = CancellationToken::new();
+
+            // Spawn background refresh task with cancellation support
+            let service_clone = service.clone();
+            let refresh_interval =
+                Duration::from_secs(config.event_restrictions_refresh_interval_secs);
+            let task_cancel_token = cancel_token.clone();
+            let handle = tokio::spawn(async move {
+                service_clone
+                    .start_refresh_task(repository, refresh_interval, task_cancel_token)
+                    .await;
+            });
+
+            info!(
+                pipeline = %config.capture_mode.as_pipeline_name(),
+                refresh_interval_secs = config.event_restrictions_refresh_interval_secs,
+                fail_open_after_secs = config.event_restrictions_fail_open_after_secs,
+                "Event restrictions enabled"
+            );
+
+            (Some(service), Some(cancel_token), Some(handle))
+        } else {
+            warn!("Event restrictions enabled but EVENT_RESTRICTIONS_REDIS_URL not set");
+            (None, None, None)
+        }
+    } else {
+        (None, None, None)
+    };
+
     let app = router::router(
         crate::time::SystemTime {},
         liveness,
         sink,
         redis_client,
+        global_rate_limiter,
         quota_limiter,
         token_dropper,
+        event_restriction_service,
         config.export_prometheus,
         config.capture_mode,
         config.otel_service_name.clone(), // this matches k8s role label in prod deploy envs
         config.concurrency_limit,
-        event_max_bytes,
+        event_payload_max_bytes,
         config.enable_historical_rerouting,
         config.historical_rerouting_threshold_days,
         config.is_mirror_deploy,
@@ -343,6 +451,7 @@ where
         ai_blob_storage,
         config.request_timeout_seconds,
         config.body_chunk_read_timeout_ms,
+        config.body_read_chunk_size_kb,
     );
 
     info!("listening on {:?}", listener.local_addr().unwrap());
@@ -487,4 +596,16 @@ where
     info!("Hyper accept loop (shutdown): waiting for in-flight request handlers to complete...");
     graceful.shutdown().await;
     info!("Hyper accept loop (shutdown): graceful shutdown completed");
+
+    // Shutdown event restrictions refresh task if running
+    if let (Some(cancel_token), Some(handle)) =
+        (event_restrictions_cancel, event_restrictions_handle)
+    {
+        info!("Shutting down event restrictions refresh task...");
+        cancel_token.cancel();
+        if let Err(e) = handle.await {
+            warn!("Event restrictions refresh task failed: {}", e);
+        }
+        info!("Event restrictions refresh task stopped");
+    }
 }

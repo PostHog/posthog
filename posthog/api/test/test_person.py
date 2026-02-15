@@ -565,6 +565,103 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )[0][0]
         self.assertEqual(ch_events, 3)
 
+    def test_bulk_delete_with_keep_person(self):
+        """Test that bulk_delete with keep_person=True doesn't delete the person record"""
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+        _create_event(event="test", team=self.team, distinct_id="person_1")
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/person/bulk_delete/",
+            {"ids": [person.uuid], "delete_events": True, "keep_person": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        # Person should still exist
+        self.assertEqual(Person.objects.filter(team=self.team, uuid=person.uuid).count(), 1)
+        # But async deletion for events should be scheduled
+        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
+        self.assertIsNotNone(async_deletion)
+        self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
+        self.assertEqual(async_deletion.key, str(person.uuid))
+
+    def test_bulk_delete_with_recordings(self):
+        """Test that bulk_delete queues recording deletion"""
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+
+        with patch("posthog.api.person.sync_connect") as mock_connect:
+            with patch("posthog.api.person.uuid") as mock_uuid:
+                mock_uuid.uuid4.return_value = "1234"
+                mock_client = mock.AsyncMock()
+                mock_connect.return_value = mock_client
+
+                response = self.client.post(
+                    f"/api/person/bulk_delete/",
+                    {"ids": [person.uuid], "delete_recordings": True},
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+                mock_connect.assert_called_once()
+                mock_client.start_workflow.assert_called_once()
+                # Verify workflow was called with correct parameters
+                call_args = mock_client.start_workflow.call_args
+                self.assertEqual(call_args[0][0], "delete-recordings-with-person")
+                self.assertEqual(call_args[1]["id"], f"delete-recordings-with-person-{person.uuid}-1234")
+
+    def test_bulk_delete_validation_too_many_ids(self):
+        """Test that bulk_delete rejects more than 1000 IDs"""
+        # Test with ids
+        response = self.client.post(
+            f"/api/person/bulk_delete/",
+            {"ids": [str(uuid4()) for _ in range(1001)]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("1000", str(response.content))
+
+        # Test with distinct_ids
+        response = self.client.post(
+            f"/api/person/bulk_delete/",
+            {"distinct_ids": [f"id_{i}" for i in range(1001)]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("1000", str(response.content))
+
+    def test_bulk_delete_validation_missing_ids(self):
+        """Test that bulk_delete requires either ids or distinct_ids"""
+        response = self.client.post(
+            f"/api/person/bulk_delete/",
+            {"delete_events": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("distinct_ids or ids", str(response.content))
+
+    def test_destroy_with_keep_person_param(self):
+        """Test that destroy endpoint respects keep_person parameter"""
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+
+        response = self.client.delete(f"/api/person/{person.uuid}/?keep_person=true&delete_events=true")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        # Person should still exist when keep_person=true
+        self.assertEqual(Person.objects.filter(team=self.team, uuid=person.uuid).count(), 1)
+        # But async deletion should be scheduled
+        self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 1)
+
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_split_people_keep_props(self) -> None:
         # created first
@@ -1386,6 +1483,146 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
         )
         mocked_ch_call.assert_not_called()
+
+    def test_batch_by_distinct_ids_happy_path(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_1"],
+            properties={"email": "user1@example.com"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_2"],
+            properties={"email": "user2@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["user_1", "user_2"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("user_1", results)
+        self.assertIn("user_2", results)
+        self.assertEqual(results["user_1"]["properties"]["email"], "user1@example.com")
+        self.assertEqual(results["user_2"]["properties"]["email"], "user2@example.com")
+
+    def test_batch_by_distinct_ids_missing_ids(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["existing_user"],
+            properties={"email": "exists@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["existing_user", "nonexistent_1", "nonexistent_2"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("existing_user", results)
+        self.assertNotIn("nonexistent_1", results)
+        self.assertNotIn("nonexistent_2", results)
+
+    def test_batch_by_distinct_ids_same_person_multiple_ids(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["id_a", "id_b"],
+            properties={"email": "multi@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["id_a", "id_b"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("id_a", results)
+        self.assertIn("id_b", results)
+        self.assertEqual(results["id_a"]["uuid"], results["id_b"]["uuid"])
+
+    def test_batch_by_distinct_ids_empty_list(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": []},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], {})
+
+    def test_batch_by_distinct_ids_invalid_input(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": "not_a_list"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], {})
+
+    def test_batch_by_distinct_ids_cross_team_isolation(self) -> None:
+        other_org, _, _ = Organization.objects.bootstrap(None, name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        _create_person(
+            team=other_team,
+            distinct_ids=["other_team_user"],
+            properties={"email": "other@example.com"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["my_team_user"],
+            properties={"email": "mine@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["my_team_user", "other_team_user"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("my_team_user", results)
+        self.assertNotIn("other_team_user", results)
+
+    def test_batch_by_distinct_ids_truncates_at_max_batch_size(self) -> None:
+        distinct_ids = [f"user_{i}" for i in range(201)]
+
+        _create_person(
+            team=self.team,
+            distinct_ids=[distinct_ids[200]],
+            properties={"email": "last@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": distinct_ids},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertNotIn(distinct_ids[200], results)
 
 
 class TestPersonFromClickhouse(TestPerson):

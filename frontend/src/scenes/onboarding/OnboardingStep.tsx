@@ -45,15 +45,11 @@ export const OnboardingStep = ({
     fullWidth?: boolean
     actions?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
+    const { hasNextStep, onboardingStepKeys } = useValues(onboardingLogic)
 
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
     const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
     const { openSupportForm } = useActions(supportLogic)
-
-    if (!stepKey) {
-        throw new Error('stepKey is required in any OnboardingStep')
-    }
 
     const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
 
@@ -80,10 +76,7 @@ export const OnboardingStep = ({
                         data-attr="onboarding-breadcrumbs"
                     >
                         {onboardingStepKeys.map((stepName, idx) => {
-                            const highlightStep = [
-                                currentOnboardingStep?.props.stepKey,
-                                breadcrumbHighlightName,
-                            ].includes(stepName)
+                            const highlightStep = [stepKey, breadcrumbHighlightName].includes(stepName)
                             return (
                                 <React.Fragment key={`stepKey-${idx}`}>
                                     <Link
@@ -105,7 +98,7 @@ export const OnboardingStep = ({
                     </div>
                     <div className="flex flex-row justify-between items-center gap-2 mt-3">
                         <h1 className={`font-bold m-0 px-2 ${fullWidth && 'text-center'}`}>
-                            {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
+                            {title || stepKeyToTitle(stepKey)}
                         </h1>
                         {actions && <div className="flex flex-row gap-2">{actions}</div>}
                     </div>

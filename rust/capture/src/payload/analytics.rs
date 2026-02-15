@@ -64,17 +64,16 @@ pub async fn handle_event_payload(
     // Extract body with optional chunk timeout
     let body = extract_body_with_timeout(
         body,
-        state.event_size_limit,
+        state.event_payload_size_limit,
         state.body_chunk_read_timeout,
+        state.body_read_chunk_size_kb,
         path.as_str(),
     )
     .await?;
-
     debug_or_info!(chatty_debug_enabled, headers=?headers, "streamed payload body");
 
     // capture arguments and add to logger, processing context
     let metadata = extract_and_record_metadata(headers, path.as_str(), state.is_mirror_deploy);
-
     debug_or_info!(chatty_debug_enabled, metadata=?metadata, "extracted metadata");
 
     // Extract payload bytes and metadata using shared helper
@@ -90,10 +89,9 @@ pub async fn handle_event_payload(
         data,
         compression,
         metadata.request_id,
-        state.event_size_limit,
+        state.event_payload_size_limit,
         path.as_str().to_string(),
     )?;
-
     debug_or_info!(chatty_debug_enabled, metadata=?metadata, "parsed RawRequest");
 
     let sent_at = request.sent_at().or(query_params.sent_at());
@@ -135,15 +133,33 @@ pub async fn handle_event_payload(
         user_agent: Some(metadata.user_agent.to_string()),
         chatty_debug_enabled,
     };
-
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "processing complete");
+
+    // Apply global rate limit per team (API token) if enabled
+    if let Some(global_rate_limiter) = &state.global_rate_limiter {
+        if let Some(limited) = global_rate_limiter
+            .is_limited(&context.token, events.len() as u64)
+            .await
+        {
+            return Err(CaptureError::GlobalRateLimitExceeded(
+                context.token.clone(),
+                events.len() as u64,
+                limited.window_start,
+                limited.window_end,
+                limited.threshold,
+                limited.window_interval.as_secs(),
+            ));
+        }
+        debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "global rate limit applied");
+    }
+
     // Apply all billing limit quotas and drop partial or whole
     // payload if any are exceeded for this token (team)
     events = state
         .quota_limiter
         .check_and_filter(&context.token, events)
         .await?;
-
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "quota limits filter applied");
+
     Ok((context, events))
 }

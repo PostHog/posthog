@@ -1,6 +1,8 @@
 import os
+from dataclasses import dataclass
 from datetime import timedelta
-from functools import partial, wraps
+from functools import wraps
+from html import escape
 from typing import Union
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -17,16 +19,18 @@ from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonR
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.clickjacking import xframe_options_exempt
-from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods
 
 import structlog
 
+from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.models import Organization, User
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.integration import SlackIntegration
 from posthog.models.message_category import MessageCategory
 from posthog.models.message_preferences import (
@@ -34,6 +38,7 @@ from posthog.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.models.personal_api_key import find_personal_api_key
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
 from posthog.redis import get_client
@@ -85,7 +90,7 @@ def login_required(view):
                 del search_params["next"]
                 response["Location"] = urlunparse(parsed_url._replace(query=urlencode(search_params)))
 
-        return response
+        return apply_auth_brand_cookie(request, response)
 
     return handler
 
@@ -193,6 +198,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "object_storage": is_cloud() or is_object_storage_available(),
         "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
     }
+    auth_brand = normalize_auth_brand(request.COOKIES.get(AUTH_BRAND_COOKIE))
+    if auth_brand:
+        response["auth_brand"] = auth_brand
 
     if settings.DEBUG or settings.E2E_TESTING:
         response["is_debug"] = True
@@ -218,8 +226,40 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
     return JsonResponse(response)
 
 
-def get_redis_key_type_ttl_value_tuple(key: bytes, redis_client):
-    """Get a tuple with a Redis key, type, and value from a Redis key."""
+MAX_VALUE_DISPLAY_LENGTH = 200
+
+
+@dataclass
+class RedisKeyInfo:
+    key: str
+    type: str
+    ttl: timedelta | int
+    size: str
+    value: str
+    full_value: str
+    is_truncated: bool
+
+
+def format_bytes(size_bytes: int) -> str:
+    nbsp = "\u00a0"
+    if size_bytes < 1024:
+        return f"{size_bytes}{nbsp}B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f}{nbsp}KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f}{nbsp}MB"
+    else:
+        return f"{size_bytes / (1024 * 1024 * 1024):.1f}{nbsp}GB"
+
+
+def truncate_value(value, max_length: int = MAX_VALUE_DISPLAY_LENGTH) -> str:
+    str_value = str(value)
+    if len(str_value) <= max_length:
+        return str_value
+    return str_value[:max_length] + "..."
+
+
+def get_redis_key_info(key: bytes, redis_client) -> RedisKeyInfo:
     redis_key = key.decode("utf-8")
     redis_type = redis_client.type(redis_key).decode("utf8")
     redis_ttl = redis_client.ttl(redis_key)
@@ -229,22 +269,30 @@ def get_redis_key_type_ttl_value_tuple(key: bytes, redis_client):
 
     if redis_type == "string":
         value = redis_client.get(key)
-
     elif redis_type == "hash":
         value = redis_client.hgetall(key)
-
     elif redis_type == "zset":
         value = redis_client.zrange(key, 0, -1)
-
     elif redis_type == "list":
         value = redis_client.lrange(key, 0, -1)
-
     elif redis_type == "set":
         value = redis_client.smembers(key)
     else:
         raise ValueError(f"Key {redis_key} has an unsupported type: {redis_type}")
 
-    return (redis_key, redis_type, redis_ttl, value)
+    memory_bytes = redis_client.memory_usage(redis_key) or 0
+    full_value = str(value)
+    is_truncated = len(full_value) > MAX_VALUE_DISPLAY_LENGTH
+
+    return RedisKeyInfo(
+        key=redis_key,
+        type=redis_type,
+        ttl=redis_ttl,
+        size=format_bytes(memory_bytes),
+        value=truncate_value(value),
+        full_value=full_value,
+        is_truncated=is_truncated,
+    )
 
 
 @staff_member_required
@@ -263,11 +311,7 @@ def redis_values_view(request: HttpRequest):
     redis_client = get_client()
     next_cursor, key_list = redis_client.scan(cursor=cursor, count=keys_per_page, match=query)
 
-    partial_get_redis_key = partial(get_redis_key_type_ttl_value_tuple, redis_client=redis_client)
-    redis_keys = {
-        redis_key: (redis_type, redis_ttl, value)
-        for redis_key, redis_type, redis_ttl, value in map(partial_get_redis_key, key_list)
-    }
+    redis_keys = [get_redis_key_info(key, redis_client) for key in key_list]
 
     context = {
         **admin_site.each_context(request),
@@ -282,6 +326,85 @@ def redis_values_view(request: HttpRequest):
     }
 
     return render(request, template_name="redis/values.html", context=context, status=200)
+
+
+@csrf_protect
+@staff_member_required
+def redis_edit_ttl_view(request: HttpRequest):
+    """A Django admin view to edit TTL of a Redis key."""
+    if request.method not in ("GET", "POST"):
+        return HttpResponseNotAllowed(permitted_methods=["GET", "POST"])
+
+    redis_key = request.GET.get("key") or request.POST.get("key")
+    if not redis_key:
+        return redirect("redis_values")
+
+    try:
+        cursor = int(request.GET.get("c", "0"))
+    except ValueError:
+        cursor = 0
+    query = request.GET.get("q", "")
+
+    redis_client = get_client()
+
+    if request.method == "POST":
+        ttl_seconds_str = request.POST.get("ttl_seconds", "").strip()
+        previous_ttl = redis_client.ttl(redis_key)
+
+        if ttl_seconds_str == "":
+            redis_client.persist(redis_key)
+            activity = "ttl_removed"
+            detail_name = f"Removed TTL from Redis key {redis_key}"
+        else:
+            try:
+                ttl_seconds = int(ttl_seconds_str)
+            except ValueError:
+                return HttpResponse("Invalid TTL value: must be an integer", status=400)
+
+            redis_client.expire(redis_key, ttl_seconds)
+            activity = "ttl_updated"
+            detail_name = f"Set TTL to {ttl_seconds}s on Redis key {redis_key}"
+
+        user = request.user if request.user.is_authenticated else None
+        organization_id = user.current_organization.id if user and user.current_organization else None
+
+        log_activity(
+            organization_id=organization_id,
+            team_id=None,
+            user=user,
+            was_impersonated=False,
+            item_id=redis_key,
+            scope="Admin",
+            activity=activity,
+            detail=Detail(
+                name=detail_name,
+                short_id=redis_key,
+                type=f"previous_ttl:{previous_ttl}",
+            ),
+        )
+
+        params: dict[str, str | int] = {"c": cursor}
+        if query:
+            params["q"] = query
+        return redirect(f"/admin/redisvalues?{urlencode(params)}")
+
+    current_ttl = redis_client.ttl(redis_key)
+
+    if current_ttl == -2:
+        return HttpResponse(f"Redis key not found: {escape(redis_key)}", status=404)
+
+    context = {
+        **admin_site.each_context(request),
+        **{
+            "redis_key": redis_key,
+            "current_ttl": current_ttl if current_ttl > 0 else None,
+            "cursor": cursor,
+            "query": query,
+            "title": f"Edit TTL for {redis_key}",
+        },
+    }
+
+    return render(request, template_name="redis/edit_ttl.html", context=context, status=200)
 
 
 @staff_member_required
@@ -316,6 +439,14 @@ def api_key_search_view(request: HttpRequest):
         except Team.DoesNotExist:
             pass
 
+    oauth_access_token_object = None
+    if query is not None and query.startswith("pha_"):
+        oauth_access_token_object = find_oauth_access_token(query)
+
+    oauth_refresh_token_object = None
+    if query is not None and query.startswith("phr_"):
+        oauth_refresh_token_object = find_oauth_refresh_token(query)
+
     context = {
         **admin_site.each_context(request),
         **{
@@ -325,13 +456,16 @@ def api_key_search_view(request: HttpRequest):
             "personal_api_key_hash_mode": personal_api_key_hash_mode,
             "team_object": team_object,
             "team_object_key_type": team_object_key_type,
+            "oauth_access_token_object": oauth_access_token_object,
+            "oauth_refresh_token_object": oauth_refresh_token_object,
         },
     }
 
     return render(request, template_name="api_key_search/values.html", context=context, status=200)
 
 
-@require_http_methods(["GET"])
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
 def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     """Render the preferences page for a given recipient token"""
     response = validate_messaging_preferences_token(token)
@@ -348,31 +482,59 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     if not team_id or not identifier:
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
-    try:
-        recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
-    except MessageRecipientPreference.DoesNotExist:
-        # A first-time preferences page visitor will not have a recipient in Postgres yet.
-        recipient = None
+    recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
+    categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
+
+    is_one_click_unsubscribe = (
+        request.GET.get("one_click_unsubscribe") == "1" or request.POST.get("one_click_unsubscribe") == "1"
+    )
+    if is_one_click_unsubscribe:
+        # If one-click unsubscribe, set all preferences to opted out
+        preferences_dict = {str(cat.id): PreferenceStatus.OPTED_OUT.value for cat in categories}
+
+        # Also set the "$all" preference
+        preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
+
+        recipient.preferences = preferences_dict
+        recipient.save(update_fields=["preferences"])
+
+        if request.method == "POST":
+            return HttpResponse(status=200)
 
     # Only fetch active categories and their preferences
-    categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
     preferences = recipient.get_all_preferences() if recipient else {}
+
+    categories_templating = [
+        {
+            "id": cat.id,
+            "name": cat.name,
+            "description": cat.public_description,
+            "status": preferences.get(str(cat.id), PreferenceStatus.NO_PREFERENCE),
+        }
+        for cat in categories
+    ]
 
     context = {
         "recipient": recipient,
         "categories": [
+            *categories_templating,
             {
-                "id": cat.id,
-                "name": cat.name,
-                "description": cat.public_description,
-                "status": preferences.get(str(cat.id), PreferenceStatus.NO_PREFERENCE),
-            }
-            for cat in categories
+                "id": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+                "name": "All marketing communications",
+                "description": "Unsubscribing here overrides individual preferences.",
+                "status": preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus.NO_PREFERENCE),
+            },
         ],
         "token": token,
     }
 
-    return render(request, "message_preferences/preferences.html", context)
+    return render(
+        request,
+        "message_preferences/one_click_unsubscribe_success.html"
+        if is_one_click_unsubscribe
+        else "message_preferences/preferences.html",
+        context,
+    )
 
 
 @csrf_protect

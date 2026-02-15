@@ -16,7 +16,7 @@
             "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
             "PRINT_SQL": "1",
             "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
-            "CLOUD_DEPLOYMENT": "dev"
+            "CLOUD_DEPLOYMENT": "local"
         },
         "justMyCode": false
     },
@@ -37,7 +37,7 @@
             "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
             "PRINT_SQL": "1",
             "BILLING_SERVICE_URL": "http://localhost:8100/",
-            "CLOUD_DEPLOYMENT": "dev"
+            "CLOUD_DEPLOYMENT": "local"
         },
         "justMyCode": false
     },
@@ -140,7 +140,7 @@
             "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
             "PRINT_SQL": "1",
             "BILLING_SERVICE_URL": "http://localhost:8100/",
-            "CLOUD_DEPLOYMENT": "dev"
+            "CLOUD_DEPLOYMENT": "local"
         },
         "justMyCode": false
     },

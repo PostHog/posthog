@@ -48,8 +48,8 @@ class TestMRREventsBuilder(EventsSourceBaseTest):
         query = build(handle)
         query_sql = query.query.to_hogql()
 
-        # Should filter for is_recurring = true (HogQL uses equals() syntax)
-        self.assertIn("equals(is_recurring, true)", query_sql)
+        # Should filter for is_recurring
+        self.assertIn("and(is_recurring,", query_sql)
 
     def test_mrr_groups_by_customer_and_subscription(self):
         """Test that MRR query groups by source_label, customer_id, and subscription_id."""

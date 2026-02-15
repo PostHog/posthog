@@ -51,7 +51,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     api_token: 'default-team-api-token',
     secret_api_token: 'phs_default-team-secret-api-token',
     secret_api_token_backup: 'phs_default-team-secret-api-token-backup',
-    app_urls: ['https://posthog.com/', 'https://app.posthog.com', 'https://example.com'],
+    app_urls: ['https://posthog.com/', 'https://app.posthog.com', 'https://example.com', 'http://127.0.0.1:*'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
     slack_incoming_webhook: '',
@@ -195,6 +195,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     marketing_analytics_config: {
         sources_map: {},
     },
+    core_events_config: {
+        core_events: [],
+    },
     customer_analytics_config: {
         activity_event: { kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' },
         signup_pageview_event: {},
@@ -203,10 +206,13 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         payment_event: {},
     } as CustomerAnalyticsConfig,
     base_currency: CurrencyCode.USD,
-    default_evaluation_environments_enabled: false,
+    default_evaluation_contexts_enabled: false,
     managed_viewsets: { revenue_analytics: true },
     receive_org_level_activity_logs: false,
-    require_evaluation_environment_tags: false,
+    require_evaluation_contexts: false,
+    logs_settings: {
+        capture_console_logs: false,
+    },
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {

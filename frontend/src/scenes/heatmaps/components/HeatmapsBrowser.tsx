@@ -355,12 +355,12 @@ export function HeatmapsBrowser(): JSX.Element {
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
             <SceneContent>
                 <Warnings />
-                <div className="overflow-hidden w-full h-screen">
+                <div className="w-full">
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />
                     <FilterPanel />
                     <LemonDivider className="my-4" />
-                    <div className="relative flex flex-1 overflow-hidden border min-h-screen">
+                    <div className="relative border">
                         {hasValidReplayIframeData ? (
                             <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
                         ) : displayUrl ? (

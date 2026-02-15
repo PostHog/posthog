@@ -30,7 +30,7 @@ export function StepWaitUntilConditionConfiguration({
         <>
             <StepSchemaErrors />
 
-            <div>
+            <div className="flex flex-col gap-1">
                 <LemonLabel>Wait time</LemonLabel>
                 <HogFlowDuration
                     value={max_wait_duration}
@@ -40,7 +40,7 @@ export function StepWaitUntilConditionConfiguration({
                 />
             </div>
 
-            <div>
+            <div className="flex flex-col gap-1">
                 <LemonLabel>Conditions to wait for</LemonLabel>
                 <LemonInput
                     value={localConditionName || ''}
@@ -49,7 +49,7 @@ export function StepWaitUntilConditionConfiguration({
                     size="small"
                 />
                 <HogFlowPropertyFilters
-                    actionId={action.id}
+                    filtersKey={`wait-until-condition-${action.id}`}
                     filters={condition.filters ?? {}}
                     setFilters={(filters) =>
                         partialSetWorkflowActionConfig(action.id, { condition: { ...condition, filters } })

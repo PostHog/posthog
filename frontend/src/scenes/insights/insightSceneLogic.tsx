@@ -247,8 +247,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 s.sceneSource,
             ],
             (insightLogicRef, insight, insightQuery, dashboardId, dashboardName, tabId, sceneSource): Breadcrumb[] => {
+                const dashboardLabel = dashboardName ?? 'Dashboard'
                 return [
-                    ...(dashboardId !== null && dashboardName
+                    ...(dashboardId !== null
                         ? [
                               {
                                   key: Scene.Dashboards,
@@ -258,7 +259,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                               },
                               {
                                   key: Scene.Dashboard,
-                                  name: dashboardName,
+                                  name: dashboardLabel,
                                   path: urls.dashboard(dashboardId),
                                   iconType: 'dashboard' as FileSystemIconType,
                               },
@@ -352,6 +353,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 if (insightId) {
                     const insightProps: InsightLogicProps = {
                         dashboardItemId: insightId,
+                        dashboardId: values.dashboardId ?? undefined,
                         filtersOverride: values.filtersOverride,
                         variablesOverride: values.variablesOverride,
                         tileFiltersOverride: values.tileFiltersOverride,
@@ -397,17 +399,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 upgradedQuery = query
             }
 
-            values.insightLogicRef?.logic.actions.setInsight(
-                {
-                    ...createEmptyInsight(`new-${values.tabId}`),
-                    ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
-                    query: upgradedQuery,
-                },
-                {
-                    fromPersistentApi: false,
-                    overrideQuery: true,
-                }
-            )
+            if (values.insightId === 'new' || values.insightId?.startsWith('new-')) {
+                values.insightLogicRef?.logic.actions.setInsight(
+                    {
+                        ...createEmptyInsight(`new-${values.tabId}`),
+                        ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
+                        query: upgradedQuery,
+                    },
+                    {
+                        fromPersistentApi: false,
+                        overrideQuery: true,
+                    }
+                )
+            } else {
+                values.insightDataLogicRef?.logic.actions.setQuery(upgradedQuery)
+            }
         },
     })),
     tabAwareUrlToAction(({ actions, values }) => ({

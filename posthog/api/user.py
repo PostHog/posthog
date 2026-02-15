@@ -25,6 +25,7 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
@@ -36,6 +37,7 @@ from two_factor.utils import default_device
 
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
+from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import (
     ClassicBehaviorBooleanFieldSerializer,
@@ -49,7 +51,7 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
     TemporaryTokenAuthentication,
-    authenticate_secondarily,
+    session_auth_required,
 )
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
@@ -61,9 +63,8 @@ from posthog.event_usage import (
 )
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
-from posthog.middleware import get_impersonated_session_expires_at
+from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
-from posthog.models.feature_flag.flag_matching import get_all_feature_flags
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
@@ -80,6 +81,8 @@ from posthog.user_permissions import UserPermissions
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
 
+NUM_2FA_BACKUP_CODES = 10
+
 logger = structlog.get_logger(__name__)
 
 
@@ -93,6 +96,7 @@ class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     is_impersonated_until = serializers.SerializerMethodField()
+    is_impersonated_read_only = serializers.SerializerMethodField()
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
@@ -128,6 +132,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_staff",
             "is_impersonated",
             "is_impersonated_until",
+            "is_impersonated_read_only",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -147,6 +152,7 @@ class UserSerializer(serializers.ModelSerializer):
             "allow_sidebar_suggestions",
             "shortcut_position",
             "role_at_organization",
+            "passkeys_enabled_for_2fa",
         ]
 
         read_only_fields = [
@@ -159,6 +165,7 @@ class UserSerializer(serializers.ModelSerializer):
             "id",
             "is_impersonated",
             "is_impersonated_until",
+            "is_impersonated_read_only",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -186,6 +193,13 @@ class UserSerializer(serializers.ModelSerializer):
         expires_at_time = get_impersonated_session_expires_at(self.context["request"])
 
         return expires_at_time.replace(tzinfo=UTC).isoformat() if expires_at_time else None
+
+    def get_is_impersonated_read_only(self, _) -> Optional[bool]:
+        if "request" not in self.context:
+            return None
+        if not is_impersonated_session(self.context["request"]):
+            return None
+        return is_read_only_impersonation(self.context["request"])
 
     def get_sensitive_session_expires_at(self, instance: User) -> Optional[str]:
         if "request" not in self.context:
@@ -243,12 +257,16 @@ class UserSerializer(serializers.ModelSerializer):
 
     def validate_notification_settings(self, notification_settings: Notifications) -> Notifications:
         instance = cast(User, self.instance)
-        current_settings = {**NOTIFICATION_DEFAULTS, **(instance.partial_notification_settings or {})}
+        current_settings = {
+            **NOTIFICATION_DEFAULTS,
+            **(instance.partial_notification_settings or {}),
+        }
 
         for key, value in notification_settings.items():
             if key not in Notifications.__annotations__:
                 raise serializers.ValidationError(
-                    f"Key {key} is not valid as a key for notification settings", code="invalid_input"
+                    f"Key {key} is not valid as a key for notification settings",
+                    code="invalid_input",
                 )
 
             expected_type = Notifications.__annotations__[key]
@@ -268,6 +286,18 @@ class UserSerializer(serializers.ModelSerializer):
                         )
                 # Merge with existing settings
                 current_settings[key] = {**current_settings.get("project_weekly_digest_disabled", {}), **value}
+            elif key == "data_pipeline_error_threshold":
+                if not isinstance(value, (int, float)):
+                    raise serializers.ValidationError(
+                        f"data_pipeline_error_threshold must be a number, got {type(value)} instead",
+                        code="invalid_input",
+                    )
+                if value < 0.0 or value > 1.0:
+                    raise serializers.ValidationError(
+                        f"data_pipeline_error_threshold must be between 0.0 and 1.0, got {value}",
+                        code="invalid_input",
+                    )
+                current_settings[key] = float(value)
             else:
                 # For non-dict settings, validate type directly
                 if not isinstance(value, expected_type):
@@ -314,6 +344,19 @@ class UserSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Invalid role selected")
         return value
 
+    def validate_passkeys_enabled_for_2fa(self, value: bool) -> bool:
+        """Validate that user has passkeys before enabling passkeys for 2FA"""
+        from posthog.helpers.two_factor_session import has_passkeys
+
+        if value:  # Only validate when enabling
+            instance = cast(User, self.instance)
+            if instance and not has_passkeys(instance):
+                raise serializers.ValidationError(
+                    "You must have at least one passkey set up before enabling passkeys for 2FA.",
+                    code="no_passkeys",
+                )
+        return value
+
     def update(self, instance: "User", validated_data: Any) -> Any:
         # Update current_organization and current_team
         current_organization = validated_data.pop("set_current_organization", None)
@@ -352,6 +395,7 @@ class UserSerializer(serializers.ModelSerializer):
         instance = cast(User, super().update(instance, validated_data))
 
         if password:
+            # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validated in validate_password_change above)
             instance.set_password(password)
             instance.save()
             update_session_auth_hash(self.context["request"], instance)
@@ -412,6 +456,7 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
+@extend_schema(tags=["core"])
 class UserViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -422,7 +467,11 @@ class UserViewSet(
     scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,
@@ -432,9 +481,16 @@ class UserViewSet(
     time_sensitive_allow_if_only_fields = [
         "theme_mode",
         "set_current_organization",
+        "set_current_team",
         "allow_sidebar_suggestions",
         "shortcut_position",
         "has_seen_product_intro_for",
+        "events_column_config",
+        "role_at_organization",
+    ]
+    time_sensitive_exclude_actions = [
+        "hedgehog_config",
+        "scene_personalisation",
     ]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
@@ -546,7 +602,8 @@ class UserViewSet(
 
         if not instance.pending_email:
             raise serializers.ValidationError(
-                "No active email change requests found.", code="email_change_request_not_found"
+                "No active email change requests found.",
+                code="email_change_request_not_found",
             )
 
         instance.pending_email = None
@@ -601,7 +658,12 @@ class UserViewSet(
 
         # Store for 10 minutes (same as django-two-factor-auth setup flow)
         session_cache.set("django_two_factor-hex", key, timeout=600, store_in_session=True)
-        session_cache.set("django_two_factor-qr_secret_key", b32key, timeout=600, store_in_session=True)
+        session_cache.set(
+            "django_two_factor-qr_secret_key",
+            b32key,
+            timeout=600,
+            store_in_session=True,
+        )
 
         # Return the secret key so the frontend can generate QR code and show it for manual entry
         return Response(
@@ -623,7 +685,8 @@ class UserViewSet(
 
         if not hex_key:
             raise serializers.ValidationError(
-                "2FA setup session expired. Please start setup again.", code="setup_expired"
+                "2FA setup session expired. Please start setup again.",
+                code="setup_expired",
             )
 
         form = TOTPDeviceForm(
@@ -647,19 +710,33 @@ class UserViewSet(
     @action(methods=["GET"], detail=True)
     def two_factor_status(self, request, **kwargs):
         """Get current 2FA status including backup codes if enabled"""
+        from posthog.helpers.two_factor_session import has_passkeys
+
         user = self.get_object()
         totp_device = TOTPDevice.objects.filter(user=user).first()
         static_device = StaticDevice.objects.filter(user=user).first()
+        user_has_passkeys = has_passkeys(user)
+        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
 
         backup_codes = []
         if static_device:
             backup_codes = [token.token for token in static_device.token_set.all()]
 
+        # Determine 2FA method
+        method = None
+        if totp_device:
+            method = "TOTP"
+        elif passkeys_enabled_for_2fa:
+            method = "passkey"
+
         return Response(
             {
-                "is_enabled": default_device(user) is not None,
+                "is_enabled": default_device(user) is not None or passkeys_enabled_for_2fa,
                 "backup_codes": backup_codes if totp_device else [],
-                "method": "TOTP" if totp_device else None,
+                "method": method,
+                "has_passkeys": user_has_passkeys,
+                "has_totp": totp_device is not None,
+                "passkeys_enabled_for_2fa": passkeys_enabled_for_2fa,
             }
         )
 
@@ -681,7 +758,7 @@ class UserViewSet(
 
         # Generate new backup codes
         backup_codes = []
-        for _ in range(5):  # Generate 5 backup codes
+        for _ in range(NUM_2FA_BACKUP_CODES):
             token = StaticToken.random_token()
             static_device.token_set.create(token=token)
             backup_codes.append(token)
@@ -702,7 +779,7 @@ class UserViewSet(
         return Response({"success": True})
 
 
-@authenticate_secondarily
+@session_auth_required
 def get_toolbar_preloaded_flags(request):
     """Retrieve cached feature flags for toolbar"""
     toolbar_flags_key = request.GET.get("key")
@@ -730,7 +807,7 @@ def get_toolbar_preloaded_flags(request):
     return JsonResponse({"featureFlags": feature_flags})
 
 
-@authenticate_secondarily
+@session_auth_required
 @require_http_methods(["POST"])
 def prepare_toolbar_preloaded_flags(request):
     """
@@ -750,7 +827,19 @@ def prepare_toolbar_preloaded_flags(request):
             logger.warning("[Toolbar Flags] No team found")
             return JsonResponse({"error": "No team found"}, status=400)
 
-        flags, _, _, _ = get_all_feature_flags(team, distinct_id, groups={})
+        # Use Rust flags service
+        result = get_flags_from_service(
+            token=team.api_token,
+            distinct_id=distinct_id,
+            groups={},
+        )
+        flags = {
+            flag_key: (
+                flag_data.get("variant") if flag_data.get("variant") is not None else flag_data.get("enabled", False)
+            )
+            for flag_key, flag_data in result.get("flags", {}).items()
+        }
+
         key = secrets.token_urlsafe(16)
         cache_key = f"toolbar_flags_{key}"
         cache_data = {
@@ -761,12 +850,15 @@ def prepare_toolbar_preloaded_flags(request):
         cache.set(cache_key, cache_data, timeout=300)  # 5 minute TTL
 
         return JsonResponse({"key": key, "flag_count": len(flags)})
+    except requests.RequestException as e:
+        logger.exception("Flags service unavailable", error=str(e))
+        return JsonResponse({"error": "Service temporarily unavailable"}, status=503)
     except (json.JSONDecodeError, ValueError, KeyError) as e:
         logger.exception("Error preparing toolbar launch", error=str(e))
         return JsonResponse({"error": "Invalid request"}, status=400)
 
 
-@authenticate_secondarily
+@session_auth_required
 def redirect_to_site(request):
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
@@ -778,7 +870,10 @@ def redirect_to_site(request):
     if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
         logger.error(
-            "can_only_redirect_to_permitted_domain", permitted_domains=team.app_urls, app_url=app_url, team_id=team.id
+            "can_only_redirect_to_permitted_domain",
+            permitted_domains=team.app_urls,
+            app_url=app_url,
+            team_id=team.id,
         )
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
     request.user.temporary_token = secrets.token_urlsafe(32)
@@ -815,7 +910,7 @@ def redirect_to_site(request):
         return redirect("{}#__posthog={}".format(app_url, state))
 
 
-@authenticate_secondarily
+@session_auth_required
 def redirect_to_website(request):
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
@@ -825,7 +920,10 @@ def redirect_to_website(request):
 
     if not team or urllib.parse.urlparse(app_url).hostname not in PERMITTED_FORUM_DOMAINS:
         logger.error(
-            "can_only_redirect_to_permitted_domain", permitted_domains=team.app_urls, app_url=app_url, team_id=team.id
+            "can_only_redirect_to_permitted_domain",
+            permitted_domains=team.app_urls,
+            app_url=app_url,
+            team_id=team.id,
         )
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
@@ -875,7 +973,7 @@ def redirect_to_website(request):
 
 
 @require_http_methods(["POST"])
-@authenticate_secondarily
+@session_auth_required
 def test_slack_webhook(request):
     """Test webhook."""
     try:

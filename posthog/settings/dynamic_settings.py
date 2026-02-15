@@ -145,6 +145,11 @@ CONSTANCE_CONFIG = {
         "Used to validate Slack events for example when unfurling links",
         str,
     ),
+    "GITHUB_WEBHOOK_SECRET": (
+        get_from_env("GITHUB_WEBHOOK_SECRET", default=""),
+        "Used to validate GitHub webhook events (HMAC-SHA256 signature verification)",
+        str,
+    ),
     "PARALLEL_DASHBOARD_ITEM_CACHE": (
         get_from_env("PARALLEL_DASHBOARD_ITEM_CACHE", default=5),
         "user to determine how many insight cache updates to run at a time",
@@ -169,6 +174,21 @@ CONSTANCE_CONFIG = {
         get_from_env("REDIRECT_APP_TO_US", False, type_cast=str_to_bool),
         "Temporary option to redirect all app traffic from app.posthog.com to us.posthog.com.",
         bool,
+    ),
+    "WEB_ANALYTICS_WARMING_DAYS": (
+        get_from_env("WEB_ANALYTICS_WARMING_DAYS", default=7, type_cast=int),
+        "Number of days to look back for frequently-run web analytics queries",
+        int,
+    ),
+    "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT": (
+        get_from_env("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT", default=10, type_cast=int),
+        "Minimum query count threshold for web analytics cache warming",
+        int,
+    ),
+    "WEB_ANALYTICS_WARMING_TEAMS_TO_WARM": (
+        get_from_env("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM", default=[2], type_cast=list[int]),
+        "Teams that will have web analytics cache warming enabled",
+        list[int],
     ),
 }
 
@@ -198,11 +218,14 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
+    "GITHUB_WEBHOOK_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "REDIRECT_APP_TO_US",
+    "WEB_ANALYTICS_WARMING_DAYS",
+    "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
@@ -211,4 +234,5 @@ SECRET_SETTINGS = [
     "EMAIL_HOST_PASSWORD",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
+    "GITHUB_WEBHOOK_SECRET",
 ]

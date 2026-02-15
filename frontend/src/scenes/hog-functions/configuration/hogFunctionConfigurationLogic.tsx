@@ -2,7 +2,7 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { beforeUnload, router } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -14,6 +14,7 @@ import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/Cyclot
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -24,7 +25,15 @@ import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTr
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
-import { DataTableNode, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    EventsNode,
+    EventsQuery,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
@@ -92,6 +101,13 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
 export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
 export const TYPES_WITH_REAL_EVENTS: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
+
+const TYPE_TO_PRODUCT_KEY: Partial<Record<HogFunctionTypeType, ProductKey>> = {
+    destination: ProductKey.PIPELINE_DESTINATIONS,
+    site_destination: ProductKey.PIPELINE_DESTINATIONS,
+    transformation: ProductKey.PIPELINE_TRANSFORMATIONS,
+    site_app: ProductKey.SITE_APPS,
+}
 
 export function sanitizeInputs(
     data: Pick<HogFunctionMappingType, 'inputs_schema' | 'inputs'>
@@ -428,11 +444,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
     })),
-    loaders(({ actions, props, values }) => ({
+    loaders(({ actions, props, values, cache }) => ({
         template: [
             null as HogFunctionTemplateType | null,
             {
                 loadTemplate: async () => {
+                    cache.configFromUrl = router.values.hashParams.configuration
                     if (!props.templateId) {
                         return null
                     }
@@ -465,10 +482,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
 
                 upsertHogFunction: async ({ configuration }) => {
-                    const res =
-                        props.id && props.id !== 'new'
-                            ? await api.hogFunctions.update(props.id, configuration)
-                            : await api.hogFunctions.create(configuration)
+                    const isNew = !props.id || props.id === 'new'
+                    const res = isNew
+                        ? await api.hogFunctions.create(configuration)
+                        : await api.hogFunctions.update(props.id!, configuration)
 
                     posthog.capture('hog function saved', {
                         id: res.id,
@@ -478,15 +495,29 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         enabled: res.enabled,
                     })
 
+                    // Track product intent when creating a new hog function
+                    if (isNew) {
+                        const productKey = TYPE_TO_PRODUCT_KEY[res.type]
+                        if (productKey) {
+                            void addProductIntent({
+                                product_type: productKey,
+                                intent_context: ProductIntentContext.DATA_PIPELINE_CREATED,
+                            })
+                        }
+                    }
+
                     // Capture error tracking specific alert event
                     if (
                         res.template?.id === 'error-tracking-issue-created' ||
-                        res.template?.id === 'error-tracking-issue-reopened'
+                        res.template?.id === 'error-tracking-issue-reopened' ||
+                        res.template?.id === 'error-tracking-issue-spiking'
                     ) {
-                        const triggerEvent =
-                            res.template.id === 'error-tracking-issue-created'
-                                ? '$error_tracking_issue_created'
-                                : '$error_tracking_issue_reopened'
+                        const triggerEventMap: Record<string, string> = {
+                            'error-tracking-issue-created': '$error_tracking_issue_created',
+                            'error-tracking-issue-reopened': '$error_tracking_issue_reopened',
+                            'error-tracking-issue-spiking': '$error_tracking_issue_spiking',
+                        }
+                        const triggerEvent = triggerEventMap[res.template.id]
 
                         posthog.capture('error_tracking_alert_created', {
                             trigger_event: triggerEvent,
@@ -1423,7 +1454,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
 
                 cache.disabledBeforeUnload = true
-                router.actions.replace(urls.hogFunction(hogFunction.id))
+                // Preserve existing search params (integration params, returnTo, etc.) on redirect
+                router.actions.replace(urls.hogFunction(hogFunction.id), router.values.searchParams)
             }
         },
         sparklineQuery: async (sparklineQuery) => {
@@ -1443,6 +1475,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     actions: [],
                     data_warehouse: [],
                 })
+            }
+        },
+    })),
+
+    urlToAction(({ actions, values, cache }) => ({
+        [urls.hogFunctionNew(':templateId')]: (_, __, hashParams) => {
+            const newConfig = hashParams?.configuration
+            if (values.template && !equal(newConfig, cache.configFromUrl)) {
+                cache.configFromUrl = newConfig
+                actions.resetForm()
             }
         },
     })),

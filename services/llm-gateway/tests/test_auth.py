@@ -24,8 +24,8 @@ def reset_cache() -> Generator[None, None, None]:
 def mock_pool() -> MagicMock:
     pool = MagicMock()
     conn = AsyncMock()
-    pool.acquire.return_value.__aenter__ = AsyncMock(return_value=conn)
-    pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
+    pool.acquire = AsyncMock(return_value=conn)
+    pool.release = AsyncMock()
     return pool
 
 
@@ -96,7 +96,7 @@ class TestAuthService:
         request = MagicMock(spec=Request)
         request.headers = {"authorization": "Bearer pha_valid_token"}
 
-        conn = mock_pool.acquire.return_value.__aenter__.return_value
+        conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
             return_value={
                 "id": 1,
@@ -105,6 +105,7 @@ class TestAuthService:
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": 789,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -122,13 +123,14 @@ class TestAuthService:
         request = MagicMock(spec=Request)
         request.headers = {"x-api-key": "phx_valid_key"}
 
-        conn = mock_pool.acquire.return_value.__aenter__.return_value
+        conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
             return_value={
                 "id": "k1",
                 "user_id": 789,
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 101,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -144,7 +146,7 @@ class TestAuthService:
         request = MagicMock(spec=Request)
         request.headers = {"authorization": "Bearer phx_unknown_key"}
 
-        conn = mock_pool.acquire.return_value.__aenter__.return_value
+        conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(return_value=None)
 
         result = await auth_service.authenticate_request(request, mock_pool)
@@ -196,9 +198,15 @@ class TestPersonalApiKeyAuthenticator:
     async def test_valid_key_returns_authenticated_user(
         self, authenticator: PersonalApiKeyAuthenticator, mock_pool: MagicMock
     ) -> None:
-        conn = mock_pool.acquire.return_value.__aenter__.return_value
+        conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
-            return_value={"id": "k1", "user_id": 123, "scopes": ["llm_gateway:read"], "current_team_id": 456}
+            return_value={
+                "id": "k1",
+                "user_id": 123,
+                "scopes": ["llm_gateway:read"],
+                "current_team_id": 456,
+                "distinct_id": "test-distinct-id",
+            }
         )
 
         token_hash = authenticator.hash_token("phx_test_key")
@@ -231,7 +239,7 @@ class TestPersonalApiKeyAuthenticator:
     async def test_invalid_keys_return_none(
         self, authenticator: PersonalApiKeyAuthenticator, mock_pool: MagicMock, db_result: dict | None
     ) -> None:
-        conn = mock_pool.acquire.return_value.__aenter__.return_value
+        conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(return_value=db_result)
 
         token_hash = authenticator.hash_token("phx_invalid_key")
@@ -253,7 +261,7 @@ class TestOAuthAccessTokenAuthenticator:
     async def test_token_not_found_returns_none(
         self, authenticator: OAuthAccessTokenAuthenticator, mock_pool: MagicMock
     ) -> None:
-        conn = mock_pool.acquire.return_value.__aenter__.return_value
+        conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(return_value=None)
 
         token_hash = authenticator.hash_token("pha_unknown_token")
@@ -264,7 +272,7 @@ class TestOAuthAccessTokenAuthenticator:
     async def test_expired_token_returns_none(
         self, authenticator: OAuthAccessTokenAuthenticator, mock_pool: MagicMock
     ) -> None:
-        conn = mock_pool.acquire.return_value.__aenter__.return_value
+        conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
             return_value={
                 "id": 1,
@@ -273,6 +281,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "expires": datetime.now(UTC) - timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": 789,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -284,7 +293,7 @@ class TestOAuthAccessTokenAuthenticator:
     async def test_token_without_expiry_is_valid(
         self, authenticator: OAuthAccessTokenAuthenticator, mock_pool: MagicMock
     ) -> None:
-        conn = mock_pool.acquire.return_value.__aenter__.return_value
+        conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
             return_value={
                 "id": 1,
@@ -293,6 +302,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "expires": None,
                 "current_team_id": 456,
                 "application_id": 789,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -306,7 +316,7 @@ class TestOAuthAccessTokenAuthenticator:
     async def test_missing_application_id_returns_none(
         self, authenticator: OAuthAccessTokenAuthenticator, mock_pool: MagicMock
     ) -> None:
-        conn = mock_pool.acquire.return_value.__aenter__.return_value
+        conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
             return_value={
                 "id": 1,
@@ -315,6 +325,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": None,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -335,7 +346,7 @@ class TestOAuthAccessTokenAuthenticator:
     async def test_missing_task_write_scope_returns_none(
         self, authenticator: OAuthAccessTokenAuthenticator, mock_pool: MagicMock, scope: str | None
     ) -> None:
-        conn = mock_pool.acquire.return_value.__aenter__.return_value
+        conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
             return_value={
                 "id": 1,
@@ -344,6 +355,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": 789,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -365,7 +377,7 @@ class TestOAuthAccessTokenAuthenticator:
     async def test_scope_parsing(
         self, authenticator: OAuthAccessTokenAuthenticator, mock_pool: MagicMock, scope: str, expected_scopes: list[str]
     ) -> None:
-        conn = mock_pool.acquire.return_value.__aenter__.return_value
+        conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
             return_value={
                 "id": 1,
@@ -374,6 +386,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": 789,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -387,7 +400,7 @@ class TestOAuthAccessTokenAuthenticator:
     async def test_valid_token_returns_authenticated_user(
         self, authenticator: OAuthAccessTokenAuthenticator, mock_pool: MagicMock
     ) -> None:
-        conn = mock_pool.acquire.return_value.__aenter__.return_value
+        conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
             return_value={
                 "id": 1,
@@ -396,6 +409,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": 789,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -412,7 +426,7 @@ class TestOAuthAccessTokenAuthenticator:
     async def test_valid_token_with_null_team_id(
         self, authenticator: OAuthAccessTokenAuthenticator, mock_pool: MagicMock
     ) -> None:
-        conn = mock_pool.acquire.return_value.__aenter__.return_value
+        conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
             return_value={
                 "id": 1,
@@ -421,6 +435,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": None,
                 "application_id": 789,
+                "distinct_id": "test-distinct-id",
             }
         )
 

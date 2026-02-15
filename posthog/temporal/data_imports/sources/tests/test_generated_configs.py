@@ -124,6 +124,12 @@ def test_meta_ads_config():
     assert config.account_id == "123"
     assert config.meta_ads_integration_id == 1
 
+    # Empty string for optional sync_lookback_days should be handled (not raise ValueError)
+    config_with_empty = MetaAdsSourceConfig.from_dict(
+        {"account_id": "123", "meta_ads_integration_id": 1, "sync_lookback_days": ""}
+    )
+    assert config_with_empty.sync_lookback_days is None
+
 
 def test_mongo_config():
     config = MongoDBSourceConfig.from_dict({"connection_string": "connection_string"})

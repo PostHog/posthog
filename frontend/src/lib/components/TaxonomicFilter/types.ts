@@ -12,14 +12,44 @@ import {
     ActionType,
     CohortType,
     EventDefinition,
+    EventPropertyFilter,
     PersonProperty,
+    PersonPropertyFilter,
     PropertyDefinition,
     PropertyFilterType,
+    PropertyOperator,
 } from '~/types'
 
 export interface SimpleOption {
     name: string
     propertyFilterType?: PropertyFilterType
+}
+
+export interface QuickFilterItem {
+    _type: 'quick_filter'
+    name: string
+    filterValue: string
+    operator: PropertyOperator
+    propertyKey: string
+    propertyFilterType: PropertyFilterType.Event | PropertyFilterType.Person
+    eventName?: string
+    extraProperties?: (EventPropertyFilter | PersonPropertyFilter)[]
+}
+
+export function isQuickFilterItem(item: unknown): item is QuickFilterItem {
+    return item != null && typeof item === 'object' && '_type' in item && item._type === 'quick_filter'
+}
+
+export function quickFilterToPropertyFilter(item: QuickFilterItem): EventPropertyFilter | PersonPropertyFilter {
+    const base = { key: item.propertyKey, value: item.filterValue, operator: item.operator }
+    if (item.propertyFilterType === PropertyFilterType.Event) {
+        return { ...base, type: PropertyFilterType.Event }
+    }
+    return { ...base, type: PropertyFilterType.Person }
+}
+
+export function quickFilterToPropertyFilters(item: QuickFilterItem): (EventPropertyFilter | PersonPropertyFilter)[] {
+    return [quickFilterToPropertyFilter(item), ...(item.extraProperties ?? [])]
 }
 
 export type TaxonomicFilterGroupValueMap = { [key in TaxonomicFilterGroupType]?: (PropertyKey | null)[] }
@@ -121,6 +151,8 @@ export interface TaxonomicFilterGroup {
     getValue?: (instance: any) => TaxonomicFilterValue
     getPopoverHeader: (instance: any) => string
     getIcon?: (instance: any) => JSX.Element
+    /** Determines if an item should be disabled (unselectable) */
+    getIsDisabled?: (instance: any) => boolean
     groupTypeIndex?: number
     getFullDetailUrl?: (instance: any) => string
     excludedProperties?: string[]
@@ -178,6 +210,7 @@ export enum TaxonomicFilterGroupType {
     MaxAIContext = 'max_ai_context',
     // Workflows execution variables
     WorkflowVariables = 'workflow_variables',
+    QuickFilters = 'quick_filters',
     Empty = 'empty',
 }
 
@@ -217,3 +250,4 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | ReplayTaxonomicFilterProperty
+    | QuickFilterItem

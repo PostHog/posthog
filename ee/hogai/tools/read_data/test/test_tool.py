@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import uuid4
 
 import pytest
@@ -5,7 +6,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from posthog.schema import (
-    ArtifactMessage,
     ArtifactSource,
     AssistantToolCallMessage,
     AssistantTrendsEventsNode,
@@ -13,12 +13,13 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Dashboard, DashboardTile, Insight
+from posthog.models import Dashboard, DashboardTile, Experiment, Insight, Survey
+from posthog.models.feature_flag import FeatureFlag
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
 
-from ee.hogai.artifacts.manager import StateArtifactResult
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
 from ee.hogai.tools.read_data.tool import ReadDataTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
@@ -31,6 +32,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=True)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         tool = await ReadDataTool.create_tool_class(
             team=team,
@@ -49,6 +51,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         tool = await ReadDataTool.create_tool_class(
             team=team,
@@ -71,6 +74,7 @@ class TestReadDataTool(BaseTest):
         with patch("ee.hogai.tools.read_data.tool.AssistantContextManager") as mock_context_class:
             mock_context = MagicMock()
             mock_context.check_user_has_billing_access = AsyncMock(return_value=False)
+            mock_context.check_has_audit_logs_access = AsyncMock(return_value=False)
             mock_context_class.return_value = mock_context
 
             tool = await ReadDataTool.create_tool_class(
@@ -82,114 +86,6 @@ class TestReadDataTool(BaseTest):
             mock_context_class.assert_called_once()
             assert tool is not None
 
-    async def test_arun_impl_artifacts_returns_formatted_artifacts(self):
-        """Test that artifacts kind returns formatted artifact data."""
-        team = MagicMock()
-        user = MagicMock()
-
-        viz_content = VisualizationArtifactContent(
-            query=AssistantTrendsQuery(series=[]),
-            name="Test Chart",
-            description="A test visualization",
-        )
-        artifact_message = ArtifactMessage(
-            id=str(uuid4()),
-            artifact_id="artifact-123",
-            source=ArtifactSource.ARTIFACT,
-            content=viz_content,
-        )
-
-        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
-        context_manager = MagicMock()
-        context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_conversation_artifact_messages = AsyncMock(return_value=[artifact_message])
-
-        tool = ReadDataTool(
-            team=team,
-            user=user,
-            state=state,
-            context_manager=context_manager,
-        )
-
-        result, _ = await tool._arun_impl({"kind": "artifacts"})
-
-        context_manager.artifacts.aget_conversation_artifact_messages.assert_called_once_with()
-        assert "artifact-123" in result
-        assert "Test Chart" in result
-        assert "A test visualization" in result
-
-    async def test_arun_impl_artifacts_returns_no_artifacts_message(self):
-        """Test that artifacts kind returns 'No artifacts available' when empty."""
-        team = MagicMock()
-        user = MagicMock()
-        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
-        context_manager = MagicMock()
-        context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_conversation_artifact_messages = AsyncMock(return_value=[])
-        context_manager.artifacts.check_user_has_billing_access = AsyncMock(return_value=False)
-
-        tool = ReadDataTool(
-            team=team,
-            user=user,
-            state=state,
-            context_manager=context_manager,
-        )
-
-        result, _ = await tool._arun_impl({"kind": "artifacts"})
-
-        assert result == "No artifacts available"
-
-    async def test_create_tool_class_with_artifacts(self):
-        """Test that tool has artifacts in description when can_read_artifacts is True."""
-        team = MagicMock()
-        user = MagicMock()
-        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
-        context_manager = MagicMock()
-        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
-        tool = await ReadDataTool.create_tool_class(
-            team=team,
-            user=user,
-            state=state,
-            context_manager=context_manager,
-            can_read_artifacts=True,
-        )
-        assert "# Artifacts" in tool.description
-        assert "billing_info" not in tool.description
-
-    async def test_create_tool_class_without_artifacts(self):
-        """Test that tool has artifacts in description when can_read_artifacts is True."""
-        team = MagicMock()
-        user = MagicMock()
-        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
-        context_manager = MagicMock()
-        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
-        tool = await ReadDataTool.create_tool_class(
-            team=team,
-            user=user,
-            state=state,
-            context_manager=context_manager,
-            can_read_artifacts=False,
-        )
-        assert "# Artifacts" not in tool.description
-
-    async def test_create_tool_class_with_artifacts_and_billing_access(self):
-        """Test that tool has artifacts and billing in description when can_read_artifacts and can_read_billing are True."""
-        team = MagicMock()
-        user = MagicMock()
-        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
-        context_manager = MagicMock()
-        context_manager.check_user_has_billing_access = AsyncMock(return_value=True)
-        tool = await ReadDataTool.create_tool_class(
-            team=team,
-            user=user,
-            state=state,
-            context_manager=context_manager,
-            can_read_artifacts=True,
-        )
-        assert "# Artifacts" in tool.description
-        assert "billing_info" in tool.description
-        assert "Billing information" in tool.description
-
     async def test_read_insight_schema_only(self):
         """Test reading an insight without executing it returns the schema."""
         team = MagicMock()
@@ -197,6 +93,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         mock_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         mock_content = VisualizationArtifactContent(
@@ -206,7 +103,7 @@ class TestReadDataTool(BaseTest):
         )
 
         context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_insight_with_source = AsyncMock(
+        context_manager.artifacts.aget_visualization = AsyncMock(
             return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
@@ -233,6 +130,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=tool_call_id)
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         mock_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         mock_content = VisualizationArtifactContent(
@@ -242,12 +140,13 @@ class TestReadDataTool(BaseTest):
         )
 
         context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_insight_with_source = AsyncMock(
+        context_manager.artifacts.aget_visualization = AsyncMock(
             return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
         with patch(
-            "ee.hogai.context.insight.context.execute_and_format_query", new=AsyncMock(return_value="Formatted results")
+            "ee.hogai.context.insight.context.execute_and_format_query",
+            new=AsyncMock(return_value="Formatted results"),
         ):
             tool = ReadDataTool(
                 team=team,
@@ -284,8 +183,9 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
         context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_insight_with_source = AsyncMock(return_value=None)
+        context_manager.artifacts.aget_visualization = AsyncMock(return_value=None)
 
         tool = await ReadDataTool.create_tool_class(
             team=team,
@@ -306,6 +206,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
         context_manager.artifacts = MagicMock()
         context_manager.artifacts.aget_insight = AsyncMock(return_value=None)
 
@@ -317,7 +218,7 @@ class TestReadDataTool(BaseTest):
         )
 
         context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_insight_with_source = AsyncMock(
+        context_manager.artifacts.aget_visualization = AsyncMock(
             return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
@@ -342,6 +243,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         mock_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         mock_content = VisualizationArtifactContent(
@@ -351,7 +253,7 @@ class TestReadDataTool(BaseTest):
         )
 
         context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_insight_with_source = AsyncMock(
+        context_manager.artifacts.aget_visualization = AsyncMock(
             return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
@@ -379,6 +281,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         tool = await ReadDataTool.create_tool_class(
             team=self.team,
@@ -387,14 +290,17 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
         )
 
-        result, artifact = await tool._arun_impl(
-            {"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False}
-        )
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = True
 
-        assert "Test Dashboard" in result
-        assert str(dashboard.id) in result
-        assert "A test dashboard description" in result
-        assert artifact is None
+            result, artifact = await tool._arun_impl(
+                {"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False}
+            )
+
+            assert "Test Dashboard" in result
+            assert str(dashboard.id) in result
+            assert "A test dashboard description" in result
+            assert artifact is None
 
     async def test_read_dashboard_includes_insight_short_id_and_db_id(self):
         """Test that dashboard insights include short_id and db_id fields."""
@@ -408,7 +314,10 @@ class TestReadDataTool(BaseTest):
             team=self.team,
             name="Test Insight",
             description="Test description",
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "name": "$pageview"}]},
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "name": "$pageview"}],
+            },
         )
 
         await DashboardTile.objects.acreate(
@@ -420,6 +329,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         with patch("ee.hogai.tools.read_data.tool.DashboardContext") as MockDashboardContext:
             mock_instance = MagicMock()
@@ -433,7 +343,16 @@ class TestReadDataTool(BaseTest):
                 context_manager=context_manager,
             )
 
-            await tool._arun_impl({"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False})
+            with patch.object(tool, "user_access_control") as mock_uac:
+                mock_uac.check_access_level_for_object.return_value = True
+
+                await tool._arun_impl(
+                    {
+                        "kind": "dashboard",
+                        "dashboard_id": str(dashboard.id),
+                        "execute": False,
+                    }
+                )
 
             # Verify DashboardContext was instantiated with correct arguments
             MockDashboardContext.assert_called_once()
@@ -452,6 +371,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         tool = await ReadDataTool.create_tool_class(
             team=self.team,
@@ -482,7 +402,13 @@ class TestReadDataTool(BaseTest):
             team=self.team,
             credential=credential,
             url_pattern="https://bucket.s3/data/*",
-            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+            columns={
+                "id": {
+                    "hogql": "StringDatabaseField",
+                    "clickhouse": "Nullable(String)",
+                    "schema_valid": True,
+                }
+            },
         )
         await DataWarehouseTable.objects.acreate(
             name="hubspot_contacts",
@@ -490,12 +416,19 @@ class TestReadDataTool(BaseTest):
             team=self.team,
             credential=credential,
             url_pattern="https://bucket.s3/data/*",
-            columns={"email": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+            columns={
+                "email": {
+                    "hogql": "StringDatabaseField",
+                    "clickhouse": "Nullable(String)",
+                    "schema_valid": True,
+                }
+            },
         )
 
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         tool = await ReadDataTool.create_tool_class(
             team=self.team,
@@ -521,12 +454,16 @@ class TestReadDataTool(BaseTest):
         await DataWarehouseSavedQuery.objects.acreate(
             team=self.team,
             name="revenue_summary",
-            query={"kind": "HogQLQuery", "query": "SELECT count() as total FROM events"},
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() as total FROM events",
+            },
         )
 
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         tool = await ReadDataTool.create_tool_class(
             team=self.team,
@@ -546,6 +483,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         tool = await ReadDataTool.create_tool_class(
             team=self.team,
@@ -576,7 +514,11 @@ class TestReadDataTool(BaseTest):
                     "clickhouse": "Nullable(String)",
                     "schema_valid": True,
                 },
-                "email": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
+                "email": {
+                    "hogql": "StringDatabaseField",
+                    "clickhouse": "Nullable(String)",
+                    "schema_valid": True,
+                },
                 "created_at": {
                     "hogql": "DateTimeDatabaseField",
                     "clickhouse": "Nullable(DateTime64(3))",
@@ -588,6 +530,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         tool = await ReadDataTool.create_tool_class(
             team=self.team,
@@ -630,6 +573,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         tool = await ReadDataTool.create_tool_class(
             team=self.team,
@@ -649,6 +593,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         tool = await ReadDataTool.create_tool_class(
             team=self.team,
@@ -668,6 +613,7 @@ class TestReadDataTool(BaseTest):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
 
         tool = await ReadDataTool.create_tool_class(
             team=self.team,
@@ -680,3 +626,635 @@ class TestReadDataTool(BaseTest):
 
         assert "Table `nonexistent_table` not found" in result
         assert "Available tables include:" in result
+
+    async def test_read_feature_flag_by_id(self):
+        """Test reading a feature flag by its numeric ID."""
+        flag = await FeatureFlag.objects.acreate(
+            team=self.team,
+            key="test-flag-by-id",
+            name="Test Feature Flag",
+            filters={"groups": [{"rollout_percentage": 50}]},
+            active=True,
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, artifact = await tool._arun_impl({"kind": "feature_flag", "id": flag.id})
+
+        assert "test-flag-by-id" in result
+        assert "Test Feature Flag" in result
+        assert "**Active:** True" in result
+        assert artifact is None
+
+    async def test_read_feature_flag_by_key(self):
+        """Test reading a feature flag by its key."""
+        await FeatureFlag.objects.acreate(
+            team=self.team,
+            key="test-flag-by-key",
+            name="Another Test Flag",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            active=True,
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, artifact = await tool._arun_impl({"kind": "feature_flag", "key": "test-flag-by-key"})
+
+        assert "test-flag-by-key" in result
+        assert "Another Test Flag" in result
+        assert "### Variants" in result
+        assert "control: 50%" in result
+        assert "test: 50%" in result
+        assert artifact is None
+
+    async def test_read_feature_flag_not_found(self):
+        """Test that not found feature flag raises MaxToolRetryableError."""
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        with pytest.raises(MaxToolRetryableError) as exc_info:
+            await tool._arun_impl({"kind": "feature_flag", "key": "nonexistent-flag"})
+
+        assert "nonexistent-flag" in str(exc_info.value)
+
+    async def test_read_feature_flag_requires_id_or_key(self):
+        """Test that feature flag read requires either id or key."""
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        with pytest.raises(MaxToolRetryableError) as exc_info:
+            await tool._arun_impl({"kind": "feature_flag"})
+
+        assert "id" in str(exc_info.value)
+        assert "key" in str(exc_info.value)
+
+    async def test_read_experiment_by_id(self):
+        """Test reading an experiment by its numeric ID."""
+        flag = await FeatureFlag.objects.acreate(
+            team=self.team,
+            key="experiment-flag-1",
+            name="Experiment Flag",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+        )
+
+        experiment = await Experiment.objects.acreate(
+            team=self.team,
+            name="Test Experiment",
+            description="An A/B test experiment",
+            feature_flag=flag,
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, artifact = await tool._arun_impl({"kind": "experiment", "id": experiment.id})
+
+        assert "Test Experiment" in result
+        assert "An A/B test experiment" in result
+        assert "experiment-flag-1" in result
+        assert "### Feature Flag Variants" in result
+        assert "control: 50%" in result
+        assert "test: 50%" in result
+        assert artifact is None
+
+    async def test_read_experiment_by_feature_flag_key(self):
+        """Test reading an experiment by its feature flag key."""
+        flag = await FeatureFlag.objects.acreate(
+            team=self.team,
+            key="experiment-flag-2",
+            name="Experiment Flag 2",
+            filters={},
+        )
+
+        await Experiment.objects.acreate(
+            team=self.team,
+            name="Another Experiment",
+            description="Second A/B test",
+            feature_flag=flag,
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, artifact = await tool._arun_impl({"kind": "experiment", "feature_flag_key": "experiment-flag-2"})
+
+        assert "Another Experiment" in result
+        assert "Second A/B test" in result
+        assert "experiment-flag-2" in result
+        assert artifact is None
+
+    async def test_read_experiment_not_found(self):
+        """Test that not found experiment raises MaxToolRetryableError."""
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        with pytest.raises(MaxToolRetryableError) as exc_info:
+            await tool._arun_impl({"kind": "experiment", "id": 99999})
+
+        assert "99999" in str(exc_info.value)
+
+    async def test_read_experiment_requires_id_or_feature_flag_key(self):
+        """Test that experiment read requires either id or feature_flag_key."""
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        with pytest.raises(MaxToolRetryableError) as exc_info:
+            await tool._arun_impl({"kind": "experiment"})
+
+        assert "id" in str(exc_info.value)
+        assert "feature_flag_key" in str(exc_info.value)
+
+    async def test_read_insight_denied_when_user_lacks_object_access(self):
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        mock_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        mock_content = VisualizationArtifactContent(name="Secret Insight", query=mock_query)
+        mock_insight = MagicMock(spec=Insight)
+
+        context_manager.artifacts = MagicMock()
+        context_manager.artifacts.aget_visualization = AsyncMock(
+            return_value=ModelArtifactResult[VisualizationArtifactContent, Literal[ArtifactSource.INSIGHT], Insight](
+                content=mock_content, source=ArtifactSource.INSIGHT, model=mock_insight
+            )
+        )
+
+        tool = await ReadDataTool.create_tool_class(team=team, user=user, state=state, context_manager=context_manager)
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+
+            with pytest.raises(MaxToolAccessDeniedError):
+                await tool._arun_impl({"kind": "insight", "insight_id": "restricted123", "execute": False})
+
+            mock_uac.check_access_level_for_object.assert_called_once_with(mock_insight, "viewer")
+
+    async def test_read_insight_allowed_when_user_has_object_access(self):
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        mock_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        mock_content = VisualizationArtifactContent(name="Allowed Insight", query=mock_query)
+        mock_insight = MagicMock(spec=Insight)
+
+        context_manager.artifacts = MagicMock()
+        context_manager.artifacts.aget_visualization = AsyncMock(
+            return_value=ModelArtifactResult[VisualizationArtifactContent, Literal[ArtifactSource.INSIGHT], Insight](
+                content=mock_content, source=ArtifactSource.INSIGHT, model=mock_insight
+            )
+        )
+
+        tool = await ReadDataTool.create_tool_class(team=team, user=user, state=state, context_manager=context_manager)
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = True
+
+            result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "allowed123", "execute": False})
+
+            assert "Allowed Insight" in result
+            mock_uac.check_access_level_for_object.assert_called_once_with(mock_insight, "viewer")
+
+    async def test_read_insight_skips_object_check_for_state_source(self):
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        mock_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        mock_content = VisualizationArtifactContent(name="State Insight", query=mock_query)
+
+        context_manager.artifacts = MagicMock()
+        context_manager.artifacts.aget_visualization = AsyncMock(
+            return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
+        )
+
+        tool = await ReadDataTool.create_tool_class(team=team, user=user, state=state, context_manager=context_manager)
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "state123", "execute": False})
+
+            assert "State Insight" in result
+            mock_uac.check_access_level_for_object.assert_not_called()
+
+    async def test_read_dashboard_denied_when_user_lacks_object_access(self):
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Secret Dashboard")
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+
+            with pytest.raises(MaxToolAccessDeniedError):
+                await tool._arun_impl({"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False})
+
+    async def test_read_dashboard_allowed_when_user_has_object_access(self):
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Allowed Dashboard", description="A dashboard")
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = True
+
+            result, artifact = await tool._arun_impl(
+                {"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False}
+            )
+
+            assert "Allowed Dashboard" in result
+
+    async def test_read_survey_not_found(self):
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with pytest.raises(MaxToolRetryableError) as exc_info:
+            await tool._arun_impl({"kind": "survey", "survey_id": "00000000-0000-0000-0000-000000000000"})
+
+        assert "not found" in str(exc_info.value)
+
+    async def test_read_survey_denied_when_user_lacks_object_access(self):
+        survey = await Survey.objects.acreate(
+            team=self.team, name="Secret Survey", questions=[{"type": "open", "question": "Test?"}]
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+
+            with pytest.raises(MaxToolAccessDeniedError):
+                await tool._arun_impl({"kind": "survey", "survey_id": str(survey.id)})
+
+            mock_uac.check_access_level_for_object.assert_called_once()
+
+    async def test_read_survey_allowed_when_user_has_object_access(self):
+        survey = await Survey.objects.acreate(
+            team=self.team, name="Allowed Survey", questions=[{"type": "open", "question": "Test?"}]
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = True
+
+            result, artifact = await tool._arun_impl({"kind": "survey", "survey_id": str(survey.id)})
+
+            assert "Allowed Survey" in result
+            mock_uac.check_access_level_for_object.assert_called_once()
+
+    async def test_read_feature_flag_denied_when_user_lacks_object_access(self):
+        flag = await FeatureFlag.objects.acreate(
+            team=self.team, key="secret-flag", name="Secret Flag", created_by=self.user
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+
+            with pytest.raises(MaxToolAccessDeniedError):
+                await tool._arun_impl({"kind": "feature_flag", "id": flag.id})
+
+            mock_uac.check_access_level_for_object.assert_called_once()
+
+    async def test_read_feature_flag_allowed_when_user_has_object_access(self):
+        flag = await FeatureFlag.objects.acreate(
+            team=self.team, key="allowed-flag", name="Allowed Flag", created_by=self.user
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = True
+
+            result, artifact = await tool._arun_impl({"kind": "feature_flag", "id": flag.id})
+
+            assert "Allowed Flag" in result
+            mock_uac.check_access_level_for_object.assert_called_once()
+
+    async def test_read_experiment_denied_when_user_lacks_object_access(self):
+        flag = await FeatureFlag.objects.acreate(team=self.team, key="exp-flag", name="Exp Flag", created_by=self.user)
+        experiment = await Experiment.objects.acreate(
+            team=self.team, name="Secret Experiment", feature_flag=flag, created_by=self.user
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+
+            with pytest.raises(MaxToolAccessDeniedError):
+                await tool._arun_impl({"kind": "experiment", "id": experiment.id})
+
+            mock_uac.check_access_level_for_object.assert_called_once()
+
+    async def test_read_experiment_allowed_when_user_has_object_access(self):
+        flag = await FeatureFlag.objects.acreate(
+            team=self.team, key="allowed-exp-flag", name="Allowed Exp Flag", created_by=self.user
+        )
+        experiment = await Experiment.objects.acreate(
+            team=self.team, name="Allowed Experiment", feature_flag=flag, created_by=self.user
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = True
+
+            result, artifact = await tool._arun_impl({"kind": "experiment", "id": experiment.id})
+
+            assert "Allowed Experiment" in result
+            mock_uac.check_access_level_for_object.assert_called_once()
+
+    async def test_read_activity_log_delegates_to_activity_log_context(self):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=True)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        with patch("ee.hogai.tools.read_data.tool.ActivityLogContext") as MockActivityLogContext:
+            mock_instance = MagicMock()
+            mock_instance.fetch_and_format = AsyncMock(return_value="## Activity log\n\nShowing 5 entries.\n\n...")
+            MockActivityLogContext.return_value = mock_instance
+
+            result, artifact = await tool._arun_impl({"kind": "activity_log"})
+
+            MockActivityLogContext.assert_called_once_with(team=self.team, user=self.user)
+            mock_instance.fetch_and_format.assert_called_once_with(
+                scope=None, activity=None, item_id=None, user_email=None, after=None, before=None, limit=20, offset=0
+            )
+            assert "Activity log" in result
+            assert artifact is None
+
+    async def test_read_activity_log_passes_filters(self):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=True)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        with patch("ee.hogai.tools.read_data.tool.ActivityLogContext") as MockActivityLogContext:
+            mock_instance = MagicMock()
+            mock_instance.fetch_and_format = AsyncMock(return_value="## Activity log\n\n...")
+            MockActivityLogContext.return_value = mock_instance
+
+            await tool._arun_impl(
+                {
+                    "kind": "activity_log",
+                    "scope": "FeatureFlag",
+                    "activity": "updated",
+                    "item_id": "42",
+                    "user_email": "test@example.com",
+                    "limit": 10,
+                }
+            )
+
+            mock_instance.fetch_and_format.assert_called_once_with(
+                scope="FeatureFlag",
+                activity="updated",
+                item_id="42",
+                user_email="test@example.com",
+                after=None,
+                before=None,
+                limit=10,
+                offset=0,
+            )
+
+    async def test_read_activity_log_passes_offset(self):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=True)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        with patch("ee.hogai.tools.read_data.tool.ActivityLogContext") as MockActivityLogContext:
+            mock_instance = MagicMock()
+            mock_instance.fetch_and_format = AsyncMock(return_value="## Activity log\n\n...")
+            MockActivityLogContext.return_value = mock_instance
+
+            await tool._arun_impl(
+                {
+                    "kind": "activity_log",
+                    "scope": "FeatureFlag",
+                    "limit": 10,
+                    "offset": 20,
+                }
+            )
+
+            mock_instance.fetch_and_format.assert_called_once_with(
+                scope="FeatureFlag",
+                activity=None,
+                item_id=None,
+                user_email=None,
+                after=None,
+                before=None,
+                limit=10,
+                offset=20,
+            )
+
+    async def test_create_tool_class_includes_activity_log_when_feature_available(self):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=True)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        assert "Activity log" in tool.description
+
+    async def test_create_tool_class_excludes_activity_log_when_feature_unavailable(self):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        assert "Activity log" not in tool.description

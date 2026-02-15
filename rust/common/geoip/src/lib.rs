@@ -6,7 +6,7 @@ use std::{collections::HashMap, path::PathBuf};
 use thiserror::Error;
 use tracing::debug;
 
-use tracing::log::{error, info};
+use tracing::log::info;
 
 #[derive(Error, Debug)]
 pub enum GeoIpError {

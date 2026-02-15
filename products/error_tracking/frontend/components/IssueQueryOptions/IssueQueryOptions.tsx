@@ -119,8 +119,8 @@ export const IssueQueryOptions = (): JSX.Element => {
                             value={revenuePeriod}
                             options={[
                                 {
-                                    value: 'last_30_days',
-                                    label: 'Last 30 days',
+                                    value: 'mrr',
+                                    label: 'MRR',
                                 },
                                 {
                                     value: 'all_time',

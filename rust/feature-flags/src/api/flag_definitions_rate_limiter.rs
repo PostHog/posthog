@@ -163,6 +163,40 @@ where
     pub fn custom_rate_count(&self) -> usize {
         self.custom_limiters.read().unwrap().len()
     }
+
+    /// Removes stale entries and reclaims memory across all limiters.
+    ///
+    /// This should be called periodically (e.g., every 60 seconds) by a background task.
+    /// Keys that haven't been used within the rate limit window are removed from both
+    /// the default limiter and all custom limiters.
+    pub fn cleanup(&self) {
+        // Clean up the default limiter
+        self.default_limiter.retain_recent();
+        self.default_limiter.shrink_to_fit();
+
+        // Clean up all custom limiters
+        let custom_limiters = self.custom_limiters.read().unwrap();
+        for limiter in custom_limiters.values() {
+            limiter.retain_recent();
+            limiter.shrink_to_fit();
+        }
+    }
+
+    /// Returns the total number of keys currently tracked across all limiters.
+    ///
+    /// Note: This may return an approximate value.
+    /// Note: is_empty() intentionally omitted - use len() == 0 if needed.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
+        let mut total = self.default_limiter.len();
+
+        let custom_limiters = self.custom_limiters.read().unwrap();
+        for limiter in custom_limiters.values() {
+            total += limiter.len();
+        }
+
+        total
+    }
 }
 
 #[cfg(test)]
@@ -360,5 +394,18 @@ mod tests {
             }
             _ => panic!("Expected RateLimited error"),
         }
+    }
+
+    #[test]
+    fn test_len_returns_zero_for_new_limiter() {
+        let limiter = FlagDefinitionsRateLimiter::new(
+            600,
+            HashMap::new(),
+            FLAG_DEFINITIONS_REQUESTS_COUNTER,
+            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
+        )
+        .unwrap();
+
+        assert_eq!(limiter.len(), 0);
     }
 }

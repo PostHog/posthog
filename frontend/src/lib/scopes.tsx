@@ -30,17 +30,26 @@ export const API_SCOPES: APIScope[] = [
     { key: 'event_definition', objectName: 'Event definition', objectPlural: 'event definitions' },
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
     { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
+    { key: 'experiment_saved_metric', objectName: 'Shared metric', objectPlural: 'shared metrics' },
+    { key: 'external_data_source', objectName: 'External data source', objectPlural: 'external data sources' },
     { key: 'export', objectName: 'Export', objectPlural: 'exports' },
     { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' },
     { key: 'group', objectName: 'Group', objectPlural: 'groups' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
     { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
+    { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
     { key: 'llm_gateway', objectName: 'LLM gateway', objectPlural: 'LLM gateway', disabledActions: ['write'] },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
+    {
+        key: 'organization_integration',
+        objectName: 'Organization integration',
+        objectPlural: 'organization integrations',
+        disabledWhenProjectScoped: true,
+    },
     {
         key: 'organization_member',
         objectName: 'Organization member',
@@ -57,6 +66,7 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
+    { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
     { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
     { key: 'product_tour', objectName: 'Product tour', objectPlural: 'product tours' },
     {
@@ -78,6 +88,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'sharing_configuration', objectName: 'Sharing configuration', objectPlural: 'sharing configurations' },
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
     { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
+    { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     {
         key: 'user',
         objectName: 'User',
@@ -122,6 +133,11 @@ export const API_KEY_SCOPE_PRESETS: {
         label: 'Zapier integration',
         scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
     },
+    {
+        value: 'n8n',
+        label: 'n8n integration',
+        scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
+    },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
     { value: 'endpoints', label: 'Endpoint execution', scopes: ['endpoint:read'] },
     {
@@ -132,8 +148,8 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'mcp_server',
         label: 'MCP Server',
-        scopes: API_SCOPES.map(({ key }) =>
-            ['feature_flag', 'insight', 'dashboard', 'survey', 'experiment'].includes(key)
+        scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway')).map(({ key }) =>
+            ['feature_flag', 'insight', 'dashboard', 'survey', 'experiment', 'event_definition'].includes(key)
                 ? `${key}:write`
                 : `${key}:read`
         ),
@@ -148,6 +164,33 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
 }
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
+
+// Scopes required by the PostHog MCP server (https://mcp.posthog.com)
+// These match the scopes_supported in the MCP server's OAuth protected resource metadata
+export const MCP_SERVER_OAUTH_SCOPES = [
+    'openid',
+    'profile',
+    'email',
+    'introspection',
+    'user:read',
+    'organization:read',
+    'project:read',
+    'feature_flag:read',
+    'feature_flag:write',
+    'experiment:read',
+    'experiment:write',
+    'insight:read',
+    'insight:write',
+    'dashboard:read',
+    'dashboard:write',
+    'query:read',
+    'survey:read',
+    'survey:write',
+    'event_definition:read',
+    'event_definition:write',
+    'error_tracking:read',
+    'logs:read',
+]
 
 export const getScopeDescription = (scope: string): string | undefined => {
     if (scope === '*') {

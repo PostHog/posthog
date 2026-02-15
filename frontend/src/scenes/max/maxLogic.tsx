@@ -18,13 +18,29 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { actionsModel } from '~/models/actionsModel'
 import { productUrls } from '~/products'
-import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
+import { AgentMode, RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import { Breadcrumb, Conversation, ConversationDetail, ConversationStatus, SidePanelTab } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
+import { PENDING_AI_PROMPT_KEY } from './maxThreadLogic'
 import { MaxUIContext } from './maxTypes'
+
+/** Maximum age for restored prompts (5 minutes) */
+const PENDING_PROMPT_MAX_AGE_MS = 5 * 60 * 1000
+
+/** Key for storing pending Max context in sessionStorage */
+export const PENDING_MAX_CONTEXT_KEY = 'posthog.pending_max_context'
+
+/** Maximum age for restored context (5 minutes) */
+const PENDING_CONTEXT_MAX_AGE_MS = 5 * 60 * 1000
+
+/** Stored context structure for sessionStorage */
+interface StoredMaxContext {
+    context: Partial<MaxUIContext>
+    timestamp: number
+}
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -51,13 +67,45 @@ const HEADLINES = [
     'What do you want to know today?',
 ]
 
+interface ParsedCommand {
+    mode?: AgentMode | null
+    autoRun: boolean
+    question: string
+}
+
+function parseCommandString(options: string): ParsedCommand {
+    let remaining = options
+
+    // Check for mode parameter (format: mode=<value>:rest), remove it if present
+    if (remaining.startsWith('mode=')) {
+        const colonIndex = remaining.indexOf(':', 5) // After "mode="
+        remaining = colonIndex === -1 ? '' : remaining.slice(colonIndex + 1)
+    }
+
+    // Handle auto-run prefix
+    const autoRun = remaining.startsWith('!')
+    if (autoRun) {
+        remaining = remaining.slice(1)
+    }
+
+    return {
+        autoRun,
+        question: remaining.trim(),
+    }
+}
+
 function handleCommandString(options: string, actions: maxLogicType['actions']): void {
-    if (options.startsWith('!')) {
+    const parsed = parseCommandString(options)
+
+    // Note: The mode parameter is handled directly by maxThreadLogic in its afterMount
+    // to ensure the correct logic instance sets its own mode
+
+    if (parsed.autoRun) {
         actions.setAutoRun(true)
     }
-    const cleanedQuestion = options.replace(/^!/, '')
-    if (cleanedQuestion.trim() !== '') {
-        actions.setQuestion(cleanedQuestion)
+
+    if (parsed.question !== '') {
+        actions.setQuestion(parsed.question)
     }
 }
 
@@ -181,7 +229,7 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
 
-        autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun }],
+        autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun, startNewConversation: () => false }],
     }),
 
     selectors({
@@ -204,8 +252,8 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         headline: [
-            (s) => [s.conversation, s.toolHeadlines],
-            (conversation, toolHeadlines) => {
+            (s) => [s.conversation, s.toolHeadlines, s.frontendConversationId],
+            (conversation, toolHeadlines, frontendConversationId) => {
                 if (process.env.STORYBOOK) {
                     return HEADLINES[0] // Preventing UI snapshots from being different every time
                 }
@@ -213,11 +261,12 @@ export const maxLogic = kea<maxLogicType>([
                 return toolHeadlines.length > 0
                     ? toolHeadlines[0]
                     : HEADLINES[
-                          parseInt((conversation?.id || uuid()).split('-').at(-1) as string, 16) % HEADLINES.length
+                          parseInt((conversation?.id || frontendConversationId).split('-').at(-1) as string, 16) %
+                              HEADLINES.length
                       ]
             },
-            // It's important we use a deep equality check for inputs, because we want to avoid needless re-renders
-            { equalityCheck: objectsEqual },
+            // It's important we use a deep equality check for outputs, because we want to avoid needless re-renders
+            { resultEqualityCheck: objectsEqual },
         ],
 
         conversationLoading: [
@@ -431,7 +480,24 @@ export const maxLogic = kea<maxLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        // If there is a prefill question from side panel state (from opening Max within the app), use it
+        // Restore pending prompt from sessionStorage (e.g., after OAuth redirect during consent flow)
+        if (!values.question) {
+            try {
+                const stored = sessionStorage.getItem(PENDING_AI_PROMPT_KEY)
+                if (stored) {
+                    const { prompt, timestamp } = JSON.parse(stored)
+                    const isRecent = Date.now() - timestamp < PENDING_PROMPT_MAX_AGE_MS
+                    if (isRecent && prompt) {
+                        actions.setQuestion(prompt)
+                    }
+                    sessionStorage.removeItem(PENDING_AI_PROMPT_KEY)
+                }
+            } catch {
+                // sessionStorage might be unavailable or data malformed
+            }
+        }
+
+        // If there is a prefill question from side panel state (from opening PostHog AI within the app), use it
         if (
             !values.question &&
             sidePanelStateLogic.isMounted() &&
@@ -454,9 +520,25 @@ export const maxLogic = kea<maxLogicType>([
         },
         [urls.ai()]: (_, search) => {
             if (search.ask && !search.chat && !values.question) {
+                let uiContext: Partial<MaxUIContext> | undefined = undefined
+                try {
+                    const stored = sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)
+                    if (stored) {
+                        const { context, timestamp }: StoredMaxContext = JSON.parse(stored)
+                        const isRecent = Date.now() - timestamp < PENDING_CONTEXT_MAX_AGE_MS
+                        if (isRecent && context) {
+                            uiContext = context
+                        }
+                        sessionStorage.removeItem(PENDING_MAX_CONTEXT_KEY)
+                    }
+                } catch {
+                    // sessionStorage unavailable or data malformed, agent will handle it
+                }
+
                 window.setTimeout(() => {
                     // ensure maxThreadLogic is mounted
-                    actions.askMax(search.ask)
+                    // Pass context directly to askMax to avoid timing issues
+                    actions.askMax(search.ask, true, uiContext)
                 }, 100)
                 return
             }
@@ -483,6 +565,9 @@ export const maxLogic = kea<maxLogicType>([
         startNewConversation: () => {
             return [urls.ai(), {}, router.values.location.hash]
         },
+        openConversation: ({ conversationId }) => {
+            return [urls.ai(conversationId), {}, router.values.location.hash]
+        },
         setConversationId: ({ conversationId }) => {
             // Only set the URL parameter if this is a new conversation (using frontendConversationId)
             if (conversationId && conversationId === values.frontendConversationId) {
@@ -504,6 +589,14 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
             return current
         }
         if (current.tagName === 'MAIN') {
+            return current
+        }
+        // New side panel layout (UX_REMOVE_SIDEPANEL flag)
+        if (current instanceof HTMLElement && current.dataset.attr === 'side-panel-content') {
+            return current
+        }
+        // Full screen Max with UX_REMOVE_SIDEPANEL flag (AiFirstMaxInstance)
+        if (current instanceof HTMLElement && current.dataset.attr === 'max-scrollable') {
             return current
         }
         current = current.parentElement
@@ -587,6 +680,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
         label: 'Feature flags',
         icon: iconForType('feature_flag'),
+        url: urls.featureFlags(),
         suggestions: [
             {
                 content: 'Create a flag to gradually roll out…',
@@ -605,6 +699,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
         label: 'Experiments',
         icon: iconForType('experiment'),
+        url: urls.experiments(),
         suggestions: [
             {
                 content: 'Create an experiment to test…',

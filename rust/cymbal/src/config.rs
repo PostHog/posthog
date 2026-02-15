@@ -143,7 +143,7 @@ pub struct Config {
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
 
-    #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6479/")]
+    #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6379/")]
     pub issue_buckets_redis_url: String,
 
     #[envconfig(default = "100")]
@@ -160,6 +160,11 @@ pub struct Config {
 
     #[envconfig(default = "false")]
     pub auto_assignment_enabled: bool, // Comma seperated list of users to either filter in (process) or filter out (ignore)
+
+    // Comma separated list of team IDs that can receive spike alerts.
+    // If empty, all teams can receive alerts
+    #[envconfig(default = "")]
+    pub spike_alert_enabled_team_ids: String,
 }
 
 impl Config {

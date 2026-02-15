@@ -5,7 +5,6 @@ import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_e
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { urls } from 'scenes/urls'
 
-import { FEATURE_FLAGS } from '~/lib/constants'
 import { mswDecorator } from '~/mocks/browser'
 
 import { recordingPlaylists } from './__mocks__/recording_playlists'
@@ -18,7 +17,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [FEATURE_FLAGS.LIVE_EVENTS_ACTIVE_RECORDINGS],
         pageUrl: urls.replay(),
     },
     decorators: [

@@ -5,15 +5,17 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dn
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { Fragment, useEffect, useRef, useState } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { SceneTab } from 'scenes/sceneTypes'
@@ -28,34 +30,16 @@ import { navigationLogic } from '../navigation/navigationLogic'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from './ConfigurePinnedTabsModal'
 
-export interface SceneTabsProps {
-    className?: string
-}
-
-export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
-    const { tabs, firstTabIsActive } = useValues(sceneLogic)
+export function SceneTabs(): JSX.Element {
+    const { tabs } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
-    const { isLayoutNavbarVisibleForMobile, isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
-    // Get the focus action from the newTabSceneLogic for the active tab
+    const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
+    const { sqlEditorNewTabPreference } = useValues(userPreferencesLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
-
-    const pinnedCount = tabs.filter((tab) => tab.pinned).length
-    const unpinnedCount = tabs.length - pinnedCount
-    const pinnedColumns = pinnedCount > 0 ? `repeat(${pinnedCount}, 40px)` : ''
-    let unpinnedColumns = ''
-    if (unpinnedCount === 1) {
-        unpinnedColumns = '250px'
-    } else if (unpinnedCount === 2) {
-        unpinnedColumns = 'repeat(2, 250px)'
-    } else if (unpinnedCount > 2) {
-        unpinnedColumns = `repeat(${unpinnedCount}, minmax(40px, 250px))`
-    }
-    const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '250px'
-
-    const showRoundedCorner = (!isLayoutPanelVisible || !isLayoutPanelPinned) && !firstTabIsActive
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -83,90 +67,77 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     }
 
     return (
-        <div
-            className={cn(
-                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 relative',
-                className
-            )}
-        >
+        <div className="h-[var(--scene-layout-header-height)] flex items-center w-full min-w-0 bg-surface-tertiary z-[var(--z-top-navigation)] relative">
             {/* Mobile button to show/hide the layout navbar */}
             {mobileLayout && (
                 <ButtonPrimitive
                     onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
                     iconOnly
-                    className="ml-1 z-20 rounded-lg"
+                    className="ml-1 z-20 rounded-lg mr-1"
                 >
                     {isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
                 </ButtonPrimitive>
             )}
 
-            {/* Line between tabs and main content */}
+            {/* Line below tabs to to complete border on <main> element */}
             <div
-                className={cn(
-                    'border-b border-primary h-px w-full absolute bottom-[-1px] left-0 lg:left-[10px] right-0',
-                    !showRoundedCorner && 'left-0 lg:left-0'
-                )}
-            />
-
-            {/* Rounded corner on the left edge of the tabs to curve the line above into the navbar right border */}
-            {showRoundedCorner && (
-                <>
-                    {/* TRICKY: Clip path is to hide the rest of the div below the corner */}
-                    {/* background to match the navbar  */}
-                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-11 rounded-tl-lg border-l border-t border-primary bg-[var(--scene-layout-background)] [clip-path:polygon(0%_0%,_100%_0%,_0%_100%,_0%_0%)]" />
-                    {/* corner to match the main */}
-                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-10 bg-surface-tertiary [clip-path:polygon(0%_0%,_100%_0%,_0%_100%,_0%_0%)]" />
-                </>
-            )}
+                className={cn('absolute bottom-0 w-full lg:px-[5px] ', {
+                    'lg:pr-3': isRemovingSidePanelFlag,
+                })}
+            >
+                <div className="w-full bottom-0 h-px border-b border-primary z-10" />
+            </div>
 
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext
                     items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
                     strategy={horizontalListSortingStrategy}
                 >
-                    <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
-                        <div
-                            className={cn('scene-tab-row grid min-w-0 gap-1 items-center')}
-                            style={{ gridTemplateColumns }}
-                        >
-                            {tabs.map((tab, index) => {
-                                const sortableId = getSortableId(tab, index)
+                    <div className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2">
+                        {tabs.map((tab, index) => {
+                            const sortableId = getSortableId(tab, index)
+                            const isLastPinned =
+                                tab.pinned &&
+                                // last tab OR next tab is not pinned
+                                (index === tabs.length - 1 || !tabs[index + 1]?.pinned)
 
-                                return (
+                            return (
+                                <Fragment key={sortableId}>
                                     <SortableSceneTab
-                                        key={sortableId}
                                         tab={tab}
                                         index={index}
                                         sortableId={sortableId}
                                         onConfigurePinnedTabs={() => setIsConfigurePinnedTabsOpen(true)}
                                     />
-                                )
-                            })}
-                        </div>
-                        <AppShortcut
-                            name="NewTab"
-                            keybind={[keyBinds.newTab]}
-                            intent="New tab"
-                            interaction="click"
-                            asChild
-                        >
+                                    {isLastPinned && (
+                                        <div
+                                            className="h-4 w-px bg-border-secondary shrink-0 rounded opacity-50"
+                                            aria-hidden="true"
+                                        />
+                                    )}
+                                </Fragment>
+                            )
+                        })}
+                        <AppShortcut name="NewTab" keybind={[keyBinds.newTab]} intent="New tab" interaction="click">
                             <Link
                                 to={urls.newTab()}
                                 data-attr="scene-tab-new-button"
                                 onClick={(e) => {
                                     e.preventDefault()
-                                    newTab()
+                                    const currentPath = router.values.location.pathname
+                                    const isSqlRoute = currentPath.endsWith('/sql')
+                                    const openSqlTab = isSqlRoute && sqlEditorNewTabPreference === 'editor'
+                                    const source = e.detail === 0 ? 'keyboard_shortcut' : 'new_tab_button'
+                                    newTab(openSqlTab ? '/sql' : null, { source })
                                 }}
                                 tooltip="New tab"
                                 tooltipCloseDelayMs={0}
                                 buttonProps={{
-                                    size: 'sm',
-                                    className:
-                                        'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-lg border-b z-20 ml-px',
                                     iconOnly: true,
+                                    className: 'p-1 flex items-center gap-1 cursor-pointer rounded border-b z-20',
                                 }}
                             >
-                                <IconPlus className="!ml-0" fontSize={14} />
+                                <IconPlus className="!ml-0 size-3" />
                             </Link>
                         </AppShortcut>
                     </div>
@@ -207,8 +178,17 @@ function SortableSceneTab({
         opacity: isDragging ? 0.5 : undefined,
     }
 
+    const isPinned = !!tab.pinned
+
     return (
-        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+        <div
+            ref={setNodeRef}
+            style={style}
+            {...attributes}
+            {...listeners}
+            className={cn(isPinned ? 'shrink-0' : 'w-full flex-1 min-w-[100px] max-w-[250px]')}
+            data-tab-id={tab.id}
+        >
             <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
                 <SceneTabComponent
                     tab={tab}
@@ -232,11 +212,12 @@ interface SceneTabProps {
 function SceneTabComponent({ tab, className, isDragging, containerClassName, index }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const isPinned = !!tab.pinned
-    const canRemoveTab = !isPinned
     const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
-    const { editingTabId } = useValues(sceneLogic)
+    const { editingTabId, tabs } = useValues(sceneLogic)
     const [editValue, setEditValue] = useState('')
     const isEditing = editingTabId === tab.id
+    const canRemoveTab = !isPinned && tabs.length !== 1
+    const firstTabActive = index === 0 && tab.active
 
     useEffect(() => {
         if (isEditing && editValue === '') {
@@ -254,18 +235,11 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
     }, [isEditing])
 
     return (
-        <div className={cn('relative', containerClassName)}>
-            <div
-                className={cn({
-                    'scene-tab-active-indicator': tab.active,
-                    'scene-tab-active-indicator--first': index === 0,
-                })}
-            />
-
+        <div className={cn('relative w-full', containerClassName)}>
             <ButtonGroupPrimitive
-                groupVariant="default"
                 fullWidth
-                className="border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
+                size="sm"
+                className="group border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
             >
                 {canRemoveTab && (
                     <AppShortcut
@@ -273,14 +247,14 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         keybind={[keyBinds.closeActiveTab]}
                         intent="Close active tab"
                         interaction="click"
-                        asChild
                         disabled={!tab.active}
                     >
                         <ButtonPrimitive
                             onClick={(e) => {
                                 e.stopPropagation()
                                 e.preventDefault()
-                                removeTab(tab)
+                                const source = e.detail === 0 ? 'keyboard_shortcut' : 'close_button'
+                                removeTab(tab, { source })
                             }}
                             tooltip={!tab.active ? 'Close tab' : 'Close active tab'}
                             tooltipCloseDelayMs={0}
@@ -306,7 +280,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         e.stopPropagation()
                         e.preventDefault()
                         if (e.button === 1 && !isDragging && canRemoveTab) {
-                            removeTab(tab)
+                            removeTab(tab, { source: 'middle_click' })
                         }
                     }}
                     onDoubleClick={(e) => {
@@ -317,15 +291,18 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                             setEditValue(tab.customTitle || tab.title)
                         }
                     }}
+                    forceVariant={true}
+                    variant="default"
                     hasSideActionRight
                     className={cn(
-                        'w-full order-first',
-                        'relative pb-0.5 pt-[2px] pl-2 pr-5 flex flex-row items-center gap-1 rounded-lg border border-transparent',
+                        'w-full order-first min-w-0',
+                        'relative pb-0.5 pt-[2px] pl-2 pr-5 flex flex-row items-center gap-1 border border-transparent text-tertiary',
                         tab.active
-                            ? 'tab-active rounded-bl-none rounded-br-none cursor-default text-primary bg-primary border-primary'
-                            : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover z-20',
+                            ? 'tab-active bg-[var(--scene-layout-background)] cursor-default text-primary border-primary lg:rounded-b-none'
+                            : 'cursor-pointer hover:text-primary z-20',
+                        firstTabActive && 'lg:rounded-bl-none',
                         'focus:outline-none',
-                        isPinned && 'scene-tab--pinned justify-center pl-1 pr-1 gap-0',
+                        isPinned && 'scene-tab--pinned justify-center px-3 gap-0',
                         className
                     )}
                     tooltip={
@@ -343,6 +320,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                     ) : (
                         iconForType(tab.iconType as FileSystemIconType)
                     )}
+
                     {isPinned ? (
                         <span className="sr-only">{tab.customTitle || tab.title}</span>
                     ) : isEditing ? (
@@ -369,14 +347,21 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                             onFocus={(e) => e.target.select()}
                         />
                     ) : (
-                        <div
-                            className={cn('scene-tab-title flex-grow text-left truncate', tab.customTitle && 'italic')}
-                        >
+                        <div className={cn('scene-tab-title text-left truncate min-w-0', tab.customTitle && 'italic')}>
                             {tab.customTitle || tab.title}
                         </div>
                     )}
                 </ButtonPrimitive>
             </ButtonGroupPrimitive>
+            {tab.active && (
+                <div
+                    className={cn(
+                        'scene-tab-active-indicator hidden lg:block',
+                        index === 0 && 'scene-tab-active-indicator--first',
+                        firstTabActive && 'scene-tab-indicator--active-first'
+                    )}
+                />
+            )}
         </div>
     )
 }

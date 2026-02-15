@@ -118,6 +118,13 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
 
+    def get_subscribed_users_emails(self) -> list[str]:
+        return list(
+            self.subscribed_users.filter(organization_membership__organization=self.team.organization).values_list(
+                "email", flat=True
+            )
+        )
+
     def save(self, *args, **kwargs):
         if not self.enabled:
             # When disabling an alert, set the state to not firing

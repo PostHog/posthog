@@ -40,12 +40,15 @@ from posthog.schema import (
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDF
 from posthog.models import DataWarehouseTable
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
+from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import FakeKafka
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
@@ -70,6 +73,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import ExternalDataSourceType
+from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
@@ -279,6 +283,7 @@ async def _run(
         assert table is not None
         assert table.size_in_s3_mib is not None
         assert table.queryable_folder is not None
+        assert table.credential_id is None
 
         query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+$")
         assert query_folder_pattern.match(table.queryable_folder)
@@ -327,12 +332,13 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             BUCKET_PATH=BUCKET_NAME,
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
             DATA_WAREHOUSE_REDIS_HOST="localhost",
             DATA_WAREHOUSE_REDIS_PORT="6379",
+            DATAWAREHOUSE_BUCKET=BUCKET_NAME,
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
@@ -341,7 +347,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow],
+                workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow, DuckLakeCopyDataImportsWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -946,9 +952,9 @@ async def test_sql_database_incremental_initial_value(team, postgres_config, pos
     await postgres_connection.execute(
         "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
     )
-    # Setting `id` to `0` - the same as an `integer` incremental initial value
+    # Setting `id` to `1` - greater than the `integer` incremental initial value of `0`
     await postgres_connection.execute(
-        "INSERT INTO {schema}.test_table (id) VALUES (0)".format(schema=postgres_config["schema"])
+        "INSERT INTO {schema}.test_table (id) VALUES (1)".format(schema=postgres_config["schema"])
     )
     await postgres_connection.commit()
 
@@ -978,7 +984,7 @@ async def test_sql_database_incremental_initial_value(team, postgres_config, pos
     assert len(columns) == 1
     assert any(x == "id" for x in columns)
 
-    # Include rows that have the same incremental value as the `initial_value`
+    # Rows with id > initial_value (0) are included
     assert len(res.results) == 1
 
 
@@ -1451,7 +1457,7 @@ async def test_postgres_nan_numerical_values(team, postgres_config, postgres_con
 @pytest.mark.asyncio
 async def test_delete_table_on_reset(team, stripe_balance_transaction, mock_stripe_client):
     with (
-        mock.patch.object(s3fs.S3FileSystem, "delete") as mock_s3_delete,
+        mock.patch.object(s3fs.S3FileSystem, "_rm") as mock_s3_delete,
     ):
         workflow_id, inputs = await _run(
             team=team,
@@ -1926,9 +1932,9 @@ async def test_partition_folders_with_uuid_id_and_created_at_with_parametrized_f
 
     # using datetime partition mode with created_at - formatted to day, week, or month
     for expected_partition in expected_partitions:
-        assert any(
-            f"{PARTITION_KEY}={expected_partition}" in obj["Key"] for obj in s3_objects["Contents"]
-        ), f"Expected partition {expected_partition} not found in S3 objects"
+        assert any(f"{PARTITION_KEY}={expected_partition}" in obj["Key"] for obj in s3_objects["Contents"]), (
+            f"Expected partition {expected_partition} not found in S3 objects"
+        )
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is True
@@ -1959,7 +1965,7 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     )
     await postgres_connection.commit()
 
-    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+    async def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
         return pa_table
 
     # Emulate an existing table with no partitions
@@ -2048,7 +2054,7 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     )
     await postgres_connection.commit()
 
-    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+    async def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
         return pa_table
 
     # Emulate an existing table with no partitions
@@ -2169,6 +2175,14 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
         ignore_assertions=True,
     )
 
+    # Insert a new row with created_at greater than the last synced value so the `>` operator picks it up
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_partition_folders (id, created_at) VALUES (3, '2025-03-01T12:00:00.000Z')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.commit()
+
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
@@ -2245,7 +2259,7 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
         DATA_WAREHOUSE_REDIS_HOST="localhost",
         DATA_WAREHOUSE_REDIS_PORT="6379",
     ):
-        row_count_in_redis = get_rows(team.id, schema_id)
+        row_count_in_redis = await get_rows(team.id, schema_id)
 
     assert row_count_in_redis == 1
 
@@ -2548,7 +2562,9 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
         mock.patch("ee.api.billing.requests.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
-        source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+        with freeze_time("2023-01-01"):
+            source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+
         # A previous job that reached the billing limit
         await sync_to_async(ExternalDataJob.objects.create)(
             team=team,
@@ -2943,3 +2959,114 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
 
     # Non-retryable errors are retried up to 3 times before giving up (4 total attempts)
     assert mock_get_rows.call_count == 4
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_cdp_producer_push_to_s3(team, stripe_customer, mock_stripe_client, minio_client):
+    await sync_to_async(HogFunction.objects.create)(
+        team=team,
+        enabled=True,
+        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "stripe.customer"}]},
+    )
+
+    with mock.patch(
+        "posthog.temporal.data_imports.external_data_job.start_child_workflow"
+    ) as mock_start_child_workflow:
+        _, inputs = await _run(
+            team=team,
+            schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+            table_name="stripe_customer",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            mock_data_response=stripe_customer["data"],
+        )
+
+    @sync_to_async
+    def get_jobs():
+        jobs = ExternalDataJob.objects.filter(
+            team_id=team.pk,
+            pipeline_id=inputs.external_data_source_id,
+        ).order_by("-created_at")
+
+        return list(jobs)
+
+    jobs = await get_jobs()
+    assert len(jobs) > 0
+    job = jobs[0]
+
+    path = f"cdp_producer/{team.id}/{inputs.external_data_schema_id}/{job.id}/"
+
+    files = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=path)
+
+    assert len(files["Contents"]) == 1
+    file = files["Contents"][0]
+    assert file["Key"] == f"{path}chunk_0.parquet"
+
+    mock_start_child_workflow.assert_called_with(
+        workflow="dwh-cdp-producer-job",
+        arg=mock.ANY,
+        id=f"dwh-cdp-producer-job-{job.id}",
+        task_queue=mock.ANY,
+        parent_close_policy=mock.ANY,
+        retry_policy=mock.ANY,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_client, minio_client):
+    await sync_to_async(HogFunction.objects.create)(
+        team=team,
+        enabled=True,
+        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "stripe.customer"}]},
+    )
+
+    with (
+        mock.patch.object(FakeKafka, "produce") as mock_produce,
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns", return_value=1768828644858352000
+        ),
+    ):
+        _, inputs = await _run(
+            team=team,
+            schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+            table_name="stripe_customer",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            mock_data_response=stripe_customer["data"],
+        )
+
+    mock_produce.assert_called_with(
+        topic="",
+        data={
+            "team_id": team.id,
+            "properties": {
+                "delinquent": False,
+                "object": "customer",
+                "tax_exempt": "none",
+                "address": None,
+                "invoice_prefix": "0759376C",
+                "balance": 0,
+                "currency": None,
+                "livemode": False,
+                "invoice_settings": '{"custom_fields":null,"default_payment_method":null,"footer":null,"rendering_options":null}',
+                "metadata": "{}",
+                "id": "cus_NffrFeUfNV2Hib",
+                "next_invoice_sequence": 1,
+                "email": "jennyrosen@example.com",
+                "phone": None,
+                "test_clock": None,
+                "discount": None,
+                "default_source": None,
+                "created": 1680893993,
+                "shipping": None,
+                "name": "Jenny Rosen",
+                "preferred_locales": "[]",
+                "description": None,
+                "_ph_debug": '{"load_id": 1768828644858352000}',
+                "_ph_partition_key": "2023-w14",
+            },
+        },
+        value_serializer=mock.ANY,
+    )

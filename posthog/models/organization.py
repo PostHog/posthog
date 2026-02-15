@@ -53,6 +53,9 @@ class OrganizationUsageInfo(TypedDict):
     api_queries_read_bytes: OrganizationUsageResource | None
     llm_events: OrganizationUsageResource | None
     ai_credits: OrganizationUsageResource | None
+    workflow_emails: OrganizationUsageResource | None
+    workflow_destinations_dispatched: OrganizationUsageResource | None
+    logs_mb_ingested: OrganizationUsageResource | None
     period: list[str] | None
 
 
@@ -176,7 +179,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="Custom session cookie age in seconds. If not set, the global setting SESSION_COOKIE_AGE will be used.",
     )
     is_member_join_email_enabled = models.BooleanField(default=True)
-    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True)
+    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_use_personal_api_keys = models.BooleanField(default=True)
@@ -606,6 +609,24 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
         save_user = True
     if save_user:
         instance.user.save()
+
+
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
+def clean_up_alert_subscriptions_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    from posthog.models.alert import AlertSubscription
+
+    deleted_count, _ = AlertSubscription.objects.filter(
+        user=instance.user,
+        alert_configuration__team__organization=instance.organization,
+    ).delete()
+
+    if deleted_count > 0:
+        logger.info(
+            "Removed alert subscriptions for user removed from organization",
+            user_id=instance.user_id,
+            organization_id=str(instance.organization_id),
+            deleted_count=deleted_count,
+        )
 
 
 @receiver(models.signals.pre_save, sender=OrganizationMembership)

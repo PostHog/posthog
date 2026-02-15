@@ -624,3 +624,222 @@ class TestExpiryTrackingVerification(BaseTest):
         assert "All test cache caches verified successfully" not in output
         # Should show issues found
         assert "Found issues" in output
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test", TEST=True)
+class TestGracePeriodSkipping(BaseTest):
+    """Test grace period skip functionality in management commands."""
+
+    def test_skips_fix_when_team_in_grace_period(self):
+        """Test that fix is skipped for teams within grace period."""
+        mock_config = MagicMock()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.expiry_sorted_set_key = None
+        mock_config.hypercache.get_cache_identifier = lambda team: team.id
+        mock_config.get_team_ids_to_skip_fix_fn = lambda team_ids: {self.team.id}
+        mock_config.cache_display_name = "test cache"
+
+        # Return a mismatch to trigger fix attempt
+        command = ConcreteHyperCacheCommand(
+            mock_config=mock_config,
+            verify_team_side_effect=lambda team: {
+                "status": "mismatch",
+                "issue": "DATA_MISMATCH",
+                "details": "test mismatch",
+            },
+        )
+        command.stdout = StringIO()  # type: ignore[assignment]
+
+        stats = {
+            "total": 0,
+            "cache_miss": 0,
+            "cache_match": 0,
+            "cache_mismatch": 0,
+            "expiry_missing": 0,
+            "error": 0,
+            "fixed": 0,
+            "fix_failed": 0,
+            "skipped_for_grace_period": 0,
+        }
+        mismatches: list[dict[str, Any]] = []
+
+        command._verify_teams_batch([self.team], stats, mismatches, verbose=False, fix=True)
+
+        assert stats["skipped_for_grace_period"] == 1
+        assert stats["fixed"] == 0
+        assert len(mismatches) == 1
+        assert mismatches[0].get("skipped") is True
+        assert "Skipped fix" in command.stdout.getvalue()
+
+    def test_does_not_skip_when_team_not_in_grace_period(self):
+        """Test that fix proceeds for teams not in grace period."""
+        mock_config = MagicMock()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.expiry_sorted_set_key = None
+        mock_config.hypercache.get_cache_identifier = lambda team: team.id
+        mock_config.get_team_ids_to_skip_fix_fn = lambda team_ids: set()  # Empty - no skips
+        mock_config.update_fn = MagicMock(return_value=True)
+        mock_config.cache_display_name = "test cache"
+
+        command = ConcreteHyperCacheCommand(
+            mock_config=mock_config,
+            verify_team_side_effect=lambda team: {
+                "status": "mismatch",
+                "issue": "DATA_MISMATCH",
+                "details": "test mismatch",
+            },
+        )
+        command.stdout = StringIO()  # type: ignore[assignment]
+
+        stats = {
+            "total": 0,
+            "cache_miss": 0,
+            "cache_match": 0,
+            "cache_mismatch": 0,
+            "expiry_missing": 0,
+            "error": 0,
+            "fixed": 0,
+            "fix_failed": 0,
+            "skipped_for_grace_period": 0,
+        }
+        mismatches: list[dict[str, Any]] = []
+
+        command._verify_teams_batch([self.team], stats, mismatches, verbose=False, fix=True)
+
+        assert stats["skipped_for_grace_period"] == 0
+        assert stats["fixed"] == 1
+        assert len(mismatches) == 1
+        assert mismatches[0].get("fixed") is True
+        mock_config.update_fn.assert_called_once()
+
+    def test_skip_check_not_called_when_fix_is_false(self):
+        """Test that skip check is not performed when fix=False."""
+        mock_config = MagicMock()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.expiry_sorted_set_key = None
+        mock_config.hypercache.get_cache_identifier = lambda team: team.id
+        mock_config.get_team_ids_to_skip_fix_fn = MagicMock(return_value={self.team.id})
+        mock_config.cache_display_name = "test cache"
+
+        command = ConcreteHyperCacheCommand(
+            mock_config=mock_config,
+            verify_team_side_effect=lambda team: {
+                "status": "mismatch",
+                "issue": "DATA_MISMATCH",
+                "details": "test mismatch",
+            },
+        )
+        command.stdout = StringIO()  # type: ignore[assignment]
+
+        stats = {
+            "total": 0,
+            "cache_miss": 0,
+            "cache_match": 0,
+            "cache_mismatch": 0,
+            "expiry_missing": 0,
+            "error": 0,
+            "fixed": 0,
+            "fix_failed": 0,
+            "skipped_for_grace_period": 0,
+        }
+        mismatches: list[dict[str, Any]] = []
+
+        command._verify_teams_batch([self.team], stats, mismatches, verbose=False, fix=False)
+
+        # Skip function should NOT be called when fix=False
+        mock_config.get_team_ids_to_skip_fix_fn.assert_not_called()
+
+    def test_skip_check_handles_exception_gracefully(self):
+        """Test that skip check failures don't stop verification."""
+        mock_config = MagicMock()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.expiry_sorted_set_key = None
+        mock_config.hypercache.get_cache_identifier = lambda team: team.id
+        mock_config.get_team_ids_to_skip_fix_fn = MagicMock(side_effect=Exception("DB error"))
+        mock_config.update_fn = MagicMock(return_value=True)
+        mock_config.cache_display_name = "test cache"
+
+        command = ConcreteHyperCacheCommand(
+            mock_config=mock_config,
+            verify_team_side_effect=lambda team: {
+                "status": "mismatch",
+                "issue": "DATA_MISMATCH",
+                "details": "test mismatch",
+            },
+        )
+        command.stdout = StringIO()  # type: ignore[assignment]
+
+        stats = {
+            "total": 0,
+            "cache_miss": 0,
+            "cache_match": 0,
+            "cache_mismatch": 0,
+            "expiry_missing": 0,
+            "error": 0,
+            "fixed": 0,
+            "fix_failed": 0,
+            "skipped_for_grace_period": 0,
+        }
+        mismatches: list[dict[str, Any]] = []
+
+        command._verify_teams_batch([self.team], stats, mismatches, verbose=False, fix=True)
+
+        # Should proceed with fix since skip check failed
+        assert stats["fixed"] == 1
+        assert "Skip-fix check failed" in command.stdout.getvalue()
+
+    def test_print_results_shows_skipped_count(self):
+        """Test that skipped count is shown in verification results."""
+        mock_config = MagicMock(spec=HyperCacheManagementConfig)
+        mock_config.cache_display_name = "test cache"
+
+        command = ConcreteHyperCacheCommand(mock_config=mock_config)
+        command.stdout = StringIO()  # type: ignore[assignment]
+
+        stats = {
+            "total": 10,
+            "cache_miss": 1,
+            "cache_match": 8,
+            "cache_mismatch": 1,
+            "expiry_missing": 0,
+            "error": 0,
+            "fixed": 0,
+            "fix_failed": 0,
+            "skipped_for_grace_period": 2,
+        }
+        mismatches = [
+            {"team_id": 1, "team_name": "Test1", "issue": "MISMATCH", "details": "test", "skipped": True},
+            {"team_id": 2, "team_name": "Test2", "issue": "MISMATCH", "details": "test", "skipped": True},
+        ]
+
+        command._print_verification_results(stats, mismatches=mismatches, verbose=False, fix=True)
+
+        output = command.stdout.getvalue()
+        assert "Skipped (grace period):" in output
+        assert "2" in output
+        assert "SKIPPED (grace period)" in output
+
+    def test_print_results_hides_skipped_when_zero(self):
+        """Test that skipped line is omitted when no teams were skipped."""
+        mock_config = MagicMock(spec=HyperCacheManagementConfig)
+        mock_config.cache_display_name = "test cache"
+
+        command = ConcreteHyperCacheCommand(mock_config=mock_config)
+        command.stdout = StringIO()  # type: ignore[assignment]
+
+        stats = {
+            "total": 10,
+            "cache_miss": 0,
+            "cache_match": 10,
+            "cache_mismatch": 0,
+            "expiry_missing": 0,
+            "error": 0,
+            "fixed": 0,
+            "fix_failed": 0,
+            "skipped_for_grace_period": 0,
+        }
+
+        command._print_verification_results(stats, mismatches=[], verbose=False, fix=True)
+
+        output = command.stdout.getvalue()
+        assert "Skipped (grace period)" not in output

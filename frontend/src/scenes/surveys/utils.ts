@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils'
-import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
@@ -407,7 +407,7 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
     return hasValidFilter ? `AND ${filterExpression}` : ''
 }
 
-export function isSurveyRunning(survey: Survey): boolean {
+export function isSurveyRunning(survey: Pick<Survey, 'start_date' | 'end_date'>): boolean {
     return !!(survey.start_date && !survey.end_date)
 }
 
@@ -658,4 +658,12 @@ export function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Sur
         targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
         linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
     }
+}
+
+export const isThumbQuestion = (question: SurveyQuestion): boolean => {
+    return (
+        question.type === SurveyQuestionType.Rating &&
+        question.display === 'emoji' &&
+        question.scale === SURVEY_RATING_SCALE.THUMB_2_POINT
+    )
 }

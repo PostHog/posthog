@@ -2,7 +2,7 @@
 name = "cyclotron-core"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.88.0" # please keep in sync with the version in .github/workflows/rust.yml
+rust-version = "1.91.1" # please keep in sync with the version in .github/workflows/rust.yml
 publish = false
 
 [lints]

@@ -56,3 +56,11 @@ LinearLink.args = {
     id: '1',
     shareType: 'linear',
 }
+
+export const LinearLinkWithMoreOptionsExpanded: Story = Template.bind({})
+LinearLinkWithMoreOptionsExpanded.args = {
+    seconds: 120,
+    id: '1',
+    shareType: 'linear',
+    expandMoreOptions: true,
+}

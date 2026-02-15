@@ -1,14 +1,46 @@
 import datetime as dt
-import collections.abc
 from datetime import timedelta
+from enum import IntEnum
 from math import ceil
+from zoneinfo import ZoneInfo
 
 from django.db import models
 
-from posthog.clickhouse.client import sync_execute
+import pytz
+
+# This import prevents a circular import during Django app loading.
+# The import chain: apps.py -> tasks -> async_migrations/definition.py -> models.utils
+# triggers models/__init__.py which imports batch_exports.models. Without this import,
+# ModelActivityMixin is loaded before Django apps are ready, causing AppRegistryNotReady.
+from posthog.clickhouse.client import sync_execute  # noqa: F401
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel
+
+# this is what is used by the Team model
+# (we could use common_timezones instead; this has 433 timezones vs 596 for all_timezones)
+TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
+
+
+class DayOfWeek(IntEnum):
+    """Day of the week enum for batch export schedules.
+
+    Values match Temporal's day_of_week format (0=Sunday, 6=Saturday) and is also aligns with the WeekStartDay enum in
+    the Team model.
+    """
+
+    SUNDAY = 0
+    MONDAY = 1
+    TUESDAY = 2
+    WEDNESDAY = 3
+    THURSDAY = 4
+    FRIDAY = 5
+    SATURDAY = 6
+
+    @property
+    def name_capitalized(self) -> str:
+        """Return the capitalized day name (e.g., 'Sunday', 'Monday')."""
+        return self.name.capitalize()
 
 
 class BatchExportDestination(UUIDTModel):
@@ -30,6 +62,7 @@ class BatchExportDestination(UUIDTModel):
         REDSHIFT = "Redshift"
         BIGQUERY = "BigQuery"
         DATABRICKS = "Databricks"
+        AZURE_BLOB = "AzureBlob"
         WORKFLOWS = "Workflows"
         HTTP = "HTTP"
         NOOP = "NoOp"
@@ -40,8 +73,8 @@ class BatchExportDestination(UUIDTModel):
         "Postgres": {"user", "password"},
         "Redshift": {"user", "password", "aws_access_key_id", "aws_secret_access_key"},
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
-        # Databricks does not have any secret fields, as we use integrations to store credentials
-        "Databricks": set(),
+        "Databricks": set(),  # uses Integration model to store credentials
+        "AzureBlob": set(),  # uses Integration model to store credentials
         "HTTP": {"token"},
         "NoOp": set(),
         "Workflows": set(),
@@ -142,45 +175,6 @@ class BatchExportRun(UUIDTModel):
         return f"{self.batch_export.id}-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
 
 
-def fetch_batch_export_run_count(
-    *,
-    team_id: int,
-    data_interval_start: dt.datetime,
-    data_interval_end: dt.datetime,
-    exclude_events: collections.abc.Iterable[str] | None = None,
-    include_events: collections.abc.Iterable[str] | None = None,
-) -> int:
-    """Fetch a list of batch export log entries from ClickHouse."""
-    if exclude_events:
-        exclude_events_statement = f"AND event NOT IN ({','.join(exclude_events)})"
-    else:
-        exclude_events_statement = ""
-
-    if include_events:
-        include_events_statement = f"AND event IN ({','.join(include_events)})"
-    else:
-        include_events_statement = ""
-
-    data_interval_start_ch = data_interval_start.strftime("%Y-%m-%d %H:%M:%S")
-    data_interval_end_ch = data_interval_end.strftime("%Y-%m-%d %H:%M:%S")
-
-    clickhouse_query = f"""
-        SELECT count(*)
-        FROM events
-        WHERE
-            team_id = {team_id}
-            AND timestamp >= toDateTime64('{data_interval_start_ch}', 6, 'UTC')
-            AND timestamp < toDateTime64('{data_interval_end_ch}', 6, 'UTC')
-            {exclude_events_statement}
-            {include_events_statement}
-    """
-
-    try:
-        return sync_execute(clickhouse_query)[0][0]
-    except Exception:
-        return 0
-
-
 BATCH_EXPORT_INTERVALS = [
     ("hour", "hour"),
     ("day", "day"),
@@ -259,6 +253,15 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         help_text="Which model this BatchExport is exporting.",
     )
     filters = models.JSONField(null=True, blank=True)
+    # determines the timezone used for daily or weekly exports
+    timezone = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
+    # interval offset allows for batch exports to start at a custom time
+    # (eg daily exports can be configured to run at 1am local time by setting this to 3600)
+    interval_offset = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="The offset in seconds from the start of the default interval that this batch export should run at.",
+    )
 
     @property
     def latest_runs(self):
@@ -290,13 +293,17 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
 
         So, the values set here are quite arbitrary and are adjusted based on
         how other systems react to batch exports load.
+
+        Note that for daily and weekly exports, we allow the user to configure
+        the start hour of the export, therefore we don't want to make the jitter
+        too large.
         """
         if self.interval == "hour":
             return timedelta(minutes=15)
         elif self.interval == "day":
-            return timedelta(hours=1)
+            return timedelta(minutes=30)
         elif self.interval == "week":
-            return timedelta(days=1)
+            return timedelta(hours=1)
         elif self.interval.startswith("every"):
             # This yields 1 minute for 5 minute batch exports, which is the only
             # "every" interval in use currently.
@@ -305,6 +312,55 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
             return self.interval_time_delta / 5
 
         raise ValueError(f"Invalid interval: '{self.interval}'")
+
+    @property
+    def timezone_info(self) -> ZoneInfo:
+        """Return the timezone info for this batch export."""
+        return ZoneInfo(self.timezone or "UTC")
+
+    @property
+    def offset_day(self) -> int | None:
+        """Return the offset day for this batch export.
+
+        For a weekly schedule, this is the day of the week to start at (0-6, where 0 is Sunday).
+        Sunday is 0 since this is what is used by Temporal and Sunday is also the default week start day in PostHog.
+        For all other intervals, this is None.
+        """
+        if self.interval == "week":
+            if self.interval_offset is None:
+                return int(DayOfWeek.SUNDAY)  # default to Sunday
+            day_value = self.interval_offset // (24 * 3600)
+            return int(DayOfWeek(day_value))
+        return None
+
+    @property
+    def offset_day_name(self) -> str | None:
+        """Return the offset day name for this batch export.
+
+        For a weekly schedule, this is the name of the day to start at (Sunday, Monday, etc.).
+        For all other intervals, this is None.
+        """
+        offset_day = self.offset_day
+        if offset_day is None:
+            return None
+        return DayOfWeek(offset_day).name_capitalized
+
+    @property
+    def offset_hour(self) -> int | None:
+        """Return the offset hour for this batch export.
+
+        For a daily or weekly schedule, this is the hour to start at (0-23).
+        For all other intervals, this is None.
+
+        Note: we don't support sub-hour offsets at the moment so we can assume the offset is always an
+        integer number of hours.
+        """
+        if self.interval == "day" or self.interval == "week":
+            if self.interval_offset is None:
+                return 0  # default to midnight
+            offset_in_hours = self.interval_offset // 3600
+            return offset_in_hours % 24
+        return None
 
 
 class BatchExportBackfill(UUIDTModel):

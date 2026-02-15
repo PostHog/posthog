@@ -16,6 +16,7 @@ from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionSummaryStreamUpdate,
     execute_summarize_session_group,
 )
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import pluralize
 
 from ee.hogai.session_summaries.constants import (
@@ -78,6 +79,9 @@ class SummarizeSessionsTool(MaxTool):
     ).strip()
     args_schema: type[BaseModel] = SummarizeSessionsToolArgs
 
+    def get_required_resource_access(self):
+        return [("session_recording", "viewer")]
+
     async def _arun_impl(
         self,
         recordings_filters_or_explicit_session_ids: MaxRecordingUniversalFilters | list[str],
@@ -139,7 +143,7 @@ class SummarizeSessionsTool(MaxTool):
         summary_type: Literal["single", "group"] = (
             "single" if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS else "group"
         )
-        video_validation_enabled = self._has_video_validation_feature_flag()
+        video_validation_enabled = self._determine_video_validation_enabled()
         tracking_id = generate_tracking_id()
         capture_session_summary_started(
             user=self._user,
@@ -217,16 +221,27 @@ class SummarizeSessionsTool(MaxTool):
         )
         return content, artifact
 
-    def _has_video_validation_feature_flag(self) -> bool | None:
+    def _determine_video_validation_enabled(self) -> bool | Literal["full"]:
         """
         Check if the user has the video validation for session summaries feature flag enabled.
         """
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization-video-validation",
+        if posthoganalytics.feature_enabled(
+            "max-session-summarization-video-as-base",
             str(self._user.distinct_id),
             groups={"organization": str(self._team.organization_id)},
             group_properties={"organization": {"id": str(self._team.organization_id)}},
             send_feature_flag_events=False,
+        ):
+            return "full"  # Use video as base of summarization
+        return (
+            posthoganalytics.feature_enabled(
+                "max-session-summarization-video-validation",
+                str(self._user.distinct_id),
+                groups={"organization": str(self._team.organization_id)},
+                group_properties={"organization": {"id": str(self._team.organization_id)}},
+                send_feature_flag_events=False,
+            )
+            or False
         )
 
     def _stream_progress(self, progress_message: str) -> None:
@@ -260,7 +275,7 @@ class SummarizeSessionsTool(MaxTool):
         """Summarize sessions individually with progress updates."""
         total = len(session_ids)
         completed = 0
-        video_validation_enabled = self._has_video_validation_feature_flag()
+        video_validation_enabled = self._determine_video_validation_enabled()
 
         async def _summarize(session_id: str) -> dict[str, Any]:
             nonlocal completed
@@ -276,9 +291,10 @@ class SummarizeSessionsTool(MaxTool):
             self._stream_progress(progress_message=f"Watching sessions ({completed}/{total})")
             return result
 
-        # Run all tasks concurrently
+        # Run all tasks concurrently, with periodic heartbeats to keep the parent activity alive
         tasks = [_summarize(sid) for sid in session_ids]
-        summaries = await asyncio.gather(*tasks)
+        async with Heartbeater():
+            summaries = await asyncio.gather(*tasks)
         self._stream_progress(progress_message=f"Generating a summary, almost there")
         # Stringify, as chat doesn't need full JSON to be context-aware, while providing it could overload the context
         stringified_summaries = []
@@ -301,57 +317,58 @@ class SummarizeSessionsTool(MaxTool):
             session_ids=session_ids, team=self._team
         )
         # Check if the summaries should be validated with videos
-        video_validation_enabled = self._has_video_validation_feature_flag()
-        async for update_type, data in execute_summarize_session_group(
-            session_ids=session_ids,
-            user=self._user,
-            team=self._team,
-            min_timestamp=min_timestamp,
-            max_timestamp=max_timestamp,
-            summary_title=summary_title,
-            extra_summary_context=None,
-            video_validation_enabled=video_validation_enabled,
-        ):
-            # Max "reasoning" text update message
-            if update_type == SessionSummaryStreamUpdate.UI_STATUS:
-                if not isinstance(data, str):
-                    msg = (
-                        f"Unexpected data type for stream update {SessionSummaryStreamUpdate.UI_STATUS}: {type(data)} "
-                        f"(expected: str)"
-                    )
-                    logger.error(msg, signals_type="session-summaries")
-                    raise TypeError(msg)
-                # Status message - stream to user
-                self._stream_progress(progress_message=data)
-            # Final summary result
-            elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
-                if not isinstance(data, tuple) or len(data) != 2:
-                    msg = (
-                        f"Unexpected data type for stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(data)} "
-                        f"(expected: tuple[EnrichedSessionGroupSummaryPatternsList, str])"
-                    )
+        video_validation_enabled = self._determine_video_validation_enabled()
+        async with Heartbeater():
+            async for update_type, data in execute_summarize_session_group(
+                session_ids=session_ids,
+                user=self._user,
+                team=self._team,
+                min_timestamp=min_timestamp,
+                max_timestamp=max_timestamp,
+                summary_title=summary_title,
+                extra_summary_context=None,
+                video_validation_enabled=video_validation_enabled,
+            ):
+                # Max "reasoning" text update message
+                if update_type == SessionSummaryStreamUpdate.UI_STATUS:
+                    if not isinstance(data, str):
+                        msg = (
+                            f"Unexpected data type for stream update {SessionSummaryStreamUpdate.UI_STATUS}: {type(data)} "
+                            f"(expected: str)"
+                        )
+                        logger.error(msg, signals_type="session-summaries")
+                        raise TypeError(msg)
+                    # Status message - stream to user
+                    self._stream_progress(progress_message=data)
+                # Final summary result
+                elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
+                    if not isinstance(data, tuple) or len(data) != 2:
+                        msg = (
+                            f"Unexpected data type for stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(data)} "
+                            f"(expected: tuple[EnrichedSessionGroupSummaryPatternsList, str])"
+                        )
+                        logger.error(msg, signals_type="session-summaries")
+                        raise ValueError(msg)
+                    summary, session_group_summary_id = data
+                    if not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
+                        msg = (  # type: ignore[unreachable]
+                            f"Unexpected data type for patterns in stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(summary)} "
+                            f"(expected: EnrichedSessionGroupSummaryPatternsList)"
+                        )
+                        logger.error(msg, signals_type="session-summaries")
+                        raise ValueError(msg)
+                    # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
+                    stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
+                    summary_str = stringifier.stringify_patterns()
+                    return summary_str, session_group_summary_id
+                else:
+                    msg = f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."  # type: ignore[unreachable]
                     logger.error(msg, signals_type="session-summaries")
                     raise ValueError(msg)
-                summary, session_group_summary_id = data
-                if not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
-                    msg = (  # type: ignore[unreachable]
-                        f"Unexpected data type for patterns in stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(summary)} "
-                        f"(expected: EnrichedSessionGroupSummaryPatternsList)"
-                    )
-                    logger.error(msg, signals_type="session-summaries")
-                    raise ValueError(msg)
-                # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
-                stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
-                summary_str = stringifier.stringify_patterns()
-                return summary_str, session_group_summary_id
             else:
-                msg = f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."  # type: ignore[unreachable]
+                msg = f"No summary was generated from session group summarization (session_ids: {logging_session_ids(session_ids)})"
                 logger.error(msg, signals_type="session-summaries")
                 raise ValueError(msg)
-        else:
-            msg = f"No summary was generated from session group summarization (session_ids: {logging_session_ids(session_ids)})"
-            logger.error(msg, signals_type="session-summaries")
-            raise ValueError(msg)
 
     async def _summarize_sessions(
         self, session_ids: list[str], summary_title: str | None, *, session_ids_source: Literal["filters", "explicit"]

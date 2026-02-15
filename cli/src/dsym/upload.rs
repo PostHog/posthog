@@ -155,7 +155,7 @@ pub fn upload(args: &Args) -> Result<()> {
     }
 
     if let Some(ref project) = resolved_project {
-        release_builder.with_project(project);
+        release_builder.with_name(project);
     }
     if let Some(ref version) = full_version {
         release_builder.with_version(version);
@@ -198,7 +198,7 @@ pub fn upload(args: &Args) -> Result<()> {
     }
 
     info!("Uploading {} dSYM(s)...", uploads.len());
-    api::symbol_sets::upload(&uploads, 10)?;
+    api::symbol_sets::upload_with_retry(uploads, 10, true)?;
     info!("dSYM upload complete");
 
     Ok(())

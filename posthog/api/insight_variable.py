@@ -19,17 +19,14 @@ class InsightVariableSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
 
-        # Strips non alphanumeric values from name (other than spaces and underscores)
         validated_data["code_name"] = (
-            "".join(n for n in validated_data["name"] if n.isalnum() or n == " " or n == "_").replace(" ", "_").lower()
+            "".join(c for c in validated_data["name"] if c.isalnum() or c == " " or c == "_").replace(" ", "_").lower()
         )
 
-        count = InsightVariable.objects.filter(
-            team_id=self.context["team_id"], code_name=validated_data["code_name"]
-        ).count()
-
-        if count > 0:
-            raise ValidationError("Variable with name already exists")
+        if InsightVariable.objects.filter(
+            team_id=validated_data["team_id"], code_name=validated_data["code_name"]
+        ).exists():
+            raise ValidationError("Variable with this code name already exists")
 
         return InsightVariable.objects.create(**validated_data)
 
@@ -39,7 +36,7 @@ class InsightVariablePagination(pagination.PageNumberPagination):
 
 
 class InsightVariableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "insight_variable"
     queryset = InsightVariable.objects.all()
     pagination_class = InsightVariablePagination
     serializer_class = InsightVariableSerializer

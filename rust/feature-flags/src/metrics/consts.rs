@@ -3,7 +3,6 @@ pub const FLAG_EVALUATION_ERROR_COUNTER: &str = "flags_flag_evaluation_error_tot
 pub const FLAG_HASH_KEY_WRITES_COUNTER: &str = "flags_flag_hash_key_writes_total";
 pub const FLAG_HASH_KEY_RETRIES_COUNTER: &str = "flags_hash_key_retries_total";
 pub const TEAM_CACHE_HIT_COUNTER: &str = "flags_team_cache_hit_total";
-pub const TEAM_CACHE_ERRORS_COUNTER: &str = "flags_team_cache_errors_total";
 pub const DB_TEAM_READS_COUNTER: &str = "flags_db_team_reads_total";
 pub const TOKEN_VALIDATION_ERRORS_COUNTER: &str = "flags_token_validation_errors_total";
 pub const DB_COHORT_READS_COUNTER: &str = "flags_db_cohort_reads_total";
@@ -51,6 +50,18 @@ pub const FLAG_CONNECTION_HOLD_TIME: &str = "flags_connection_hold_time_ms";
 pub const FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER: &str =
     "flags_experience_continuity_requests_total";
 
+// Experience continuity optimization metric
+// Tracks requests where optimization could apply, with status label:
+// - status="skipped": lookup was actually skipped (optimization enabled, no flags needed it)
+// - status="eligible": lookup could be skipped but wasn't (optimization feature is disabled)
+pub const FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED: &str =
+    "flags_experience_continuity_optimized_total";
+
+// Hash key override query result metric
+// Tracks the result of hash key override queries to understand cache optimization potential
+// Labels: result="empty" (no overrides found) | result="has_overrides" (overrides exist)
+pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total";
+
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
@@ -64,3 +75,25 @@ pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
 // Tombstone metric for tracking "impossible" failures that should never happen in production
 // Different failure types are tracked via the "failure_type" label
 pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";
+
+// DB operations per request metric
+// Tracks the count of DB operations per request, labeled by team_id and operation_type.
+// This surfaces teams generating excessive DB load regardless of individual query latency.
+// Labels: team_id, operation_type (person_query, cohort_query, group_query)
+pub const FLAG_DB_OPERATIONS_PER_REQUEST: &str = "flags_db_operations_per_request";
+
+// Flag batch evaluation metrics
+// These track the performance difference between sequential and parallel evaluation strategies.
+// Used for A/B testing and tuning the PARALLEL_EVAL_THRESHOLD.
+
+// Time spent evaluating a batch of flags (histogram)
+// Labels: evaluation_type ("sequential" or "parallel")
+pub const FLAG_BATCH_EVALUATION_TIME: &str = "flags_batch_evaluation_time_ms";
+
+// Counter for evaluation batches by type
+// Labels: evaluation_type ("sequential" or "parallel")
+pub const FLAG_BATCH_EVALUATION_COUNTER: &str = "flags_batch_evaluation_total";
+
+// Histogram of flag counts per batch evaluation
+// Labels: evaluation_type ("sequential" or "parallel")
+pub const FLAG_BATCH_SIZE: &str = "flags_batch_size";

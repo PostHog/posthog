@@ -5,9 +5,12 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from posthog.schema import ProductKey
 
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -183,7 +186,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         feature_flag = None
         if feature_flag_id:
             try:
-                feature_flag = FeatureFlag.objects.get(pk=feature_flag_id)
+                feature_flag = FeatureFlag.objects.get(pk=feature_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
@@ -228,7 +231,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
         if feature_flag_id:
             # Modifying an existing feature flag
-            feature_flag = FeatureFlag.objects.get(pk=feature_flag_id)
+            feature_flag = FeatureFlag.objects.get(pk=feature_flag_id, team_id=self.context["team_id"])
             feature_flag_key = feature_flag.key
 
             if validated_data.get("stage") in EarlyAccessFeature.ReleaseStage:
@@ -273,6 +276,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         return feature
 
 
+@extend_schema(tags=[ProductKey.EARLY_ACCESS_FEATURES])
 class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "early_access_feature"
     queryset = EarlyAccessFeature.objects.select_related("feature_flag").all()

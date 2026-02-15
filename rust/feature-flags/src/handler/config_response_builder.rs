@@ -1,83 +1,38 @@
 use crate::{
     api::{
         errors::FlagError,
-        types::{AnalyticsConfig, ErrorTrackingConfig, FlagsResponse, SessionRecordingField},
+        types::{ConfigResponse, FlagsResponse},
     },
-    config::Config,
-    site_apps::get_decide_site_apps,
+    config_cache::get_cached_config,
+    handler::session_recording::on_permitted_domain,
+    metrics::consts::TOMBSTONE_COUNTER,
     team::team_models::Team,
 };
 use axum::http::HeaderMap;
 use limiters::redis::QuotaResource;
-use std::{collections::HashMap, sync::Arc};
+use metrics::counter;
+use serde_json::{json, Value};
 
-use crate::billing_limiters::SessionReplayLimiter;
-use crate::database_pools::DatabasePools;
+use super::types::RequestContext;
 
-use super::{error_tracking, session_recording, types::RequestContext};
-
-/// Isolates the specific fields needed to build config responses from a RequestContext.
-/// This allows us to extract only the relevant dependencies (config, database client,
-/// redis client, billing limiter, and headers) rather than carrying around the entire RequestContext.
-pub struct ConfigContext {
-    pub config: Config,
-    pub database_pools: Arc<DatabasePools>,
-    pub redis: Arc<dyn common_redis::Client + Send + Sync>,
-    pub session_replay_billing_limiter: SessionReplayLimiter,
-    pub headers: HeaderMap,
-}
-
-impl ConfigContext {
-    pub fn from_request_context(context: &RequestContext) -> Self {
-        Self {
-            config: context.state.config.clone(),
-            database_pools: context.state.database_pools.clone(),
-            redis: context.state.redis_client.clone(),
-            session_replay_billing_limiter: context.state.session_replay_billing_limiter.clone(),
-            headers: context.headers.clone(),
-        }
-    }
-
-    pub fn new(
-        config: Config,
-        database_pools: Arc<DatabasePools>,
-        redis: Arc<dyn common_redis::Client + Send + Sync>,
-        session_replay_billing_limiter: SessionReplayLimiter,
-        headers: HeaderMap,
-    ) -> Self {
-        Self {
-            config,
-            database_pools,
-            redis,
-            session_replay_billing_limiter,
-            headers,
-        }
-    }
-}
-
-pub async fn build_response(
+/// Build response by passing through cached config from Python's HyperCache.
+///
+/// The config blob is passed through as-is without interpretation.
+/// Session recording quota limiting is applied in Rust using real-time checks.
+pub async fn build_response_from_cache(
     flags_response: FlagsResponse,
     context: &RequestContext,
     team: &Team,
 ) -> Result<FlagsResponse, FlagError> {
     let mut response = flags_response;
 
-    if context.meta.config.unwrap_or(false) {
-        let config_context = ConfigContext::from_request_context(context);
-        apply_config_fields(&mut response, &config_context, team).await?;
+    if !context.meta.config.unwrap_or(false) {
+        return Ok(response);
     }
 
-    Ok(response)
-}
-
-async fn apply_config_fields(
-    response: &mut FlagsResponse,
-    context: &ConfigContext,
-    team: &Team,
-) -> Result<(), FlagError> {
-    // Check for recordings quota limits only if enabled
-    let is_recordings_limited = if context.config.flags_session_replay_quota_check {
+    let is_recordings_limited = if context.state.config.flags_session_replay_quota_check {
         context
+            .state
             .session_replay_billing_limiter
             .is_limited(&team.api_token)
             .await
@@ -85,714 +40,398 @@ async fn apply_config_fields(
         false
     };
 
-    if is_recordings_limited {
-        // Add recordings to quota_limited array, preserving any existing limitations
-        match &mut response.quota_limited {
-            Some(existing) => existing.push(QuotaResource::Recordings.as_str().to_string()),
+    let mut cached_config =
+        match get_cached_config(&context.state.config_hypercache_reader, &team.api_token).await {
+            Some(Value::Object(map)) => Value::Object(map),
+            Some(_) => {
+                // Cached value is not a JSON object - this should never happen
+                // Python always writes config as a JSON object to hypercache
+                tracing::warn!(
+                    team_id = team.id,
+                    api_token = %team.api_token,
+                    "Config cache returned non-object value - returning fallback config"
+                );
+                counter!(
+                    TOMBSTONE_COUNTER,
+                    "namespace" => "feature_flags",
+                    "operation" => "config_cache_non_object",
+                    "component" => "config_response_builder",
+                )
+                .increment(1);
+
+                return Ok(apply_fallback_config(response, team, is_recordings_limited));
+            }
             None => {
-                response.quota_limited = Some(vec![QuotaResource::Recordings.as_str().to_string()])
+                // Cache miss - return minimal fallback config with quota info
+                tracing::warn!(
+                    team_id = team.id,
+                    api_token = %team.api_token,
+                    "Config cache miss - returning fallback config"
+                );
+
+                return Ok(apply_fallback_config(response, team, is_recordings_limited));
+            }
+        };
+
+    // Sanitize config for client consumption (removes internal fields, applies domain filtering)
+    sanitize_config_for_client(&mut cached_config, &context.headers);
+
+    if is_recordings_limited {
+        cached_config["sessionRecording"] = json!(false);
+    }
+
+    response.config = ConfigResponse::from_value(cached_config);
+
+    if is_recordings_limited {
+        set_recordings_quota_limited(&mut response);
+    } else {
+        set_cached_quota_limits_without_recordings(&mut response);
+    }
+
+    tracing::debug!(
+        team_id = team.id,
+        "Passed through cached config from HyperCache"
+    );
+
+    Ok(response)
+}
+
+/// Apply fallback config when cache is unavailable or returns unexpected data.
+fn apply_fallback_config(
+    mut response: FlagsResponse,
+    team: &Team,
+    is_recordings_limited: bool,
+) -> FlagsResponse {
+    let has_flags = !response.flags.is_empty();
+    response.config = ConfigResponse::fallback(&team.api_token, has_flags);
+
+    if is_recordings_limited {
+        response.quota_limited = Some(vec![QuotaResource::Recordings.as_str().to_string()]);
+    }
+
+    response
+}
+
+/// Set quota_limited to include "recordings" when recordings are quota limited.
+/// Merges with any existing quota limits from the config.
+fn set_recordings_quota_limited(response: &mut FlagsResponse) {
+    let mut limited: Vec<String> = response
+        .config
+        .get("quotaLimited")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let recordings_str = QuotaResource::Recordings.as_str().to_string();
+    if !limited.contains(&recordings_str) {
+        limited.push(recordings_str);
+    }
+    response.quota_limited = Some(limited);
+}
+
+/// Set quota_limited from cached config, filtering out stale "recordings" entries.
+/// Used when recordings are NOT quota limited (real-time check says no).
+fn set_cached_quota_limits_without_recordings(response: &mut FlagsResponse) {
+    let recordings_str = QuotaResource::Recordings.as_str();
+
+    if let Some(arr) = response
+        .config
+        .get("quotaLimited")
+        .and_then(|v| v.as_array())
+    {
+        let filtered: Vec<String> = arr
+            .iter()
+            .filter_map(|v| v.as_str())
+            .filter(|&s| s != recordings_str)
+            .map(String::from)
+            .collect();
+
+        if !filtered.is_empty() {
+            response.quota_limited = Some(filtered);
+        }
+    }
+}
+
+/// Sanitize cached config before returning to clients.
+///
+/// Matches Python's `sanitize_config_for_public_cdn` behavior:
+/// - Removes `siteAppsJS` (raw JS only needed for array.js bundle, not JSON API)
+/// - Removes `sessionRecording.domains` (internal field, not needed by SDK)
+/// - Sets `sessionRecording` to `false` if request origin not in permitted domains
+fn sanitize_config_for_client(cached_config: &mut Value, headers: &HeaderMap) {
+    if let Some(obj) = cached_config.as_object_mut() {
+        obj.remove("siteAppsJS");
+    }
+
+    let session_recording = match cached_config.get_mut("sessionRecording") {
+        Some(sr) => sr,
+        None => return,
+    };
+
+    let obj = match session_recording.as_object_mut() {
+        Some(o) => o,
+        None => return,
+    };
+
+    let domains = obj.remove("domains");
+
+    // Check domain permission if domains list exists and is non-empty
+    if let Some(domains_value) = domains {
+        if let Some(domains_array) = domains_value.as_array() {
+            let domain_strings: Vec<String> = domains_array
+                .iter()
+                .filter_map(|d| d.as_str().map(String::from))
+                .collect();
+
+            // Empty domains list means always permitted
+            if !domain_strings.is_empty() && !on_permitted_domain(&domain_strings, headers) {
+                *session_recording = json!(false);
             }
         }
     }
-
-    // Apply all the core config fields that don't require async operations
-    apply_core_config_fields(response, &context.config, team);
-
-    // Handle fields that require request context (headers, config, etc)
-    // I test this config field in isolation in session_recording.rs, and have integration tests for it in tests/test_flags.rs
-    response.config.session_recording = if is_recordings_limited {
-        // Disable session recording when quota limited
-        Some(SessionRecordingField::Disabled(false))
-    } else {
-        session_recording::session_recording_config_response(team, &context.headers)
-    };
-
-    // Handle fields that require database access
-    // I test this config field in isolation in site_apps/mod.rs and have integration tests for it in tests/test_flags.rs
-    response.config.site_apps = if team.inject_web_apps.unwrap_or(false) {
-        Some(
-            get_decide_site_apps(context.database_pools.non_persons_reader.clone(), team.id)
-                .await?,
-        )
-    } else {
-        Some(vec![])
-    };
-
-    // Handle error tracking configuration
-    response.config.error_tracking = if team.autocapture_exceptions_opt_in.unwrap_or(false) {
-        // Try to get suppression rules, but don't fail if database is unavailable
-        let suppression_rules = match error_tracking::get_suppression_rules(
-            context.database_pools.non_persons_reader.clone(),
-            team,
-        )
-        .await
-        {
-            Ok(rules) => rules,
-            Err(_) => {
-                // Log error but continue with empty rules, similar to Django behavior
-                tracing::warn!(
-                    "Failed to fetch suppression rules for team {}, using empty rules",
-                    team.id
-                );
-                vec![]
-            }
-        };
-
-        Some(ErrorTrackingConfig {
-            autocapture_exceptions: true,
-            suppression_rules,
-        })
-    } else {
-        Some(ErrorTrackingConfig {
-            autocapture_exceptions: false,
-            suppression_rules: vec![],
-        })
-    };
-
-    Ok(())
-}
-
-/// Core config field logic that doesn't require async operations or external dependencies.
-/// This function can be used by both the main async flow and tests.
-fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team: &Team) {
-    let capture_web_vitals = team.autocapture_web_vitals_opt_in.unwrap_or(false);
-    let autocapture_web_vitals_allowed_metrics =
-        team.autocapture_web_vitals_allowed_metrics.as_ref();
-    let capture_network_timing = team.capture_performance_opt_in.unwrap_or(false);
-
-    response.config.supported_compression = vec!["gzip".to_string(), "gzip-js".to_string()];
-    response.config.autocapture_opt_out = Some(team.autocapture_opt_out.unwrap_or(false));
-
-    response.config.analytics = if !*config.debug
-        && !config.is_team_excluded(team.id, &config.new_analytics_capture_excluded_team_ids)
-        && !config.new_analytics_capture_endpoint.is_empty()
-    {
-        Some(AnalyticsConfig {
-            endpoint: Some(config.new_analytics_capture_endpoint.clone()),
-        })
-    } else {
-        None
-    };
-
-    response.config.elements_chain_as_string =
-        if !config.is_team_excluded(team.id, &config.element_chain_as_string_excluded_teams) {
-            Some(true)
-        } else {
-            None
-        };
-
-    response.config.capture_performance = match (capture_network_timing, capture_web_vitals) {
-        (false, false) => Some(serde_json::json!(false)),
-        (network, web_vitals) => {
-            let mut perf_map = HashMap::new();
-            perf_map.insert("network_timing".to_string(), serde_json::json!(network));
-            perf_map.insert("web_vitals".to_string(), serde_json::json!(web_vitals));
-            // Always include web_vitals_allowed_metrics field for parity with Python decide endpoint
-            // When web_vitals is false, it's null
-            // When web_vitals is true, it's the team's configured metrics (which could also be null)
-            let metrics_value = if web_vitals {
-                autocapture_web_vitals_allowed_metrics.cloned()
-            } else {
-                None
-            };
-            perf_map.insert(
-                "web_vitals_allowed_metrics".to_string(),
-                serde_json::json!(metrics_value),
-            );
-            Some(serde_json::json!(perf_map))
-        }
-    };
-
-    response.config.config = Some(serde_json::json!({"enable_collect_everything": true}));
-
-    response.config.autocapture_exceptions = if team.autocapture_exceptions_opt_in.unwrap_or(false)
-    {
-        Some(serde_json::json!(HashMap::from([(
-            "endpoint".to_string(),
-            serde_json::json!("/e/")
-        )])))
-    } else {
-        Some(serde_json::json!(false))
-    };
-
-    response.config.surveys = Some(serde_json::json!(team.surveys_opt_in.unwrap_or(false)));
-    response.config.heatmaps = Some(team.heatmaps_opt_in.unwrap_or(false));
-    response.config.default_identified_only = Some(true);
-    response.config.flags_persistence_default =
-        Some(team.flags_persistence_default.unwrap_or(false));
-    response.config.toolbar_params = Some(serde_json::json!(
-        HashMap::<String, serde_json::Value>::new()
-    ));
-    response.config.is_authenticated = Some(false);
-    response.config.capture_dead_clicks = team.capture_dead_clicks;
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        api::types::{ConfigResponse, FlagsResponse, SessionRecordingField},
-        config::{Config, FlexBool, TeamIdCollection},
-        handler::{config_response_builder::apply_core_config_fields, session_recording},
-        team::team_models::Team,
-    };
-    use chrono::Utc;
-    use serde_json::json;
-    use sqlx::types::{Json, Uuid};
+    use super::*;
     use std::collections::HashMap;
-    use uuid::Uuid as StdUuid;
-
-    fn create_base_team() -> Team {
-        Team {
-            id: 1,
-            name: "Test Team".to_string(),
-            api_token: "test-token".to_string(),
-            uuid: Uuid::new_v4(),
-            organization_id: None,
-            autocapture_opt_out: None,
-            autocapture_exceptions_opt_in: None,
-            autocapture_web_vitals_opt_in: None,
-            capture_performance_opt_in: None,
-            capture_console_log_opt_in: None,
-            session_recording_opt_in: false,
-            inject_web_apps: None,
-            surveys_opt_in: None,
-            heatmaps_opt_in: None,
-            capture_dead_clicks: None,
-            flags_persistence_default: None,
-            session_recording_sample_rate: None,
-            session_recording_minimum_duration_milliseconds: None,
-            autocapture_web_vitals_allowed_metrics: None,
-            autocapture_exceptions_errors_to_ignore: None,
-            session_recording_linked_flag: None,
-            session_recording_network_payload_capture_config: None,
-            session_recording_masking_config: None,
-            session_replay_config: None,
-            survey_config: None,
-            extra_settings: None,
-            session_recording_url_trigger_config: None,
-            session_recording_url_blocklist_config: None,
-            session_recording_event_trigger_config: None,
-            session_recording_trigger_match_type_config: None,
-            recording_domains: None,
-            cookieless_server_hash_mode: Some(0),
-            timezone: "UTC".to_string(),
-        }
-    }
+    use uuid::Uuid;
 
     fn create_base_response() -> FlagsResponse {
-        FlagsResponse {
-            errors_while_computing_flags: false,
-            flags: HashMap::new(),
-            quota_limited: None,
-            request_id: StdUuid::new_v4(),
-            evaluated_at: Utc::now().timestamp_millis(),
-            config: ConfigResponse::default(),
-        }
+        FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4())
     }
 
     #[test]
-    fn test_basic_config_fields() {
+    fn test_set_recordings_quota_limited_adds_to_empty() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let team = create_base_team();
+        response.config = ConfigResponse::from_value(json!({}));
 
-        apply_core_config_fields(&mut response, &config, &team);
+        set_recordings_quota_limited(&mut response);
 
-        // Basic fields always set
-        assert_eq!(
-            response.config.supported_compression,
-            vec!["gzip", "gzip-js"]
-        );
-        assert_eq!(response.config.default_identified_only, Some(true));
-        assert_eq!(response.config.is_authenticated, Some(false));
-        assert_eq!(
-            response.config.config,
-            Some(json!({"enable_collect_everything": true}))
-        );
-        assert_eq!(response.config.toolbar_params, Some(json!({})));
+        assert_eq!(response.quota_limited, Some(vec!["recordings".to_string()]));
     }
 
     #[test]
-    fn test_analytics_config_enabled() {
-        let mut config = Config::default_test_config();
-        config.debug = FlexBool(false);
-        config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
-        config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None; // None means exclude nobody
-
+    fn test_set_recordings_quota_limited_merges_existing() {
         let mut response = create_base_response();
-        let team = create_base_team();
+        response.config = ConfigResponse::from_value(json!({"quotaLimited": ["feature_flags"]}));
 
-        apply_core_config_fields(&mut response, &config, &team);
+        set_recordings_quota_limited(&mut response);
 
-        assert!(response.config.analytics.is_some());
         assert_eq!(
-            response.config.analytics.unwrap().endpoint,
-            Some("https://analytics.posthog.com".to_string())
+            response.quota_limited,
+            Some(vec!["feature_flags".to_string(), "recordings".to_string()])
         );
     }
 
     #[test]
-    fn test_analytics_config_disabled_debug_mode() {
-        let mut config = Config::default_test_config();
-        config.debug = FlexBool(true);
-        config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
-
+    fn test_set_recordings_quota_limited_no_duplicate() {
         let mut response = create_base_response();
-        let team = create_base_team();
+        response.config = ConfigResponse::from_value(json!({"quotaLimited": ["recordings"]}));
 
-        apply_core_config_fields(&mut response, &config, &team);
+        set_recordings_quota_limited(&mut response);
 
-        assert!(response.config.analytics.is_none());
+        assert_eq!(response.quota_limited, Some(vec!["recordings".to_string()]));
     }
 
     #[test]
-    fn test_analytics_config_disabled_excluded_team() {
-        let mut config = Config::default_test_config();
-        config.debug = FlexBool(false);
-        config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
-        config.new_analytics_capture_excluded_team_ids = TeamIdCollection::All; // All means exclude all teams
-
-        let mut response = create_base_response();
-        let team = create_base_team(); // team.id = 1
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert!(response.config.analytics.is_none());
-    }
-
-    #[test]
-    fn test_analytics_config_disabled_empty_endpoint() {
-        let mut config = Config::default_test_config();
-        config.debug = FlexBool(false);
-        config.new_analytics_capture_endpoint = "".to_string(); // Empty endpoint
-        config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None; // None means exclude nobody
-
-        let mut response = create_base_response();
-        let team = create_base_team();
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert!(response.config.analytics.is_none());
-    }
-
-    #[test]
-    fn test_elements_chain_as_string_enabled() {
-        let mut config = Config::default_test_config();
-        config.element_chain_as_string_excluded_teams = TeamIdCollection::None; // None means exclude nobody
-
-        let mut response = create_base_response();
-        let team = create_base_team();
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert_eq!(response.config.elements_chain_as_string, Some(true));
-    }
-
-    #[test]
-    fn test_elements_chain_as_string_excluded() {
-        let mut config = Config::default_test_config();
-        config.element_chain_as_string_excluded_teams = TeamIdCollection::All; // All means exclude all teams
-
-        let mut response = create_base_response();
-        let team = create_base_team(); // team.id = 1
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert!(response.config.elements_chain_as_string.is_none());
-    }
-
-    #[test]
-    fn test_capture_performance_both_disabled() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.capture_performance_opt_in = Some(false);
-        team.autocapture_web_vitals_opt_in = Some(false);
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert_eq!(response.config.capture_performance, Some(json!(false)));
-    }
-
-    #[test]
-    fn test_capture_performance_network_only() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.capture_performance_opt_in = Some(true);
-        team.autocapture_web_vitals_opt_in = Some(false);
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        let expected = json!({
-            "network_timing": true,
-            "web_vitals": false,
-            "web_vitals_allowed_metrics": null
+    fn test_config_passthrough_preserves_all_fields() {
+        let cached = json!({
+            "supportedCompression": ["gzip", "gzip-js"],
+            "heatmaps": true,
+            "someNewField": "that rust doesn't know about",
+            "nested": {"deeply": {"value": 123}}
         });
-        assert_eq!(response.config.capture_performance, Some(expected));
+
+        let config = ConfigResponse::from_value(cached);
+
+        assert_eq!(
+            config.get("supportedCompression"),
+            Some(&json!(["gzip", "gzip-js"]))
+        );
+        assert_eq!(config.get("heatmaps"), Some(&json!(true)));
+        assert_eq!(
+            config.get("someNewField"),
+            Some(&json!("that rust doesn't know about"))
+        );
+        assert_eq!(
+            config.get("nested"),
+            Some(&json!({"deeply": {"value": 123}}))
+        );
     }
 
     #[test]
-    fn test_capture_performance_web_vitals_only() {
+    fn test_cached_quota_limits_filters_stale_recordings() {
         let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
+        // Cached config has stale "recordings" limit
+        response.config =
+            ConfigResponse::from_value(json!({"quotaLimited": ["recordings", "feature_flags"]}));
 
-        team.capture_performance_opt_in = Some(false);
-        team.autocapture_web_vitals_opt_in = Some(true);
+        set_cached_quota_limits_without_recordings(&mut response);
 
-        apply_core_config_fields(&mut response, &config, &team);
+        // "recordings" should be filtered out, only "feature_flags" remains
+        assert_eq!(
+            response.quota_limited,
+            Some(vec!["feature_flags".to_string()])
+        );
+    }
 
-        let expected = json!({
-            "network_timing": false,
-            "web_vitals": true,
-            "web_vitals_allowed_metrics": null
+    #[test]
+    fn test_cached_quota_limits_filters_only_recordings() {
+        let mut response = create_base_response();
+        // Cached config has only stale "recordings" limit
+        response.config = ConfigResponse::from_value(json!({"quotaLimited": ["recordings"]}));
+
+        set_cached_quota_limits_without_recordings(&mut response);
+
+        // Should be None since filtering "recordings" leaves empty list
+        assert_eq!(response.quota_limited, None);
+    }
+
+    #[test]
+    fn test_cached_quota_limits_preserves_other_limits() {
+        let mut response = create_base_response();
+        // Cached config has no "recordings" limit
+        response.config =
+            ConfigResponse::from_value(json!({"quotaLimited": ["feature_flags", "events"]}));
+
+        set_cached_quota_limits_without_recordings(&mut response);
+
+        assert_eq!(
+            response.quota_limited,
+            Some(vec!["feature_flags".to_string(), "events".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_cached_quota_limits_handles_empty() {
+        let mut response = create_base_response();
+        response.config = ConfigResponse::from_value(json!({}));
+
+        set_cached_quota_limits_without_recordings(&mut response);
+
+        assert_eq!(response.quota_limited, None);
+    }
+
+    #[test]
+    fn test_sanitize_removes_site_apps_js() {
+        // siteAppsJS contains raw transpiled JavaScript, only needed for array.js bundle
+        let mut cached = json!({
+            "siteApps": [{"id": 1, "url": "https://example.com/app.js"}],
+            "siteAppsJS": "function() { console.log('raw js'); }",
+            "heatmaps": true
         });
-        assert_eq!(response.config.capture_performance, Some(expected));
-    }
 
-    #[test]
-    fn test_capture_performance_both_enabled_with_metrics() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.capture_performance_opt_in = Some(true);
-        team.autocapture_web_vitals_opt_in = Some(true);
-        team.autocapture_web_vitals_allowed_metrics = Some(Json(json!(["CLS", "FCP", "LCP"])));
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        let expected = json!({
-            "network_timing": true,
-            "web_vitals": true,
-            "web_vitals_allowed_metrics": ["CLS", "FCP", "LCP"]
-        });
-        assert_eq!(response.config.capture_performance, Some(expected));
-    }
-
-    #[test]
-    fn test_autocapture_exceptions_enabled() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.autocapture_exceptions_opt_in = Some(true);
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        let expected = json!({"endpoint": "/e/"});
-        assert_eq!(response.config.autocapture_exceptions, Some(expected));
-    }
-
-    #[test]
-    fn test_autocapture_exceptions_disabled() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.autocapture_exceptions_opt_in = Some(false);
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert_eq!(response.config.autocapture_exceptions, Some(json!(false)));
-    }
-
-    #[test]
-    fn test_autocapture_exceptions_none() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let team = create_base_team(); // autocapture_exceptions_opt_in is None
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert_eq!(response.config.autocapture_exceptions, Some(json!(false)));
-    }
-
-    #[test]
-    fn test_surveys_enabled() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.surveys_opt_in = Some(true);
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert_eq!(response.config.surveys, Some(json!(true)));
-    }
-
-    #[test]
-    fn test_surveys_disabled() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.surveys_opt_in = Some(false);
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert_eq!(response.config.surveys, Some(json!(false)));
-    }
-
-    #[test]
-    fn test_heatmaps_enabled() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.heatmaps_opt_in = Some(true);
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert_eq!(response.config.heatmaps, Some(true));
-    }
-
-    #[test]
-    fn test_heatmaps_disabled() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.heatmaps_opt_in = Some(false);
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert_eq!(response.config.heatmaps, Some(false));
-    }
-
-    #[test]
-    fn test_flags_persistence_default_enabled() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.flags_persistence_default = Some(true);
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert_eq!(response.config.flags_persistence_default, Some(true));
-    }
-
-    #[test]
-    fn test_flags_persistence_default_disabled() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.flags_persistence_default = Some(false);
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert_eq!(response.config.flags_persistence_default, Some(false));
-    }
-
-    #[test]
-    fn test_autocapture_opt_out_enabled() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.autocapture_opt_out = Some(true);
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert!(response.config.autocapture_opt_out.unwrap());
-    }
-
-    #[test]
-    fn test_autocapture_opt_out_disabled() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.autocapture_opt_out = Some(false);
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert!(!response.config.autocapture_opt_out.unwrap());
-    }
-
-    #[test]
-    fn test_capture_dead_clicks_enabled() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.capture_dead_clicks = Some(true);
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert_eq!(response.config.capture_dead_clicks, Some(true));
-    }
-
-    #[test]
-    fn test_capture_dead_clicks_disabled() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
-
-        team.capture_dead_clicks = Some(false);
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert_eq!(response.config.capture_dead_clicks, Some(false));
-    }
-
-    #[test]
-    fn test_all_optional_fields_none() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let team = create_base_team(); // all optional fields are None/false
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        tracing::debug!("response: {:?}", response);
-
-        // Test that defaults are applied correctly
-        assert_eq!(response.config.surveys, Some(json!(false)));
-        assert_eq!(response.config.heatmaps, Some(false));
-        assert_eq!(response.config.flags_persistence_default, Some(false));
-        assert_eq!(response.config.autocapture_exceptions, Some(json!(false)));
-        assert_eq!(response.config.capture_performance, Some(json!(false)));
-        assert!(!response.config.autocapture_opt_out.unwrap());
-        assert!(response.config.capture_dead_clicks.is_none());
-    }
-
-    #[test]
-    fn test_team_exclusion_all_teams() {
-        let mut config = Config::default_test_config();
-        config.new_analytics_capture_excluded_team_ids = TeamIdCollection::All; // All means exclude all teams
-        config.element_chain_as_string_excluded_teams = TeamIdCollection::All; // All means exclude all teams
-
-        let mut response = create_base_response();
-        let team = create_base_team();
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        // Both should be disabled/None for excluded teams
-        assert!(response.config.analytics.is_none());
-        assert!(response.config.elements_chain_as_string.is_none());
-    }
-
-    #[test]
-    fn test_team_exclusion_specific_teams() {
-        let mut config = Config::default_test_config();
-        config.new_analytics_capture_excluded_team_ids = TeamIdCollection::TeamIds(vec![1, 3, 4]); // team 1 is in list, so excluded
-        config.element_chain_as_string_excluded_teams = TeamIdCollection::TeamIds(vec![1, 3, 4]); // team 1 is in list, so excluded
-        config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
-
-        let mut response = create_base_response();
-        let team = create_base_team(); // team.id = 1
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        // Both should be disabled/None for team id 1 (in exclusion list)
-        assert!(response.config.analytics.is_none());
-        assert!(response.config.elements_chain_as_string.is_none());
-    }
-
-    #[test]
-    fn test_team_not_in_exclusion_list() {
-        let mut config = Config::default_test_config();
-        config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None; // None means exclude nobody
-        config.element_chain_as_string_excluded_teams = TeamIdCollection::None; // None means exclude nobody
-        config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
-
-        let mut response = create_base_response();
-        let team = create_base_team(); // team.id = 1
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        // Both should be enabled for team id 1 (not in exclusion list)
-        assert!(response.config.analytics.is_some());
-        assert_eq!(response.config.elements_chain_as_string, Some(true));
-    }
-
-    #[test]
-    fn test_session_recording_disabled() {
-        let mut team = create_base_team();
-        team.session_recording_opt_in = false; // Disabled
-
-        let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers);
-
-        // Should return disabled=false when session recording is off
-        if let Some(SessionRecordingField::Disabled(enabled)) = result {
-            assert!(!enabled);
-        } else {
-            panic!("Expected SessionRecordingField::Disabled(false)");
-        }
-    }
-
-    #[test]
-    fn test_session_recording_enabled_no_rrweb_script() {
-        let mut team = create_base_team();
-        team.session_recording_opt_in = true; // Enabled
-
-        let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers);
-
-        // Should return config with no script_config since rrweb script is not configured
-        if let Some(SessionRecordingField::Config(config)) = result {
-            assert_eq!(config.endpoint, Some("/s/".to_string()));
-            assert_eq!(config.recorder_version, Some("v2".to_string()));
-            assert!(config.script_config.is_none()); // No script config
-        } else {
-            panic!("Expected SessionRecordingField::Config");
-        }
+        sanitize_config_for_client(&mut cached, &HeaderMap::new());
+
+        assert!(
+            cached.get("siteAppsJS").is_none(),
+            "siteAppsJS must be removed"
+        );
+        assert!(
+            cached.get("siteApps").is_some(),
+            "siteApps should be preserved"
+        );
+        assert_eq!(cached.get("heatmaps"), Some(&json!(true)));
     }
 
     #[test]
     fn test_session_recording_empty_domains_allowed() {
-        let mut team = create_base_team();
-        team.session_recording_opt_in = true;
-        team.recording_domains = Some(vec![]); // Empty domains list
+        // Empty domains list means "allow all" - recording should remain enabled
+        let mut cached = json!({
+            "sessionRecording": {
+                "endpoint": "/s/",
+                "domains": []
+            }
+        });
 
-        let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers);
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://any.site.com".parse().unwrap());
 
-        // Should return config (enabled) when recording_domains is empty list
-        if let Some(SessionRecordingField::Config(_)) = result {
-            // Test passes if we reach this point
-        } else {
-            panic!("Expected SessionRecordingField::Config when recording_domains is empty list");
-        }
+        sanitize_config_for_client(&mut cached, &headers);
+
+        let sr = cached.get("sessionRecording").unwrap();
+        assert!(sr.is_object(), "sessionRecording should remain as config");
+        assert!(sr.get("domains").is_none(), "domains must be stripped");
     }
 
     #[test]
-    fn test_session_recording_no_domains_allowed() {
-        let mut team = create_base_team();
-        team.session_recording_opt_in = true;
-        team.recording_domains = None; // No domains list
+    fn test_session_recording_no_domains_field_allowed() {
+        // No domains field means "allow all" - recording should remain enabled
+        // Note: Python always includes domains field, so this is defensive
+        let mut cached = json!({
+            "sessionRecording": {
+                "endpoint": "/s/"
+            }
+        });
 
-        let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers);
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://any.site.com".parse().unwrap());
 
-        // Should return config (enabled) when recording_domains is empty list
-        if let Some(SessionRecordingField::Config(_)) = result {
-            // Test passes if we reach this point
-        } else {
-            panic!("Expected SessionRecordingField::Config when recording_domains is empty list");
-        }
+        sanitize_config_for_client(&mut cached, &headers);
+
+        let sr = cached.get("sessionRecording").unwrap();
+        assert!(sr.is_object());
     }
 
     #[test]
-    fn test_extra_settings_not_exposed_in_response() {
-        let mut response = create_base_response();
-        let config = Config::default_test_config();
-        let mut team = create_base_team();
+    fn test_session_recording_domain_not_permitted_disables_recording() {
+        // Request from non-permitted domain should disable recording entirely
+        let mut cached = json!({
+            "sessionRecording": {
+                "endpoint": "/s/",
+                "domains": ["https://allowed.example.com"]
+            }
+        });
 
-        team.extra_settings = Some(Json(json!({"internal_config": {"nested": "data"}})));
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://evil.site.com".parse().unwrap());
 
-        apply_core_config_fields(&mut response, &config, &team);
+        sanitize_config_for_client(&mut cached, &headers);
 
-        let serialized = serde_json::to_string(&response).expect("Failed to serialize response");
-        assert!(
-            !serialized.contains("extra_settings"),
-            "Response should not contain extra_settings field"
+        assert_eq!(
+            cached.get("sessionRecording"),
+            Some(&json!(false)),
+            "sessionRecording must be false when domain not permitted"
         );
+    }
+
+    #[test]
+    fn test_session_recording_domain_permitted_preserves_config() {
+        // Request from permitted domain should preserve config and strip domains
+        let mut cached = json!({
+            "sessionRecording": {
+                "endpoint": "/s/",
+                "consoleLogRecordingEnabled": true,
+                "domains": ["https://allowed.example.com"]
+            }
+        });
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://allowed.example.com".parse().unwrap());
+
+        sanitize_config_for_client(&mut cached, &headers);
+
+        let sr = cached.get("sessionRecording").unwrap();
+        assert!(sr.is_object());
+        assert_eq!(sr.get("endpoint"), Some(&json!("/s/")));
+        assert_eq!(sr.get("consoleLogRecordingEnabled"), Some(&json!(true)));
+        assert!(sr.get("domains").is_none(), "domains must be stripped");
+    }
+
+    #[test]
+    fn test_session_recording_already_false_unchanged() {
+        // sessionRecording=false (e.g., opt-out) should pass through unchanged
+        let mut cached = json!({
+            "sessionRecording": false
+        });
+
+        sanitize_config_for_client(&mut cached, &HeaderMap::new());
+
+        assert_eq!(cached.get("sessionRecording"), Some(&json!(false)));
     }
 }

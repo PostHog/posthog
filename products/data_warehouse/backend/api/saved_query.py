@@ -10,6 +10,7 @@ from django.db.models.functions import Cast
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -17,7 +18,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from temporalio.client import ScheduleActionExecutionStartWorkflow
 
-from posthog.schema import DataWarehouseManagedViewsetKind
+from posthog.schema import DataWarehouseManagedViewsetKind, ProductKey
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
@@ -28,6 +29,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -42,7 +44,10 @@ from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
     pause_saved_query_schedule,
+    saved_query_workflow_exists,
+    sync_saved_query_workflow,
     trigger_saved_query_schedule,
+    unpause_saved_query_schedule,
 )
 from products.data_warehouse.backend.models import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -262,7 +267,14 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             # Store the activity log in the serializer context
             if activity_log:
                 self.context["activity_log"] = activity_log
+        # best effort sync to new data modeling DAG representation
+        try:
+            from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
 
+            sync_saved_query_to_dag(view)
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
@@ -275,8 +287,6 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             before_update = None
 
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
-        was_sync_frequency_updated = False
-
         soft_update = validated_data.pop("soft_update", False)
 
         with transaction.atomic():
@@ -297,16 +307,12 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                     raise serializers.ValidationError("The query was modified by someone else.")
 
             if sync_frequency == "never":
-                pause_saved_query_schedule(str(locked_instance.id))
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
-                validated_data["is_materialized"] = True
             elif sync_frequency:
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
-                was_sync_frequency_updated = True
                 locked_instance.sync_frequency_interval = sync_frequency_interval
-                validated_data["is_materialized"] = True
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
@@ -339,7 +345,8 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
 
             try:
                 view.setup_model_paths()
-            except Exception:
+            except Exception as e:
+                capture_exception(e)
                 logger.exception("Failed to update model path when updating view %s", view.name)
 
             team = Team.objects.get(id=view.team_id)
@@ -367,18 +374,30 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                     .first()
                 )
                 self.context["activity_log"] = latest_activity_log
-            if sync_frequency and sync_frequency != "never":
+            # update the temporal schedule if it exists
+            temporal_schedule_exists = saved_query_workflow_exists(view)
+            if temporal_schedule_exists:
                 try:
-                    view.setup_model_paths()
+                    if sync_frequency == "never":
+                        pause_saved_query_schedule(view)
+                    elif sync_frequency:
+                        sync_saved_query_workflow(view, create=not temporal_schedule_exists)
                 except Exception as e:
-                    posthoganalytics.capture_exception(e)
-                    logger.exception("Failed to update model path when updating view %s", view.name)
+                    capture_exception(e)
+                    logger.exception(
+                        "Failed to update temporal schedule when updating view: view=%s sync_frequency=%s",
+                        view.name,
+                        sync_frequency,
+                    )
+        # best effort sync to new data modeling DAG representation
+        if "query" in validated_data:
+            try:
+                from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
 
-        if was_sync_frequency_updated:
-            view.schedule_materialization(
-                unpause=before_update is not None and before_update.sync_frequency_interval is None
-            )
-
+                sync_saved_query_to_dag(view)
+            except Exception as e:
+                capture_exception(e)
+                logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
         return view
 
     def validate_query(self, query):
@@ -433,6 +452,7 @@ class DataWarehouseSavedQueryPagination(PageNumberPagination):
     page_size = 1000
 
 
+@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -529,12 +549,25 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        instance: DataWarehouseSavedQuery = self.get_object()
+        from products.data_modeling.backend.services.saved_query_dag_sync import (
+            HasDependentsError,
+            delete_node_from_dag,
+        )
 
+        instance: DataWarehouseSavedQuery = self.get_object()
         if instance.managed_viewset is not None:
             raise serializers.ValidationError(
                 "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
             )
+        try:
+            delete_node_from_dag(instance)
+        except HasDependentsError:
+            raise serializers.ValidationError(
+                "Cannot delete this view because other views depend on it. Delete or update those views first."
+            )
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Failed to delete node for saved query", saved_query_name=instance.name)
 
         for join in DataWarehouseJoin.objects.filter(
             Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
@@ -568,7 +601,76 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         saved_query.revert_materialization()
 
+        # set data modeling node type to view
+        try:
+            from products.data_modeling.backend.models.node import NodeType
+            from products.data_modeling.backend.services.saved_query_dag_sync import update_node_type
+
+            update_node_type(saved_query, NodeType.VIEW)
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Failed to update node type to view", saved_query_name=saved_query.name)
+
         return response.Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def materialize(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """
+        Enable materialization for this saved query with a 24-hour sync frequency.
+        """
+        saved_query: DataWarehouseSavedQuery = self.get_object()
+
+        if saved_query.managed_viewset is not None:
+            raise serializers.ValidationError("Cannot materialize a query from a managed viewset.")
+
+        sync_frequency_interval = sync_frequency_to_sync_frequency_interval("24hour")
+
+        should_unpause = saved_query.sync_frequency_interval is None
+
+        saved_query.sync_frequency_interval = sync_frequency_interval
+        saved_query.is_materialized = True
+        saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
+
+        # Enable materialization - this handles model path setup and schedule creation
+        # If this fails, it will set is_materialized = False
+        saved_query.schedule_materialization(unpause=should_unpause)
+
+        # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
+        saved_query.refresh_from_db()
+        if saved_query.is_materialized is False:
+            return response.Response(
+                {"error": "Materialization failed. Please try again or contact support."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # set data modeling node type to matview
+        try:
+            from products.data_modeling.backend.models.node import NodeType
+            from products.data_modeling.backend.services.saved_query_dag_sync import update_node_type
+
+            update_node_type(saved_query, NodeType.MAT_VIEW)
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Failed to update node type to matview", saved_query_name=saved_query.name)
+
+        return response.Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False)
+    def resume_schedules(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """
+        Resume paused materialization schedules for multiple matviews.
+
+        Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
+        This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
+        """
+        view_ids = request.data.get("view_ids", [])
+        if not view_ids:
+            return response.Response({"error": "view_ids is required"}, status=status.HTTP_400_BAD_REQUEST)
+        saved_queries = DataWarehouseSavedQuery.objects.filter(id__in=view_ids, team_id=self.team_id)
+        for saved_query in saved_queries:
+            if saved_query_workflow_exists(saved_query):
+                unpause_saved_query_schedule(saved_query)
+        return response.Response(status=status.HTTP_202_ACCEPTED)
 
     @action(methods=["POST"], detail=True)
     def ancestors(self, request: request.Request, *args, **kwargs) -> response.Response:

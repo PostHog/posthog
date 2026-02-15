@@ -284,9 +284,9 @@ class PremiumFeaturePermission(BasePermission):
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        assert hasattr(
-            view, "premium_feature"
-        ), "this permission class requires the `premium_feature` attribute to be set in the view."
+        assert hasattr(view, "premium_feature"), (
+            "this permission class requires the `premium_feature` attribute to be set in the view."
+        )
 
         if not request.user or not request.user.organization:  # type: ignore
             return True
@@ -312,9 +312,9 @@ class SharingTokenPermission(BasePermission):
         return request.successful_authenticator.sharing_configuration.can_access_object(object)
 
     def has_permission(self, request, view) -> bool:
-        assert hasattr(
-            view, "sharing_enabled_actions"
-        ), "SharingTokenPermission requires the `sharing_enabled_actions` attribute to be set in the view"
+        assert hasattr(view, "sharing_enabled_actions"), (
+            "SharingTokenPermission requires the `sharing_enabled_actions` attribute to be set in the view"
+        )
 
         if isinstance(
             request.successful_authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication
@@ -340,6 +340,10 @@ class TimeSensitiveActionPermission(BasePermission):
 
     def has_permission(self, request, view) -> bool:
         if not isinstance(request.successful_authenticator, SessionAuthentication):
+            return True
+
+        exclude_actions = getattr(view, "time_sensitive_exclude_actions", [])
+        if getattr(view, "action", None) in exclude_actions:
             return True
 
         allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)

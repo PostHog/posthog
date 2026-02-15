@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -15,7 +16,6 @@ import {
     VALID_SELF_MANAGED_MARKETING_SOURCES,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
-import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import {
     ExternalDataSourceType,
     ProductIntentContext,
@@ -165,7 +165,7 @@ export const buildKeaFormDefaultFromSourceDetails = (
 
             return defaults
         },
-        { prefix: '', payload: {} } as Record<string, any>
+        { prefix: '', description: '', payload: {} } as Record<string, any>
     )
 }
 
@@ -276,7 +276,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['loadSources'],
             teamLogic,
             ['addProductIntent'],
-            activationLogic,
+            globalSetupLogic,
             ['markTaskAsCompleted'],
         ],
     })),
@@ -332,21 +332,23 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         source: [
-            { payload: {}, prefix: '' } as {
+            { payload: {}, prefix: '', description: '' } as {
                 prefix: string
+                description: string
                 payload: Record<string, any>
             },
             {
                 updateSource: (state, { source }) => {
                     return {
                         prefix: source.prefix ?? state.prefix,
+                        description: source.description ?? state.description,
                         payload: {
                             ...state.payload,
                             ...source.payload,
                         },
                     }
                 },
-                clearSource: () => ({ payload: {}, prefix: '' }),
+                clearSource: () => ({ payload: {}, prefix: '', description: '' }),
             },
         ],
         isLoading: [
@@ -406,15 +408,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.DataPipelines,
-                        name: 'Data pipelines',
-                        path: urls.dataPipelines('overview'),
-                        iconType: 'data_pipeline',
-                    },
-                    {
-                        key: [Scene.DataPipelines, 'sources'],
-                        name: `Sources`,
-                        path: urls.dataPipelines('sources'),
+                        key: Scene.Sources,
+                        name: 'Sources',
+                        path: urls.sources(),
                         iconType: 'data_pipeline',
                     },
                     {
@@ -512,6 +508,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     name: manualLinkSourceMap[source],
                     type: source,
                 })),
+        ],
+        isSelfManagedSource: [
+            (s) => [s.manualLinkingProvider],
+            (manualLinkingProvider: ManualLinkSourceType | null): boolean => manualLinkingProvider !== null,
         ],
         tablesAllToggledOn: [
             (s) => [s.databaseSchema],
@@ -674,7 +674,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         closeWizard: () => {
             actions.cancelWizard()
-            router.actions.push(urls.dataPipelines('sources'))
+            router.actions.push(urls.sources())
         },
         cancelWizard: () => {
             actions.onClear()
@@ -699,7 +699,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setSourceId(id)
                 actions.resetSourceConnectionDetails()
                 actions.loadSources(null)
-                actions.markTaskAsCompleted(ActivationTask.ConnectSource)
+                actions.markTaskAsCompleted(SetupTaskId.ConnectFirstSource)
                 actions.onNext()
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)

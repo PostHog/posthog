@@ -10,16 +10,17 @@
         "build",
         "rust",
         "cli",
-        "plugin-server",
+        "nodejs",
         "common/hogvm/typescript",
         "common/hogvm/typescript/dist",
         "common/plugin_transpiler/dist",
         "common/hogvm/__tests__/__snapshots__",
         "common/hogvm/__tests__/__snapshots__/**",
         "frontend/src/queries/validators.js",
-        "products/mcp/**/generated.ts",
-        "products/mcp/schema/tool-inputs.json",
-        "products/mcp/python"
+        "frontend/src/generated/**",
+        "services/mcp/**/generated.ts",
+        "services/mcp/schema/tool-inputs.json",
+        "products/**/frontend/generated/**"
     ],
     "rules": {
         "no-constant-condition": "off",
@@ -239,6 +240,23 @@
             "files": ["*.stories.tsx"],
             "rules": {
                 "react-hooks/rules-of-hooks": "off"
+            }
+        },
+        {
+            "files": ["services/mcp/src/ui-apps/**/*.ts"],
+            "rules": {
+                "no-console": [
+                    "error",
+                    {
+                        "allow": ["debug", "info", "warn", "error"]
+                    }
+                ]
+            }
+        },
+        {
+            "files": ["docs/onboarding/**/*.tsx"],
+            "rules": {
+                "react/forbid-elements": "off"
             }
         }
     ]

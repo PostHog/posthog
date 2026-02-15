@@ -13,6 +13,7 @@ from posthog.schema import (
     CompareFilter,
     DataWarehouseNode,
     EventsNode,
+    GroupNode,
     HogQLQueryModifiers,
     TrendsFilter,
     TrendsQuery,
@@ -30,7 +31,7 @@ from posthog.hogql_queries.insights.trends.aggregation_operations import (
 )
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import is_groups_math
+from posthog.hogql_queries.insights.trends.utils import group_node_to_expr, is_groups_math
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -44,7 +45,7 @@ class TrendsActorsQueryBuilder:
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
 
-    entity: EventsNode | ActionsNode
+    entity: EventsNode | ActionsNode | GroupNode
     time_frame: Optional[datetime]
     breakdown_value: Optional[str | int | list[str]] = None
     compare_value: Optional[Compare] = None
@@ -353,7 +354,8 @@ class TrendsActorsQueryBuilder:
                     left=ast.Field(chain=["event"]),
                     right=ast.Constant(value=str(self.entity.event)),
                 )
-
+        elif isinstance(self.entity, GroupNode):
+            return group_node_to_expr(self.entity, self.team)
         else:
             raise ValueError(f"Invalid entity kind {self.entity.kind}")
 
@@ -393,17 +395,17 @@ class TrendsActorsQueryBuilder:
         actors_to_op: ast.CompareOperationOp = ast.CompareOperationOp.Lt
 
         if self.is_total_value:
-            assert (
-                self.time_frame is None
-            ), "A `day` is forbidden for trends actors queries with total value aggregation"
+            assert self.time_frame is None, (
+                "A `day` is forbidden for trends actors queries with total value aggregation"
+            )
 
             actors_from = query_from
             actors_to = query_to
             actors_to_op = ast.CompareOperationOp.LtEq
         else:
-            assert (
-                self.time_frame is not None
-            ), "A `day` is required for trends actors queries without total value aggregation"
+            assert self.time_frame is not None, (
+                "A `day` is required for trends actors queries without total value aggregation"
+            )
 
             # use previous day/week/... for time_frame
             if self.is_compare_previous:

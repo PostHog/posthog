@@ -27,6 +27,7 @@ Manual operations:
 
 import time
 from collections import defaultdict
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
@@ -35,6 +36,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 import structlog
 
@@ -74,10 +76,15 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     wrapped in a dict that HyperCache can serialize. The actual flag data is in the
     "flags" key as a list of flag dictionaries.
 
+    Encrypted remote config flags are excluded since they can only be accessed via
+    the dedicated /remote_config endpoint which handles decryption. Including them
+    in /flags would return unusable encrypted ciphertext.
+
     Returns:
         dict: {"flags": [...]} where flags is a list of flag dictionaries
     """
-    flags = get_feature_flags(team=team)
+    # Exclude encrypted remote config flags at DB level for efficiency
+    flags = get_feature_flags(team=team, exclude_encrypted_remote_config=True)
     flags_data = serialize_feature_flags(flags)
 
     logger.info(
@@ -98,6 +105,10 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     This avoids N+1 queries by loading all flags for all teams at once,
     then grouping them by team_id.
 
+    Encrypted remote config flags are excluded since they can only be accessed via
+    the dedicated /remote_config endpoint which handles decryption. Including them
+    in /flags would return unusable encrypted ciphertext.
+
     Args:
         teams: List of Team objects to load flags for
 
@@ -107,11 +118,20 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     if not teams:
         return {}
 
-    # Load all flags for all teams in one query with evaluation tags pre-loaded
+    # Load all flags for all teams in one query with evaluation tags pre-loaded.
+    # Include disabled flags (active=False) so flag dependencies can reference them
+    # and evaluate them as false, rather than raising DependencyNotFound errors.
+    # Exclude encrypted remote config flags - they can only be accessed via the
+    # dedicated /remote_config endpoint which handles decryption.
+    # Note: We intentionally don't select_related("team") here because we only need
+    # team_id (already on the model) for grouping, and the Team objects are already
+    # loaded by the caller. Avoiding the join saves memory.
     all_flags = list(
-        FeatureFlag.objects.filter(team__in=teams, active=True, deleted=False)
-        .select_related("team")
-        .annotate(
+        FeatureFlag.objects.filter(
+            ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
+            team__in=teams,
+            deleted=False,
+        ).annotate(
             evaluation_tag_names_agg=ArrayAgg(
                 "evaluation_tags__tag__name",
                 filter=Q(evaluation_tags__isnull=False),
@@ -375,6 +395,37 @@ def _get_team_ids_with_flags() -> set[int]:
     return result
 
 
+def _get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
+    """
+    Batch check which teams have active flags updated within the grace period.
+
+    When a flag is updated, an async task updates the cache. If verification
+    runs before the async task completes, it sees a stale cache and tries to
+    "fix" it, causing unnecessary work. This grace period lets recent async
+    updates complete before treating cache misses as genuine errors.
+
+    Only considers active, non-deleted flags. When a flag is deleted or
+    deactivated, the cache update removes it, so we shouldn't skip verification
+    just because a deleted/inactive flag was recently updated.
+
+    Args:
+        team_ids: List of team IDs to check
+
+    Returns:
+        Set of team IDs that have recently updated active flags (should skip fix)
+    """
+    grace_period_minutes = settings.FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES
+    if grace_period_minutes <= 0 or not team_ids:
+        return set()
+
+    cutoff = timezone.now() - timedelta(minutes=grace_period_minutes)
+    return set(
+        FeatureFlag.objects.filter(team_id__in=team_ids, updated_at__gte=cutoff, active=True, deleted=False)
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
+
+
 # Initialize hypercache management config after update_flags_cache is defined
 FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=flags_hypercache,
@@ -382,6 +433,7 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     cache_name="flags",
     get_team_ids_needing_full_verification_fn=_get_team_ids_with_flags,
     empty_cache_value={"flags": []},
+    get_team_ids_to_skip_fix_fn=_get_team_ids_with_recently_updated_flags,
 )
 
 

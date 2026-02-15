@@ -17,6 +17,21 @@ const esmModules = [
     'escape-string-regexp',
     'unist-util-visit-parents',
     'unist-util-is',
+    '@tiptap',
+    'lowlight',
+    'devlop',
+    'hast-util-to-html',
+    'html-void-elements',
+    'property-information',
+    'stringify-entities',
+    'character-entities-html4',
+    'character-entities-legacy',
+    'ccount',
+    'hast-util-whitespace',
+    'space-separated-tokens',
+    'comma-separated-tokens',
+    'zwitch',
+    '@posthog/hogql-parser',
 ]
 function rootDirectories(): string[] {
     return ['<rootDir>/src', '<rootDir>/../products']
@@ -107,7 +122,6 @@ const config: Config = {
         '^scenes/(.*)$': '<rootDir>/src/scenes/$1',
         '^products/(.*)$': '<rootDir>/../products/$1',
         '^common/(.*)$': '<rootDir>/../common/$1',
-        '^react-virtualized/dist/es/(.*)$': 'react-virtualized/dist/commonjs/$1',
         '^@posthog/rrweb/es/rrweb': '@posthog/rrweb/dist/rrweb.min.js',
         d3: '<rootDir>/node_modules/d3/dist/d3.min.js',
         '^d3-(.*)$': `d3-$1/dist/d3-$1`,
@@ -180,7 +194,7 @@ const config: Config = {
     // ],
 
     // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
-    testPathIgnorePatterns: ['/node_modules/', '/products/mcp/'],
+    testPathIgnorePatterns: ['/node_modules/', '/services/mcp/'],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files
     // testRegex: [],

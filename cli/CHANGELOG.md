@@ -1,8 +1,40 @@
 # posthog-cli
 
-# 0.6.0
+# 0.5.30
 
 - Add experimental dSYM upload for iOS/macOS crash symbolication
+
+# 0.5.29
+
+- chore: introduce env variable `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` (backwards compatible)
+
+# 0.5.28
+
+- chore: introduce `--release-name` and `--release-version` options (backwards compatible)
+
+# 0.5.27
+
+- fix: only warns on release id mismatch errors
+
+# 0.5.26
+
+- feat: use env variables provided by github actions when available
+
+# 0.5.24
+
+- chore: add endpoints use case to cli auth flow
+
+# 0.5.23
+
+- feat: add experimental commands for endpoints management
+
+# 0.5.22
+
+- feat: add `--project` and `--version` to upload command to define release
+
+# 0.5.20
+
+- chore: add global `--rate-limit` option for Posthog client
 
 # 0.5.19
 

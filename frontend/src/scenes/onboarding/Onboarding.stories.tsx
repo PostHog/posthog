@@ -2,7 +2,6 @@ import { Meta } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -114,7 +113,9 @@ export const SDKInstall = (): JSX.Element => {
 
     useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL))
+        router.actions.push(
+            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
+        )
     })
 
     return <App />
@@ -129,7 +130,9 @@ export const LLMAnalyticsSDKInstall = (): JSX.Element => {
 
     useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.LLM_ANALYTICS])
-        router.actions.push(urls.onboarding(ProductKey.LLM_ANALYTICS, OnboardingStepKey.INSTALL))
+        router.actions.push(
+            urls.onboarding({ productKey: ProductKey.LLM_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
+        )
     })
 
     return <App />
@@ -148,7 +151,12 @@ export const ProductAnalyticsConfiguration = (): JSX.Element => {
 
     useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.PRODUCT_CONFIGURATION))
+        router.actions.push(
+            urls.onboarding({
+                productKey: ProductKey.PRODUCT_ANALYTICS,
+                stepKey: OnboardingStepKey.PRODUCT_CONFIGURATION,
+            })
+        )
     })
 
     return <App />
@@ -160,7 +168,9 @@ export const SessionReplayConfiguration = (): JSX.Element => {
 
     useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.SESSION_REPLAY])
-        router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.PRODUCT_CONFIGURATION))
+        router.actions.push(
+            urls.onboarding({ productKey: ProductKey.SESSION_REPLAY, stepKey: OnboardingStepKey.PRODUCT_CONFIGURATION })
+        )
     })
 
     return <App />
@@ -172,7 +182,9 @@ export const SessionReplayOptIn = (): JSX.Element => {
 
     useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.SESSION_REPLAY))
+        router.actions.push(
+            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.SESSION_REPLAY })
+        )
     })
 
     return <App />
@@ -188,7 +200,9 @@ export const AuthorizedDomains = (): JSX.Element => {
 
     useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.WEB_ANALYTICS])
-        router.actions.push(urls.onboarding(ProductKey.WEB_ANALYTICS, OnboardingStepKey.AUTHORIZED_DOMAINS))
+        router.actions.push(
+            urls.onboarding({ productKey: ProductKey.WEB_ANALYTICS, stepKey: OnboardingStepKey.AUTHORIZED_DOMAINS })
+        )
     })
 
     return <App />
@@ -204,7 +218,9 @@ export const LinkData = (): JSX.Element => {
 
     useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.DATA_WAREHOUSE])
-        router.actions.push(urls.onboarding(ProductKey.DATA_WAREHOUSE, OnboardingStepKey.LINK_DATA))
+        router.actions.push(
+            urls.onboarding({ productKey: ProductKey.DATA_WAREHOUSE, stepKey: OnboardingStepKey.LINK_DATA })
+        )
     })
 
     return <App />
@@ -220,7 +236,9 @@ export const SourceMaps = (): JSX.Element => {
 
     useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.ERROR_TRACKING])
-        router.actions.push(urls.onboarding(ProductKey.ERROR_TRACKING, OnboardingStepKey.SOURCE_MAPS))
+        router.actions.push(
+            urls.onboarding({ productKey: ProductKey.ERROR_TRACKING, stepKey: OnboardingStepKey.SOURCE_MAPS })
+        )
     })
 
     return <App />
@@ -232,7 +250,30 @@ export const Alerts = (): JSX.Element => {
 
     useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.ERROR_TRACKING])
-        router.actions.push(urls.onboarding(ProductKey.ERROR_TRACKING, OnboardingStepKey.ALERTS))
+        router.actions.push(
+            urls.onboarding({ productKey: ProductKey.ERROR_TRACKING, stepKey: OnboardingStepKey.ALERTS })
+        )
+    })
+
+    return <App />
+}
+
+// ==========================================
+// Workflows
+// ==========================================
+
+export const WorkflowsCustomInstallationInstructions = (): JSX.Element => {
+    useMountedLogic(onboardingLogic)
+    const { setProduct } = useActions(onboardingLogic)
+
+    useDelayedOnMountEffect(() => {
+        setProduct(availableOnboardingProducts[ProductKey.WORKFLOWS])
+        router.actions.push(
+            urls.onboarding({
+                productKey: ProductKey.WORKFLOWS,
+                stepKey: OnboardingStepKey.INSTALL,
+            })
+        )
     })
 
     return <App />
@@ -257,7 +298,9 @@ export const BillingPlans = (): JSX.Element => {
 
     useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.PLANS))
+        router.actions.push(
+            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.PLANS })
+        )
     })
 
     return <App />
@@ -269,7 +312,9 @@ export const InviteTeammates = (): JSX.Element => {
 
     useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INVITE_TEAMMATES))
+        router.actions.push(
+            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.INVITE_TEAMMATES })
+        )
     })
 
     return <App />
@@ -281,38 +326,10 @@ export const ReverseProxy = (): JSX.Element => {
 
     useDelayedOnMountEffect(() => {
         setProduct(availableOnboardingProducts[ProductKey.FEATURE_FLAGS])
-        router.actions.push(urls.onboarding(ProductKey.FEATURE_FLAGS, OnboardingStepKey.REVERSE_PROXY))
+        router.actions.push(
+            urls.onboarding({ productKey: ProductKey.FEATURE_FLAGS, stepKey: OnboardingStepKey.REVERSE_PROXY })
+        )
     })
 
     return <App />
-}
-
-export const AIConsent = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
-
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.AI_CONSENT))
-    })
-
-    return <App />
-}
-AIConsent.parameters = {
-    featureFlags: [FEATURE_FLAGS.ONBOARDING_AI_CONSENT_STEP],
-}
-
-export const TellUsMore = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
-
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.TELL_US_MORE))
-    })
-
-    return <App />
-}
-TellUsMore.parameters = {
-    featureFlags: [FEATURE_FLAGS.ONBOARDING_TELL_US_MORE_STEP],
 }

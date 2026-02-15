@@ -2,7 +2,7 @@ import pytest
 
 from clickhouse_driver.errors import ServerException
 
-from posthog.errors import ch_error_type, wrap_query_error
+from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
 
 
 @pytest.mark.parametrize(
@@ -10,8 +10,11 @@ from posthog.errors import ch_error_type, wrap_query_error
     [
         (AttributeError("Foobar"), "AttributeError", "Foobar", None, "AttributeError"),
         (
-            ServerException("Estimated query execution time (34.5 seconds) is too long. Aborting query", code=160),
-            "EstimatedQueryExecutionTimeTooLong",
+            ServerException(
+                "Estimated query execution time (34.5 seconds) is too long. Aborting query",
+                code=160,
+            ),
+            "ClickHouseEstimatedQueryExecutionTimeTooLong",
             "Estimated query execution time (34.5 seconds) is too long. Try reducing its scope by changing the time range.",
             None,
             "CHQueryErrorTooSlow",
@@ -77,11 +80,71 @@ from posthog.errors import ch_error_type, wrap_query_error
             499,
             "CHQueryErrorS3Error",
         ),
+        (
+            ServerException(
+                "Code: 43. DB::Exception: Illegal type String of argument of function toInt64.",
+                code=43,
+            ),
+            "CHQueryErrorIllegalTypeOfArgument",
+            "Illegal type String of argument of function toInt64.",
+            43,
+            "CHQueryErrorIllegalTypeOfArgument",
+        ),
+        (
+            ServerException(
+                "Code: 386. DB::Exception: There is no common type for types String, Int64.",
+                code=386,
+            ),
+            "CHQueryErrorNoCommonType",
+            "There is no common type for types String, Int64.",
+            386,
+            "CHQueryErrorNoCommonType",
+        ),
+        (
+            ServerException(
+                "Code: 215. DB::Exception: Column count is not an aggregate function.",
+                code=215,
+            ),
+            "CHQueryErrorNotAnAggregate",
+            "Column count is not an aggregate function.",
+            215,
+            "CHQueryErrorNotAnAggregate",
+        ),
+        (
+            ServerException(
+                "Code: 46. DB::Exception: Unknown function foobar.",
+                code=46,
+            ),
+            "CHQueryErrorUnknownFunction",
+            "Unknown function foobar.",
+            46,
+            "CHQueryErrorUnknownFunction",
+        ),
+        (
+            ServerException(
+                "Code: 53. DB::Exception: Type mismatch in IN or VALUES section.",
+                code=53,
+            ),
+            "CHQueryErrorTypeMismatch",
+            "Type mismatch in IN or VALUES section.",
+            53,
+            "CHQueryErrorTypeMismatch",
+        ),
+        (
+            ServerException(
+                "Code: 184. DB::Exception: Aggregate function sum(count()) is found inside another aggregate function.",
+                code=184,
+            ),
+            "CHQueryErrorIllegalAggregation",
+            "Aggregate function sum(count()) is found inside another aggregate function.",
+            184,
+            "CHQueryErrorIllegalAggregation",
+        ),
     ],
 )
-def test_wrap_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
-    label = ch_error_type(error)
-    new_error = wrap_query_error(error)
+def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
+    label = clickhouse_error_type(error)
+    new_error = wrap_clickhouse_query_error(error)
     assert type(new_error).__name__ == expected_type
     assert str(new_error) == expected_message
     assert getattr(new_error, "code", None) == expected_code

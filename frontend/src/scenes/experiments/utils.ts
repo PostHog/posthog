@@ -62,6 +62,12 @@ export function formatUnitByQuantity(value: number, unit: string): string {
     return value === 1 ? unit : unit + 's'
 }
 
+export function ensureIsPercent(value: string | number | undefined): number {
+    const parsedNum = typeof value === 'string' ? parseInt(value, 10) : (value ?? 0)
+    const num = isNaN(parsedNum) ? 0 : parsedNum
+    return Math.min(100, Math.max(0, num))
+}
+
 export function percentageDistribution(variantCount: number): number[] {
     const basePercentage = Math.floor(100 / variantCount)
     const percentages = new Array(variantCount).fill(basePercentage)
@@ -71,6 +77,11 @@ export function percentageDistribution(variantCount: number): number[] {
         percentages[i] += 1
     }
     return percentages
+}
+
+export function isEvenlyDistributed(variants: MultivariateFlagVariant[]): boolean {
+    const evenPercentages = percentageDistribution(variants.length)
+    return variants.every((variant, index) => variant.rollout_percentage === evenPercentages[index])
 }
 
 export function transformFiltersForWinningVariant(
@@ -295,9 +306,13 @@ export function getViewRecordingFiltersLegacy(
         return []
     } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
         if (metric.exposure_query) {
-            const exposure_filter = seriesToFilterLegacy(metric.exposure_query.series[0], featureFlagKey, variantKey)
-            if (exposure_filter) {
-                filters.push(exposure_filter)
+            const exposureSeries = metric.exposure_query.series[0]
+            // Experiments don't support GroupNode yet - skip if it's a group
+            if (exposureSeries.kind !== NodeKind.GroupNode) {
+                const exposure_filter = seriesToFilterLegacy(exposureSeries, featureFlagKey, variantKey)
+                if (exposure_filter) {
+                    filters.push(exposure_filter)
+                }
             }
         } else {
             filters.push({
@@ -320,9 +335,13 @@ export function getViewRecordingFiltersLegacy(
                 ],
             })
         }
-        const count_filter = seriesToFilterLegacy(metric.count_query.series[0], featureFlagKey, variantKey)
-        if (count_filter) {
-            filters.push(count_filter)
+        const countSeries = metric.count_query.series[0]
+        // Experiments don't support GroupNode yet - skip if it's a group
+        if (countSeries.kind !== NodeKind.GroupNode) {
+            const count_filter = seriesToFilterLegacy(countSeries, featureFlagKey, variantKey)
+            if (count_filter) {
+                filters.push(count_filter)
+            }
         }
         return filters
     }
@@ -816,52 +835,6 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
 }
 
 /**
- * Appends a metric UUID to the appropriate ordering array
- * Returns a new array with the UUID added
- */
-export function appendMetricToOrderingArray(experiment: Experiment, uuid: string, isSecondary: boolean): string[] {
-    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
-    const orderingArray = experiment[orderingField] ?? []
-
-    if (!orderingArray.includes(uuid)) {
-        return [...orderingArray, uuid]
-    }
-
-    return orderingArray
-}
-
-/**
- * Removes a metric UUID from the appropriate ordering array
- * Returns a new array with the UUID removed
- */
-export function removeMetricFromOrderingArray(experiment: Experiment, uuid: string, isSecondary: boolean): string[] {
-    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
-    const orderingArray = experiment[orderingField] ?? []
-
-    return orderingArray.filter((existingUuid) => existingUuid !== uuid)
-}
-
-/**
- * Inserts a metric UUID into the ordering array right after another UUID
- * Returns a new array with the UUID inserted at the correct position
- */
-export function insertMetricIntoOrderingArray(
-    experiment: Experiment,
-    newUuid: string,
-    afterUuid: string,
-    isSecondary: boolean
-): string[] {
-    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
-    const orderingArray = experiment[orderingField] ?? []
-
-    const afterIndex = orderingArray.indexOf(afterUuid)
-
-    const newArray = [...orderingArray]
-    newArray.splice(afterIndex + 1, 0, newUuid)
-    return newArray
-}
-
-/**
  * Initialize ordering arrays for metrics if they're null
  * Returns a new experiment object with initialized ordering arrays
  */
@@ -901,7 +874,7 @@ export function initializeMetricOrdering(experiment: Experiment): Experiment {
  * Maps metrics to their results and errors in the correct display order
  * This handles the complex logic of:
  * 1. Mapping results by index to original metrics array (including shared metrics)
- * 2. Enriching shared metrics with metadata
+ * 2. Enriching shared metrics with metadata, including breakdowns
  * 3. Reordering everything according to the ordered UUIDs
  */
 export function getOrderedMetricsWithResults(
@@ -916,6 +889,7 @@ export function getOrderedMetricsWithResults(
     result: any
     error: any
     displayIndex: number
+    metricIndex: number
 }> {
     const metricType = isSecondary ? 'secondary' : 'primary'
     const results = isSecondary ? secondaryMetricsResults : primaryMetricsResults
@@ -933,6 +907,11 @@ export function getOrderedMetricsWithResults(
             name: sharedMetric.name,
             sharedMetricId: sharedMetric.saved_metric,
             isSharedMetric: true,
+            // Merge breakdowns from metadata into breakdownFilter
+            breakdownFilter: {
+                ...sharedMetric.query?.breakdownFilter,
+                breakdowns: sharedMetric.metadata?.breakdowns || [],
+            },
         })) as ExperimentMetric[]
 
     const allMetrics = [...regularMetrics, ...enrichedSharedMetrics]
@@ -941,6 +920,7 @@ export function getOrderedMetricsWithResults(
     const resultsMap = new Map()
     const errorsMap = new Map()
     const metricsMap = new Map()
+    const originalIndexMap = new Map()
 
     allMetrics.forEach((metric: any, index) => {
         const uuid = metric.uuid || metric.query?.uuid
@@ -948,6 +928,7 @@ export function getOrderedMetricsWithResults(
             resultsMap.set(uuid, results[index])
             errorsMap.set(uuid, errors[index])
             metricsMap.set(uuid, metric)
+            originalIndexMap.set(uuid, index) // Track original position for retry
         }
     })
 
@@ -964,5 +945,6 @@ export function getOrderedMetricsWithResults(
             result: resultsMap.get(metric.uuid),
             error: errorsMap.get(metric.uuid),
             displayIndex: index,
+            metricIndex: originalIndexMap.get(metric.uuid) ?? index, // Original position for retry
         }))
 }

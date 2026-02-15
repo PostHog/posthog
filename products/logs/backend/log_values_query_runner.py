@@ -1,4 +1,5 @@
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 from posthog.schema import IntervalType, LogValueResult, LogValuesQuery, LogValuesQueryResponse
 
@@ -36,6 +37,7 @@ class LogValuesQueryRunner(AnalyticsQueryRunner[LogValuesQueryResponse], LogsQue
             interval=IntervalType.MINUTE,
             interval_count=10,
             now=dt.datetime.now(),
+            timezone_info=ZoneInfo("UTC"),
         )
 
     def to_query(self) -> ast.SelectQuery:
@@ -53,6 +55,7 @@ class LogValuesQueryRunner(AnalyticsQueryRunner[LogValuesQueryResponse], LogsQue
                 AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
                 AND attribute_type = {attributeType}
                 AND attribute_key = {attributeKey}
+                AND attribute_value ILIKE {search}
                 AND {where}
                 GROUP BY team_id, attribute_value
                 ORDER BY sum(attribute_count) desc, attribute_value asc

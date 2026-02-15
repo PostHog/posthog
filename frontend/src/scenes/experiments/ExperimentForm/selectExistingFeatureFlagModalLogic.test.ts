@@ -2,7 +2,12 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
+import {
+    AccessControlLevel,
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagType,
+} from '~/types'
 
 import { FeatureFlagModalFilters, selectExistingFeatureFlagModalLogic } from './selectExistingFeatureFlagModalLogic'
 
@@ -27,11 +32,9 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             created_at: '2021-01-01',
             updated_at: '2021-01-01',
             created_by: null,
-            is_simple_flag: false,
             is_remote_configuration: false,
             deleted: false,
             active: true,
-            rollout_percentage: null,
             experiment_set: null,
             features: null,
             surveys: null,
@@ -45,6 +48,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             last_modified_by: null,
             evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
             evaluation_tags: [],
+            bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
         },
         {
             id: 2,
@@ -64,11 +68,9 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             created_at: '2021-01-02',
             updated_at: '2021-01-02',
             created_by: null,
-            is_simple_flag: false,
             is_remote_configuration: false,
             deleted: false,
             active: true,
-            rollout_percentage: null,
             experiment_set: null,
             features: null,
             surveys: null,
@@ -82,6 +84,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
             last_modified_by: null,
             evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
             evaluation_tags: [],
+            bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
         },
     ]
 

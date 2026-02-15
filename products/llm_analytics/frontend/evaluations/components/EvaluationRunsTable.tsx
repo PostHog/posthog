@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconRefresh, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconCheck, IconMinus, IconRefresh, IconWarning, IconX } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -9,9 +9,10 @@ import { urls } from 'scenes/urls'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun } from '../types'
+import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationSummaryPanel'
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { evaluationRuns, evaluationRunsLoading } = useValues(llmEvaluationLogic)
+    const { evaluationRuns, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
 
     const columns: LemonTableColumns<EvaluationRun> = [
@@ -49,6 +50,13 @@ export function EvaluationRunsTable(): JSX.Element {
                 if (run.status === 'running') {
                     return <LemonTag type="primary">Running...</LemonTag>
                 }
+                if (run.result === null) {
+                    return (
+                        <LemonTag type="muted" icon={<IconMinus />}>
+                            N/A
+                        </LemonTag>
+                    )
+                }
                 return (
                     <div className="flex items-center gap-2">
                         {run.result ? (
@@ -67,16 +75,20 @@ export function EvaluationRunsTable(): JSX.Element {
                 if (a.status !== 'completed' || b.status !== 'completed') {
                     return a.status.localeCompare(b.status)
                 }
-                return Number(b.result) - Number(a.result)
+                const valA = a.result === null ? 0.5 : Number(a.result)
+                const valB = b.result === null ? 0.5 : Number(b.result)
+                return valB - valA
             },
         },
         {
             title: 'Reasoning',
             key: 'reasoning',
             render: (_, run) => (
-                <div className="max-w-md">
-                    <div className="text-sm text-default line-clamp-2">{run.reasoning}</div>
-                </div>
+                <Tooltip title={run.reasoning}>
+                    <div className="max-w-md cursor-default">
+                        <div className="text-sm text-default line-clamp-2">{run.reasoning}</div>
+                    </div>
+                </Tooltip>
             ),
         },
         {
@@ -96,17 +108,21 @@ export function EvaluationRunsTable(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <div className="flex justify-end">
+            <div className="flex justify-between items-center">
+                <EvaluationSummaryControls />
                 <LemonButton
                     type="secondary"
                     icon={<IconRefresh />}
                     onClick={refreshEvaluationRuns}
                     loading={evaluationRunsLoading}
                     size="small"
+                    data-attr="llma-evaluation-refresh-runs"
                 >
                     Refresh
                 </LemonButton>
             </div>
+
+            <EvaluationSummaryPanel runsLookup={runsLookup} />
 
             <LemonTable
                 columns={columns}
@@ -114,7 +130,7 @@ export function EvaluationRunsTable(): JSX.Element {
                 loading={evaluationRunsLoading}
                 rowKey="id"
                 pagination={{
-                    pageSize: 20,
+                    pageSize: 50,
                 }}
                 emptyState={
                     <div className="text-center py-8">

@@ -1,7 +1,6 @@
 import json
 from collections.abc import Iterable
 from typing import Any, cast
-from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -15,9 +14,7 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 from posthog.schema import (
     ArtifactContentType,
     ArtifactSource,
-    AssistantMessage,
     AssistantTrendsQuery,
-    FailureMessage,
     HumanMessage,
     VisualizationArtifactContent,
 )
@@ -92,13 +89,15 @@ class TestSchemaGeneratorNode(BaseTest):
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: DummySchema(
-                    query=self.basic_trends, name="Test Query Name", description="Test Query Description"
+                    query=self.basic_trends,
                 ).model_dump()
             )
             new_state = await node(
                 AssistantState(
                     messages=[HumanMessage(content="Text", id="0")],
                     plan="Test Plan Content",
+                    visualization_title="Test Query Name",
+                    visualization_description="Test Query Description",
                     start_id="0",
                 ),
                 config,
@@ -120,13 +119,15 @@ class TestSchemaGeneratorNode(BaseTest):
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: DummySchema(
-                    query=self.basic_trends, name="Query Name", description="Description"
+                    query=self.basic_trends,
                 ).model_dump()
             )
             new_state = await node(
                 AssistantState(
                     messages=[HumanMessage(content="Text", id="0")],
                     plan=None,
+                    visualization_title="Query Name",
+                    visualization_description="Description",
                     start_id="0",
                 ),
                 config,
@@ -141,7 +142,20 @@ class TestSchemaGeneratorNode(BaseTest):
             self.assertEqual(content.description, "Description")
             self.assertEqual(content.plan, "")
 
-    async def test_agent_reconstructs_conversation_and_does_not_add_an_empty_plan(self):
+    async def test_construct_messages_includes_group_mapping_and_plan(self):
+        node = DummyGeneratorNode(self.team, self.user)
+        history = await node._construct_messages(
+            AssistantState(messages=[HumanMessage(content="Text", id="0")], plan="randomplan", start_id="0")
+        )
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("mapping", history[0].content)
+        self.assertEqual(history[1].type, "human")
+        self.assertIn("the plan", history[1].content)
+        self.assertIn("randomplan", history[1].content)
+        self.assertIn("Generate a schema", history[1].content)
+
+    async def test_construct_messages_with_empty_plan(self):
         node = DummyGeneratorNode(self.team, self.user)
         history = await node._construct_messages(
             AssistantState(messages=[HumanMessage(content="Text", id="0")], start_id="0")
@@ -150,201 +164,22 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertEqual(history[0].type, "human")
         self.assertIn("mapping", history[0].content)
         self.assertEqual(history[1].type, "human")
-        self.assertIn("Answer to this question:", history[1].content)
-        self.assertNotIn("{{question}}", history[1].content)
-
-    async def test_agent_reconstructs_conversation_adds_plan(self):
-        node = DummyGeneratorNode(self.team, self.user)
-        history = await node._construct_messages(
-            AssistantState(
-                messages=[HumanMessage(content="Text", id="0")],
-                plan="randomplan",
-                start_id="0",
-                root_tool_insight_plan="Text",
-            )
-        )
-        self.assertEqual(len(history), 3)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("the plan", history[1].content)
-        self.assertNotIn("{{plan}}", history[1].content)
-        self.assertIn("randomplan", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Answer to this question:", history[2].content)
-        self.assertNotIn("{{question}}", history[2].content)
-        self.assertIn("Text", history[2].content)
-
-    async def test_agent_reconstructs_conversation_can_handle_follow_ups(self):
-        node = DummyGeneratorNode(self.team, self.user)
-        artifact = await AgentArtifact.objects.acreate(
-            team=self.team,
-            conversation=self.conversation,
-            name="Test Artifact",
-            type=AgentArtifact.Type.VISUALIZATION,
-            data=VisualizationArtifactContent(
-                query=self.basic_trends, name="Query", description="Description 1", plan="randomplan"
-            ).model_dump(),
-        )
-        history = await node._construct_messages(
-            AssistantState(
-                messages=[
-                    HumanMessage(content="Multiple questions", id="0"),
-                    ArtifactRefMessage(
-                        content_type=ArtifactContentType.VISUALIZATION,
-                        source=ArtifactSource.ARTIFACT,
-                        artifact_id=str(artifact.short_id),
-                        id="1",
-                    ),
-                    HumanMessage(content="Follow Up", id="2"),
-                ],
-                plan="newrandomplan",
-                start_id="2",
-            )
-        )
-
-        self.assertEqual(len(history), 6)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("the plan", history[1].content)
-        self.assertNotIn("{{plan}}", history[1].content)
-        self.assertIn("randomplan", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Answer to this question:", history[2].content)
-        self.assertNotIn("{{question}}", history[2].content)
-        self.assertIn("Query", history[2].content)
-        self.assertEqual(history[3].type, "ai")
-        self.assertEqual(history[3].content, self.basic_trends.model_dump_json())
-        self.assertEqual(history[4].type, "human")
-        self.assertIn("the new plan", history[4].content)
-        self.assertNotIn("{{plan}}", history[4].content)
-        self.assertIn("newrandomplan", history[4].content)
-        self.assertEqual(history[5].type, "human")
-        self.assertIn("Answer to this question:", history[5].content)
-        self.assertNotIn("{{question}}", history[5].content)
-        self.assertIn("Follow Up", history[5].content)
-
-    async def test_agent_reconstructs_typical_conversation(self):
-        node = DummyGeneratorNode(self.team, self.user)
-        artifact1 = await AgentArtifact.objects.acreate(
-            team=self.team,
-            conversation=self.conversation,
-            name="Test Artifact 1",
-            type=AgentArtifact.Type.VISUALIZATION,
-            data=VisualizationArtifactContent(
-                query=self.basic_trends, name="Query 1", description="Description 1", plan="Plan 1"
-            ).model_dump(),
-        )
-        artifact2 = await AgentArtifact.objects.acreate(
-            team=self.team,
-            conversation=self.conversation,
-            name="Test Artifact 2",
-            type=AgentArtifact.Type.VISUALIZATION,
-            data=VisualizationArtifactContent(
-                query=self.basic_trends, name="Query 2", description="Description 2", plan="Plan 2"
-            ).model_dump(),
-        )
-        history = await node._construct_messages(
-            AssistantState(
-                messages=[
-                    HumanMessage(content="Question 1", id="0"),
-                    ArtifactRefMessage(
-                        content_type=ArtifactContentType.VISUALIZATION,
-                        source=ArtifactSource.ARTIFACT,
-                        artifact_id=str(artifact1.short_id),
-                        id="1",
-                    ),
-                    AssistantMessage(content="Summary 1", id="3"),
-                    HumanMessage(content="Question 2", id="4"),
-                    ArtifactRefMessage(
-                        content_type=ArtifactContentType.VISUALIZATION,
-                        source=ArtifactSource.ARTIFACT,
-                        artifact_id=str(artifact2.short_id),
-                        id="5",
-                    ),
-                    AssistantMessage(content="Summary 2", id="7"),
-                    HumanMessage(content="Question 3", id="8"),
-                ],
-                plan="Plan 3",
-                start_id="8",
-                root_tool_insight_plan="Query 3",
-            )
-        )
-
-        self.assertEqual(len(history), 9)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("Plan 1", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Query 1", history[2].content)
-        self.assertEqual(history[3].type, "ai")
-        AssistantTrendsQuery.model_validate_json(cast(str, history[3].content))
-        self.assertEqual(history[4].type, "human")
-        self.assertIn("Plan 2", history[4].content)
-        self.assertEqual(history[5].type, "human")
-        self.assertIn("Query 2", history[5].content)
-        self.assertEqual(history[6].type, "ai")
-        AssistantTrendsQuery.model_validate_json(cast(str, history[6].content))
-        self.assertEqual(history[7].type, "human")
-        self.assertIn("Plan 3", history[7].content)
-        self.assertEqual(history[8].type, "human")
-        self.assertIn("Query 3", history[8].content)
+        self.assertIn("Generate a schema", history[1].content)
 
     async def test_prompt_messages_merged(self):
         node = DummyGeneratorNode(self.team, self.user)
-        artifact1 = await AgentArtifact.objects.acreate(
-            team=self.team,
-            conversation=self.conversation,
-            name="Test Artifact 1",
-            type=AgentArtifact.Type.VISUALIZATION,
-            data=VisualizationArtifactContent(
-                query=self.basic_trends, name="Test Artifact 1", description="Test Description 1", plan="Plan 1"
-            ).model_dump(),
-        )
-        artifact2 = await AgentArtifact.objects.acreate(
-            team=self.team,
-            conversation=self.conversation,
-            name="Test Artifact 2",
-            type=AgentArtifact.Type.VISUALIZATION,
-            data=VisualizationArtifactContent(
-                query=self.basic_trends, name="Test Artifact 2", description="Test Description 2", plan="Plan 2"
-            ).model_dump(),
-        )
         state = AssistantState(
-            messages=[
-                HumanMessage(content="Question 1", id="0"),
-                ArtifactRefMessage(
-                    content_type=ArtifactContentType.VISUALIZATION,
-                    source=ArtifactSource.ARTIFACT,
-                    artifact_id=str(artifact1.short_id),
-                    id="1",
-                ),
-                AssistantMessage(content="Summary 1", id="3"),
-                HumanMessage(content="Question 2", id="4"),
-                ArtifactRefMessage(
-                    content_type=ArtifactContentType.VISUALIZATION,
-                    source=ArtifactSource.ARTIFACT,
-                    artifact_id=str(artifact2.short_id),
-                    id="5",
-                ),
-                AssistantMessage(content="Summary 2", id="7"),
-                HumanMessage(content="Question 3", id="8"),
-            ],
-            plan="Plan 3",
-            start_id="8",
+            messages=[HumanMessage(content="Question", id="0")],
+            plan="Plan",
+            start_id="0",
         )
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
 
             def assert_prompt(prompt):
-                self.assertEqual(len(prompt), 6)
+                # System prompt + merged human messages (group mapping + plan)
+                self.assertEqual(len(prompt), 2)
                 self.assertEqual(prompt[0].type, "system")
                 self.assertEqual(prompt[1].type, "human")
-                self.assertEqual(prompt[2].type, "ai")
-                self.assertEqual(prompt[3].type, "human")
-                self.assertEqual(prompt[4].type, "ai")
-                self.assertEqual(prompt[5].type, "human")
 
             generator_model_mock.return_value = RunnableLambda(assert_prompt)
             await node(state, {})
@@ -488,7 +323,7 @@ class TestSchemaGeneratorNode(BaseTest):
                     {},
                 )
 
-    async def test_agent_reconstructs_conversation_with_failover(self):
+    async def test_construct_messages_with_failover(self):
         action = AgentAction(tool="fix", tool_input="validation error", log="exception")
         node = DummyGeneratorNode(self.team, self.user)
         history = await node._construct_messages(
@@ -500,44 +335,15 @@ class TestSchemaGeneratorNode(BaseTest):
             ),
             validation_error_message="uniqexception",
         )
-        self.assertEqual(len(history), 4)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("the plan", history[1].content)
-        self.assertNotIn("{{plan}}", history[1].content)
-        self.assertIn("randomplan", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Answer to this question:", history[2].content)
-        self.assertNotIn("{{question}}", history[2].content)
-        self.assertIn("Text", history[2].content)
-        self.assertEqual(history[3].type, "human")
-        self.assertIn("Pydantic", history[3].content)
-        self.assertIn("uniqexception", history[3].content)
-
-    async def test_agent_reconstructs_conversation_with_failed_messages(self):
-        node = DummyGeneratorNode(self.team, self.user)
-        history = await node._construct_messages(
-            AssistantState(
-                messages=[
-                    HumanMessage(content="Text"),
-                    FailureMessage(content="Error"),
-                    HumanMessage(content="Text"),
-                ],
-                plan="randomplan",
-            ),
-        )
         self.assertEqual(len(history), 3)
         self.assertEqual(history[0].type, "human")
         self.assertIn("mapping", history[0].content)
         self.assertEqual(history[1].type, "human")
         self.assertIn("the plan", history[1].content)
-        self.assertNotIn("{{plan}}", history[1].content)
         self.assertIn("randomplan", history[1].content)
         self.assertEqual(history[2].type, "human")
-        self.assertIn("Answer to this question:", history[2].content)
-        self.assertNotIn("{{question}}", history[2].content)
-        self.assertIn("Text", history[2].content)
+        self.assertIn("Pydantic", history[2].content)
+        self.assertIn("uniqexception", history[2].content)
 
     def test_router(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -547,137 +353,6 @@ class TestSchemaGeneratorNode(BaseTest):
             AssistantState(messages=[], intermediate_steps=[(AgentAction(tool="", tool_input="", log=""), None)])
         )
         self.assertEqual(state, "tools")
-
-    async def test_injects_insight_description(self):
-        node = DummyGeneratorNode(self.team, self.user)
-        history = await node._construct_messages(
-            AssistantState(
-                messages=[HumanMessage(content="Text", id="0")],
-                start_id="0",
-                root_tool_insight_plan="Foobar",
-                root_tool_insight_type="trends",
-            )
-        )
-        self.assertEqual(len(history), 2)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("group", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("Foobar", history[1].content)
-        self.assertNotIn("{{question}}", history[1].content)
-
-    async def test_injects_insight_description_and_keeps_original_question(self):
-        node = DummyGeneratorNode(self.team, self.user)
-        artifact = await AgentArtifact.objects.acreate(
-            team=self.team,
-            conversation=self.conversation,
-            name="Test Artifact",
-            type=AgentArtifact.Type.VISUALIZATION,
-            data=VisualizationArtifactContent(
-                query=self.basic_trends, name="Query 1", description="Description 1", plan="Plan 1"
-            ).model_dump(),
-        )
-        history = await node._construct_messages(
-            AssistantState(
-                messages=[
-                    HumanMessage(content="Original question", id="1"),
-                    ArtifactRefMessage(
-                        content_type=ArtifactContentType.VISUALIZATION,
-                        source=ArtifactSource.ARTIFACT,
-                        artifact_id=str(artifact.short_id),
-                        id="2",
-                    ),
-                    HumanMessage(content="Second question", id="3"),
-                ],
-                start_id="3",
-                root_tool_insight_plan="Foobar",
-                root_tool_insight_type="trends",
-            )
-        )
-        self.assertEqual(len(history), 5)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("group", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("Plan 1", history[1].content)
-        self.assertNotIn("{{question}}", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Query 1", history[2].content)
-        self.assertNotIn("{{question}}", history[2].content)
-        self.assertEqual(history[3].type, "ai")
-        self.assertEqual(history[4].type, "human")
-        self.assertIn("Foobar", history[4].content)
-        self.assertNotIn("{{question}}", history[4].content)
-
-    async def test_keeps_maximum_number_of_viz_messages(self):
-        node = DummyGeneratorNode(self.team, self.user)
-        query = AssistantTrendsQuery(series=[])
-        messages = []
-        for i in range(7):
-            artifact = await AgentArtifact.objects.acreate(
-                team=self.team,
-                conversation=self.conversation,
-                name=f"Test Artifact {i + 1}",
-                type=AgentArtifact.Type.VISUALIZATION,
-                data=VisualizationArtifactContent(
-                    query=query, name=f"Query {i + 1}", description=f"Description {i + 1}", plan=f"Plan {i + 1}"
-                ).model_dump(),
-            )
-            messages.append(
-                ArtifactRefMessage(
-                    content_type=ArtifactContentType.VISUALIZATION,
-                    source=ArtifactSource.ARTIFACT,
-                    artifact_id=str(artifact.short_id),
-                    id=str(uuid4()),
-                )
-            )
-        history = await node._construct_messages(
-            AssistantState(
-                messages=messages,
-                root_tool_insight_plan="Query 8",
-                root_tool_insight_type="trends",
-            )
-        )
-        self.assertEqual(len(history), 17)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("group", history[0].content)
-
-        # Query 3
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("Plan 3", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Query 3", history[2].content)
-        self.assertEqual(history[3].type, "ai")
-
-        # Query 4
-        self.assertEqual(history[4].type, "human")
-        self.assertIn("Plan 4", history[4].content)
-        self.assertEqual(history[5].type, "human")
-        self.assertIn("Query 4", history[5].content)
-        self.assertEqual(history[6].type, "ai")
-
-        # Query 5
-        self.assertEqual(history[7].type, "human")
-        self.assertIn("Plan 5", history[7].content)
-        self.assertEqual(history[8].type, "human")
-        self.assertIn("Query 5", history[8].content)
-        self.assertEqual(history[9].type, "ai")
-
-        # Query 6
-        self.assertEqual(history[10].type, "human")
-        self.assertIn("Plan 6", history[10].content)
-        self.assertEqual(history[11].type, "human")
-        self.assertIn("Query 6", history[11].content)
-        self.assertEqual(history[12].type, "ai")
-
-        # Query 7
-        self.assertEqual(history[13].type, "human")
-        self.assertIn("Plan 7", history[13].content)
-        self.assertEqual(history[14].type, "human")
-        self.assertIn("Query 7", history[14].content)
-        self.assertEqual(history[15].type, "ai")
-
-        # New query
-        self.assertEqual(history[16].type, "human")
-        self.assertIn("Query 8", history[16].content)
 
     async def test_agent_handles_incomplete_json(self):
         node = DummyGeneratorNode(self.team, self.user)

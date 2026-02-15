@@ -62,7 +62,7 @@
     <option name="TEMPLATE_CONFIGURATION" value="Django" />
     <option name="TEMPLATE_FOLDERS">
       <list>
-        <option value="$MODULE_DIR$/plugin-server/src/cdp/templates" />
+        <option value="$MODULE_DIR$/nodejs/src/cdp/templates" />
       </list>
     </option>
   </component>

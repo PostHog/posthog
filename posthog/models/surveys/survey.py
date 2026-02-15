@@ -239,9 +239,16 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     )
     enable_partial_responses = models.BooleanField(default=False, null=True)
 
+    # Allow hosted surveys to be embedded in iframes (removes X-Frame-Options header)
+    enable_iframe_embedding = models.BooleanField(default=False)
+
     # AI-generated headline summary
     headline_summary = models.TextField(blank=True, null=True)
     headline_response_count = models.PositiveIntegerField(null=True, blank=True)
+
+    # AI-generated per-question summaries
+    # Format: { [questionId]: { summary: string, responseCount: number, generatedAt: string } }
+    question_summaries = models.JSONField(blank=True, null=True)
 
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.
     is_publicly_shareable = deprecate_field(

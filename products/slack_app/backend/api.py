@@ -121,10 +121,23 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
     try:
         slack = SlackIntegration(integration)
 
+        # Check if conversation is already in progress
+        if existing_conversation and existing_conversation.status in [
+            Conversation.Status.IN_PROGRESS,
+            Conversation.Status.CANCELING,
+        ]:
+            slack.client.chat_postEphemeral(
+                channel=channel,
+                user=slack_user_id,
+                thread_ts=thread_ts,
+                text="Hold your hedgehogs! Looks like this PostHog AI is already in flight in this Slack thread – wait for the answer first.",
+            )
+            return
+
         # Look up Slack user's email and match to PostHog user
         try:
             slack_user_info = slack.client.users_info(user=slack_user_id)
-            slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")
+            slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")  # type: ignore[call-overload]
             if not slack_email:
                 logger.warning("slack_app_no_user_email", slack_user_id=slack_user_id)
                 slack.client.chat_postEphemeral(
@@ -194,7 +207,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
 
         # Fetch all messages in the thread BEFORE posting our response
         thread_messages = slack.client.conversations_replies(channel=channel, ts=thread_ts)
-        raw_messages = thread_messages.get("messages", [])
+        raw_messages: list[dict] = thread_messages.get("messages", [])
 
         # Filter messages: for continuing conversations, only use messages since the last processed app mention
         # A mention is considered "processed" if our bot reacted to it (confirming reception)
@@ -232,7 +245,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
             if uid not in user_cache:
                 try:
                     user_info = slack.client.users_info(user=uid)
-                    profile = user_info.get("user", {}).get("profile", {})
+                    profile = user_info.get("user", {}).get("profile", {})  # type: ignore[call-overload]
                     user_cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
                 except Exception:
                     user_cache[uid] = "Unknown"

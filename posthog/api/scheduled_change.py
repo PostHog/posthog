@@ -1,5 +1,6 @@
 from typing import Any
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 
 from posthog.api.feature_flag import CanEditFeatureFlag
@@ -105,6 +106,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+@extend_schema(tags=["core"])
 class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, read, update and delete scheduled changes.

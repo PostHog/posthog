@@ -41,11 +41,8 @@ def build(handle: SourceHandle) -> BuiltQuery:
         ),
         where=ast.And(
             exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["is_recurring"]),
-                    right=ast.Constant(value=True),
-                ),
+                ast.Field(chain=["is_recurring"]),
+                ast.Call(name="isNotNull", args=[ast.Field(chain=["subscription_id"])]),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["timestamp"]),

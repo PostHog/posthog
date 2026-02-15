@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs, now } from 'lib/dayjs'
 
 import {
     RecordingSegment,
@@ -144,7 +144,9 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
 
         loadRecordingMetaSuccess: () => {
-            actions.loadSnapshotSources()
+            if (props.sessionRecordingId) {
+                actions.loadSnapshotSources()
+            }
             actions.reportUsageIfFullyLoaded()
         },
 
@@ -350,18 +352,22 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 const anyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).some((x) => x)
                 const everyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).every((x) => x)
 
+                const recordingAgeMs = now().diff(start, 'millisecond')
+
                 if (everyWindowMissingFullSnapshot) {
                     // video is definitely unplayable
                     posthog.capture('recording_has_no_full_snapshot', {
                         watchedSession: sessionRecordingId,
                         teamId: currentTeam?.id,
                         teamName: currentTeam?.name,
+                        recordingAgeMs,
                     })
                 } else if (anyWindowMissingFullSnapshot) {
                     posthog.capture('recording_window_missing_full_snapshot', {
                         watchedSession: sessionRecordingId,
                         teamID: currentTeam?.id,
                         teamName: currentTeam?.name,
+                        recordingAgeMs,
                     })
                 }
 
@@ -477,9 +483,18 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             }),
         ],
     })),
-    beforeUnmount(({ cache }) => {
+    beforeUnmount(({ cache, actions, values }) => {
         cache.windowIdForTimestamp = undefined
         cache.processingCache = undefined
+        // Force clear processedSnapshots to release memory immediately
+        // This breaks the reference chain in selector memoization cache
+        if (actions) {
+            actions.setProcessedSnapshots([])
+            // Force selectors to recompute with empty snapshots by reading them
+            // This updates the reselect cache with empty values instead of leaving old data cached
+            void values.snapshotsByWindowId
+            void values.sessionPlayerData
+        }
     }),
     subscriptions(({ values }) => ({
         isRecentAndInvalid: (prev: boolean, next: boolean) => {

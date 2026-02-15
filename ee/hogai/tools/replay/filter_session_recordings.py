@@ -150,6 +150,9 @@ class FilterSessionRecordingsTool(MaxTool):
         """).strip()
     context_prompt_template: str = "Current recordings filters are: {{{current_filters}}}.\nCurrent session ID being viewed: {{{current_session_id}}}."
 
+    def get_required_resource_access(self):
+        return [("session_recording", "viewer")]
+
     async def _arun_impl(
         self, recordings_filters: MaxRecordingUniversalFilters
     ) -> tuple[str, ToolMessagesArtifact | None]:
@@ -174,7 +177,7 @@ class FilterSessionRecordingsTool(MaxTool):
                 content = f"✅ Filtered session recordings. Found {total_count} recordings matching these criteria:\n\n"
                 # Include metadata for up to first 5 recordings
                 for i, recording in enumerate(query_results.results[:5]):
-                    content += f"{i+1}. {self._format_recording_metadata(recording)}\n"
+                    content += f"{i + 1}. {self._format_recording_metadata(recording)}\n"
                 if total_count > 5:
                     content += f"\n...and {total_count - 5} more recordings"
         return content, None

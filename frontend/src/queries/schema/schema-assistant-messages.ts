@@ -1,8 +1,7 @@
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
-import type { Category, NotebookInfo } from '~/types'
-import type { InsightShortId } from '~/types'
+import type { Category, InsightShortId, NotebookInfo } from '~/types'
 
 import { DocumentBlock } from './schema-assistant-artifacts'
 import type {
@@ -104,13 +103,17 @@ export interface AssistantForm {
 }
 
 export interface MultiQuestionFormQuestionOption {
-    /** The value to use when this option is selected */
+    /** A short value to use when this option is selected, in a few words */
     value: string
+    /** A longer description of the option, in one short sentence */
+    description?: string
 }
 
 export interface MultiQuestionFormQuestion {
     /** Unique identifier for this question */
     id: string
+    /** One word title for the question e.g. "Use case", "Team size", "Experience" */
+    title: string
     /** The question text to display */
     question: string
     /** Available answer options */
@@ -119,10 +122,28 @@ export interface MultiQuestionFormQuestion {
     allow_custom_answer?: boolean
 }
 
+export interface MultiQuestionFormAnswers {
+    [questionId: string]: string
+}
+
 export interface MultiQuestionForm {
     /** The questions to ask */
     questions: MultiQuestionFormQuestion[]
 }
+
+export interface ApprovalResumePayload {
+    action: 'approve' | 'reject'
+    proposal_id: string
+    feedback?: string
+    payload?: Record<string, unknown>
+}
+
+export interface FormResumePayload {
+    action: 'form'
+    form_answers: MultiQuestionFormAnswers
+}
+
+export type ResumePayload = ApprovalResumePayload | FormResumePayload
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
@@ -320,6 +341,7 @@ export enum AssistantEventType {
     Conversation = 'conversation',
     Notebook = 'notebook',
     Update = 'update',
+    Approval = 'approval',
 }
 
 export interface AssistantUpdateEvent {
@@ -349,30 +371,43 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
      * Payload passed through to the frontend - specifically for calls of contextual tool.
      * Tool call messages without a ui_payload are not passed through to the frontend.
      */
-    ui_payload?: Record<string, any>
+    ui_payload?: Record<string, any> | null
     content: string
     tool_call_id: string
 }
 
+/** Status value indicating an operation requires user approval before execution */
+export const PENDING_APPROVAL_STATUS = 'pending_approval' as const
+
+/** Response returned when a tool operation requires user approval */
+export interface DangerousOperationResponse {
+    status: typeof PENDING_APPROVAL_STATUS
+    proposalId: string
+    toolName: string
+    preview: string
+    payload: Record<string, any>
+}
+
+export type ApprovalDecisionStatus = 'pending' | 'approved' | 'rejected' | 'auto_rejected'
+
+export type ApprovalCardUIStatus = ApprovalDecisionStatus | 'approving' | 'rejecting' | 'custom'
+
 export type AssistantTool =
     | 'search_session_recordings'
-    | 'generate_hogql_query'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
-    | 'create_and_query_insight'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
     | 'create_message_template'
     | 'filter_error_tracking_issues'
+    | 'search_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
-    | 'error_tracking_explain_issue'
     | 'experiment_results_summary'
+    | 'experiment_session_replays_summary'
     | 'create_survey'
+    | 'edit_survey'
     | 'analyze_survey_responses'
-    | 'session_summarization'
-    | 'create_dashboard'
-    | 'edit_current_dashboard'
     | 'read_taxonomy'
     | 'search'
     | 'read_data'
@@ -397,11 +432,21 @@ export type AssistantTool =
     | 'create_form'
     | 'task'
     | 'upsert_dashboard'
+    | 'manage_memories'
+    | 'create_notebook'
+    | 'list_data'
+    | 'finalize_plan'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
     SQL = 'sql',
     SessionReplay = 'session_replay',
+    ErrorTracking = 'error_tracking',
+    Plan = 'plan',
+    Execution = 'execution',
+    Survey = 'survey',
+    Research = 'research',
+    Flags = 'flags',
 }
 
 export enum SlashCommandName {
@@ -457,6 +502,7 @@ export enum AssistantNavigateUrl {
     WebAnalytics = 'webAnalytics',
     WebAnalyticsWebVitals = 'webAnalyticsWebVitals',
     WebAnalyticsHealth = 'webAnalyticsHealth',
+    WebAnalyticsLive = 'webAnalyticsLive',
     Persons = 'persons',
 }
 

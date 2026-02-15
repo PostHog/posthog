@@ -4,7 +4,7 @@ use tracing::error;
 use crate::{
     dsym::DsymSubcommand,
     error::CapturedError,
-    experimental::{query::command::QueryCommand, tasks::TaskCommand},
+    experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
     invocation_context::{context, init_context},
     proguard::ProguardSubcommand,
     sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
@@ -35,7 +35,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Interactively authenticate with PostHog, storing a personal API token locally. You can also use the
-    /// environment variables `POSTHOG_CLI_TOKEN` and `POSTHOG_CLI_ENV_ID`
+    /// environment variables `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID`
     Login,
 
     /// Experimental commands, not quite ready for prime time
@@ -68,6 +68,12 @@ pub enum ExpCommand {
     Query {
         #[command(subcommand)]
         cmd: QueryCommand,
+    },
+
+    /// Manage PostHog endpoints as YAML files. Pull endpoints from PostHog, or push changes from your YAML files.
+    Endpoints {
+        #[command(subcommand)]
+        cmd: EndpointCommand,
     },
 
     #[command(about = "Upload hermes sourcemaps to PostHog")]
@@ -165,6 +171,9 @@ impl Cli {
                 }
                 ExpCommand::Query { cmd } => {
                     crate::experimental::query::command::query_command(&cmd)?
+                }
+                ExpCommand::Endpoints { cmd } => {
+                    cmd.run()?;
                 }
                 ExpCommand::Hermes { cmd } => match cmd {
                     HermesSubcommand::Inject(args) => {

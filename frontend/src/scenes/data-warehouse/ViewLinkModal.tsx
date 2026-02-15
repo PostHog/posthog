@@ -25,6 +25,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink, IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
@@ -122,8 +123,8 @@ export function ViewLinkModal({ mode }: ViewLinkModalProps): JSX.Element {
                         <br />
                         <b>All</b> fields from the joined table or view will be accessible in queries at the top level
                         without needing to explicitly join the view. This will also enable you to see revenue for a
-                        person via the <code>persons.$virt_revenue</code> and{' '}
-                        <code>persons.$virt_revenue_last_30_days</code> virtual fields.
+                        person via the <code>persons.$virt_revenue</code> and <code>persons.$virt_mrr</code> virtual
+                        fields.
                     </span>
                 ) : (
                     <span>
@@ -747,10 +748,12 @@ type ViewLinkButtonProps = LemonButtonProps & {
 
 export function ViewLinkButton({ tableName, ...props }: ViewLinkButtonProps): JSX.Element {
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
+    const { reportCustomerAnalyticsAddJoinButtonClicked } = useActions(eventUsageLogic)
 
     const handleClick = (): void => {
         selectSourceTable(tableName)
         toggleJoinTableModal()
+        reportCustomerAnalyticsAddJoinButtonClicked({ table: tableName })
     }
 
     return (

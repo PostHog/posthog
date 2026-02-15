@@ -167,7 +167,7 @@ test.describe('CRUD Survey', () => {
         await saveButton.click()
         await saveResponsePromise
 
-        await expect(page.locator('button[data-attr="launch-survey"]')).toContainText('Launch')
+        await expect(page.locator('button[data-attr="launch-survey"]').first()).toContainText('Launch')
 
         await page.reload()
         await expect(page.getByText('The survey will be stopped once 228 responses are received.')).toBeVisible()
@@ -195,7 +195,7 @@ test.describe('CRUD Survey', () => {
         await page.locator('span[aria-label="Autocapture"]').getByText('Autocapture').click()
 
         await page.locator('[data-attr=save-survey]').first().click()
-        await expect(page.locator('button[data-attr="launch-survey"]')).toContainText('Launch')
+        await expect(page.locator('button[data-attr="launch-survey"]').first()).toContainText('Launch')
 
         await page.locator('.LemonTabs__tab').getByText('Overview').click()
         await expect(page.getByText('Delay before showing: 5 seconds')).toBeVisible()

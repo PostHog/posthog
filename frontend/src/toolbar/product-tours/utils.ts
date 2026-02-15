@@ -1,8 +1,10 @@
+import { toBlob } from 'html-to-image'
 import { domToJpeg } from 'modern-screenshot'
 
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic, toolbarUploadMedia } from '~/toolbar/toolbarConfigLogic'
 import { TOOLBAR_ID, elementToQuery } from '~/toolbar/utils'
-import { SurveyMatchType } from '~/types'
+
+export const PRODUCT_TOURS_SIDEBAR_TRANSITION_MS = 200
 
 export interface ElementInfo {
     selector: string
@@ -11,6 +13,14 @@ export interface ElementInfo {
     ariaLabel: string | null
     attributes: Record<string, string>
     rect: { top: number; left: number; width: number; height: number }
+}
+
+export interface ElementScreenshot {
+    mediaId: string
+}
+
+function screenshotFilter(node: Node): boolean {
+    return !(node instanceof HTMLElement && node.id === TOOLBAR_ID)
 }
 
 /**
@@ -22,13 +32,7 @@ export async function captureScreenshot(): Promise<string> {
     const dataUrl = await domToJpeg(document.body, {
         quality: 0.7,
         scale: 0.5, // Reduce size for faster upload
-        filter: (node) => {
-            // Exclude the toolbar from the screenshot
-            if (node instanceof HTMLElement && node.id === TOOLBAR_ID) {
-                return false
-            }
-            return true
-        },
+        filter: screenshotFilter,
     })
     return dataUrl.split(',')[1]
 }
@@ -142,29 +146,90 @@ export function getPageContext(): { url: string; title: string } {
     }
 }
 
-/**
- * Get smart URL defaults for a new product tour based on the current page URL.
- *
- * Logic:
- * - If on root domain (path is "/" or empty), use "exact" match with the full URL
- * - If on a path, use "contains" match with just the pathname
- */
-export function getSmartUrlDefaults(): { url: string; urlMatchType: SurveyMatchType } {
-    const { pathname, origin } = window.location
-
-    // Check if we're on the root path
-    const isRootPath = pathname === '/' || pathname === ''
-
-    if (isRootPath) {
-        // For root domain, use exact match with full URL (without trailing slash for consistency)
-        return {
-            url: origin,
-            urlMatchType: SurveyMatchType.Exact,
+const getAllStylePropertyNames = (): string[] => {
+    const names: string[] = []
+    const style = getComputedStyle(document.documentElement)
+    for (let i = 0; i < style.length; i++) {
+        const name = style[i]
+        if (!name.startsWith('--')) {
+            names.push(name)
         }
     }
-    // For paths, use contains match with the pathname
-    return {
-        url: pathname,
-        urlMatchType: SurveyMatchType.Contains,
+    return names
+}
+
+// trying out a new screenshot method with only the target element, instead of
+// capture the entire dom + cropping (see captureAndUploadElementScreenshot)
+// which was causing massive lag and browser crashes on heavy sites
+export async function captureAndUploadElementScreenshotV2(element: HTMLElement): Promise<ElementScreenshot> {
+    const blob = await toBlob(element, {
+        type: 'image/jpeg',
+        includeStyleProperties: getAllStylePropertyNames(),
+        quality: 0.7,
+        filter: screenshotFilter,
+    })
+
+    if (!blob) {
+        throw new Error('Failed to capture element screenshot')
     }
+
+    const file = new File([blob], `tour-step-${Date.now()}.jpg`, { type: 'image/jpeg' })
+    const { id } = await toolbarUploadMedia(file)
+    return { mediaId: id }
+}
+
+/**
+ * Capture a screenshot of just an element and upload it.
+ * Captures full page then crops to element to preserve styles.
+ * Returns the media ID for display.
+ */
+export async function captureAndUploadElementScreenshot(element: HTMLElement): Promise<ElementScreenshot> {
+    const padding = 20
+    const fillColor = '#ffffff'
+
+    const dataUrl = await domToJpeg(document.documentElement, {
+        quality: 0.9,
+        scale: 1,
+        backgroundColor: fillColor,
+        filter: screenshotFilter,
+    })
+
+    const rect = element.getBoundingClientRect()
+    const x = Math.max(0, rect.left + window.scrollX - padding)
+    const y = Math.max(0, rect.top + window.scrollY - padding)
+    const width = rect.width + padding * 2
+    const height = rect.height + padding * 2
+
+    const img = new Image()
+    img.src = dataUrl
+    await new Promise((resolve) => (img.onload = resolve))
+
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+        throw new Error('Failed to get canvas 2d context')
+    }
+    ctx.fillStyle = fillColor
+    ctx.fillRect(0, 0, width, height)
+    ctx.drawImage(img, x, y, width, height, 0, 0, width, height)
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+            (b) => {
+                if (b) {
+                    resolve(b)
+                } else {
+                    reject(new Error('Failed to create blob from canvas'))
+                }
+            },
+            'image/jpeg',
+            0.9
+        )
+    })
+    const file = new File([blob], `tour-step-${Date.now()}.jpg`, { type: 'image/jpeg' })
+
+    const { id } = await toolbarUploadMedia(file)
+    return { mediaId: id }
 }

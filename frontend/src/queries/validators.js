@@ -46,7 +46,7 @@ const schema39 = {
 }
 const schema13 = {
     additionalProperties: false,
-    description: 'Sync with plugin-server/src/types.ts',
+    description: 'Sync with nodejs/src/types.ts',
     properties: {
         key: { type: 'string' },
         label: { type: 'string' },
@@ -58,7 +58,7 @@ const schema13 = {
     type: 'object',
 }
 const schema14 = {
-    description: 'Sync with plugin-server/src/types.ts',
+    description: 'Sync with nodejs/src/types.ts',
     enum: [
         'exact',
         'is_not',
@@ -83,6 +83,15 @@ const schema14 = {
         'not_in',
         'is_cleaned_path_exact',
         'flag_evaluates_to',
+        'semver_eq',
+        'semver_neq',
+        'semver_gt',
+        'semver_gte',
+        'semver_lt',
+        'semver_lte',
+        'semver_tilde',
+        'semver_caret',
+        'semver_wildcard',
     ],
     type: 'string',
 }
@@ -342,7 +351,16 @@ function validate12(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate12.errors = [
@@ -435,7 +453,7 @@ function validate12(data, { instancePath = '', parentData, parentDataProperty, r
 }
 const schema18 = {
     additionalProperties: false,
-    description: 'Sync with plugin-server/src/types.ts',
+    description: 'Sync with nodejs/src/types.ts',
     properties: {
         key: { type: 'string' },
         label: { type: 'string' },
@@ -570,7 +588,16 @@ function validate16(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate16.errors = [
@@ -663,7 +690,7 @@ function validate16(data, { instancePath = '', parentData, parentDataProperty, r
 }
 const schema20 = {
     additionalProperties: false,
-    description: 'Sync with plugin-server/src/types.ts',
+    description: 'Sync with nodejs/src/types.ts',
     properties: {
         key: { enum: ['tag_name', 'text', 'href', 'selector'], type: 'string' },
         label: { type: 'string' },
@@ -811,7 +838,16 @@ function validate19(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate19.errors = [
@@ -1038,7 +1074,16 @@ function validate22(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate22.errors = [
@@ -1265,7 +1310,16 @@ function validate25(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate25.errors = [
@@ -1358,7 +1412,7 @@ function validate25(data, { instancePath = '', parentData, parentDataProperty, r
 }
 const schema26 = {
     additionalProperties: false,
-    description: 'Sync with plugin-server/src/types.ts',
+    description: 'Sync with nodejs/src/types.ts',
     properties: {
         cohort_name: { type: 'string' },
         key: { const: 'id', type: 'string' },
@@ -1528,7 +1582,16 @@ function validate28(data, { instancePath = '', parentData, parentDataProperty, r
                                             data3 === 'in' ||
                                             data3 === 'not_in' ||
                                             data3 === 'is_cleaned_path_exact' ||
-                                            data3 === 'flag_evaluates_to'
+                                            data3 === 'flag_evaluates_to' ||
+                                            data3 === 'semver_eq' ||
+                                            data3 === 'semver_neq' ||
+                                            data3 === 'semver_gt' ||
+                                            data3 === 'semver_gte' ||
+                                            data3 === 'semver_lt' ||
+                                            data3 === 'semver_lte' ||
+                                            data3 === 'semver_tilde' ||
+                                            data3 === 'semver_caret' ||
+                                            data3 === 'semver_wildcard'
                                         )
                                     ) {
                                         validate28.errors = [
@@ -1927,7 +1990,16 @@ function validate30(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate30.errors = [
@@ -2154,7 +2226,16 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate33.errors = [
@@ -2457,7 +2538,16 @@ function validate36(data, { instancePath = '', parentData, parentDataProperty, r
                                             data3 === 'in' ||
                                             data3 === 'not_in' ||
                                             data3 === 'is_cleaned_path_exact' ||
-                                            data3 === 'flag_evaluates_to'
+                                            data3 === 'flag_evaluates_to' ||
+                                            data3 === 'semver_eq' ||
+                                            data3 === 'semver_neq' ||
+                                            data3 === 'semver_gt' ||
+                                            data3 === 'semver_gte' ||
+                                            data3 === 'semver_lt' ||
+                                            data3 === 'semver_lte' ||
+                                            data3 === 'semver_tilde' ||
+                                            data3 === 'semver_caret' ||
+                                            data3 === 'semver_wildcard'
                                         )
                                     ) {
                                         validate36.errors = [
@@ -2687,7 +2777,16 @@ function validate39(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate39.errors = [
@@ -3069,7 +3168,16 @@ function validate45(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate45.errors = [
@@ -3296,7 +3404,16 @@ function validate48(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate48.errors = [
@@ -3523,7 +3640,16 @@ function validate51(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate51.errors = [
@@ -3751,7 +3877,16 @@ function validate54(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate54.errors = [
@@ -3984,7 +4119,16 @@ function validate57(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
                                     validate57.errors = [
@@ -4652,6 +4796,7 @@ const schema52 = {
         { $ref: '#/definitions/EventPropertyFilter' },
         { $ref: '#/definitions/PersonPropertyFilter' },
         { $ref: '#/definitions/SessionPropertyFilter' },
+        { $ref: '#/definitions/CohortPropertyFilter' },
     ],
 }
 function validate61(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
@@ -4682,6 +4827,15 @@ function validate61(data, { instancePath = '', parentData, parentDataProperty, r
             }
             var _valid0 = _errs3 === errors
             valid0 = valid0 || _valid0
+            if (!valid0) {
+                const _errs4 = errors
+                if (!validate28(data, { instancePath, parentData, parentDataProperty, rootData })) {
+                    vErrors = vErrors === null ? validate28.errors : vErrors.concat(validate28.errors)
+                    errors = vErrors.length
+                }
+                var _valid0 = _errs4 === errors
+                valid0 = valid0 || _valid0
+            }
         }
     }
     if (!valid0) {
@@ -4754,9 +4908,9 @@ function validate60(data, { instancePath = '', parentData, parentDataProperty, r
     validate60.errors = vErrors
     return errors === 0
 }
-export const RevenueAnalyticsPropertyFilters = validate66
+export const RevenueAnalyticsPropertyFilters = validate67
 const schema53 = { items: { $ref: '#/definitions/RevenueAnalyticsPropertyFilter' }, type: 'array' }
-function validate66(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate67(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -4782,7 +4936,7 @@ function validate66(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate66.errors = [
+            validate67.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -4794,11 +4948,11 @@ function validate66(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate66.errors = vErrors
+    validate67.errors = vErrors
     return errors === 0
 }
-export const SessionPropertyFilter = validate68
-function validate68(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+export const SessionPropertyFilter = validate69
+function validate69(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -4809,7 +4963,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                 (data.operator === undefined && (missing0 = 'operator')) ||
                 (data.type === undefined && (missing0 = 'type'))
             ) {
-                validate68.errors = [
+                validate69.errors = [
                     {
                         instancePath,
                         schemaPath: '#/required',
@@ -4831,7 +4985,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                             key0 === 'value'
                         )
                     ) {
-                        validate68.errors = [
+                        validate69.errors = [
                             {
                                 instancePath,
                                 schemaPath: '#/additionalProperties',
@@ -4848,7 +5002,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                     if (data.key !== undefined) {
                         const _errs2 = errors
                         if (typeof data.key !== 'string') {
-                            validate68.errors = [
+                            validate69.errors = [
                                 {
                                     instancePath: instancePath + '/key',
                                     schemaPath: '#/properties/key/type',
@@ -4867,7 +5021,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                         if (data.label !== undefined) {
                             const _errs4 = errors
                             if (typeof data.label !== 'string') {
-                                validate68.errors = [
+                                validate69.errors = [
                                     {
                                         instancePath: instancePath + '/label',
                                         schemaPath: '#/properties/label/type',
@@ -4887,7 +5041,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                                 let data2 = data.operator
                                 const _errs6 = errors
                                 if (typeof data2 !== 'string') {
-                                    validate68.errors = [
+                                    validate69.errors = [
                                         {
                                             instancePath: instancePath + '/operator',
                                             schemaPath: '#/definitions/PropertyOperator/type',
@@ -4922,10 +5076,19 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'in' ||
                                         data2 === 'not_in' ||
                                         data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to'
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard'
                                     )
                                 ) {
-                                    validate68.errors = [
+                                    validate69.errors = [
                                         {
                                             instancePath: instancePath + '/operator',
                                             schemaPath: '#/definitions/PropertyOperator/enum',
@@ -4945,7 +5108,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                                     let data3 = data.type
                                     const _errs9 = errors
                                     if (typeof data3 !== 'string') {
-                                        validate68.errors = [
+                                        validate69.errors = [
                                             {
                                                 instancePath: instancePath + '/type',
                                                 schemaPath: '#/properties/type/type',
@@ -4957,7 +5120,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                                         return false
                                     }
                                     if ('session' !== data3) {
-                                        validate68.errors = [
+                                        validate69.errors = [
                                             {
                                                 instancePath: instancePath + '/type',
                                                 schemaPath: '#/properties/type/const',
@@ -4998,7 +5161,7 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate68.errors = [
+            validate69.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -5010,10 +5173,10 @@ function validate68(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate68.errors = vErrors
+    validate69.errors = vErrors
     return errors === 0
 }
-export const CompareFilter = validate70
+export const CompareFilter = validate71
 const schema56 = {
     additionalProperties: false,
     properties: {
@@ -5030,7 +5193,7 @@ const schema56 = {
     },
     type: 'object',
 }
-function validate70(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate71(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -5038,7 +5201,7 @@ function validate70(data, { instancePath = '', parentData, parentDataProperty, r
             const _errs1 = errors
             for (const key0 in data) {
                 if (!(key0 === 'compare' || key0 === 'compare_to')) {
-                    validate70.errors = [
+                    validate71.errors = [
                         {
                             instancePath,
                             schemaPath: '#/additionalProperties',
@@ -5055,7 +5218,7 @@ function validate70(data, { instancePath = '', parentData, parentDataProperty, r
                 if (data.compare !== undefined) {
                     const _errs2 = errors
                     if (typeof data.compare !== 'boolean') {
-                        validate70.errors = [
+                        validate71.errors = [
                             {
                                 instancePath: instancePath + '/compare',
                                 schemaPath: '#/properties/compare/type',
@@ -5074,7 +5237,7 @@ function validate70(data, { instancePath = '', parentData, parentDataProperty, r
                     if (data.compare_to !== undefined) {
                         const _errs4 = errors
                         if (typeof data.compare_to !== 'string') {
-                            validate70.errors = [
+                            validate71.errors = [
                                 {
                                     instancePath: instancePath + '/compare_to',
                                     schemaPath: '#/properties/compare_to/type',
@@ -5092,7 +5255,7 @@ function validate70(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate70.errors = [
+            validate71.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -5104,6 +5267,6 @@ function validate70(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate70.errors = vErrors
+    validate71.errors = vErrors
     return errors === 0
 }

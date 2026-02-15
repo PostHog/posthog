@@ -458,3 +458,53 @@ class TestCohort(BaseTest):
 
         size = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
         assert size == 3, f"Expected 3 persons from team {self.team.id}, got {size}"
+
+    @pytest.mark.ee
+    def test_calculate_people_ch_clears_realtime_type_when_exceeding_threshold(self):
+        from unittest.mock import patch
+
+        from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT
+
+        # Create a realtime cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="large cohort",
+            cohort_type="realtime",
+        )
+
+        # Mock recalculate_cohortpeople to return a count exceeding the threshold
+        with patch("posthog.models.cohort.util.recalculate_cohortpeople") as mock_recalc:
+            mock_recalc.return_value = REALTIME_COHORT_MAX_PERSON_COUNT + 1
+
+            cohort.calculate_people_ch(pending_version=1)
+
+            # Verify cohort_type was cleared
+            cohort.refresh_from_db()
+            self.assertIsNone(cohort.cohort_type)
+            self.assertEqual(cohort.count, REALTIME_COHORT_MAX_PERSON_COUNT + 1)
+
+    @pytest.mark.ee
+    def test_calculate_people_ch_keeps_realtime_type_when_at_threshold(self):
+        from unittest.mock import patch
+
+        from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT
+
+        # Create a realtime cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="at threshold cohort",
+            cohort_type="realtime",
+        )
+
+        # Mock recalculate_cohortpeople to return exactly the threshold count
+        with patch("posthog.models.cohort.util.recalculate_cohortpeople") as mock_recalc:
+            mock_recalc.return_value = REALTIME_COHORT_MAX_PERSON_COUNT
+
+            cohort.calculate_people_ch(pending_version=1)
+
+            # Verify cohort_type was NOT cleared (at threshold is still OK)
+            cohort.refresh_from_db()
+            self.assertEqual(cohort.cohort_type, "realtime")
+            self.assertEqual(cohort.count, REALTIME_COHORT_MAX_PERSON_COUNT)

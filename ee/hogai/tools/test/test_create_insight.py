@@ -88,7 +88,10 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
             result_text, artifact = await tool._arun_impl(
-                title="Test Chart", query_description="test trends description", insight_type="trends"
+                viz_title="Test Chart",
+                viz_description="Test description",
+                query_description="test trends description",
+                insight_type="trends",
             )
 
         self.assertEqual(result_text, "")
@@ -132,7 +135,12 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_compiled_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
-            await tool._arun_impl(title="Test Funnel", query_description="test funnel", insight_type="funnel")
+            await tool._arun_impl(
+                viz_title="Test Funnel",
+                viz_description="Test description",
+                query_description="test funnel",
+                insight_type="funnel",
+            )
 
         mock_graph_builder.add_funnel_generator.assert_called_once()
         mock_graph_builder.add_edge.assert_called_with(AssistantNodeName.START, AssistantNodeName.FUNNEL_GENERATOR)
@@ -168,7 +176,12 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_compiled_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
-            await tool._arun_impl(title="Test Retention", query_description="test retention", insight_type="retention")
+            await tool._arun_impl(
+                viz_title="Test Retention",
+                viz_description="Test description",
+                query_description="test retention",
+                insight_type="retention",
+            )
 
         mock_graph_builder.add_retention_generator.assert_called_once()
         mock_graph_builder.add_edge.assert_called_with(AssistantNodeName.START, AssistantNodeName.RETENTION_GENERATOR)
@@ -192,7 +205,10 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
             result_text, artifact = await tool._arun_impl(
-                title="Test Chart", query_description="test description", insight_type="trends"
+                viz_title="Test Chart",
+                viz_description="Test description",
+                query_description="test description",
+                insight_type="trends",
             )
 
         self.assertIsNone(artifact)
@@ -233,7 +249,10 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
             result_text, artifact = await tool._arun_impl(
-                title="Test Chart", query_description="test description", insight_type="trends"
+                viz_title="Test Chart",
+                viz_description="Test description",
+                query_description="test description",
+                insight_type="trends",
             )
 
         self.assertIsNone(artifact)
@@ -259,7 +278,10 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
             result_text, artifact = await tool._arun_impl(
-                title="Test Chart", query_description="test description", insight_type="funnel"
+                viz_title="Test Chart",
+                viz_description="Test description",
+                query_description="test description",
+                insight_type="funnel",
             )
 
         self.assertEqual(result_text, "")
@@ -300,7 +322,10 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
             result_text, artifact = await tool._arun_impl(
-                title="Test Chart", query_description="test description", insight_type="trends"
+                viz_title="Test Chart",
+                viz_description="Test description",
+                query_description="test description",
+                insight_type="trends",
             )
 
         self.assertIsNotNone(artifact)
@@ -349,7 +374,12 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_compiled_graph.ainvoke = AsyncMock(side_effect=capture_invoked_state)
             mock_graph_builder.compile.return_value = mock_compiled_graph
 
-            await tool._arun_impl(title="Test Chart", query_description="my test query", insight_type="retention")
+            await tool._arun_impl(
+                viz_title="Test Chart",
+                viz_description="Test description",
+                query_description="my test query",
+                insight_type="retention",
+            )
 
         self.assertIsNotNone(invoked_state)
         validated_state = AssistantState.model_validate(invoked_state)

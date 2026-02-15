@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -58,6 +59,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     actions({
         runDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
         cancelDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
+        materializeDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
         revertMaterialization: (viewId: string) => ({ viewId }),
         loadOlderDataModelingJobs: () => {},
         resetDataModelingJobs: () => {},
@@ -77,6 +79,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     const newView = await api.dataWarehouseSavedQueries.create(view)
 
                     lemonToast.success(`${newView.name ?? 'View'} successfully created`)
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSavedView)
 
                     return [...values.dataWarehouseSavedQueries, newView]
                 },
@@ -185,6 +188,19 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.loadDataWarehouseSavedQueries()
             } catch {
                 lemonToast.error(`Failed to cancel materialization`)
+            }
+        },
+        materializeDataWarehouseSavedQuery: async ({ viewId }) => {
+            try {
+                await api.dataWarehouseSavedQueries.materialize(viewId)
+                lemonToast.success('View materialized successfully')
+                posthog.capture('materialized view created', {
+                    sync_frequency: '24hour',
+                })
+                actions.loadDataWarehouseSavedQueries()
+                actions.loadDatabase()
+            } catch {
+                lemonToast.error(`Failed to materialize view`)
             }
         },
         revertMaterialization: async ({ viewId }) => {

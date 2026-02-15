@@ -11,13 +11,12 @@ import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
@@ -34,13 +33,7 @@ import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import {
-    AvailableFeature,
-    FilterLogicalOperator,
-    PropertyDefinition,
-    PropertyDefinitionVerificationStatus,
-    ReplayTabs,
-} from '~/types'
+import { FilterLogicalOperator, PropertyDefinition, PropertyDefinitionVerificationStatus } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
@@ -86,23 +79,8 @@ const getStatusProps = (isProperty: boolean): Record<PropertyDefinitionVerificat
 
 export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
     const logic = definitionLogic(props)
-    const {
-        definition,
-        definitionLoading,
-        definitionMissing,
-        hasTaxonomyFeatures,
-        singular,
-        isEvent,
-        isProperty,
-        metrics,
-        metricsLoading,
-    } = useValues(logic)
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const onGuardClick = (callback: () => void): void => {
-        guardAvailableFeature(AvailableFeature.INGESTION_TAXONOMY, () => {
-            callback()
-        })
-    }
+    const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
+        useValues(logic)
     const { deleteDefinition } = useActions(logic)
 
     const memoizedQuery = useMemo(() => {
@@ -158,9 +136,8 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                 actions={
                     <>
                         {isEvent && (
-                            <LemonButton
-                                type="secondary"
-                                to={urls.replay(ReplayTabs.Home, {
+                            <ViewRecordingsPlaylistButton
+                                filters={{
                                     filter_group: {
                                         type: FilterLogicalOperator.And,
                                         values: [
@@ -177,14 +154,11 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                                             },
                                         ],
                                     },
-                                })}
-                                sideIcon={<IconPlayCircle />}
-                                data-attr="event-definition-view-recordings"
+                                }}
+                                type="secondary"
                                 size="small"
-                                targetBlank
-                            >
-                                View recordings
-                            </LemonButton>
+                                data-attr="event-definition-view-recordings"
+                            />
                         )}
                         <LemonButton
                             data-attr="delete-definition"
@@ -236,11 +210,9 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                             onClick={() => {
                                 if (isProperty) {
                                     router.actions.push(urls.propertyDefinitionEdit(definition.id))
-                                    return
-                                }
-                                return onGuardClick(() => {
+                                } else {
                                     router.actions.push(urls.eventDefinitionEdit(definition.id))
-                                })
+                                }
                             }}
                         >
                             Edit
@@ -263,20 +235,18 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
             />
 
             <div className="deprecated-space-y-2">
-                {definition.description || isProperty || hasTaxonomyFeatures ? (
-                    <EditableField
-                        multiline
-                        name="description"
-                        markdown
-                        value={definition.description || ''}
-                        placeholder="Description (optional)"
-                        mode="view"
-                        data-attr="definition-description-view"
-                        className="definition-description"
-                        compactButtons
-                        maxLength={600}
-                    />
-                ) : null}
+                <EditableField
+                    multiline
+                    name="description"
+                    markdown
+                    value={definition.description || ''}
+                    placeholder="Description (optional)"
+                    mode="view"
+                    data-attr="definition-description-view"
+                    className="definition-description"
+                    compactButtons
+                    maxLength={600}
+                />
                 <ObjectTags
                     tags={definition.tags ?? []}
                     data-attr="definition-tags-view"

@@ -48,3 +48,31 @@
         }
     }
 }
+
+.DataVisualizationTable {
+    th {
+        max-width: 15rem;
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
+
+        .LemonTable__header-content div {
+            overflow-wrap: break-word;
+            white-space: normal;
+
+            // line clamp to 3 lines of text and then ellipsis
+            > span:first-child {
+                display: -webkit-box;
+                -webkit-line-clamp: 3;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+        }
+    }
+
+    td {
+        max-width: 15rem;
+        white-space: nowrap;
+    }
+}

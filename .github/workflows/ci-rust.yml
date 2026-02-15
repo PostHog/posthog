@@ -8,6 +8,7 @@ on:
 
 env:
     CARGO_TERM_COLOR: always
+    UV_HTTP_TIMEOUT: 120
 
 jobs:
     # Job to decide if we should run rust ci
@@ -17,16 +18,19 @@ jobs:
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run Rust checks
+        permissions:
+            contents: read
+            pull-requests: read
         # Set job outputs to values from filter step
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   clean: false
-            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -34,6 +38,7 @@ jobs:
                       rust:
                         # Avoid running rust tests for irrelevant changes
                         - 'rust/**'
+                        - 'proto/**'
                         - '.github/workflows/ci-rust.yml'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
@@ -56,16 +61,29 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: |
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
                   clean: false
+
+            - name: Install system OpenSSL
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libssl-dev pkg-config
+
+            - name: Install protoc
+              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+              with:
+                  version: '28.x'
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
 
             - name: Install sccache
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
@@ -76,6 +94,9 @@ jobs:
                   sccache --start-server
 
             - name: Run cargo build
+              env:
+                  # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
+                  OPENSSL_NO_VENDOR: '1'
               run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
 
     test:
@@ -111,6 +132,8 @@ jobs:
                     - hook-worker
                     - kafka-deduplicator
                     - limiters
+                    - personhog-replica
+                    - personhog-router
                     - posthog-symbol-data
                     - property-defs-rs
                     - serve-metrics
@@ -124,7 +147,7 @@ jobs:
                 working-directory: rust
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -137,7 +160,23 @@ jobs:
             - name: Setup main repo and dependencies
               run: |
                   docker compose -f ../docker-compose.dev.yml down
-                  docker compose -f ../docker-compose.dev.yml up -d
+
+                  # Retry docker compose up with exponential backoff to handle transient registry errors
+                  for i in 1 2 3; do
+                    if docker compose -f ../docker-compose.dev.yml up -d --wait; then
+                      echo "Docker compose up succeeded"
+                      break
+                    else
+                      if [ $i -lt 3 ]; then
+                        echo "Docker compose up failed (attempt $i/3), retrying in $((i * 10)) seconds..."
+                        sleep $((i * 10))
+                      else
+                        echo "Docker compose up failed after 3 attempts"
+                        exit 1
+                      fi
+                    fi
+                  done
+
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Dump Kafka logs on failure
@@ -151,7 +190,13 @@ jobs:
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
+
+            - name: Install protoc
+              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+              with:
+                  version: '28.x'
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Install sccache
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
@@ -162,15 +207,16 @@ jobs:
                   sccache --start-server
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
@@ -230,16 +276,29 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: |
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
                   clean: false
+
+            - name: Install system OpenSSL
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libssl-dev pkg-config
+
+            - name: Install protoc
+              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+              with:
+                  version: '28.x'
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
                   components: clippy,rustfmt
 
             - name: Install sccache
@@ -254,9 +313,15 @@ jobs:
               run: cargo fmt -- --check
 
             - name: Run clippy
+              env:
+                  # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
+                  OPENSSL_NO_VENDOR: '1'
               run: cargo clippy --all-targets --all-features -- -D warnings
 
             - name: Run cargo check
+              env:
+                  # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
+                  OPENSSL_NO_VENDOR: '1'
               run: cargo check --all-features
 
     shear:
@@ -273,9 +338,11 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: |
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
                   clean: false
 

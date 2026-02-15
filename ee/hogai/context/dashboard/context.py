@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from posthog.models import Team
 
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.utils.helpers import build_dashboard_url
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AnyPydanticModelQuery
 
@@ -23,6 +24,7 @@ class DashboardInsightContext(BaseModel, Generic[AnyPydanticModelQuery]):
     db_id: int | None = None
     filters_override: dict | None = None
     variables_override: dict | None = None
+    layout: dict | None = None
 
 
 class DashboardContext:
@@ -59,11 +61,26 @@ class DashboardContext:
         self.name = name
         self.description = description
         self.dashboard_id = dashboard_id
+        self.dashboard_url = build_dashboard_url(team, int(dashboard_id)) if dashboard_id else None
         self.dashboard_filters = dashboard_filters
         self._semaphore = asyncio.Semaphore(max_concurrent_queries)
 
-        # Create InsightContext objects from DashboardInsightContext models
-        self.insights = [self._create_insight_context(data) for data in insights_data]
+        # Sort by layout position and create InsightContext objects
+        sorted_data = self.sort_by_layout(insights_data)
+        self.insights = [self._create_insight_context(data) for data in sorted_data]
+
+    @staticmethod
+    def sort_by_layout(
+        insights_data: Sequence[DashboardInsightContext], layout_size: str = "sm"
+    ) -> list[DashboardInsightContext]:
+        """Sort insights by their layout position (y, then x)."""
+        return sorted(
+            insights_data,
+            key=lambda i: (
+                (i.layout or {}).get(layout_size, {}).get("y", 100),
+                (i.layout or {}).get(layout_size, {}).get("x", 100),
+            ),
+        )
 
     async def execute_and_format(self, prompt_template: str = DASHBOARD_RESULT_TEMPLATE) -> str:
         """Execute all insight queries in parallel and format combined results."""
@@ -72,6 +89,7 @@ class DashboardContext:
                 prompt_template,
                 dashboard_name=self.name or "Dashboard",
                 dashboard_id=self.dashboard_id,
+                dashboard_url=self.dashboard_url,
                 description=self.description,
                 insights="",
             )
@@ -84,6 +102,7 @@ class DashboardContext:
             prompt_template,
             dashboard_name=self.name or "Dashboard",
             dashboard_id=self.dashboard_id,
+            dashboard_url=self.dashboard_url,
             description=self.description,
             insights="\n\n".join(insight_results),
         )
@@ -95,6 +114,7 @@ class DashboardContext:
                 prompt_template,
                 dashboard_name=self.name or "Dashboard",
                 dashboard_id=self.dashboard_id,
+                dashboard_url=self.dashboard_url,
                 description=self.description,
             )
 
@@ -110,6 +130,7 @@ class DashboardContext:
             name=self.name or "Dashboard",
             dashboard_name=self.name or "Dashboard",
             dashboard_id=self.dashboard_id,
+            dashboard_url=self.dashboard_url,
             description=self.description,
             insights=insights_text,
         )
@@ -128,6 +149,7 @@ class DashboardContext:
             description=data.description,
             insight_id=data.short_id,
             insight_model_id=data.db_id,
+            insight_short_id=data.short_id,
             dashboard_filters=self.dashboard_filters,
             filters_override=data.filters_override,
             variables_override=data.variables_override,

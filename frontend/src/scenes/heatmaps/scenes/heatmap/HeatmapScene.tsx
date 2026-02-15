@@ -30,6 +30,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         type,
         displayUrl,
         widthOverride,
+        heightOverride,
         screenshotUrl,
         generatingScreenshot,
         screenshotLoaded,
@@ -135,7 +136,10 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                 <FilterPanel />
                 <SceneDivider />
                 <div ref={measureRef} className="w-full">
-                    <div className="border mx-auto bg-white rounded-lg" style={{ width: effectiveWidth ?? '100%' }}>
+                    <div
+                        className="border mx-auto bg-surface-primary rounded-lg"
+                        style={{ width: effectiveWidth ?? '100%' }}
+                    >
                         <div className="p-2 border-b text-muted-foreground gap-x-2 flex items-center">
                             <IconBrowser /> {displayUrl}
                             {typeof widthOverride === 'number' && containerWidth && widthOverride > containerWidth ? (
@@ -195,7 +199,11 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 ) : null}
                             </div>
                         ) : (
-                            <div className="relative min-h-screen">
+                            <div
+                                className="relative"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ height: heightOverride }}
+                            >
                                 <HeatmapCanvas
                                     positioning="absolute"
                                     widthOverride={desiredNumericWidth ?? undefined}
@@ -203,9 +211,9 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 />
                                 <iframe
                                     id="heatmap-iframe"
-                                    className="min-h-screen bg-white rounded-b-lg"
+                                    className="bg-white rounded-b-lg"
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width: '100%' }}
+                                    style={{ width: '100%', height: heightOverride }}
                                     src={displayUrl || ''}
                                     onLoad={onIframeLoad}
                                     // these two sandbox values are necessary so that the site and toolbar can run

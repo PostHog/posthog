@@ -305,6 +305,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             assert team.project is not None
             return team.project
         try:
+            # nosemgrep: idor-lookup-without-org (routing validates org access via permissions)
             return Project.objects.get(id=self.project_id)
         except (Project.DoesNotExist, ValueError):
             raise NotFound(detail="Project not found.")
@@ -422,6 +423,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                     query_value = team_from_request.project_id if team_from_request else int(query_value)
                 except ValueError:
                     raise NotFound("Project not found.")
+            elif query_lookup == "organization_id":
+                try:
+                    query_value = UUID(query_value)
+                except ValueError:
+                    raise NotFound("Organization not found.")
 
             result[query_lookup] = query_value
 
@@ -439,7 +445,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             serializer_context["team_id"] = serializer_context["project_id"]
         return serializer_context
 
-    @lru_cache(maxsize=1)
+    @lru_cache(maxsize=1)  # noqa: B019 - short-lived per-request router
     def _get_team_from_request(self) -> Optional["Team"]:
         team_found = None
         token = get_token(None, self.request)

@@ -9,7 +9,6 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
@@ -47,9 +46,10 @@ const Component = ({
 }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
     const { query, nodeId } = attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded } = useValues(nodeLogic)
+    const { expanded, notebookLogic } = useValues(nodeLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
+    const { canvasFiltersOverride } = useValues(notebookLogic)
 
     const insightLogicProps = {
         dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
@@ -60,7 +60,9 @@ const Component = ({
         let title = 'Query'
 
         if (query.kind === NodeKind.DataTableNode) {
-            if (query.source.kind) {
+            if (query.source.kind === 'HogQLQuery') {
+                title = 'SQL'
+            } else if (query.source.kind) {
                 title = query.source.kind.replace('Node', '').replace('Query', '')
             } else {
                 title = 'Data exploration'
@@ -105,8 +107,13 @@ const Component = ({
             modifiedQuery.embedded = true
         }
 
+        if (isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source)) {
+            modifiedQuery.source.fixedProperties = canvasFiltersOverride
+            updateAttributes({ ...attributes, isDefaultFilterApplied: true })
+        }
+
         return modifiedQuery
-    }, [query])
+    }, [query]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!expanded) {
         return null
@@ -120,6 +127,7 @@ const Component = ({
                         // use separate keys for the settings and visualization to avoid conflicts with insightProps
                         uniqueKey={nodeId + '-component'}
                         query={modifiedQuery}
+                        attachTo={notebookLogic}
                         setQuery={(t) => {
                             updateAttributes({
                                 query: {
@@ -141,6 +149,7 @@ type NotebookNodeQueryAttributes = {
     query: QuerySchema
     /* Whether canvasFiltersOverride is applied, as we should apply it only once  */
     isDefaultFilterApplied: boolean
+    showSettings?: boolean
 }
 
 export const Settings = ({
@@ -148,6 +157,8 @@ export const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
     const { query, isDefaultFilterApplied } = attributes
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const { notebookLogic } = useValues(nodeLogic)
     const { canvasFiltersOverride } = useValues(notebookLogic)
 
     const modifiedQuery = useMemo(() => {
@@ -243,6 +254,7 @@ export const Settings = ({
             <Query
                 // use separate keys for the settings and visualization to avoid conflicts with insightProps
                 uniqueKey={attributes.nodeId + '-settings'}
+                attachTo={notebookLogic}
                 query={modifiedQuery}
                 setQuery={(t) => {
                     updateAttributes({
@@ -272,6 +284,9 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         isDefaultFilterApplied: {
             default: false,
         },
+        showSettings: {
+            default: false,
+        },
     },
     href: ({ query }) =>
         isSavedInsightNode(query)
@@ -280,6 +295,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
               ? urls.insightNew({ query })
               : undefined,
     Settings,
+    settingsPlacement: 'inline',
     pasteOptions: {
         find: urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId),
         getAttributes: async (match) => {
@@ -316,9 +332,7 @@ export function buildNodeQueryContent(query: QuerySchema): JSONContent {
         type: NotebookNodeType.Query,
         attrs: {
             query: query,
-            __init: {
-                showSettings: true,
-            },
+            showSettings: true,
         },
     }
 }

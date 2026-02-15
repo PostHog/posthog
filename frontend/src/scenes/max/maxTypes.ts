@@ -10,6 +10,7 @@ export enum MaxContextType {
     INSIGHT = 'insight',
     EVENT = 'event',
     ACTION = 'action',
+    ERROR_TRACKING_ISSUE = 'error_tracking_issue',
 }
 
 export type InsightWithQuery = Pick<Partial<QueryBasedInsightModel>, 'query'> & Partial<QueryBasedInsightModel>
@@ -26,7 +27,7 @@ export interface MaxInsightContext {
 
 export interface MaxDashboardContext {
     type: MaxContextType.DASHBOARD
-    id: number
+    id: integer
     name?: string | null
     description?: string | null
     insights: MaxInsightContext[]
@@ -42,9 +43,15 @@ export interface MaxEventContext {
 
 export interface MaxActionContext {
     type: MaxContextType.ACTION
-    id: number
+    id: integer
     name: string
     description?: string | null
+}
+
+export interface MaxErrorTrackingIssueContext {
+    type: MaxContextType.ERROR_TRACKING_ISSUE
+    id: string // UUID of the error tracking issue
+    name?: string | null
 }
 
 // The main shape for the UI context sent to the backend
@@ -53,6 +60,7 @@ export interface MaxUIContext {
     insights?: MaxInsightContext[]
     events?: MaxEventContext[]
     actions?: MaxActionContext[]
+    error_tracking_issues?: MaxErrorTrackingIssueContext[]
     form_answers?: Record<string, string> // question_id -> answer for create_form tool responses
 }
 
@@ -61,12 +69,17 @@ export interface MaxContextTaxonomicFilterOption {
     id: string
     value: string | integer
     name: string
-    icon: React.ReactNode
+    icon: React.ComponentType
     type?: MaxContextType
 }
 
 // Union type for all possible context payloads that can be exposed by scene logics
-export type MaxContextItem = MaxInsightContext | MaxDashboardContext | MaxEventContext | MaxActionContext
+export type MaxContextItem =
+    | MaxInsightContext
+    | MaxDashboardContext
+    | MaxEventContext
+    | MaxActionContext
+    | MaxErrorTrackingIssueContext
 
 type MaxInsightContextInput = {
     type: MaxContextType.INSIGHT
@@ -87,11 +100,16 @@ type MaxActionContextInput = {
     type: MaxContextType.ACTION
     data: ActionType
 }
+type MaxErrorTrackingIssueContextInput = {
+    type: MaxContextType.ERROR_TRACKING_ISSUE
+    data: { id: string; name?: string | null }
+}
 export type MaxContextInput =
     | MaxInsightContextInput
     | MaxDashboardContextInput
     | MaxEventContextInput
     | MaxActionContextInput
+    | MaxErrorTrackingIssueContextInput
 
 /**
  * Helper functions to create maxContext items safely
@@ -130,6 +148,11 @@ export const createMaxContextHelpers = {
     action: (action: ActionType): MaxActionContextInput => ({
         type: MaxContextType.ACTION,
         data: action,
+    }),
+
+    errorTrackingIssue: (issue: { id: string; name?: string | null }): MaxErrorTrackingIssueContextInput => ({
+        type: MaxContextType.ERROR_TRACKING_ISSUE,
+        data: issue,
     }),
 }
 

@@ -1,10 +1,23 @@
+"""
+Python-based feature flag evaluation engine.
+
+IMPORTANT: This module is LEGACY code and should only be used for:
+1. The "Create static cohort from feature flag" background task (posthog/tasks/calculate_cohort.py)
+
+All other flag evaluation (decide, toolbar, local evaluation, etc.) now uses the Rust flags service.
+
+DO NOT add new uses of this code. If you need flag evaluation, use the Rust service by calling
+the FEATURE_FLAGS_SERVICE_URL/flags endpoint.
+
+For flag validation in the admin UI, use posthog/models/feature_flag/flag_validation.py instead.
+"""
+
 import time
 import hashlib
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, Optional, Union, cast
 
-from django.conf import settings
 from django.db import DatabaseError, IntegrityError
 from django.db.models import CharField, Expression, F, Func, Q
 from django.db.models.expressions import ExpressionWrapper, RawSQL
@@ -602,6 +615,7 @@ class FeatureFlagMatcher:
                                 **type_property_annotations,
                                 **{
                                     key: ExpressionWrapper(
+                                        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (literal "true", no user input)
                                         cast(Expression, expr if expr else RawSQL("true", [])),
                                         output_field=BooleanField(),
                                     ),
@@ -621,6 +635,7 @@ class FeatureFlagMatcher:
                                 **type_property_annotations,
                                 **{
                                     key: ExpressionWrapper(
+                                        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (literal "true", no user input)
                                         cast(Expression, expr if expr else RawSQL("true", [])),
                                         output_field=BooleanField(),
                                     ),
@@ -927,7 +942,9 @@ def get_all_feature_flags_with_details(
         feature_flag.ensure_experience_continuity for feature_flag in feature_flags_to_be_evaluated
     )
 
-    is_database_alive = not settings.DECIDE_SKIP_POSTGRES_FLAGS
+    # LEGACY: This code is only used for cohort creation background tasks
+    # Database is always available in this context (no decide performance concerns)
+    is_database_alive = True
     if not is_database_alive or not flags_have_experience_continuity_enabled:
         return _get_all_feature_flags(
             feature_flags_to_be_evaluated,
@@ -947,7 +964,8 @@ def get_all_feature_flags_with_details(
     writing_hash_key_override = False
     # This is the write-path for experience continuity flags. When a hash_key_override is sent to decide,
     # we want to store it in the database, and then use it in the read-path to get flags with experience continuity enabled.
-    if hash_key_override is not None and not settings.DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES:
+    # LEGACY: Always write hash key overrides in cohort creation context
+    if hash_key_override is not None:
         # First, check if the hash_key_override is already in the database.
         # We don't have to check this in an ideal world, but read replica operations are much more resilient than write operations.
         # So, if an extra query check helps us avoid the write path, it's worth it.
@@ -1153,7 +1171,7 @@ def set_feature_flag_hash_key_overrides(team: Team, distinct_ids: list[str], has
 
                     insert_query = f"""
                         INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-                        VALUES {', '.join(values_placeholders)}
+                        VALUES {", ".join(values_placeholders)}
                         ON CONFLICT DO NOTHING
                     """
                     cursor.execute(insert_query, params)
@@ -1298,6 +1316,7 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int, p
             **type_property_annotations,
             **{
                 key: ExpressionWrapper(
+                    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (literal "true", no user input)
                     cast(Expression, expr if expr else RawSQL("true", [])),
                     output_field=BooleanField(),
                 ),

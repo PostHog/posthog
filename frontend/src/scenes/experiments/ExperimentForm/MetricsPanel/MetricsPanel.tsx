@@ -1,8 +1,5 @@
 import { useActions } from 'kea'
 
-import { LemonDivider } from '@posthog/lemon-ui'
-
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
@@ -27,11 +24,7 @@ export type MetricsPanelProps = {
     onSaveMetric: (metric: ExperimentMetric, context: MetricContext) => void
     onDeleteMetric: (metric: ExperimentMetric, context: MetricContext) => void
     onSaveSharedMetrics: (metrics: ExperimentMetric[], context: MetricContext) => void
-    onPrevious: () => void
 }
-
-const sortMetrics = (metrics: ExperimentMetric[], orderedUuids: string[]): ExperimentMetric[] =>
-    orderedUuids.map((uuid) => metrics.find((metric) => metric.uuid === uuid)).filter(Boolean) as ExperimentMetric[]
 
 const convertSharedMetricToExperimentMetric = ({ id, query, name }: SharedMetric): ExperimentMetric =>
     ({
@@ -47,7 +40,6 @@ export const MetricsPanel = ({
     onSaveMetric,
     onDeleteMetric,
     onSaveSharedMetrics,
-    onPrevious,
 }: MetricsPanelProps): JSX.Element => {
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
@@ -55,46 +47,35 @@ export const MetricsPanel = ({
     // we need this value to calculate the recent activity on the metrics list
     const filterTestAccounts = experiment.exposure_criteria?.filterTestAccounts ?? false
 
-    const primaryMetrics = sortMetrics(
-        [...(experiment.metrics || []).filter(isExperimentMetric), ...sharedMetrics.primary],
-        experiment.primary_metrics_ordered_uuids || []
-    )
-    const secondaryMetrics = sortMetrics(
-        [...(experiment.metrics_secondary || []).filter(isExperimentMetric), ...sharedMetrics.secondary],
-        experiment.secondary_metrics_ordered_uuids || []
-    )
+    const primaryMetrics = [...(experiment.metrics || []).filter(isExperimentMetric), ...sharedMetrics.primary]
+    const secondaryMetrics = [
+        ...(experiment.metrics_secondary || []).filter(isExperimentMetric),
+        ...sharedMetrics.secondary,
+    ]
 
     return (
         <div>
-            {primaryMetrics.length > 0 ? (
-                <MetricList
-                    metrics={primaryMetrics}
-                    metricContext={METRIC_CONTEXTS.primary}
-                    onDelete={onDeleteMetric}
-                    filterTestAccounts={filterTestAccounts}
-                />
-            ) : (
-                <EmptyMetricsPanel metricContext={METRIC_CONTEXTS.primary} />
-            )}
+            <div className="font-semibold mb-2">Metrics</div>
+            <div className="text-muted mb-4">Add metrics to measure your experiment's impact.</div>
 
-            {secondaryMetrics.length > 0 ? (
-                <MetricList
-                    metrics={secondaryMetrics}
-                    metricContext={METRIC_CONTEXTS.secondary}
-                    onDelete={onDeleteMetric}
-                    filterTestAccounts={filterTestAccounts}
-                    className="mt-6"
-                />
+            {primaryMetrics.length === 0 && secondaryMetrics.length === 0 ? (
+                <EmptyMetricsPanel />
             ) : (
-                <EmptyMetricsPanel className="mt-6" metricContext={METRIC_CONTEXTS.secondary} />
+                <div className="space-y-6">
+                    <MetricList
+                        metrics={primaryMetrics}
+                        metricContext={METRIC_CONTEXTS.primary}
+                        onDelete={onDeleteMetric}
+                        filterTestAccounts={filterTestAccounts}
+                    />
+                    <MetricList
+                        metrics={secondaryMetrics}
+                        metricContext={METRIC_CONTEXTS.secondary}
+                        onDelete={onDeleteMetric}
+                        filterTestAccounts={filterTestAccounts}
+                    />
+                </div>
             )}
-
-            <LemonDivider className="mt-4" />
-            <div className="flex justify-end pt-4">
-                <LemonButton type="primary" size="small" onClick={onPrevious}>
-                    Previous
-                </LemonButton>
-            </div>
 
             <MetricSourceModal />
             <ExperimentMetricModal

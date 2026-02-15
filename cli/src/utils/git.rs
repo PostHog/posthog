@@ -15,6 +15,10 @@ pub struct GitInfo {
 }
 
 pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
+    if let Some(info) = get_git_info_from_github() {
+        return Ok(Some(info));
+    }
+
     if let Some(info) = get_git_info_from_vercel() {
         return Ok(Some(info));
     }
@@ -26,8 +30,8 @@ pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
 
     let remote_url = get_remote_url(&git_dir);
     let repo_name = get_repo_name(&git_dir);
-    let branch = get_current_branch(&git_dir).context("Failed to determine current branch")?;
-    let commit = get_head_commit(&git_dir, &branch).context("Failed to determine commit ID")?;
+    let branch = get_branch_name(&git_dir).context("Failed to determine current branch")?;
+    let commit = get_commit_sha(&git_dir, &branch).context("Failed to determine commit sha")?;
 
     Ok(Some(GitInfo {
         remote_url,
@@ -37,16 +41,16 @@ pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
     }))
 }
 
-fn get_git_info_from_vercel() -> Option<GitInfo> {
-    if std::env::var("VERCEL").ok()? != "1" {
-        return None;
-    }
+fn get_git_info_from_github() -> Option<GitInfo> {
+    get_env_variable("GITHUB_ACTIONS")?;
 
-    let branch = std::env::var("VERCEL_GIT_COMMIT_REF").ok()?;
-    let commit_id = std::env::var("VERCEL_GIT_COMMIT_SHA").ok()?;
+    let branch = get_env_variable("GITHUB_REF_NAME")?;
+    let commit_id = get_env_variable("GITHUB_SHA")?;
+    let repository = get_env_variable("GITHUB_REPOSITORY")?;
+    let server_url = get_env_variable("GITHUB_SERVER_URL")?;
 
-    let remote_url = build_vercel_remote_url();
-    let repo_name = std::env::var("VERCEL_GIT_REPO_SLUG").ok();
+    let repo_name = repository.split('/').next_back().map(|s| s.to_string());
+    let remote_url = Some(format!("{server_url}/{repository}.git"));
 
     Some(GitInfo {
         remote_url,
@@ -56,10 +60,26 @@ fn get_git_info_from_vercel() -> Option<GitInfo> {
     })
 }
 
-fn build_vercel_remote_url() -> Option<String> {
-    let provider = std::env::var("VERCEL_GIT_PROVIDER").ok()?;
-    let owner = std::env::var("VERCEL_GIT_REPO_OWNER").ok()?;
-    let slug = std::env::var("VERCEL_GIT_REPO_SLUG").ok()?;
+fn get_git_info_from_vercel() -> Option<GitInfo> {
+    get_env_variable("VERCEL")?;
+
+    let branch = get_env_variable("VERCEL_GIT_COMMIT_REF")?;
+    let commit_id = get_env_variable("VERCEL_GIT_COMMIT_SHA")?;
+    let repo_slug = get_env_variable("VERCEL_GIT_REPO_SLUG")?;
+
+    let remote_url = build_vercel_remote_url(&repo_slug);
+
+    Some(GitInfo {
+        remote_url,
+        repo_name: Some(repo_slug),
+        branch,
+        commit_id,
+    })
+}
+
+fn build_vercel_remote_url(repo_slug: &String) -> Option<String> {
+    let provider = get_env_variable("VERCEL_GIT_PROVIDER")?;
+    let owner = get_env_variable("VERCEL_GIT_REPO_OWNER")?;
 
     let base_url = match provider.as_str() {
         "github" => "https://github.com",
@@ -68,7 +88,7 @@ fn build_vercel_remote_url() -> Option<String> {
         _ => return None,
     };
 
-    Some(format!("{base_url}/{owner}/{slug}.git"))
+    Some(format!("{base_url}/{owner}/{repo_slug}.git"))
 }
 
 fn find_git_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
@@ -142,7 +162,7 @@ pub fn get_repo_name(git_dir: &Path) -> Option<String> {
     None
 }
 
-fn get_current_branch(git_dir: &Path) -> Result<String> {
+fn get_branch_name(git_dir: &Path) -> Result<String> {
     // First try to read from HEAD file
     let head_path = git_dir.join("HEAD");
     let mut head_content = String::new();
@@ -164,7 +184,7 @@ fn get_current_branch(git_dir: &Path) -> Result<String> {
     }
 }
 
-fn get_head_commit(git_dir: &Path, branch: &str) -> Result<String> {
+fn get_commit_sha(git_dir: &Path, branch: &str) -> Result<String> {
     if branch == "HEAD-detached" {
         // For detached HEAD, read directly from HEAD
         let head_path = git_dir.join("HEAD");
@@ -190,4 +210,12 @@ fn get_head_commit(git_dir: &Path, branch: &str) -> Result<String> {
     }
 
     anyhow::bail!("Could not determine commit ID")
+}
+
+fn get_env_variable(name: &str) -> Option<String> {
+    let env_variable = std::env::var(name).ok()?.trim().to_string();
+    match env_variable.as_ref() {
+        "" => None,
+        _ => Some(env_variable),
+    }
 }

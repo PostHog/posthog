@@ -14,7 +14,6 @@ import { isObject } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
@@ -89,7 +88,6 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
 export type PlayerMetaBreakpoints = 'small' | 'normal'
 
 export function PlayerMeta(): JSX.Element {
-    const { isCinemaMode } = useValues(playerSettingsLogic)
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading } = useValues(
@@ -179,7 +177,7 @@ export function PlayerMeta(): JSX.Element {
                         </>
                     )}
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
-                    {!isCinemaMode && <PlayerMetaLinks size={size} />}
+                    <PlayerMetaLinks size={size} />
                     <PlayerPersonMeta />
                 </div>
             </div>

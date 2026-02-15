@@ -3,15 +3,16 @@ import { router } from 'kea-router'
 
 import { IconCheckCircle } from '@posthog/icons'
 
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { CLOUD_HOSTNAMES } from 'lib/constants'
+import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { Region } from '~/types'
 
+import { AuthShell } from '../AuthShell'
 import { SignupForm } from './signupForm/SignupForm'
 
 export const scene: SceneExport = {
@@ -21,6 +22,9 @@ export const scene: SceneExport = {
 export function SignupContainer(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const isAATestVariant = featureFlags[FEATURE_FLAGS.SIGNUP_AA_TEST] === 'test'
 
     const footerHighlights = {
         cloud: ['Hosted & managed by PostHog', 'Pay per event, cancel anytime', 'Fast and reliable support'],
@@ -28,8 +32,11 @@ export function SignupContainer(): JSX.Element | null {
     }
 
     return !user ? (
-        <BridgePage
+        <AuthShell
             view="signup"
+            sideLogo
+            leftContainerContent={<SignupLeftContainer />}
+            hideFooterForTwig
             footer={
                 <div className="sm:flex sm:justify-center w-full gap-[10%]">
                     {footerHighlights[preflight?.cloud ? 'cloud' : 'selfHosted'].map((val, idx) => (
@@ -39,11 +46,10 @@ export function SignupContainer(): JSX.Element | null {
                     ))}
                 </div>
             }
-            sideLogo
-            leftContainerContent={<SignupLeftContainer />}
         >
+            {isAATestVariant && <div data-attr="signup-aa-test-variant" className="hidden" />}
             <SignupForm />
-        </BridgePage>
+        </AuthShell>
     ) : null
 }
 

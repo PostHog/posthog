@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -23,9 +25,65 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
+import { findNewEvents } from './sessionRecordingPlayerLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
 jest.mock('./snapshot-processing/DecompressionWorkerManager')
+
+const makeEvent = (timestamp: number, type: number = EventType.IncrementalSnapshot): eventWithTime =>
+    ({ timestamp, type, data: { source: IncrementalSource.MouseMove } }) as unknown as eventWithTime
+
+describe('findNewEvents', () => {
+    it.each([
+        {
+            description: 'forward-only: new events appended at end',
+            all: [100, 200, 300, 400, 500],
+            current: [100, 200, 300],
+            expected: [400, 500],
+        },
+        {
+            description: 'backward: new events inserted before existing',
+            all: [100, 200, 300, 400, 500],
+            current: [300, 400, 500],
+            expected: [100, 200],
+        },
+        {
+            description: 'mixed: new events at both ends',
+            all: [100, 200, 300, 400, 500],
+            current: [200, 300, 400],
+            expected: [100, 500],
+        },
+        {
+            description: 'equal timestamps: correctly counts duplicates',
+            all: [100, 100, 100, 200],
+            current: [100, 100],
+            expected: [100, 200],
+        },
+        {
+            description: 'no new events',
+            all: [100, 200, 300],
+            current: [100, 200, 300],
+            expected: [],
+        },
+        {
+            description: 'empty current: all events are new',
+            all: [100, 200, 300],
+            current: [],
+            expected: [100, 200, 300],
+        },
+        {
+            description: 'interleaved: new events fill gaps',
+            all: [100, 150, 200, 250, 300],
+            current: [100, 200, 300],
+            expected: [150, 250],
+        },
+    ])('$description', ({ all, current, expected }) => {
+        const allSnapshots = all.map((ts) => makeEvent(ts))
+        const currentEvents = current.map((ts) => makeEvent(ts))
+        const result = findNewEvents(allSnapshots, currentEvents)
+        expect(result.map((e) => e.timestamp)).toEqual(expected)
+    })
+})
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
@@ -538,6 +596,140 @@ describe('sessionRecordingPlayerLogic', () => {
                     })
                 )
             })
+        })
+    })
+
+    describe('seek actions', () => {
+        it('seekForward without parameter uses default jumpTimeMs (10s)', () => {
+            const currentTime = 5000
+            logic.actions.seekToTime(currentTime)
+
+            const jumpTimeMs = logic.values.jumpTimeMs
+            expect(jumpTimeMs).toBe(10000) // 10s * speed(1)
+
+            logic.actions.seekForward()
+            // seekForward should call seekToTime with current time + jumpTimeMs
+        })
+
+        it('seekBackward without parameter uses default jumpTimeMs (10s)', () => {
+            const currentTime = 15000
+            logic.actions.seekToTime(currentTime)
+
+            const jumpTimeMs = logic.values.jumpTimeMs
+            expect(jumpTimeMs).toBe(10000) // 10s * speed(1)
+
+            logic.actions.seekBackward()
+            // seekBackward should call seekToTime with current time - jumpTimeMs
+        })
+
+        it('seekForward with 1000ms parameter jumps forward 1s', () => {
+            const currentTime = 5000
+            logic.actions.seekToTime(currentTime)
+            logic.actions.seekForward(1000)
+            // seekForward should call seekToTime with current time + 1000
+        })
+
+        it('seekBackward with 1000ms parameter jumps backward 1s', () => {
+            const currentTime = 5000
+            logic.actions.seekToTime(currentTime)
+            logic.actions.seekBackward(1000)
+            // seekBackward should call seekToTime with current time - 1000
+        })
+
+        it('seekForward respects custom amount parameter', () => {
+            const currentTime = 5000
+            const customAmount = 2500
+            logic.actions.seekToTime(currentTime)
+            logic.actions.seekForward(customAmount)
+            // seekForward should call seekToTime with current time + customAmount
+        })
+
+        it('seekBackward respects custom amount parameter', () => {
+            const currentTime = 5000
+            const customAmount = 3500
+            logic.actions.seekToTime(currentTime)
+            logic.actions.seekBackward(customAmount)
+            // seekBackward should call seekToTime with current time - customAmount
+        })
+
+        it('default jumpTimeMs scales with playback speed', () => {
+            logic.actions.setSpeed(2)
+
+            const jumpTimeMs = logic.values.jumpTimeMs
+            expect(jumpTimeMs).toBe(20000) // 10s * speed(2)
+
+            logic.actions.seekToTime(5000)
+            logic.actions.seekForward()
+            // seekForward should call seekToTime with current time + 20000
+        })
+    })
+
+    describe('setCurrentSegment graceful fallback', () => {
+        it('starts buffering instead of tryInitReplayer when segment windowId has no snapshots', () => {
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+            const startBufferSpy = jest.spyOn(logic.actions, 'startBuffer')
+
+            // Clear any calls from initialization
+            tryInitReplayerSpy.mockClear()
+            startBufferSpy.mockClear()
+
+            // Segment with windowId that has no snapshots loaded
+            const segmentWithNoSnapshots = {
+                kind: 'window' as const,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                windowId: 99999, // non-existent window id
+                isActive: true,
+                durationMs: 1000,
+            }
+
+            logic.actions.setCurrentSegment(segmentWithNoSnapshots)
+
+            expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+            expect(startBufferSpy).toHaveBeenCalled()
+        })
+
+        it('keeps current player for gap segments without calling tryInitReplayer', () => {
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+            const startBufferSpy = jest.spyOn(logic.actions, 'startBuffer')
+
+            // Clear any calls from initialization
+            tryInitReplayerSpy.mockClear()
+            startBufferSpy.mockClear()
+
+            const gapSegment = {
+                kind: 'gap' as const,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                windowId: 99999,
+                isActive: false,
+                durationMs: 1000,
+            }
+
+            logic.actions.setCurrentSegment(gapSegment)
+
+            expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+            expect(startBufferSpy).not.toHaveBeenCalled()
+        })
+
+        it('keeps current player when segment has no windowId', () => {
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+
+            // Clear any calls from initialization
+            tryInitReplayerSpy.mockClear()
+
+            const segmentWithNoWindowId = {
+                kind: 'buffer' as const,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                windowId: undefined,
+                isActive: false,
+                durationMs: 1000,
+            }
+
+            logic.actions.setCurrentSegment(segmentWithNoWindowId)
+
+            expect(tryInitReplayerSpy).not.toHaveBeenCalled()
         })
     })
 })

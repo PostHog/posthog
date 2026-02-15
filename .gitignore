@@ -10,6 +10,7 @@ __pycache__/
 .eslintcache
 .mypy_cache
 .parcel-cache
+.posthog/
 .postgres-backups/
 .python-version
 .temporal-worker-settings
@@ -139,6 +140,12 @@ bin/mprocs*.local.yaml
 # Ignore bin lockfiles
 bin/*.lock
 
+# Avoid commiting built binaries, they can be built locally easily
+# We deploy them to releases via the `build-hobby-installer.yml` workflow
+bin/hobby-installer-*
+bin/hobby-installer/hobby-installer
+bin/hobby-installer/hobby-installer.log
+
 # Debug output of our session summaries product
 .session-summaries
 
@@ -154,3 +161,11 @@ data/seaweedfs/
 # No env files except for the example
 .env*
 !.env.example
+
+# Ignore Agent OS (Claude Code) files
+.claude/agents/agent-os
+.claude/commands/agent-os
+agent-os/
+
+# MCP build files
+services/mcp/ui-apps-dist

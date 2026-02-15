@@ -9,13 +9,15 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import ANY, patch
+from unittest.mock import patch
 
-from django.utils.timezone import now
-
-from dateutil.relativedelta import relativedelta
-
-from posthog.schema import CurrencyCode, HogQLQueryModifiers, RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
+from posthog.schema import (
+    CurrencyCode,
+    HogQLQueryModifiers,
+    RevenueAnalyticsEventItem,
+    RevenueCurrencyPropertyConfig,
+    SubscriptionDropoffMode,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -43,10 +45,12 @@ CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_
 
 
 @snapshot_clickhouse_queries
-class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
+class TestGroupsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
     PURCHASE_EVENT_NAME = "purchase"
     REVENUE_PROPERTY = "revenue"
+    SUBSCRIPTION_PROPERTY = "subscription_id"
     QUERY_TIMESTAMP = "2025-05-30"
+    EVENT_TIMESTAMP = "2025-05-29"  # One day before the query timestamp
     MODIFIERS = HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True)
 
     person_id = "00000000-0000-0000-0000-000000000000"
@@ -92,7 +96,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             team=self.team,
             distinct_id=self.distinct_id,
-            timestamp=self.QUERY_TIMESTAMP,
+            timestamp=self.EVENT_TIMESTAMP,
             properties={"$group_0": self.group0_id},
         )
 
@@ -100,7 +104,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             event=self.PURCHASE_EVENT_NAME,
             team=self.team,
             distinct_id=self.distinct_id,
-            timestamp=self.QUERY_TIMESTAMP,
+            timestamp=self.EVENT_TIMESTAMP,
             properties={self.REVENUE_PROPERTY: 25042, "$group_0": self.group0_id},
         )
 
@@ -108,7 +112,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             event=self.PURCHASE_EVENT_NAME,
             team=self.team,
             distinct_id=self.distinct_id,
-            timestamp=self.QUERY_TIMESTAMP,
+            timestamp=self.EVENT_TIMESTAMP,
             properties={self.REVENUE_PROPERTY: 12500, "$group_1": self.group1_id},
         )
 
@@ -116,7 +120,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             event=self.PURCHASE_EVENT_NAME,
             team=self.team,
             distinct_id=self.distinct_id,
-            timestamp=self.QUERY_TIMESTAMP,
+            timestamp=self.EVENT_TIMESTAMP,
             properties={self.REVENUE_PROPERTY: 10000, "$group_0": self.group0_id, "$group_1": self.group1_id},
         )
 
@@ -124,8 +128,89 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             event=self.PURCHASE_EVENT_NAME,
             team=self.team,
             distinct_id=self.distinct_id,
-            timestamp=self.QUERY_TIMESTAMP,
+            timestamp=self.EVENT_TIMESTAMP,
             properties={self.REVENUE_PROPERTY: 3223, "$group_0": self.another_group0_id},
+        )
+
+    def setup_events_with_subscriptions(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=self.group0_id,
+            properties={"industry": "positive"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=self.another_group0_id,
+            properties={"industry": "another"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key=self.group1_id,
+            properties={"industry": "negative"},
+        )
+
+        _create_person(
+            uuid=self.person_id,
+            team_id=self.team.pk,
+            distinct_ids=[self.distinct_id],
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=self.distinct_id,
+            timestamp=self.EVENT_TIMESTAMP,
+            properties={"$group_0": self.group0_id},
+        )
+
+        # Non-recurring event (no subscription_id)
+        _create_event(
+            event=self.PURCHASE_EVENT_NAME,
+            team=self.team,
+            distinct_id=self.distinct_id,
+            timestamp=self.EVENT_TIMESTAMP,
+            properties={self.REVENUE_PROPERTY: 25042, "$group_0": self.group0_id},
+        )
+
+        # Recurring events (with subscription_id) - contributes to MRR
+        _create_event(
+            event=self.PURCHASE_EVENT_NAME,
+            team=self.team,
+            distinct_id=self.distinct_id,
+            timestamp=self.EVENT_TIMESTAMP,
+            properties={
+                self.REVENUE_PROPERTY: 12500,
+                "$group_1": self.group1_id,
+                self.SUBSCRIPTION_PROPERTY: "sub_1",
+            },
+        )
+
+        _create_event(
+            event=self.PURCHASE_EVENT_NAME,
+            team=self.team,
+            distinct_id=self.distinct_id,
+            timestamp=self.EVENT_TIMESTAMP,
+            properties={
+                self.REVENUE_PROPERTY: 10000,
+                "$group_0": self.group0_id,
+                "$group_1": self.group1_id,
+                self.SUBSCRIPTION_PROPERTY: "sub_2",
+            },
+        )
+
+        _create_event(
+            event=self.PURCHASE_EVENT_NAME,
+            team=self.team,
+            distinct_id=self.distinct_id,
+            timestamp=self.EVENT_TIMESTAMP,
+            properties={
+                self.REVENUE_PROPERTY: 3223,
+                "$group_0": self.another_group0_id,
+                self.SUBSCRIPTION_PROPERTY: "sub_3",
+            },
         )
 
     def setup_schema_sources(self):
@@ -239,9 +324,10 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             ]
             self.team.revenue_analytics_config.save()
             self.team.save()
-            self.create_managed_viewsets()
 
             with freeze_time(self.QUERY_TIMESTAMP):
+                self.create_managed_viewsets()
+
                 response = execute_hogql_query(
                     parse_select(
                         "SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups where key = {key}",
@@ -293,13 +379,13 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             self.join.source_table_key = "id"
             self.join.save()
 
-            self.create_managed_viewsets()
-
             # These are the 6 IDs inside the CSV files, plus an extra dummy/empty one
             for key in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6", "dummy"]:
                 create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
 
             with freeze_time(self.QUERY_TIMESTAMP):
+                self.create_managed_viewsets()
+
                 queries = [
                     "SELECT key, revenue_analytics.revenue FROM groups ORDER BY key ASC",
                     "SELECT key, $virt_revenue FROM groups ORDER BY key ASC",
@@ -358,6 +444,45 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
+    def test_get_revenue_for_schema_source_for_email_join_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            self.setup_schema_sources()
+            self.join.source_table_key = "email"
+            self.join.save()
+
+            for key in [
+                "john.doe@example.com",  # cus_1
+                "jane.doe@example.com",  # cus_2
+                "john.smith@example.com",  # cus_3
+                "jane.smith@example.com",  # cus_4
+                "john.doejr@example.com",  # cus_5
+                "john.doejrjr@example.com",  # cus_6
+                "zdummy",
+            ]:
+                create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
+
+            with freeze_time(self.QUERY_TIMESTAMP):
+                self.create_managed_viewsets()
+
+                response = execute_hogql_query(
+                    parse_select("SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups ORDER BY key ASC"),
+                    self.team,
+                    modifiers=self.MODIFIERS,
+                )
+
+                self.assertEqual(
+                    response.results,
+                    [
+                        ("jane.doe@example.com", Decimal("482.2158673452"), Decimal("482.2158673452")),
+                        ("jane.smith@example.com", Decimal("254.12345"), Decimal("254.12345")),
+                        ("john.doe@example.com", Decimal("283.8496260553"), Decimal("283.8496260553")),
+                        ("john.doejr@example.com", Decimal("1494.0562"), Decimal("1494.0562")),
+                        ("john.doejrjr@example.com", Decimal("2796.37014"), Decimal("2796.37014")),
+                        ("john.smith@example.com", Decimal("4161.34422"), Decimal("4161.34422")),
+                        ("zdummy", None, None),
+                    ],
+                )
+
     def test_get_revenue_for_schema_source_for_metadata_join(self):
         self.setup_schema_sources()
         self.join.source_table_key = "JSONExtractString(metadata, 'id')"
@@ -395,44 +520,110 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
-    def test_query_revenue_analytics_table_sources(self):
+    def test_get_revenue_for_schema_source_for_metadata_join_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            self.setup_schema_sources()
+            self.join.source_table_key = "JSONExtractString(metadata, 'id')"
+            self.join.save()
+
+            for key in [
+                "cus_1_metadata",
+                "cus_2_metadata",
+                "cus_3_metadata",
+                "cus_4_metadata",
+                "cus_5_metadata",
+                "cus_6_metadata",
+                "dummy",
+            ]:
+                create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
+
+            with freeze_time(self.QUERY_TIMESTAMP):
+                self.create_managed_viewsets()
+
+                response = execute_hogql_query(
+                    parse_select("SELECT key, revenue_analytics.revenue, $virt_revenue FROM groups ORDER BY key ASC"),
+                    self.team,
+                    modifiers=self.MODIFIERS,
+                )
+
+                self.assertEqual(
+                    response.results,
+                    [
+                        ("cus_1_metadata", Decimal("283.8496260553"), Decimal("283.8496260553")),
+                        ("cus_2_metadata", Decimal("482.2158673452"), Decimal("482.2158673452")),
+                        ("cus_3_metadata", Decimal("4161.34422"), Decimal("4161.34422")),
+                        ("cus_4_metadata", Decimal("254.12345"), Decimal("254.12345")),
+                        ("cus_5_metadata", Decimal("1494.0562"), Decimal("1494.0562")),
+                        ("cus_6_metadata", Decimal("2796.37014"), Decimal("2796.37014")),
+                        ("dummy", None, None),
+                    ],
+                )
+
+    def test_get_mrr_via_lazy_join_for_schema_source(self):
         self.setup_schema_sources()
-        self.join.source_table_key = "email"
+        self.join.source_table_key = "id"
         self.join.save()
 
-        # These are the 6 IDs inside the CSV files, and we have an extra empty one
-        for key in [
-            "john.doe@example.com",  # cus_1
-            "jane.doe@example.com",  # cus_2
-            "john.smith@example.com",  # cus_3
-            "jane.smith@example.com",  # cus_4
-            "john.doejr@example.com",  # cus_5
-            "john.doejrjr@example.com",  # cus_6
-            "zdummy",
-        ]:
+        for key in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6", "dummy"]:
             create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            results = execute_hogql_query(
-                parse_select("SELECT * FROM groups_revenue_analytics ORDER BY group_key ASC"),
+            response = execute_hogql_query(
+                parse_select(
+                    "SELECT key, revenue_analytics.revenue, revenue_analytics.mrr FROM groups ORDER BY key ASC"
+                ),
                 self.team,
                 modifiers=self.MODIFIERS,
             )
 
             self.assertEqual(
-                results.results,
+                response.results,
                 [
-                    ("jane.doe@example.com", Decimal("482.2158673452"), ANY),
-                    ("jane.smith@example.com", Decimal("254.12345"), ANY),
-                    ("john.doe@example.com", Decimal("283.8496260553"), ANY),
-                    ("john.doejr@example.com", Decimal("1494.0562"), ANY),
-                    ("john.doejrjr@example.com", Decimal("2796.37014"), ANY),
-                    ("john.smith@example.com", Decimal("4161.34422"), ANY),
+                    ("cus_1", Decimal("283.8496260553"), Decimal("22.9631447238")),
+                    ("cus_2", Decimal("482.2158673452"), Decimal("40.8052916666")),
+                    ("cus_3", Decimal("4161.34422"), Decimal("1546.59444")),
+                    ("cus_4", Decimal("254.12345"), Decimal("83.16695")),
+                    ("cus_5", Decimal("1494.0562"), Decimal("43.82703")),
+                    ("cus_6", Decimal("2796.37014"), Decimal("1459.02008")),
+                    ("dummy", None, None),
                 ],
             )
 
-    def test_query_revenue_analytics_table_events(self):
-        self.setup_events()
+    def test_get_mrr_via_lazy_join_for_schema_source_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            self.setup_schema_sources()
+            self.join.source_table_key = "id"
+            self.join.save()
+
+            for key in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6", "dummy"]:
+                create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
+
+            with freeze_time(self.QUERY_TIMESTAMP):
+                self.create_managed_viewsets()
+
+                response = execute_hogql_query(
+                    parse_select(
+                        "SELECT key, revenue_analytics.revenue, revenue_analytics.mrr FROM groups ORDER BY key ASC"
+                    ),
+                    self.team,
+                    modifiers=self.MODIFIERS,
+                )
+
+                self.assertEqual(
+                    response.results,
+                    [
+                        ("cus_1", Decimal("283.8496260553"), Decimal("22.9631447238")),
+                        ("cus_2", Decimal("482.2158673452"), Decimal("40.8052916666")),
+                        ("cus_3", Decimal("4161.34422"), Decimal("1546.59444")),
+                        ("cus_4", Decimal("254.12345"), Decimal("83.16695")),
+                        ("cus_5", Decimal("1494.0562"), Decimal("43.82703")),
+                        ("cus_6", Decimal("2796.37014"), Decimal("1459.02008")),
+                        ("dummy", None, None),
+                    ],
+                )
+
+    def test_get_mrr_via_lazy_join_for_events(self):
+        self.setup_events_with_subscriptions()
 
         self.team.revenue_analytics_config.events = [
             RevenueAnalyticsEventItem(
@@ -440,30 +631,31 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 revenueProperty=self.REVENUE_PROPERTY,
                 revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
                 currencyAwareDecimal=True,
+                subscriptionProperty=self.SUBSCRIPTION_PROPERTY,
+                subscriptionDropoffMode=SubscriptionDropoffMode.AFTER_DROPOFF_PERIOD,
             )
         ]
         self.team.revenue_analytics_config.save()
         self.team.save()
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            results = execute_hogql_query(
-                parse_select("SELECT * FROM groups_revenue_analytics ORDER BY group_key ASC"),
+            response = execute_hogql_query(
+                parse_select(
+                    "SELECT key, revenue_analytics.revenue, revenue_analytics.mrr FROM groups WHERE key = {key}",
+                    placeholders={"key": ast.Constant(value=self.group0_id)},
+                ),
                 self.team,
                 modifiers=self.MODIFIERS,
             )
 
             self.assertEqual(
-                results.results,
-                [
-                    ("lolol0:xxx", Decimal("350.42"), None),
-                    ("lolol1:xxx", Decimal("225"), None),
-                    ("lolol1:xxx2", Decimal("32.23"), None),
-                ],
+                response.results,
+                [(self.group0_id, Decimal("350.42"), Decimal("257.23"))],
             )
 
-    def test_query_revenue_analytics_table_events_with_managed_viewsets_ff(self):
+    def test_get_mrr_via_lazy_join_for_events_with_managed_viewsets_ff(self):
         with patch("posthoganalytics.feature_enabled", return_value=True):
-            self.setup_events()
+            self.setup_events_with_subscriptions()
 
             self.team.revenue_analytics_config.events = [
                 RevenueAnalyticsEventItem(
@@ -471,55 +663,156 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     revenueProperty=self.REVENUE_PROPERTY,
                     revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
                     currencyAwareDecimal=True,
+                    subscriptionProperty=self.SUBSCRIPTION_PROPERTY,
+                    subscriptionDropoffMode=SubscriptionDropoffMode.AFTER_DROPOFF_PERIOD,
                 )
             ]
             self.team.revenue_analytics_config.save()
             self.team.save()
-            self.create_managed_viewsets()
 
             with freeze_time(self.QUERY_TIMESTAMP):
-                results = execute_hogql_query(
-                    parse_select("SELECT * FROM groups_revenue_analytics ORDER BY group_key ASC"),
+                self.create_managed_viewsets()
+
+                response = execute_hogql_query(
+                    parse_select(
+                        "SELECT key, revenue_analytics.revenue, revenue_analytics.mrr FROM groups WHERE key = {key}",
+                        placeholders={"key": ast.Constant(value=self.group0_id)},
+                    ),
                     self.team,
                     modifiers=self.MODIFIERS,
                 )
 
                 self.assertEqual(
+                    response.results,
+                    [(self.group0_id, Decimal("350.42"), Decimal("257.23"))],
+                )
+
+    def test_query_revenue_analytics_table_sources(self):
+        self.setup_schema_sources()
+        self.join.source_table_key = "id"
+        self.join.save()
+
+        # These are the 6 IDs inside the CSV files
+        for key in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
+            create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            results = execute_hogql_query(
+                parse_select("SELECT group_key, revenue, mrr FROM groups_revenue_analytics ORDER BY mrr DESC"),
+                self.team,
+                modifiers=self.MODIFIERS,
+            )
+
+            # MRR values come from the MRR view based on recurring invoices with subscriptions
+            self.assertEqual(
+                results.results,
+                [
+                    ("cus_3", Decimal("4161.34422"), Decimal("1546.59444")),
+                    ("cus_6", Decimal("2796.37014"), Decimal("1459.02008")),
+                    ("cus_4", Decimal("254.12345"), Decimal("83.16695")),
+                    ("cus_5", Decimal("1494.0562"), Decimal("43.82703")),
+                    ("cus_2", Decimal("482.2158673452"), Decimal("40.8052916666")),
+                    ("cus_1", Decimal("283.8496260553"), Decimal("22.9631447238")),
+                ],
+            )
+
+    def test_query_revenue_analytics_table_sources_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            self.setup_schema_sources()
+            self.join.source_table_key = "id"
+            self.join.save()
+
+            # These are the 6 IDs inside the CSV files
+            for key in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
+                create_group(team_id=self.team.pk, group_type_index=0, group_key=key)
+
+            with freeze_time(self.QUERY_TIMESTAMP):
+                self.create_managed_viewsets()
+
+                results = execute_hogql_query(
+                    parse_select("SELECT group_key, revenue, mrr FROM groups_revenue_analytics ORDER BY mrr DESC"),
+                    self.team,
+                    modifiers=self.MODIFIERS,
+                )
+
+                # MRR values from managed viewsets
+                self.assertEqual(
                     results.results,
                     [
-                        ("lolol0:xxx", Decimal("350.42"), None),
-                        ("lolol1:xxx", Decimal("225"), None),
-                        ("lolol1:xxx2", Decimal("32.23"), None),
+                        ("cus_3", Decimal("4161.34422"), Decimal("1546.59444")),
+                        ("cus_6", Decimal("2796.37014"), Decimal("1459.02008")),
+                        ("cus_4", Decimal("254.12345"), Decimal("83.16695")),
+                        ("cus_5", Decimal("1494.0562"), Decimal("43.82703")),
+                        ("cus_2", Decimal("482.2158673452"), Decimal("40.8052916666")),
+                        ("cus_1", Decimal("283.8496260553"), Decimal("22.9631447238")),
                     ],
                 )
 
-    # Basic regression test when grouping on events only
-    def test_basic_events(self):
+    def test_query_revenue_analytics_table_events(self):
+        self.setup_events_with_subscriptions()
+
         self.team.revenue_analytics_config.events = [
             RevenueAnalyticsEventItem(
                 eventName=self.PURCHASE_EVENT_NAME,
                 revenueProperty=self.REVENUE_PROPERTY,
+                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+                currencyAwareDecimal=True,
+                subscriptionProperty=self.SUBSCRIPTION_PROPERTY,
+                subscriptionDropoffMode=SubscriptionDropoffMode.AFTER_DROPOFF_PERIOD,
             )
         ]
         self.team.revenue_analytics_config.save()
         self.team.save()
 
-        _create_event(
-            event=self.PURCHASE_EVENT_NAME,
-            team=self.team,
-            distinct_id=self.distinct_id,
-            timestamp=now() - relativedelta(hours=1),
-            properties={self.REVENUE_PROPERTY: 25042, "$group_0": self.group0_id},
-        )
-
         with freeze_time(self.QUERY_TIMESTAMP):
             results = execute_hogql_query(
-                parse_select("SELECT * FROM groups_revenue_analytics ORDER BY group_key ASC"),
+                parse_select("SELECT group_key, revenue, mrr FROM groups_revenue_analytics ORDER BY group_key ASC"),
                 self.team,
                 modifiers=self.MODIFIERS,
             )
 
+            # MRR is calculated from recurring events (those with subscription_id)
             self.assertEqual(
                 results.results,
-                [(self.group0_id, Decimal("25042"), Decimal("25042"))],
+                [
+                    (self.group0_id, Decimal("350.42"), Decimal("257.23")),
+                    (self.group1_id, Decimal("225"), Decimal("257.23")),
+                    (self.another_group0_id, Decimal("32.23"), Decimal("257.23")),
+                ],
             )
+
+    def test_query_revenue_analytics_table_events_with_managed_viewsets_ff(self):
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            self.setup_events_with_subscriptions()
+
+            self.team.revenue_analytics_config.events = [
+                RevenueAnalyticsEventItem(
+                    eventName=self.PURCHASE_EVENT_NAME,
+                    revenueProperty=self.REVENUE_PROPERTY,
+                    revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+                    currencyAwareDecimal=True,
+                    subscriptionProperty=self.SUBSCRIPTION_PROPERTY,
+                    subscriptionDropoffMode=SubscriptionDropoffMode.AFTER_DROPOFF_PERIOD,
+                )
+            ]
+            self.team.revenue_analytics_config.save()
+            self.team.save()
+
+            with freeze_time(self.QUERY_TIMESTAMP):
+                self.create_managed_viewsets()
+
+                results = execute_hogql_query(
+                    parse_select("SELECT group_key, revenue, mrr FROM groups_revenue_analytics ORDER BY group_key ASC"),
+                    self.team,
+                    modifiers=self.MODIFIERS,
+                )
+
+                # MRR is calculated from recurring events (those with subscription_id)
+                self.assertEqual(
+                    results.results,
+                    [
+                        (self.group0_id, Decimal("350.42"), Decimal("257.23")),
+                        (self.group1_id, Decimal("225"), Decimal("257.23")),
+                        (self.another_group0_id, Decimal("32.23"), Decimal("257.23")),
+                    ],
+                )

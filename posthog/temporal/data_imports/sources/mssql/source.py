@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -39,7 +39,11 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
         return ExternalDataSourceType.MSSQL
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {"Adaptive Server connection failed": None, "Login failed for user": None}
+        return {
+            "Adaptive Server connection failed": None,
+            "Login failed for user": None,
+            "Cannot find the CREDENTIAL": "Cannot find the credential - check that it exists and you have permission to access it",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -133,7 +137,9 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
 
         return schemas
 
-    def validate_credentials(self, config: MSSQLSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: MSSQLSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         from pymssql import OperationalError
 
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config)

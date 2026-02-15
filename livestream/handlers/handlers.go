@@ -48,9 +48,9 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats) func(c
 		}
 
 		userStore := stats.GetExistingStoreForToken(token)
-		sessionStore := sessionStats.GetExistingStoreForToken(token)
+		sessionCount := sessionStats.CountForToken(token)
 
-		if userStore == nil && sessionStore == nil {
+		if userStore == nil && sessionCount == 0 {
 			return c.JSON(http.StatusOK, resp{Error: "no stats"})
 		}
 
@@ -58,8 +58,8 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats) func(c
 		if userStore != nil {
 			siteStats.UsersOnProduct = userStore.Len()
 		}
-		if sessionStore != nil {
-			siteStats.ActiveRecordings = sessionStore.Len()
+		if sessionCount != 0 {
+			siteStats.ActiveRecordings = sessionCount
 		}
 		return c.JSON(http.StatusOK, siteStats)
 	}
@@ -91,20 +91,35 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 			geoOnly = true
 		}
 
+		var columns []string
+		if _, hasColumns := c.QueryParams()["columns"]; hasColumns {
+			columnsParam := strings.TrimSpace(c.QueryParam("columns"))
+			if columnsParam != "" {
+				columns = strings.Split(columnsParam, ",")
+				for i, col := range columns {
+					columns[i] = strings.TrimSpace(col)
+				}
+			} else {
+				columns = []string{}
+			}
+		}
+
 		var eventTypes []string
 		if eventType != "" {
 			eventTypes = strings.Split(eventType, ",")
 		}
 
 		subscription := events.Subscription{
-			SubID:       atomic.AddUint64(&subID, 1),
-			TeamId:      teamID,
-			Token:       token,
-			DistinctId:  distinctId,
-			Geo:         geoOnly,
-			EventTypes:  eventTypes,
-			EventChan:   make(chan interface{}, 100),
-			ShouldClose: &atomic.Bool{},
+			SubID:         atomic.AddUint64(&subID, 1),
+			TeamId:        teamID,
+			Token:         token,
+			DistinctId:    distinctId,
+			Geo:           geoOnly,
+			Columns:       columns,
+			EventTypes:    eventTypes,
+			EventChan:     make(chan interface{}, 100),
+			ShouldClose:   &atomic.Bool{},
+			DroppedEvents: &atomic.Uint64{},
 		}
 
 		subChan <- subscription

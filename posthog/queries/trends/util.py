@@ -75,7 +75,7 @@ def process_math(
 
         aggregate_operation = f'count(DISTINCT "$group_{entity.math_group_type_index}")'
     elif entity.math == "unique_session":
-        aggregate_operation = f"count(DISTINCT {event_table_alias + '.' if event_table_alias else ''}\"$session_id\")"
+        aggregate_operation = f'count(DISTINCT {event_table_alias + "." if event_table_alias else ""}"$session_id")'
     elif entity.math in PROPERTY_MATH_FUNCTIONS:
         if entity.math_property is None:
             raise ValidationError(

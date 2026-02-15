@@ -19,6 +19,9 @@ pnpm-lock.yaml
 posthog/templates/**/*
 common/hogvm/typescript/src/stl/bytecode.ts
 common/hogvm/__tests__/__snapshots__/*
+common/hogql_parser/build_wasm/
+common/hogql_parser/build/
+common/hogql_parser/dist/
 rust/
 livestream/
 cli/target/
@@ -27,10 +30,10 @@ frontend/src/products.tsx
 frontend/src/products.json
 frontend/src/layout.html
 **/fixtures/**
-products/mcp/schema/**/*
-products/mcp/python/**/*
-products/mcp/**/generated.ts
-products/mcp/typescript/worker-configuration.d.ts
+services/mcp/**/generated.ts
+services/mcp/worker-configuration.d.ts
 frontend/src/taxonomy/core-filter-definitions-by-group.json
 frontend/dist/
 frontend/**/*LogicType.ts
+bin/validate-setup-tasks.mjs
+frontend/bin/docs/build-survey-sdk-docs.ts

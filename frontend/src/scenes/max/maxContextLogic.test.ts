@@ -183,6 +183,7 @@ describe('maxContextLogic', () => {
                     TaxonomicFilterGroupType.Actions,
                     TaxonomicFilterGroupType.Insights,
                     TaxonomicFilterGroupType.Dashboards,
+                    TaxonomicFilterGroupType.ErrorTrackingIssues,
                 ],
             })
 

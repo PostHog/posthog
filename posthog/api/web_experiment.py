@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 from django.http import HttpResponse, JsonResponse
@@ -17,6 +18,41 @@ from posthog.auth import TemporaryTokenAuthentication
 from posthog.exceptions import generate_exception_response
 from posthog.models import Team, WebExperiment
 from posthog.utils_cors import cors_response
+
+
+def validate_no_xss(content: str, field_name: str) -> None:
+    """
+    Validates that content doesn't contain XSS vectors.
+    Raises ValidationError if dangerous content is found.
+
+    This validation-only approach preserves the original formatting while preventing XSS attacks.
+    """
+    # Check for script tags (opening and closing)
+    if re.search(r"<script[^>]*>", content, re.IGNORECASE):
+        raise ValidationError(f"{field_name} contains disallowed <script> tags")
+
+    if re.search(r"</script>", content, re.IGNORECASE):
+        raise ValidationError(f"{field_name} contains disallowed </script> tags")
+
+    # Check for event handlers (onclick, onerror, onload, onmouseover, etc.)
+    if re.search(r"\son\w+\s*=", content, re.IGNORECASE):
+        raise ValidationError(f"{field_name} contains disallowed event handlers (onclick, onerror, etc.)")
+
+    # Check for javascript: protocol in attributes
+    if re.search(r"javascript\s*:", content, re.IGNORECASE):
+        raise ValidationError(f"{field_name} contains disallowed javascript: protocol")
+
+    # Check for data: protocol with HTML/script content
+    if re.search(r"data\s*:\s*text/html", content, re.IGNORECASE):
+        raise ValidationError(f"{field_name} contains disallowed data:text/html")
+
+    # Check for iframe tags (commonly used for XSS)
+    if re.search(r"<iframe[^>]*>", content, re.IGNORECASE):
+        raise ValidationError(f"{field_name} contains disallowed <iframe> tags")
+
+    # Check for object and embed tags
+    if re.search(r"<(object|embed)[^>]*>", content, re.IGNORECASE):
+        raise ValidationError(f"{field_name} contains disallowed <object> or <embed> tags")
 
 
 class WebExperimentsAPISerializer(serializers.ModelSerializer):
@@ -131,6 +167,12 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
                             f"Experiment transform [${idx}] variant '{name}' does not have a valid selector"
                         )
 
+                    # Validate text and html fields to prevent XSS attacks
+                    if "text" in transform and isinstance(transform["text"], str):
+                        validate_no_xss(transform["text"], f"Transform text in variant '{name}'")
+                    if "html" in transform and isinstance(transform["html"], str):
+                        validate_no_xss(transform["html"], f"Transform html in variant '{name}'")
+
         return attrs
 
     def create(self, validated_data: dict[str, Any]) -> WebExperiment:
@@ -164,9 +206,9 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         feature_flag_serializer.is_valid(raise_exception=True)
         feature_flag = feature_flag_serializer.save()
 
-        # Get organization's default stats method setting
+        # Get team's default stats method setting
         team = Team.objects.get(id=self.context["team_id"])
-        default_method = team.organization.default_experiment_stats_method
+        default_method = team.default_experiment_stats_method or "bayesian"
         stats_config = {
             "method": default_method,
         }

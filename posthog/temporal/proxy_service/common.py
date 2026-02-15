@@ -31,6 +31,37 @@ def use_gateway_api() -> bool:
     return settings.PROXY_USE_GATEWAY_API
 
 
+def use_cloudflare_proxy() -> bool:
+    """Returns whether to use Cloudflare for SaaS for NEW proxy provisioning."""
+    return settings.CLOUDFLARE_PROXY_ENABLED
+
+
+def is_cloudflare_proxy_by_cname(target_cname: str) -> bool:
+    """
+    Determine if a proxy was created with Cloudflare based on its target_cname string.
+
+    This is used to determine which system to use for monitoring and deletion,
+    since proxies created before CLOUDFLARE_PROXY_ENABLED was turned on still
+    exist in the legacy system and need to be handled accordingly.
+    """
+    cloudflare_base = settings.CLOUDFLARE_PROXY_BASE_CNAME
+    if not cloudflare_base:
+        return False
+    # Strip trailing dot for comparison (DNS records may or may not have it)
+    cloudflare_base = cloudflare_base.rstrip(".")
+    target_cname = target_cname.rstrip(".")
+    return target_cname.endswith(cloudflare_base)
+
+
+def is_cloudflare_proxy(proxy_record: "ProxyRecord") -> bool:
+    """
+    Determine if a proxy was created with Cloudflare based on its target_cname.
+
+    Convenience wrapper around is_cloudflare_proxy_by_cname for use with ProxyRecord objects.
+    """
+    return is_cloudflare_proxy_by_cname(proxy_record.target_cname)
+
+
 class NonRetriableException(Exception):
     pass
 

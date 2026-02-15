@@ -47,6 +47,10 @@ elif DEMO:
 # Admin OAuth2 Verification
 ADMIN_AUTH_GOOGLE_OAUTH2_KEY = os.getenv("ADMIN_AUTH_GOOGLE_OAUTH2_KEY")
 ADMIN_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv("ADMIN_AUTH_GOOGLE_OAUTH2_SECRET")
+# Restrict admin OAuth to specific Google Workspace domains (comma-separated list)
+ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS = [
+    d.strip() for d in os.environ.get("ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS", "posthog.com").split(",") if d.strip()
+]
 ENFORCE_ADMIN_OAUTH2 = str_to_bool(get_from_env("ENFORCE_ADMIN_OAUTH2", "True", type_cast=str))
 if ENFORCE_ADMIN_OAUTH2 and ADMIN_AUTH_GOOGLE_OAUTH2_KEY and ADMIN_AUTH_GOOGLE_OAUTH2_SECRET:
     ADMIN_OAUTH2_COOKIE_SECURE = str_to_bool(get_from_env("ADMIN_OAUTH2_COOKIE_SECURE", "True", type_cast=str))
@@ -86,6 +90,10 @@ TEMPORAL_TASK_TIMEOUT_MINUTES = PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 
 ANTHROPIC_API_KEY = get_from_env("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = get_from_env("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
+# LLM Gateway (internal service for proxying LLM requests with rate limiting and attribution)
+LLM_GATEWAY_URL = get_from_env("LLM_GATEWAY_URL", "")
+LLM_GATEWAY_API_KEY = get_from_env("LLM_GATEWAY_PERSONAL_API_KEY", "")
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
@@ -93,6 +101,11 @@ PPLX_API_KEY = get_from_env("PPLX_API_KEY", "")
 AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "")
 AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "")
 BRAINTRUST_API_KEY = get_from_env("BRAINTRUST_API_KEY", "")
+
+LLMA_EVAL_OPENAI_API_KEY = get_from_env("LLMA_EVAL_OPENAI_API_KEY", "")
+LLMA_EVAL_OPENAI_BASE_URL = get_from_env("LLMA_EVAL_OPENAI_BASE_URL", "")
+LLMA_EVAL_ANTHROPIC_API_KEY = get_from_env("LLMA_EVAL_ANTHROPIC_API_KEY", "")
+LLMA_EVAL_GEMINI_API_KEY = get_from_env("LLMA_EVAL_GEMINI_API_KEY", "")
 
 SQS_QUEUES = {
     "usage_reports": {

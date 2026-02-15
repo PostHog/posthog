@@ -1,6 +1,6 @@
 import time
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Optional
 
 from django.conf import settings
 from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, When
@@ -42,6 +42,10 @@ COHORT_STALENESS_HOURS_GAUGE = Gauge(
 
 COHORTS_STALE_COUNT_GAUGE = Gauge(
     "cohorts_stale", "Number of cohorts that haven't been calculated in more than X hours", ["hours"]
+)
+
+COHORTS_TOTAL_GAUGE = Gauge(
+    "cohorts_total", "Total number of eligible cohorts for recalculation (non-static, non-deleted)"
 )
 
 COHORT_STUCK_COUNT_GAUGE = Gauge(
@@ -143,6 +147,8 @@ def update_cohort_metrics() -> None:
         errors_calculating__lte=MAX_ERRORS_CALCULATING,
     ).exclude(is_static=True)
 
+    COHORTS_TOTAL_GAUGE.set(base_queryset.count())
+
     for hours in [24, 36, 48]:
         stale_count = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=hours)).count()
         COHORTS_STALE_COUNT_GAUGE.labels(hours=str(hours)).set(stale_count)
@@ -241,19 +247,22 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
             _enqueue_single_cohort_calculation(cohort, initiating_user)
             return
 
-        # Create a chain of tasks to ensure sequential execution
-        task_chain = []
+        # Create a chain of tasks to ensure sequential execution.
+        # Non-first tasks get a 2s countdown to mitigate ClickHouse replica lag:
+        # the preceding cohort's new rows may not have replicated yet. See #47618.
+        task_chain: list = []
         for cohort_id in sorted_cohort_ids:
             current_cohort = seen_cohorts_cache.get(cohort_id)
             if current_cohort and not current_cohort.is_static:
                 _prepare_cohort_for_calculation(current_cohort)
-                task_chain.append(
-                    calculate_cohort_ch.si(
-                        current_cohort.id,
-                        current_cohort.pending_version,
-                        initiating_user.id if initiating_user else None,
-                    )
+                task = calculate_cohort_ch.si(
+                    current_cohort.id,
+                    current_cohort.pending_version,
+                    initiating_user.id if initiating_user else None,
                 )
+                if len(task_chain) > 0:
+                    task = task.set(countdown=2)
+                task_chain.append(task)
 
         if task_chain:
             chain(*task_chain).apply_async()
@@ -333,24 +342,6 @@ def calculate_cohort_from_list(
             cohort.pk, len(items), batch_count, (time.time() - start_time)
         )
     )
-
-
-@shared_task(ignore_result=True, max_retries=1)
-def insert_cohort_from_insight_filter(
-    cohort_id: int, filter_data: dict[str, Any], team_id: Optional[int] = None
-) -> None:
-    """
-    team_id is only optional for backwards compatibility with the old celery task signature.
-    All new tasks should pass team_id explicitly.
-    """
-    from posthog.api.cohort import insert_cohort_actors_into_ch, insert_cohort_people_into_pg
-
-    cohort = Cohort.objects.get(pk=cohort_id)
-    if team_id is None:
-        team_id = cohort.team_id
-
-    insert_cohort_actors_into_ch(cohort, filter_data, team_id=team_id)
-    insert_cohort_people_into_pg(cohort, team_id=team_id)
 
 
 @shared_task(ignore_result=True, max_retries=1)

@@ -1,4 +1,5 @@
-import { connect, kea, path, props, selectors } from 'kea'
+import { connect, kea, key, path, props, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -13,6 +14,7 @@ import { InsightLogicProps } from '~/types'
 
 import type { llmAnalyticsTraceDataLogicType } from './llmAnalyticsTraceDataLogicType'
 import { llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import {
     SearchOccurrence,
     eventMatchesSearch,
@@ -84,10 +86,11 @@ function findEventWithParents(
 export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
     props({} as TraceDataLogicProps),
+    key((props) => props.traceId),
     connect((props: TraceDataLogicProps) => ({
         values: [
             llmAnalyticsTraceLogic,
-            ['eventId', 'searchQuery'],
+            ['eventId', 'searchQuery', 'initialTab'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['response', 'responseLoading', 'responseError'],
         ],
@@ -232,16 +235,31 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                     value: event.properties.$ai_metric_value ?? event.properties.$ai_feedback_text,
                 })),
         ],
+        initialFocusEventId: [
+            (s) => [s.showableEvents, s.filteredTree, s.initialTab],
+            (
+                showableEvents: LLMTraceEvent[],
+                filteredTree: TraceTreeNode[],
+                initialTab: string | null
+            ): string | null => getInitialFocusEventId(showableEvents, filteredTree, initialTab),
+        ],
+        effectiveEventId: [
+            (s) => [s.eventId, s.initialFocusEventId],
+            (eventId: string | null, initialFocusEventId: string | null): string | null =>
+                getEffectiveEventId(eventId, initialFocusEventId),
+        ],
         event: [
-            (s, p) => [p.traceId, s.eventId, s.trace, s.showableEvents],
-            (traceId, eventId, trace, showableEvents): LLMTrace | LLMTraceEvent | null => {
-                if (!eventId || eventId === traceId) {
+            (s, p) => [p.traceId, s.effectiveEventId, s.trace, s.showableEvents],
+            (traceId, effectiveEventId, trace, showableEvents): LLMTrace | LLMTraceEvent | null => {
+                if (!effectiveEventId || effectiveEventId === traceId) {
                     return trace || null
                 }
+
                 if (!showableEvents?.length) {
                     return null
                 }
-                return showableEvents.find((event) => event.id === eventId) || null
+
+                return showableEvents.find((event) => event.id === effectiveEventId) || null
             },
         ],
         tree: [(s) => [s.filteredTree], (filteredTree): TraceTreeNode[] => filteredTree],
@@ -277,6 +295,18 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             },
         ],
     }),
+
+    subscriptions(({ props }) => ({
+        trace: (trace: LLMTrace | undefined) => {
+            if (trace?.createdAt && props.traceId) {
+                llmAnalyticsTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
+            }
+
+            if (trace?.distinctId) {
+                llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
+            }
+        },
+    })),
 ])
 
 export interface TraceTreeNode {
@@ -379,8 +409,64 @@ function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
     return { totalCost, totalLatency, inputTokens, outputTokens, hasGenerationChildren }
 }
 
-// Export the parent chain function for testing
+// Export functions for testing
 export { findEventWithParents }
+
+export function getInitialFocusEventId(
+    showableEvents: LLMTraceEvent[],
+    filteredTree: TraceTreeNode[],
+    initialTab: string | null
+): string | null {
+    // First, look for an $ai_trace event
+    const aiTraceEvent = showableEvents.find((event) => event.event === '$ai_trace')
+
+    if (aiTraceEvent) {
+        return aiTraceEvent.id
+    }
+
+    // If tab=summary is specified, user wants to stay at the trace level (e.g., from clusters view)
+    // Don't skip to first generation event in this case
+    if (initialTab === 'summary') {
+        return null
+    }
+
+    // If no $ai_trace event, look for the first $ai_generation event
+    // This provides a better default for pseudo-traces where the generation
+    // is typically what users want to see
+    const firstGenerationNode = filteredTree.find((node) => node.event.event === '$ai_generation')
+
+    if (firstGenerationNode) {
+        return firstGenerationNode.event.id
+    }
+
+    // Fall back to first event in tree
+    if (filteredTree.length > 0) {
+        return filteredTree[0].event.id
+    }
+
+    return null
+}
+
+export function getEffectiveEventId(eventId: string | null, initialFocusEventId: string | null): string | null {
+    // If user selected a specific event (including the trace itself), use that
+    if (eventId) {
+        return eventId
+    }
+
+    // Otherwise, use the initial focus event
+    return initialFocusEventId
+}
+
+function findOrphanedRoots(idMap: Map<string, LLMTraceEvent>, traceId: string): string[] {
+    const orphanedRoots: string[] = []
+    for (const [eventId, event] of idMap) {
+        const parentId = event.properties.$ai_parent_id ?? event.properties.$ai_trace_id
+        if (parentId !== traceId && parentId && !idMap.has(parentId)) {
+            orphanedRoots.push(eventId)
+        }
+    }
+    return orphanedRoots
+}
 
 export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTreeNode[] {
     const childrenMap = new Map<any, any[]>()
@@ -434,5 +520,6 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
     }
 
     const directChildren = childrenMap.get(traceId) || []
-    return directChildren.map((childId) => traverse(childId)).filter((node): node is TraceTreeNode => node !== null)
+    const rootIds = [...directChildren, ...findOrphanedRoots(idMap, traceId)]
+    return rootIds.map((childId) => traverse(childId)).filter((node): node is TraceTreeNode => node !== null)
 }

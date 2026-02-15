@@ -22,7 +22,7 @@ import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcard
 import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
 import { RetentionCondition } from 'scenes/insights/EditorFilters/RetentionCondition'
 import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions'
-import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
+import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/SamplingDeprecationNotice'
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -32,7 +32,6 @@ import { castAssistantQuery } from 'scenes/max/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { userLogic } from 'scenes/userLogic'
 
-import { useFeatureFlag } from '~/lib/hooks/useFeatureFlag'
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
 import {
     AssistantFunnelsQuery,
@@ -76,7 +75,6 @@ export interface EditorFiltersProps {
 
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
-    const hasAgentModesFeatureFlag = useFeatureFlag('AGENT_MODES')
 
     const { insightProps } = useValues(insightLogic)
     const {
@@ -138,7 +136,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(
                 display || ChartDisplayType.ActionsLineGraph
             )) ||
-        (isFunnels && isTrendsFunnel)
+        (isFunnels && isTrendsFunnel) ||
+        (isRetention &&
+            [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsBar].includes(
+                display || ChartDisplayType.ActionsLineGraph
+            ))
 
     const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
@@ -317,7 +319,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                           key: 'attribution',
                           label: () => (
                               <div className="flex">
-                                  <span>Attribution type</span>
+                                  <span>Breakdown attribution</span>
                                   <Tooltip
                                       closeDelayMs={200}
                                       title={
@@ -391,10 +393,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                           key: 'poe',
                           component: PoeFilter,
                       },
-                      {
-                          key: 'sampling',
-                          component: SamplingFilter,
-                      },
                       displayGoalLines && {
                           key: 'goal-lines',
                           label: 'Goal lines',
@@ -405,6 +403,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                               </>
                           ),
                           component: GoalLines,
+                      },
+                      {
+                          key: 'sampling-deprecation',
+                          component: SamplingDeprecationNotice,
                       },
                   ]),
               }
@@ -434,7 +436,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
                 <div>
                     <MaxTool
-                        identifier={hasAgentModesFeatureFlag ? 'create_insight' : 'create_and_query_insight'}
+                        identifier="create_insight"
                         context={{
                             current_query: querySource,
                         }}
@@ -474,12 +476,15 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         active={maxToolActive}
                     >
                         <div
-                            className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
+                            className={clsx('@container/editor flex flex-row flex-wrap gap-8 bg-surface-primary', {
                                 'p-4 rounded border': !embedded,
                             })}
                         >
                             {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                                <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
+                                <div
+                                    key={title}
+                                    className="flex-1 flex flex-col gap-4 max-w-full @[600px]/editor:min-w-0"
+                                >
                                     {editorFilterGroups.map((editorFilterGroup) => (
                                         <EditorFilterGroup
                                             key={editorFilterGroup.title}

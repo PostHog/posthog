@@ -197,24 +197,23 @@ FROM (
 -- -----------------------------
 LEFT JOIN (
     SELECT
-        breakdown_value,
-        avgIf(avg_time, {current_period}) AS avg_time_on_page,
-        avgIf(avg_time, {previous_period}) AS previous_avg_time_on_page
-    FROM (
-        SELECT
-            {time_on_page_breakdown_value} AS breakdown_value,
-            avg(toFloat(events.properties.`$prev_pageview_duration`)) AS avg_time,
-            session.session_id AS session_id,
-            min(session.$start_timestamp) AS start_timestamp
-        FROM events
-        WHERE and(
-            or(events.event = '$pageview', events.event = '$pageleave', events.event = '$screen'),
-            breakdown_value IS NOT NULL,
-            {inside_periods},
-            {time_on_page_event_properties},
-            {session_properties}
-        )
-        GROUP BY session_id, breakdown_value
+        {time_on_page_breakdown_value} AS breakdown_value,
+        quantileIf(0.90)(
+            least(toFloat(events.properties.`$prev_pageview_duration`), 86400),
+            {avg_current_period}
+        ) AS avg_time_on_page,
+        quantileIf(0.90)(
+            least(toFloat(events.properties.`$prev_pageview_duration`), 86400),
+            {avg_previous_period}
+        ) AS previous_avg_time_on_page
+    FROM events
+    WHERE and(
+        or(events.event = '$pageview', events.event = '$pageleave', events.event = '$screen'),
+        {time_on_page_breakdown_value} IS NOT NULL,
+        events.properties.`$prev_pageview_duration` IS NOT NULL,
+        {inside_periods},
+        {time_on_page_event_properties},
+        {session_properties}
     )
     GROUP BY breakdown_value
 ) AS time_on_page

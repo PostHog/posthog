@@ -38,6 +38,17 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     redis_url: "redis://localhost:6379/".to_string(),
     redis_response_timeout_ms: 100,
     redis_connection_timeout_ms: 5000,
+    global_rate_limit_enabled: false,
+    global_rate_limit_threshold: 10_000,
+    global_rate_limit_window_interval_secs: 60,
+    global_rate_limit_overrides_csv: None,
+    global_rate_limit_redis_url: None,
+    global_rate_limit_redis_response_timeout_ms: None,
+    global_rate_limit_redis_connection_timeout_ms: None,
+    event_restrictions_enabled: false,
+    event_restrictions_redis_url: None,
+    event_restrictions_refresh_interval_secs: 30,
+    event_restrictions_fail_open_after_secs: 300,
     overflow_enabled: false,
     overflow_preserve_partition_locality: false,
     overflow_burst_limit: NonZeroU32::new(5).unwrap(),
@@ -64,6 +75,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
         kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
         kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
+        kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
         kafka_tls: false,
         kafka_client_id: "".to_string(),
         kafka_metadata_max_age_ms: 60000,
@@ -93,6 +105,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     request_timeout_seconds: Some(10),
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
+    body_read_chunk_size_kb: 256,             // 256KB default
     continuous_profiling: ContinuousProfilingConfig {
         continuous_profiling_enabled: false,
         pyroscope_server_address: String::new(),

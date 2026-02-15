@@ -195,9 +195,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             f"/scim/v2/{self.domain.id}/Groups/{fake_group_id}", data=put_data, content_type="application/scim+json"
         )
 
-        assert (
-            response.status_code == status.HTTP_404_NOT_FOUND
-        ), f"Expected 404, got {response.status_code}: {response.content}"
+        assert response.status_code == status.HTTP_404_NOT_FOUND, (
+            f"Expected 404, got {response.status_code}: {response.content}"
+        )
         assert not Role.objects.filter(name="ShouldFail", organization=self.organization).exists()
 
     def test_patch_group_not_found(self):
@@ -211,9 +211,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             f"/scim/v2/{self.domain.id}/Groups/{fake_group_id}", data=patch_data, content_type="application/scim+json"
         )
 
-        assert (
-            response.status_code == status.HTTP_404_NOT_FOUND
-        ), f"Expected 404, got {response.status_code}: {response.content}"
+        assert response.status_code == status.HTTP_404_NOT_FOUND, (
+            f"Expected 404, got {response.status_code}: {response.content}"
+        )
 
     def test_patch_replace_group_without_path(self):
         user = User.objects.create_user(
@@ -460,6 +460,78 @@ class TestSCIMGroupsAPI(APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert not RoleMembership.objects.filter(role=role).exists()
+
+    def test_patch_remove_group_member_with_simple_path_and_value_only_removes_specified_member(self):
+        """Entra ID sends Remove with simple path "members" + value array instead of
+        filtered path like members[value eq "id"]. This must only remove the specified
+        member, not all members."""
+        user1 = User.objects.create_user(
+            email="removesimple1@example.com", password=None, first_name="Member1", is_email_verified=True
+        )
+        user2 = User.objects.create_user(
+            email="removesimple2@example.com", password=None, first_name="Member2", is_email_verified=True
+        )
+        user3 = User.objects.create_user(
+            email="removesimple3@example.com", password=None, first_name="Member3", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user1, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        OrganizationMembership.objects.create(
+            user=user2, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        OrganizationMembership.objects.create(
+            user=user3, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+        for user in [user1, user2, user3]:
+            RoleMembership.objects.create(
+                role=role,
+                user=user,
+                organization_member=OrganizationMembership.objects.get(user=user, organization=self.organization),
+            )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "remove", "path": "members", "value": [{"value": str(user1.id)}]}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not RoleMembership.objects.filter(role=role, user=user1).exists()
+        assert RoleMembership.objects.filter(role=role, user=user2).exists()
+        assert RoleMembership.objects.filter(role=role, user=user3).exists()
+
+    def test_patch_remove_group_member_with_empty_value_list_does_not_remove_all(self):
+        user = User.objects.create_user(
+            email="removeemptylist@example.com", password=None, first_name="Member", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=user,
+            organization_member=OrganizationMembership.objects.get(user=user, organization=self.organization),
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "remove", "path": "members", "value": []}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert RoleMembership.objects.filter(role=role, user=user).exists()
 
     def test_patch_remove_group_member_with_filtered_path(self):
         user1 = User.objects.create_user(

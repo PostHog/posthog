@@ -24,7 +24,7 @@ from posthog.models import Team, User
 from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolError, MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
-from ee.hogai.tools.read_taxonomy import ReadEvents
+from ee.hogai.tools.read_taxonomy.core import ReadEvents
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName, NodePath
@@ -51,7 +51,9 @@ def _create_agent_node(
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
 
     context_manager = AssistantContextManager(team=team, user=user, config=config or RunnableConfig(configurable={}))
-    mode_manager = ChatAgentModeManager(team=team, user=user, node_path=node_path, context_manager=context_manager)
+    mode_manager = ChatAgentModeManager(
+        team=team, user=user, node_path=node_path, context_manager=context_manager, state=AssistantState(messages=[])
+    )
 
     # Use the mode manager's node property which calls configure()
     return mode_manager.node
@@ -68,7 +70,13 @@ def _create_agent_tools_node(
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
 
     context_manager = AssistantContextManager(team=team, user=user, config=config or RunnableConfig(configurable={}))
-    mode_manager = ChatAgentModeManager(team=team, user=user, node_path=node_path, context_manager=context_manager)
+    mode_manager = ChatAgentModeManager(
+        team=team,
+        user=user,
+        node_path=node_path,
+        context_manager=context_manager,
+        state=AssistantState(messages=[HumanMessage(content="Test")]),
+    )
 
     # Use the mode manager's tools_node property which calls configure()
     return mode_manager.tools_node
@@ -86,9 +94,10 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             state_1 = AssistantState(messages=[HumanMessage(content="Tell me a joke")])
             next_state = await node.arun(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
-            self.assertEqual(len(next_state.messages), 1)
-            self.assertIsInstance(next_state.messages[0], AssistantMessage)
-            assistant_message = next_state.messages[0]
+            # The state includes context messages + original message + generated message
+            self.assertGreaterEqual(len(next_state.messages), 1)
+            assistant_message = next_state.messages[-1]
+            self.assertIsInstance(assistant_message, AssistantMessage)
             assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, "Why did the chicken cross the road? To get to the other side!")
 
@@ -115,9 +124,10 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             state_1 = AssistantState(messages=[HumanMessage(content="generate")])
             next_state = await node.arun(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
-            self.assertEqual(len(next_state.messages), 1)
-            self.assertIsInstance(next_state.messages[0], AssistantMessage)
-            assistant_message = next_state.messages[0]
+            # The state includes context messages + original message + generated message
+            self.assertGreaterEqual(len(next_state.messages), 1)
+            assistant_message = next_state.messages[-1]
+            self.assertIsInstance(assistant_message, AssistantMessage)
             assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, "Content")
             self.assertIsNotNone(assistant_message.id)
@@ -187,7 +197,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                     tool_calls=[
                         AssistantToolCall(
                             id="xyz",
-                            name="create_and_query_insight",
+                            name="create_insight",
                             args={},
                         )
                     ],
@@ -207,7 +217,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                     tool_calls=[
                         {
                             "id": "xyz",
-                            "name": "create_and_query_insight",
+                            "name": "create_insight",
                             "args": {},
                         }
                     ],
@@ -234,13 +244,13 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                         # This tool call has a response
                         AssistantToolCall(
                             id="xyz1",
-                            name="create_and_query_insight",
+                            name="create_insight",
                             args={},
                         ),
                         # This tool call has no response and should be filtered out
                         AssistantToolCall(
                             id="xyz2",
-                            name="create_and_query_insight",
+                            name="create_insight",
                             args={},
                         ),
                     ],
@@ -290,9 +300,15 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         )
         mock_with_tokens.ainvoke = ainvoke_mock
 
-        with patch(
-            "ee.hogai.core.agent_modes.executables.MaxChatAnthropic",
-            return_value=mock_with_tokens,
+        with (
+            patch(
+                "ee.hogai.core.agent_modes.executables.MaxChatAnthropic",
+                return_value=mock_with_tokens,
+            ),
+            patch(
+                "ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count",
+                return_value=1000,
+            ),
         ):
             node = _create_agent_node(self.team, self.user)
 
@@ -304,8 +320,9 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
 
             # Verify the response doesn't contain any tool calls
             self.assertIsInstance(next_state, PartialAssistantState)
-            self.assertEqual(len(next_state.messages), 1)
-            message = next_state.messages[0]
+            # The state includes context messages + original message + generated message
+            self.assertGreaterEqual(len(next_state.messages), 1)
+            message = next_state.messages[-1]
             self.assertIsInstance(message, AssistantMessage)
             assert isinstance(message, AssistantMessage)
             self.assertEqual(message.content, "I can't help with that anymore.")
@@ -346,11 +363,12 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         summarized_messages = mock_summarize.call_args[0][0]
         self.assertEqual(len(summarized_messages), 3)
 
-        # Verify summary message was inserted
+        # Verify summary message was inserted (along with mode reminder)
         self.assertIsInstance(result, PartialAssistantState)
         context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
-        self.assertEqual(len(context_messages), 1)
-        self.assertIn("This is a summary of the conversation so far.", context_messages[0].content)
+        self.assertEqual(len(context_messages), 2)  # summary + mode reminder
+        summary_msg = next(msg for msg in context_messages if "This is a summary" in msg.content)
+        self.assertIn("This is a summary of the conversation so far.", summary_msg.content)
 
     @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
@@ -386,15 +404,13 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
     )
     @patch("ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
-    @patch("ee.hogai.utils.conversation_summarizer.summarizer.AnthropicConversationSummarizer.summarize")
-    @patch("ee.hogai.core.agent_modes.executables.has_agent_modes_feature_flag")
+    @patch("ee.hogai.utils.conversation_summarizer.AnthropicConversationSummarizer.summarize")
     async def test_conversation_summarization_includes_mode_reminder_when_feature_flag_enabled(
-        self, mock_feature_flag, mock_summarize, mock_calculate_tokens, mock_model
+        self, mock_summarize, mock_calculate_tokens, mock_model
     ):
         """Test that mode reminder is inserted after summary when modes feature flag is enabled"""
         mock_calculate_tokens.return_value = 150_000
         mock_summarize.return_value = "Summary of conversation"
-        mock_feature_flag.return_value = True
 
         mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
         mock_model.return_value = mock_model_instance
@@ -508,7 +524,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                         tool_calls=[
                             {
                                 "id": "tool-1",
-                                "name": "create_and_query_insight",
+                                "name": "create_insight",
                                 "args": {"query_description": "test"},
                             }
                         ],
@@ -577,7 +593,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                     tool_calls=[
                         AssistantToolCall(
                             id="tool-1",
-                            name="create_and_query_insight",
+                            name="create_insight",
                             args={"query_description": "test"},
                         )
                     ],
@@ -609,17 +625,17 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                     tool_calls=[
                         AssistantToolCall(
                             id="tool-1",
-                            name="create_and_query_insight",
+                            name="create_insight",
                             args={"query_description": "trends"},
                         ),
                         AssistantToolCall(
                             id="tool-2",
-                            name="create_and_query_insight",
+                            name="create_insight",
                             args={"query_description": "funnel"},
                         ),
                         AssistantToolCall(
                             id="tool-3",
-                            name="create_and_query_insight",
+                            name="create_insight",
                             args={"query_description": "retention"},
                         ),
                     ],
@@ -636,14 +652,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         for i, send in enumerate(result):
             self.assertIsInstance(send, Send)
             self.assertEqual(send.node, AssistantNodeName.ROOT_TOOLS)
-            self.assertEqual(send.arg.root_tool_call_id, f"tool-{i+1}")
-
-    def test_get_updated_agent_mode(self):
-        node = _create_agent_node(self.team, self.user)
-        message = AssistantMessage(content="test")
-        self.assertEqual(
-            node._get_updated_agent_mode(message, AgentMode.PRODUCT_ANALYTICS), AgentMode.PRODUCT_ANALYTICS
-        )
+            self.assertEqual(send.arg.root_tool_call_id, f"tool-{i + 1}")
 
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     @patch("ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
@@ -736,7 +745,7 @@ class TestRootNodeTools(BaseTest):
         result = await node.arun(state, {})
         self.assertEqual(result, PartialAssistantState(root_tool_call_id=None))
 
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_run_valid_tool_call(self, read_taxonomy_mock):
         """Test that built-in tools can be called"""
         read_taxonomy_mock.return_value = ("Content", None)
@@ -793,7 +802,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.messages[0].tool_call_id, "xyz")
         self.assertIn("This tool does not exist", result.messages[0].content)
 
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_max_tool_fatal_error_returns_error_message(self, read_taxonomy_mock):
         """Test that MaxToolFatalError is caught and converted to tool message."""
         read_taxonomy_mock.side_effect = MaxToolFatalError(
@@ -826,7 +835,50 @@ class TestRootNodeTools(BaseTest):
         self.assertNotIn("retry", result.messages[0].content.lower())
 
     @patch("ee.hogai.core.agent_modes.executables.posthoganalytics.capture")
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
+    async def test_successful_tool_execution_emits_analytics_event(self, read_taxonomy_mock, capture_mock):
+        """Test that successful tool execution emits an 'ai tool executed' analytics event."""
+        read_taxonomy_mock.return_value = ("Content", None)
+
+        node = _create_agent_tools_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Using tool",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="tool-123", name="read_taxonomy", args={"query": {"kind": "events"}})
+                    ],
+                )
+            ],
+            root_tool_call_id="tool-123",
+        )
+
+        # Provide a config with distinct_id so the capture is triggered
+        config = RunnableConfig(configurable={"distinct_id": "test-user-123"})
+        await node.arun(state, config)
+
+        # Verify posthoganalytics.capture was called
+        capture_mock.assert_called_once()
+        call_args = capture_mock.call_args
+
+        # Verify event name
+        self.assertEqual(call_args.kwargs["event"], "ai tool executed")
+
+        # Verify distinct_id is set
+        self.assertEqual(call_args.kwargs["distinct_id"], "test-user-123")
+
+        # Verify properties
+        properties = call_args.kwargs["properties"]
+        self.assertEqual(properties["tool_name"], "read_taxonomy")
+
+        # Verify groups are set
+        groups = call_args.kwargs["groups"]
+        self.assertIn("organization", groups)
+        self.assertIn("project", groups)
+
+    @patch("ee.hogai.core.agent_modes.executables.posthoganalytics.capture")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_max_tool_fatal_error_emits_analytics_event(self, read_taxonomy_mock, capture_mock):
         """Test that MaxToolFatalError emits a PostHog analytics event."""
         error_message = "Configuration error: INKEEP_API_KEY environment variable is not set"
@@ -872,7 +924,41 @@ class TestRootNodeTools(BaseTest):
         self.assertIn("organization", groups)
         self.assertIn("project", groups)
 
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.core.agent_modes.executables.posthoganalytics.capture")
+    async def test_mode_switch_emits_analytics_event(self, capture_mock):
+        from ee.hogai.tools.switch_mode import SwitchModeTool
+
+        with patch.object(SwitchModeTool, "_run_impl", return_value=("Switched to sql mode.", AgentMode.SQL)):
+            node = _create_agent_tools_node(self.team, self.user)
+            state = AssistantState(
+                messages=[
+                    AssistantMessage(
+                        content="Switching mode",
+                        id="test-id",
+                        tool_calls=[AssistantToolCall(id="tool-123", name="switch_mode", args={"new_mode": "sql"})],
+                    )
+                ],
+                root_tool_call_id="tool-123",
+            )
+
+            config = RunnableConfig(configurable={"distinct_id": "test-user-123"})
+            result = await node.arun(state, config)
+
+        self.assertEqual(result.agent_mode, AgentMode.SQL)
+
+        # Find the "ai mode executed" capture call
+        mode_call = next(
+            (c for c in capture_mock.call_args_list if c.kwargs.get("event") == "ai mode executed"),
+            None,
+        )
+        assert mode_call is not None
+        self.assertEqual(mode_call.kwargs["distinct_id"], "test-user-123")
+        self.assertEqual(mode_call.kwargs["properties"]["mode"], AgentMode.SQL)
+        self.assertEqual(mode_call.kwargs["properties"]["previous_mode"], AgentMode.PRODUCT_ANALYTICS)
+        self.assertIn("organization", mode_call.kwargs["groups"])
+        self.assertIn("project", mode_call.kwargs["groups"])
+
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_max_tool_error_groups_call_works_in_async_context(self, read_taxonomy_mock):
         """Test that groups() call in error handler works in async context without SynchronousOnlyOperation."""
         read_taxonomy_mock.side_effect = MaxToolFatalError("Test error")
@@ -904,7 +990,7 @@ class TestRootNodeTools(BaseTest):
         # Should complete without error
         self.assertIsInstance(result, PartialAssistantState)
 
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_max_tool_retryable_error_returns_error_with_retry_hint(self, read_taxonomy_mock):
         """Test that MaxToolRetryableError includes retry hint for adjusted inputs."""
         read_taxonomy_mock.side_effect = MaxToolRetryableError(
@@ -935,7 +1021,7 @@ class TestRootNodeTools(BaseTest):
         self.assertIn("Invalid entity kind", result.messages[0].content)
         self.assertIn("retry with adjusted inputs", result.messages[0].content.lower())
 
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_max_tool_transient_error_returns_error_with_once_retry_hint(self, read_taxonomy_mock):
         """Test that MaxToolTransientError includes hint to retry once without changes."""
         read_taxonomy_mock.side_effect = MaxToolTransientError("Rate limit exceeded. Please try again in a few moments")
@@ -964,7 +1050,7 @@ class TestRootNodeTools(BaseTest):
         self.assertIn("Rate limit exceeded", result.messages[0].content)
         self.assertIn("retry this operation once without changes", result.messages[0].content.lower())
 
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_generic_exception_returns_internal_error_message(self, read_taxonomy_mock):
         """Test that generic exceptions are caught and return internal error message."""
         read_taxonomy_mock.side_effect = RuntimeError("Unexpected internal error")
@@ -1000,7 +1086,7 @@ class TestRootNodeTools(BaseTest):
             ("retryable", MaxToolRetryableError("Retryable error"), "adjusted"),
         ]
     )
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_all_error_types_are_logged_with_retry_strategy(
         self, name, error, expected_strategy, read_taxonomy_mock
     ):
@@ -1032,7 +1118,7 @@ class TestRootNodeTools(BaseTest):
             self.assertEqual(call_kwargs["properties"]["retry_strategy"], expected_strategy)
             self.assertEqual(call_kwargs["properties"]["tool"], "read_taxonomy")
 
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     async def test_validation_error_returns_error_message(self, read_taxonomy_mock):
         """Test that pydantic ValidationError is caught and converted to tool message."""
         from pydantic import ValidationError as PydanticValidationError

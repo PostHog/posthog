@@ -10,6 +10,7 @@ from django.core.cache import cache
 
 from posthog.schema import (
     ActionConversionGoal,
+    CohortPropertyFilter,
     CustomEventConversionGoal,
     EventPropertyFilter,
     PersonPropertyFilter,
@@ -61,20 +62,21 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         return user_access_control.assert_access_level_for_resource("web_analytics", "viewer")
 
     @cached_property
-    def query_date_range(self):
+    def _timezone_info(self) -> ZoneInfo:
         # Respect the convertToProjectTimezone modifier for date range calculation
         # When convertToProjectTimezone=False, use UTC for both date boundaries AND column conversion
-        timezone_info = (
-            ZoneInfo("UTC")
-            if self.modifiers and not self.modifiers.convertToProjectTimezone
-            else self.team.timezone_info
-        )
+        if self.modifiers and not self.modifiers.convertToProjectTimezone:
+            return ZoneInfo("UTC")
+        return self.team.timezone_info
+
+    @cached_property
+    def query_date_range(self):
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
-            timezone_info=timezone_info,
-            interval=None,
-            now=datetime.now(timezone_info),
+            timezone_info=self._timezone_info,
+            interval=self.query.interval,
+            now=datetime.now(self._timezone_info),
         )
 
     @cached_property
@@ -84,16 +86,18 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                 return QueryCompareToDateRange(
                     date_range=self.query.dateRange,
                     team=self.team,
-                    interval=None,
-                    now=datetime.now(),
+                    interval=self.query.interval,
+                    now=datetime.now(self._timezone_info),
+                    timezone_info=self._timezone_info,
                     compare_to=self.query.compareFilter.compare_to,
                 )
             elif self.query.compareFilter.compare:
                 return QueryPreviousPeriodDateRange(
                     date_range=self.query.dateRange,
                     team=self.team,
-                    interval=None,
-                    now=datetime.now(),
+                    interval=self.query.interval,
+                    now=datetime.now(self._timezone_info),
+                    timezone_info=self._timezone_info,
                 )
 
         return None
@@ -155,7 +159,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     @cached_property
     def property_filters_without_pathname(
         self,
-    ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]:
+    ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, CohortPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
 
     @cached_property

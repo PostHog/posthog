@@ -171,6 +171,8 @@ class QueryTags(BaseModel):
 
     user_email: Optional[str] = None
 
+    is_impersonated: Optional[bool] = None
+
     # constant query tags
     git_commit: Optional[str] = None
     container_hostname: Optional[str] = None

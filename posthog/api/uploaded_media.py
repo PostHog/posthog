@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from statshog.defaults.django import statsd
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import TemporaryTokenAuthentication
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import ObjectStorageUnavailable
 from posthog.storage import object_storage
@@ -59,6 +60,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
     """
     instance: Optional[UploadedMedia] = None
     try:
+        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (intentionally public endpoint)
         instance = UploadedMedia.objects.get(pk=kwargs["image_uuid"])
     except UploadedMedia.DoesNotExist:
         return HttpResponse(status=404)
@@ -81,6 +83,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     queryset = UploadedMedia.objects.all()
     parser_classes = (MultiPartParser, FormParser)
+    authentication_classes = [TemporaryTokenAuthentication]
 
     @extend_schema(
         description="""

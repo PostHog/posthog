@@ -1,6 +1,7 @@
 use std::sync::{atomic::Ordering, Arc};
 
 use anyhow::{Context, Error};
+use uuid::Uuid;
 
 use crate::metrics as metric_emit;
 use common_types::InternallyCapturedEvent;
@@ -84,6 +85,9 @@ async fn reset_backoff_after_success(
 pub struct Job {
     pub context: Arc<AppContext>,
 
+    // Once created the job id doesn't change, store it on the Job struct for easy access, to avoid contention/locking on the model
+    pub job_id: Uuid,
+
     // The job maintains a copy of the job state, outside of the model,
     // because process in a pipelined fashion, and to do that we need to
     // seperate "in-memory job state" from "database job state"
@@ -145,7 +149,7 @@ impl Job {
             .unwrap_or_else(|| JobState { parts: vec![] });
 
         if state.parts.is_empty() {
-            info!("Found job with no parts, initializing parts list");
+            info!(job_id = %model.id, "Found job with no parts, initializing parts list");
             // If we have no parts, we assume this is the first time picking up the job,
             // and populate the parts list
             let mut parts = Vec::new();
@@ -167,11 +171,14 @@ impl Job {
             }
             state.parts = parts;
             model.state = Some(state.clone());
-            info!("Initialized parts list: {:?}", state.parts);
+            info!(job_id = %model.id, "Initialized parts list: {:?}", state.parts);
         }
+
+        let job_id = model.id;
 
         Ok(Self {
             context,
+            job_id,
             model: Mutex::new(model),
             state: Mutex::new(state),
             source,
@@ -320,7 +327,7 @@ impl Job {
         let mut state = self.state.lock().await;
 
         let Some(next_part) = state.parts.iter_mut().find(|p| !p.is_done()) else {
-            info!("Found no next part, returning");
+            info!(job_id = %self.job_id, "Found no next part, returning");
             return Ok(None); // We're done fetching
         };
 
@@ -330,7 +337,7 @@ impl Job {
         if next_part.total_size.is_none() {
             if let Some(actual_size) = self.source.size(&key).await? {
                 next_part.total_size = Some(actual_size);
-                info!("Updated total size for key {}: {}", key, actual_size);
+                info!(job_id = %self.job_id, "Updated total size for key {}: {}", key, actual_size);
 
                 {
                     let mut model = self.model.lock().await;
@@ -345,6 +352,7 @@ impl Job {
 
                 if actual_size == 0 {
                     info!(
+                        job_id = %self.job_id,
                         "No data available for this key: {} try to get the next chunk",
                         key
                     );
@@ -360,7 +368,7 @@ impl Job {
             }
         }
 
-        info!("Fetching part chunk {:?}", next_part);
+        info!(job_id = %self.job_id, "Fetching part chunk {:?}", next_part);
 
         let next_chunk = self
             .source
@@ -379,7 +387,7 @@ impl Job {
 
         let chunk_bytes = next_chunk.len();
 
-        info!("Fetched part chunk {:?}", next_part);
+        info!(job_id = %self.job_id, "Fetched part chunk {:?}", next_part);
         let m_tf = self.transform.clone();
         let key_for_error = key.clone();
         // This is computationally expensive, so we run it in a blocking task
@@ -394,13 +402,24 @@ impl Job {
             .context(format!("Processing part chunk {next_part:?}"))?;
 
         info!(
+            job_id = %self.job_id,
             "Parsed part chunk {:?}, consumed {} bytes",
             next_part, parsed.consumed
         );
 
-        // If this is the last chunk, and we didn't consume all of it, or we didn't manage to
-        // consume any of this chunk, we've got a bad chunk, and should pause the job with an error.
-        if parsed.consumed < chunk_bytes && is_last_chunk || parsed.data.is_empty() {
+        // If this is the last chunk and we didn't consume all of it, we have leftover unparseable data.
+        if parsed.consumed < chunk_bytes && is_last_chunk {
+            return Err(Error::msg(format!(
+                "Failed to parse data from part {} at offset {} - {} bytes left unconsumed",
+                next_part.key,
+                next_part.current_offset,
+                chunk_bytes - parsed.consumed
+            )));
+        }
+
+        // If we consumed no bytes and have no parsed data but there was data to consume, something went wrong.
+        // Note: don't error if we have no parsed data but have consumed bytes - invalid events may have been all filtered out
+        if parsed.consumed == 0 && parsed.data.is_empty() && chunk_bytes > 0 {
             return Err(Error::msg(format!(
                 "Failed to parse any data from part {} at offset {}",
                 next_part.key, next_part.current_offset
@@ -425,20 +444,20 @@ impl Job {
         let mut checkpoint_lock = self.checkpoint.lock().await;
 
         let Some(checkpoint) = checkpoint_lock.take() else {
-            info!("No checkpointed data to commit, returning");
+            info!(job_id = %self.job_id, "No checkpointed data to commit, returning");
             return Ok(()); // We've got no checkpointed data to commit, so we're done
         };
 
         let (key, parsed) = (checkpoint.key, checkpoint.data);
 
-        info!("Committing part {} consumed {} bytes", key, parsed.consumed);
-        info!("Committing {} events", parsed.data.len());
+        info!(job_id = %self.job_id, "Committing part {} consumed {} bytes", key, parsed.consumed);
+        info!(job_id = %self.job_id, "Committing {} events", parsed.data.len());
 
         let mut sink = self.sink.lock().await;
         self.shutdown_guard()?;
         // If this fails, we just bail out, and then eventually someone else will pick up the job again and re-process this chunk
         let txn = sink.begin_write().await?;
-        info!("Writing {} events", parsed.data.len());
+        info!(job_id = %self.job_id, "Writing {} events", parsed.data.len());
         // If this fails, as above
         self.shutdown_guard()?;
         txn.emit(&parsed.data).await?;
@@ -449,15 +468,15 @@ impl Job {
         // This operator can then confirm whether the sink commit succeeded or not (by looking at the last event written, or by
         // looking at logs, or both). The jobs status message is set to enable this kind of debugging.
         self.shutdown_guard()?; // This is the last time we call this during the commit - if we get this far, we want to commit fully if at all possible
-        info!("Beginning PG part commit");
+        info!(job_id = %self.job_id, "Beginning PG part commit");
         self.begin_part_commit(&key, parsed.consumed).await?;
-        info!("Beginning emitter part commit");
+        info!(job_id = %self.job_id, "Beginning emitter part commit");
 
         let to_sleep = txn.commit_write().await?;
-        info!("Finishing PG part commit");
+        info!(job_id = %self.job_id, "Finishing PG part commit");
         self.complete_commit().await?;
-        info!("Committed part {} consumed {} bytes", key, parsed.consumed);
-        info!("Sleeping for {:?}", to_sleep);
+        info!(job_id = %self.job_id, "Committed part {} consumed {} bytes", key, parsed.consumed);
+        info!(job_id = %self.job_id, "Sleeping for {:?}", to_sleep);
         tokio::time::sleep(to_sleep).await;
         liveness_loop_flag.store(false, Ordering::Relaxed);
 
@@ -468,7 +487,7 @@ impl Job {
         let mut model = self.model.lock().await;
         let result = model.complete(&self.context.db).await;
         if result.is_ok() {
-            info!(job_id = %model.id, "Batch import job complete");
+            info!(job_id = %self.job_id, "Batch import job complete");
         }
         result
     }

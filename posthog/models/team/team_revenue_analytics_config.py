@@ -2,12 +2,11 @@ import logging
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 
 from posthog.schema import RevenueAnalyticsEventItem, RevenueAnalyticsGoal
 
 from posthog.models.team import Team
+from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.rbac.decorators import field_access_control
 
@@ -41,6 +40,11 @@ class TeamRevenueAnalyticsConfig(models.Model):
         value = value or []
         try:
             dumped_value = [RevenueAnalyticsEventItem.model_validate(event).model_dump() for event in value]
+            # Sanitize empty strings to None for optional property fields
+            for event in dumped_value:
+                for key in ("subscriptionProperty", "productProperty", "couponProperty"):
+                    if event.get(key) == "":
+                        event[key] = None
             self._events = dumped_value
         except Exception as e:
             raise ValidationError(f"Invalid events schema: {str(e)}")
@@ -70,14 +74,4 @@ class TeamRevenueAnalyticsConfig(models.Model):
         }
 
 
-# This is best effort, we always attempt to create the config manually
-# when accessing it via `Team.revenue_analytics_config`.
-# In theory, this shouldn't ever fail, but it does fail in some tests cases
-# so let's make it very forgiving
-@receiver(post_save, sender=Team)
-def create_team_revenue_analytics_config(sender, instance, created, **kwargs):
-    try:
-        if created:
-            TeamRevenueAnalyticsConfig.objects.get_or_create(team=instance)
-    except Exception as e:
-        logger.warning(f"Error creating team revenue analytics config: {e}")
+register_team_extension_signal(TeamRevenueAnalyticsConfig, logger=logger)

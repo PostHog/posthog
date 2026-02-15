@@ -25,13 +25,15 @@ export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.El
                 enableFormOnSubmit
                 className="flex flex-col deprecated-space-y-4"
             >
-                <div className="bg-white ml-auto mr-auto">
-                    <img src="/account/two_factor/qrcode/" className="Setup2FA__image" />
+                <div className="flex flex-col items-center">
+                    <div className="bg-white p-4 rounded">
+                        <img src="/account/two_factor/qrcode/" className="Setup2FA__image" />
+                    </div>
 
                     {/* Secret key for manual entry */}
                     {startSetup?.secret && (
-                        <div className="ph-no-capture mt-4 p-3 bg-gray-50 rounded text-center">
-                            <p>
+                        <div className="ph-no-capture mt-4 p-3 bg-secondary rounded text-center w-full max-w-md">
+                            <p className="text-default">
                                 If you can't scan the QR code, you can use the secret key below to manually set up your
                                 authenticator app.
                             </p>

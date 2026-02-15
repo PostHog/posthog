@@ -10,6 +10,7 @@ from posthog.dags.common import JobOwners
 
 notification_channel_per_team = {
     JobOwners.TEAM_ANALYTICS_PLATFORM.value: "#alerts-analytics-platform",
+    JobOwners.TEAM_BILLING.value: "#alerts-billing",
     JobOwners.TEAM_CLICKHOUSE.value: "#alerts-clickhouse",
     JobOwners.TEAM_DATA_STACK.value: "#alerts-data-warehouse",
     JobOwners.TEAM_ERROR_TRACKING.value: "#alerts-error-tracking",
@@ -113,7 +114,7 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
     environment = (
         f"{settings.CLOUD_DEPLOYMENT} :flag-{settings.CLOUD_DEPLOYMENT}:" if settings.CLOUD_DEPLOYMENT else "unknown"
     )
-    blocks = [
+    blocks: list[dict[str, object]] = [
         {
             "type": "section",
             "text": {

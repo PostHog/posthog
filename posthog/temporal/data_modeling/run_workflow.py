@@ -12,6 +12,7 @@ import dataclasses
 import collections.abc
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 
 import pyarrow as pa
 import deltalake
@@ -21,7 +22,6 @@ import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 import temporalio.exceptions
-from deltalake import DeltaTable
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio.workflow import ParentClosePolicy
@@ -30,6 +30,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
@@ -58,6 +59,7 @@ from products.data_warehouse.backend.models import (
 )
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.s3 import ensure_bucket_exists
+from products.endpoints.backend.rate_limit import set_endpoint_materialization_ready
 
 LOGGER = get_logger(__name__)
 
@@ -335,9 +337,10 @@ async def handle_model_ready(
 
     try:
         if model.selected is True:
+            job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
+
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
             saved_query = await get_saved_query(team, model.label)
-            job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
 
             await materialize_model(model.label, team, saved_query, job, logger)
             ducklake_model = DuckLakeCopyModelInput(
@@ -354,6 +357,21 @@ async def handle_model_ready(
     except DataModelingCancelledException as err:
         await logger.aexception("Data modeling run was cancelled for model %s", model.label, job_id=job_id)
         await handle_cancelled(job, model, queue, err, "Data modeling run was cancelled for model %s: %s", logger)
+    except ObjectDoesNotExist as err:
+        error_msg = (
+            f"Object not found (team_id={team_id}, model_label={model.label}, job_id={job_id}): {err}. "
+            "This likely indicates an orphaned Temporal schedule that should be cleaned up."
+        )
+        await logger.aerror(
+            error_msg,
+            team_id=team_id,
+            model_label=model.label,
+            job_id=job_id,
+        )
+        capture_exception(err)
+        wrapped = Exception(error_msg)
+        wrapped.__cause__ = err
+        await handle_error(job, model, queue, wrapped, error_msg, logger)
     except Exception as err:
         await logger.aexception(
             "Failed to materialize model %s due to unexpected error: %s", model.label, str(err), job_id=job_id
@@ -438,7 +456,7 @@ async def materialize_model(
     saved_query: DataWarehouseSavedQuery,
     job: DataModelingJob,
     logger: FilteringBoundLogger,
-) -> tuple[str, DeltaTable, uuid.UUID]:
+):
     """Materialize a given model by running its query and piping the results into a delta table.
 
     Arguments:
@@ -482,7 +500,6 @@ async def materialize_model(
             await database_sync_to_async(job.save)()
         except Exception as e:
             exception_str = str(e)
-
             # If the count doesn't succeed due to the query timeout being exceeded, then re-raise
             if "Timeout exceeded" in exception_str:
                 raise
@@ -542,13 +559,11 @@ async def materialize_model(
 
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
 
-        if delta_table is None:
-            delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
+    except ObjectDoesNotExist:
+        raise
     except Exception as e:
         error_message = str(e)
-
         await logger.aerror(f"Error materializing model {model_label}: {error_message}")
-
         if "Query exceeds memory limits" in error_message:
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
@@ -587,6 +602,7 @@ async def materialize_model(
             )
             saved_query.latest_error = error_message
             await logger.ainfo("Table reference no longer exists for model %s, reverting materialization", model_label)
+            # saving query handled in revert_materialization()
             await revert_materialization(saved_query, logger)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
@@ -594,25 +610,41 @@ async def materialize_model(
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
             await logger.ainfo("Query exceeded memory limit for model %s", model_label)
+            await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Query exceeded memory limit for model {model_label}: {error_message}") from e
         elif "Timeout exceeded" in error_message:
             error_message = f"Query exceeded timeout - we limit queries to a 10-minute timeout."
             saved_query.latest_error = error_message
+            saved_query.sync_frequency_interval = None
             await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
+            await database_sync_to_async(saved_query.save)()
+            await a_pause_saved_query_schedule(saved_query)
             await mark_job_as_failed(job, error_message, logger)
-            await set_view_to_never_sync(saved_query, logger)
+            await logger.ainfo("Paused temporal schedule for query: saved_query_id=%s", saved_query.id)
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
         else:
             saved_query.latest_error = f"Query failed to materialize: {error_message}"
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
-            raise Exception(f"Failed to materialize model {model_label}: {error_message}") from e
+            if isinstance(e, NonRetryableException):
+                raise
+            raise Exception(error_message) from e
 
     data_modeling_job = await database_sync_to_async(DataModelingJob.objects.get)(id=job.id)
     if data_modeling_job.status == DataModelingJob.Status.CANCELLED:
         raise DataModelingCancelledException("Data modeling run was cancelled")
+
+    # early exit for no results
+    if delta_table is None:
+        await database_sync_to_async(job.refresh_from_db)()
+        job.rows_materialized = 0
+        job.status = DataModelingJob.Status.COMPLETED
+        job.last_run_at = dt.datetime.now(dt.UTC)
+        job.error = "Warning: query returned no results"  # we log an error to signify that this isn't an ideal result
+        await database_sync_to_async(job.save)()
+        return (saved_query.normalized_name, delta_table, job.id)
 
     await logger.adebug("Compacting delta table")
     delta_table.optimize.compact()
@@ -626,7 +658,7 @@ async def materialize_model(
         saved_query_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
 
     await logger.adebug("Copying query files in S3")
-    folder_path = prepare_s3_files_for_querying(
+    folder_path = await prepare_s3_files_for_querying(
         folder_path=saved_query.folder_path,
         table_name=saved_query.normalized_name,
         file_uris=file_uris,
@@ -656,13 +688,12 @@ async def materialize_model(
     await database_sync_to_async(job.save)()
 
     await logger.adebug("Setting DataModelingJob.Status = COMPLETED")
-
     return (saved_query.normalized_name, delta_table, job.id)
 
 
 async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: FilteringBoundLogger) -> None:
     """
-    Mark DataModelingJob as failed
+    Mark DataModelingJob as failed and send notification email if applicable.
     """
 
     await logger.aerror(f"mark_job_as_failed: {error_message}")
@@ -671,16 +702,13 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     job.error = error_message
     await database_sync_to_async(job.save)()
 
+    if job.saved_query_id:
+        try:
+            from posthog.tasks.email import send_saved_query_materialization_failure
 
-async def set_view_to_never_sync(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
-    """Updates saved_query to set the sync schedule to "never" to protect from high strain on clickhouse"""
-
-    saved_query.sync_frequency_interval = None
-    await database_sync_to_async(saved_query.save)()
-
-    await a_pause_saved_query_schedule(str(saved_query.id))
-
-    await logger.adebug(f"Updated saved query {saved_query.id} to never sync")
+            await database_sync_to_async(send_saved_query_materialization_failure)(str(job.saved_query_id))
+        except Exception:
+            await logger.aexception("Failed to send materialization failure notification email")
 
 
 async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
@@ -729,11 +757,13 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+    modifiers = await database_sync_to_async(create_default_modifiers_for_team)(team)
     context = HogQLContext(
         team=team,
         team_id=team.id,
         enable_select_queries=True,
         limit_top_select=False,
+        modifiers=modifiers,
     )
     context.output_format = "TabSeparated"
     context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
@@ -775,11 +805,13 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+    modifiers = await database_sync_to_async(create_default_modifiers_for_team)(team)
     context = HogQLContext(
         team=team,
         team_id=team.id,
         enable_select_queries=True,
         limit_top_select=False,
+        modifiers=modifiers,
     )
     context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
 
@@ -1094,37 +1126,33 @@ def _get_credentials():
     if settings.USE_LOCAL_SETUP:
         ensure_bucket_exists(
             settings.BUCKET_URL,
-            settings.AIRBYTE_BUCKET_KEY,
-            settings.AIRBYTE_BUCKET_SECRET,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             settings.OBJECT_STORAGE_ENDPOINT,
         )
 
         return {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
             "AWS_ALLOW_HTTP": "true",
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
     if TEST:
         return {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
             "AWS_ALLOW_HTTP": "true",
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
     return {
-        "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-        "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-        "region_name": settings.AIRBYTE_BUCKET_REGION,
-        "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 
@@ -1437,6 +1465,10 @@ async def update_saved_query_status(
 
     await database_sync_to_async(saved_query.save)()
 
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+        is_ready = status == DataWarehouseSavedQuery.Status.COMPLETED
+        await database_sync_to_async(set_endpoint_materialization_ready)(team_id, saved_query.name, is_ready)
+
 
 @dataclasses.dataclass
 class CancelJobsActivityInputs:
@@ -1475,6 +1507,16 @@ async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
     job = await database_sync_to_async(DataModelingJob.objects.get)(id=inputs.job_id)
 
     await mark_job_as_failed(job, inputs.error, logger)
+
+
+def _format_exception_chain(e: BaseException) -> str:
+    """Walk the exception cause chain and return a detailed error string."""
+    parts = [str(e)]
+    cause = e.__cause__
+    while cause is not None:
+        parts.append(f"Caused by {type(cause).__name__}: {cause}")
+        cause = cause.__cause__
+    return "\n".join(parts)
 
 
 @dataclasses.dataclass
@@ -1592,11 +1634,12 @@ class RunWorkflow(PostHogWorkflow):
                 raise
 
             capture_exception(e)
-            temporalio.workflow.logger.error(f"Activity failed during model run: {str(e)}")
+            error_detail = _format_exception_chain(e)
+            temporalio.workflow.logger.error(f"Activity failed during model run: {error_detail}")
 
             await temporalio.workflow.execute_activity(
                 fail_jobs_activity,
-                FailJobsActivityInputs(job_id=job_id, error=str(e), team_id=inputs.team_id),
+                FailJobsActivityInputs(job_id=job_id, error=error_detail, team_id=inputs.team_id),
                 start_to_close_timeout=dt.timedelta(minutes=20),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=3,
@@ -1604,9 +1647,10 @@ class RunWorkflow(PostHogWorkflow):
             )
             raise
         except Exception as e:
+            error_detail = _format_exception_chain(e)
             await temporalio.workflow.execute_activity(
                 fail_jobs_activity,
-                FailJobsActivityInputs(job_id=job_id, error=str(e), team_id=inputs.team_id),
+                FailJobsActivityInputs(job_id=job_id, error=error_detail, team_id=inputs.team_id),
                 start_to_close_timeout=dt.timedelta(minutes=20),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=3,

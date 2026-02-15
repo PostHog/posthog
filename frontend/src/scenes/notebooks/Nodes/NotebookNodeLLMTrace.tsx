@@ -1,7 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
+import { IconX } from '@posthog/icons'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { groupLogic } from 'scenes/groups/groupLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
@@ -16,9 +19,12 @@ import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFi
 import { TracesQuery } from '~/queries/schema/schema-general'
 import { isTracesQuery } from '~/queries/utils'
 
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
+import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 import { LLMAnalyticsSetupPrompt } from 'products/llm_analytics/frontend/LLMAnalyticsSetupPrompt'
 import { useTracesQueryContext } from 'products/llm_analytics/frontend/LLMAnalyticsTracesScene'
-import { llmAnalyticsLogic } from 'products/llm_analytics/frontend/llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from 'products/llm_analytics/frontend/llmAnalyticsSharedLogic'
+import { llmAnalyticsTracesTabLogic } from 'products/llm_analytics/frontend/tabs/llmAnalyticsTracesTabLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { createPostHogWidgetNode } from './NodeWrapper'
@@ -26,16 +32,32 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { getLogicKey } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttributes>): JSX.Element | null => {
-    const { expanded } = useValues(notebookNodeLogic)
+    const { expanded, notebookLogic } = useValues(notebookNodeLogic)
+    const { setMenuItems } = useActions(notebookNodeLogic)
     const { groupKey, groupTypeIndex, personId, tabId } = attributes
     const group = groupKey && groupTypeIndex !== undefined ? { groupKey, groupTypeIndex } : undefined
     const logicKey = getLogicKey({ groupKey, personId, tabId })
 
-    const logic = llmAnalyticsLogic({ logicKey, personId, group })
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(logic)
-    const { tracesQuery } = useValues(logic)
+    const sharedLogic = llmAnalyticsSharedLogic({ logicKey, personId, group })
+    const tracesLogic = llmAnalyticsTracesTabLogic({ personId, group })
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(sharedLogic)
+    const { setTracesQuery } = useActions(tracesLogic)
+    const { tracesQuery } = useValues(tracesLogic)
     const context = useTracesQueryContext()
-    const attachTo = groupTypeIndex !== undefined && groupKey ? groupLogic({ groupTypeIndex, groupKey }) : undefined
+    const { removeNode } = useActions(customerProfileLogic)
+    useAttachedLogic(sharedLogic, notebookLogic)
+    useAttachedLogic(tracesLogic, notebookLogic)
+
+    useOnMountEffect(() => {
+        setMenuItems([
+            {
+                label: 'Remove',
+                onClick: () => removeNode(NotebookNodeType.LLMTrace),
+                sideIcon: <IconX />,
+                status: 'danger',
+            },
+        ])
+    })
 
     if (!expanded) {
         return null
@@ -43,12 +65,16 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
 
     return (
         <BindLogic logic={dataNodeLogic} props={{ key: logicKey }}>
-            <LLMAnalyticsSetupPrompt className="border-none">
+            <LLMAnalyticsSetupPrompt className="border-none" thing="trace">
                 <Query
                     uniqueKey={logicKey}
-                    attachTo={attachTo}
+                    attachTo={notebookLogic}
                     query={{
                         ...tracesQuery,
+                        source: {
+                            ...tracesQuery.source,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                        },
                         embedded: true,
                         showTestAccountFilters: false,
                         showReload: false,
@@ -74,10 +100,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
 }
 
 const Settings = ({ attributes }: NotebookNodeAttributeProperties<NotebookNodeLLMTraceAttributes>): JSX.Element => {
-    const { personId, groupKey, nodeId } = attributes
-    const logic = llmAnalyticsLogic({ logicKey: nodeId })
-    const { setDates, setPropertyFilters, setTracesQuery } = useActions(logic)
-    const { tracesQuery } = useValues(logic)
+    const { personId, groupKey, groupTypeIndex, nodeId } = attributes
+    const group = groupKey && groupTypeIndex !== undefined ? { groupKey, groupTypeIndex } : undefined
+    const sharedLogic = llmAnalyticsSharedLogic({ logicKey: nodeId, personId, group })
+    const tracesLogic = llmAnalyticsTracesTabLogic({ personId, group })
+    const { setDates, setPropertyFilters } = useActions(sharedLogic)
+    const { setTracesQuery } = useActions(tracesLogic)
+    const { tracesQuery } = useValues(tracesLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (

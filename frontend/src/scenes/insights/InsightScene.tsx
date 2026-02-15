@@ -9,7 +9,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { ItemMode } from '~/types'
 
 export interface InsightSceneProps {
@@ -24,7 +24,7 @@ export function InsightScene({ tabId }: InsightSceneProps = {}): JSX.Element {
     useEffect(() => {
         // Redirect data viz nodes to the sql editor
         if (insightId && insight?.query?.kind === NodeKind.DataVisualizationNode && insightMode === ItemMode.Edit) {
-            router.actions.push(urls.sqlEditor(undefined, undefined, insightId))
+            router.actions.push(urls.sqlEditor({ insightShortId: insightId }))
         }
     }, [insightId, insight?.query?.kind, insightMode])
 
@@ -49,5 +49,5 @@ export function InsightScene({ tabId }: InsightSceneProps = {}): JSX.Element {
 export const scene: SceneExport = {
     component: InsightScene,
     logic: insightSceneLogic,
-    settingSectionId: 'environment-product-analytics',
+    productKey: ProductKey.PRODUCT_ANALYTICS,
 }

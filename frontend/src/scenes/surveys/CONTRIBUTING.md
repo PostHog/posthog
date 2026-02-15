@@ -3,7 +3,13 @@
 ## Setting up your environment
 
 1. Follow the [local development guide](https://posthog.com/handbook/engineering/developing-locally) to set up your environment.
-2. Run `python manage.py generate_random_surveys 3 --responses 50` to generate some surveys for testing.
+2. Run `python manage.py generate_random_surveys` to generate a survey with responses for testing. By default, this creates 1 survey with 50 responses covering all actionable question types (open, rating, single choice with open-ended, multiple choice with open-ended).
+
+   Available parameters:
+   - `count` - Number of surveys to generate (default: 1)
+   - `--responses` - Number of responses per survey (default: 50)
+   - `--team-id` - Team ID to create surveys for (default: first team)
+   - `--days-back` - Spread responses over the last N days (default: 30)
 
 ## How to test changes
 

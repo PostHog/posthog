@@ -1,6 +1,14 @@
 from typing import Optional, Union, cast
 
-from posthog.schema import ActionsNode, BaseMathType, ChartDisplayType, DataWarehouseNode, EventsNode, PropertyMathType
+from posthog.schema import (
+    ActionsNode,
+    BaseMathType,
+    ChartDisplayType,
+    DataWarehouseNode,
+    EventsNode,
+    GroupNode,
+    PropertyMathType,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
@@ -18,6 +26,17 @@ from posthog.models.team.team import Team
 DEFAULT_CURRENCY_VALUE = "USD"
 DEFAULT_REVENUE_PROPERTY = "$revenue"
 
+ALLOWED_SESSION_MATH_PROPERTIES = frozenset(
+    [
+        "$session_duration",
+        "$pageview_count",
+        "$screen_count",
+        "$autocapture_count",
+        "$num_uniq_urls",
+        "$is_bounce",
+    ]
+)
+
 # Property math types that can be meaningfully aggregated when rolling up histogram buckets
 # e.g. taking p99 of p99 values doesn't make sense
 SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN = (
@@ -34,7 +53,7 @@ def create_placeholder(name: str) -> ast.Placeholder:
 
 class AggregationOperations(DataWarehouseInsightQueryMixin):
     team: Team
-    series: Union[EventsNode, ActionsNode, DataWarehouseNode]
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]
     chart_display_type: ChartDisplayType
     query_date_range: QueryDateRange
     is_total_value: bool
@@ -42,7 +61,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def __init__(
         self,
         team: Team,
-        series: Union[EventsNode, ActionsNode, DataWarehouseNode],
+        series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode],
         chart_display_type: ChartDisplayType,
         query_date_range: QueryDateRange,
         is_total_value: bool,
@@ -55,7 +74,14 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
-            return parse_expr(self.series.math_hogql)
+            # Wrap in ifNull to handle empty result sets - formulas can't handle NULL values
+            return ast.Call(
+                name="ifNull",
+                args=[
+                    ast.Call(name="toFloat", args=[parse_expr(self.series.math_hogql)]),
+                    ast.Constant(value=0),
+                ],
+            )
         elif self.series.math == "total" or self.series.math == "first_time_for_user":
             return parse_expr("count()")
         elif self.series.math == "dau":
@@ -132,8 +158,36 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return self.is_count_per_actor_variant() or self.series.math in math_to_return_true
 
+    def _validate_session_property(self) -> str:
+        if not self.series.math_property:
+            raise ValueError("No math_property specified for session-level aggregation")
+
+        if self.series.math_property not in ALLOWED_SESSION_MATH_PROPERTIES:
+            raise ValueError(
+                f"Invalid session property: {self.series.math_property}. "
+                f"Allowed properties are: {', '.join(sorted(ALLOWED_SESSION_MATH_PROPERTIES))}"
+            )
+
+        return self.series.math_property
+
+    def aggregating_on_session_property(self) -> bool:
+        """
+        Session-level aggregation groups events by session_id before applying math operations.
+        This ensures each session contributes exactly once - critical for metrics like bounce rate
+        where avg($is_bounce) must average across sessions, not events.
+        """
+        # Backwards compatibility: $session_duration works without explicit math_property_type
+        if self.series.math_property == "$session_duration":
+            return True
+
+        return (
+            self.series.math_property_type == "session_properties"
+            and self.series.math_property in ALLOWED_SESSION_MATH_PROPERTIES
+        )
+
     def aggregating_on_session_duration(self) -> bool:
-        return self.series.math_property == "$session_duration"
+        """@deprecated: Use aggregating_on_session_property() instead."""
+        return self.aggregating_on_session_property()
 
     def is_count_per_actor_variant(self):
         return self.series.math in [
@@ -181,11 +235,35 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             return ast.Call(name="avg", args=[field])
         return ast.Call(name="sum", args=[field])
 
+    def get_array_fold_merge_operation(self) -> str:
+        """
+        Returns the ClickHouse expression for combining two values in an arrayFold operation
+        when rolling up "Other" breakdown values.
+
+        Used in arrayFold like: arrayMap(i -> {operation}, range(...))
+        where acc[i] and x[i] are the two values to combine.
+        """
+        if self.series.math == "max":
+            return "greatest(acc[i], x[i])"
+        elif self.series.math == "min":
+            return "least(acc[i], x[i])"
+        elif self.series.math == "avg":
+            # For avg, we'd need to track counts separately, so we fall back to sum for now
+            # This is a known limitation - averaging averages is not statistically sound anyway
+            return "acc[i] + x[i]"
+        else:
+            # Default to sum for count, total, sum, etc.
+            return "acc[i] + x[i]"
+
     def _get_math_chain(self) -> list[str | int]:
         if not self.series.math_property:
             raise ValueError("No math property set")
         if self.series.math_property == "$session_duration":
+            # Backwards compatibility: existing queries expect "session_duration" alias
             return ["session_duration"]
+        elif self.series.math_property_type == "session_properties" and self.aggregating_on_session_property():
+            # Other session properties use "session_property" alias from wrapper query
+            return ["session_property"]
         elif isinstance(self.series, DataWarehouseNode):
             return [self.series.math_property]
         elif self.series.math_property_type == "data_warehouse_person_properties":
@@ -216,9 +294,11 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             event_currency = (
                 ast.Constant(value=self.series.math_property_revenue_currency.static.value)
                 if self.series.math_property_revenue_currency.static is not None
-                else ast.Field(chain=["properties", self.series.math_property_revenue_currency.property])
-                if self.series.math_property_revenue_currency.property is not None
-                else ast.Field(chain=["properties", DEFAULT_REVENUE_PROPERTY])
+                else (
+                    ast.Field(chain=["properties", self.series.math_property_revenue_currency.property])
+                    if self.series.math_property_revenue_currency.property is not None
+                    else ast.Field(chain=["properties", DEFAULT_REVENUE_PROPERTY])
+                )
             )
             base_currency = (
                 ast.Constant(value=self.team.base_currency)
@@ -266,7 +346,14 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 ast.Call(name="_toDate", args=[timestamp_expr]),
             )
 
-            return ast.Call(name=method, args=[currency_field_expr])
+            # Wrap in ifNull to handle empty result sets - formulas can't handle NULL values
+            return ast.Call(
+                name="ifNull",
+                args=[
+                    ast.Call(name=method, args=[currency_field_expr]),
+                    ast.Constant(value=0),
+                ],
+            )
 
         # Apply math_multiplier if present
         field_expr: ast.Expr = ast.Field(chain=chain)

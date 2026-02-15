@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Manage Grafana service account tokens in macOS Keychain
+#
+# Usage:
+#   grafana-token                  # Show status of all tokens
+#   grafana-token us               # Show if US token exists
+#   grafana-token eu               # Show if EU token exists
+#   grafana-token dev              # Show if dev token exists
+#   grafana-token us <token>       # Set prod-us token
+#   grafana-token eu <token>       # Set prod-eu token
+#   grafana-token dev <token>      # Set dev token
+#
+# Note: This script requires macOS (uses Keychain).
+# On Linux, set the GRAFANA_SERVICE_ACCOUNT_TOKEN environment variable instead.
+
+set -euo pipefail
+
+# Check for macOS
+if [[ "$OSTYPE" != "darwin"* ]]; then
+    echo "Error: This script requires macOS Keychain." >&2
+    echo "On Linux, set the GRAFANA_SERVICE_ACCOUNT_TOKEN environment variable." >&2
+    exit 1
+fi
+
+show_status() {
+    echo "Grafana Token Status:"
+    echo ""
+
+    if security find-generic-password -a "$USER" -s "grafana-service-account-token-us" &>/dev/null; then
+        echo "  US (prod-us):  configured"
+    else
+        echo "  US (prod-us):  not configured"
+    fi
+
+    if security find-generic-password -a "$USER" -s "grafana-service-account-token-eu" &>/dev/null; then
+        echo "  EU (prod-eu):  configured"
+    else
+        echo "  EU (prod-eu):  not configured"
+    fi
+
+    if security find-generic-password -a "$USER" -s "grafana-service-account-token-dev" &>/dev/null; then
+        echo "  dev:           configured"
+    else
+        echo "  dev:           not configured"
+    fi
+}
+
+show_usage() {
+    echo "Usage: grafana-token [us|eu|dev] [token]"
+    echo ""
+    echo "Commands:"
+    echo "  (no args)        Show token status for all regions"
+    echo "  us               Show if US token is configured"
+    echo "  eu               Show if EU token is configured"
+    echo "  dev              Show if dev token is configured"
+    echo "  us <token>       Set prod-us token"
+    echo "  eu <token>       Set prod-eu token"
+    echo "  dev <token>      Set dev token"
+    echo ""
+    echo "After setting a token, restart your MCP client to pick it up."
+    echo ""
+    echo "To create a service account token in Grafana:"
+    echo "  1. Go to Administration > Service accounts"
+    echo "  2. Create a new service account or use an existing one"
+    echo "  3. Add a token with appropriate permissions"
+}
+
+case "${1:-}" in
+    "")
+        show_status
+        ;;
+    us|eu|dev)
+        REGION="$1"
+        SERVICE="grafana-service-account-token-$REGION"
+
+        if [ -z "${2:-}" ]; then
+            # Just check if token exists
+            if security find-generic-password -a "$USER" -s "$SERVICE" &>/dev/null; then
+                echo "Token for $REGION: configured"
+            else
+                echo "Token for $REGION: not configured"
+            fi
+        else
+            TOKEN="$2"
+
+            # Delete existing token if present (security add doesn't update)
+            security delete-generic-password -a "$USER" -s "$SERVICE" 2>/dev/null || true
+
+            # Add new token (use stdin to avoid token appearing in process list)
+            printf '%s' "$TOKEN" | security add-generic-password -a "$USER" -s "$SERVICE" -w
+
+            echo "Token for $REGION saved to Keychain."
+            echo ""
+            echo "Restart your MCP client to pick up the new token."
+        fi
+        ;;
+    -h|--help)
+        show_usage
+        ;;
+    *)
+        echo "Error: Invalid region '$1'. Must be 'us', 'eu', or 'dev'." >&2
+        echo ""
+        show_usage
+        exit 1
+        ;;
+esac
