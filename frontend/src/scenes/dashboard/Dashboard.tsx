@@ -7,6 +7,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
@@ -14,6 +16,9 @@ import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardPropertyFilterCombobox } from 'scenes/dashboard/DashboardPropertyFilterCombobox'
+import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -21,8 +26,9 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
-import { ProductKey } from '~/queries/schema/schema-general'
-import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
+import { groupsModel } from '~/models/groupsModel'
+import { BreakdownFilter, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
@@ -69,10 +75,27 @@ function DashboardScene(): JSX.Element {
         dashboardFailedToLoad,
         accessDeniedToDashboard,
         hasVariables,
+        effectiveEditBarFilters,
     } = useValues(dashboardLogic)
+    const { setDashboardMode, setBreakdownFilter, setProperties } = useActions(dashboardLogic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
+    const hasNewTaxonomicSearch = useFeatureFlag('UX_NEW_TAXONOMIC_SEARCH')
+
+    const insightProps: InsightLogicProps = {
+        dashboardItemId: 'new',
+        dashboardId: dashboard?.id,
+        cachedInsight: null,
+        query: {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+            },
+        },
+    }
 
     useFileSystemLogView({
         type: 'dashboard',
@@ -113,8 +136,88 @@ function DashboardScene(): JSX.Element {
                 >
                     <DashboardOverridesBanner />
 
+                    {hasNewTaxonomicSearch && (
+                        <BindLogic logic={insightLogic} props={insightProps}>
+                            <TaxonomicBreakdownFilter
+
+                                insightProps={insightProps}
+                                breakdownFilter={effectiveEditBarFilters.breakdown_filter}
+                                isTrends={false}
+                                // showLabel={false}
+                                updateBreakdownFilter={(breakdown_filter) => {
+                                    if (dashboardMode !== DashboardMode.Edit) {
+                                        setDashboardMode(DashboardMode.Edit, null)
+                                    }
+                                    let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
+                                    if (
+                                        breakdown_filter &&
+                                        !breakdown_filter.breakdown_type &&
+                                        !breakdown_filter.breakdowns
+                                    ) {
+                                        saved_breakdown_filter = null
+                                    }
+                                    setBreakdownFilter(saved_breakdown_filter)
+                                }}
+                                updateDisplay={() => { }}
+                                disablePropertyInfo
+                                size="small"
+                            />
+                        </BindLogic>
+                    )}
+
+                    {hasNewTaxonomicSearch && (
+                        <>
+                            Dashboard Property Filter Combobox
+                            <DashboardPropertyFilterCombobox
+                                properties={effectiveEditBarFilters.properties ?? undefined}
+                                onChange={(properties) => {
+                                    if (dashboardMode !== DashboardMode.Edit) {
+                                        setDashboardMode(DashboardMode.Edit, null)
+                                    }
+                                    setProperties(properties)
+                                }}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    TaxonomicFilterGroupType.EventFeatureFlags,
+                                    TaxonomicFilterGroupType.EventMetadata,
+                                    ...groupsTaxonomicTypes,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                    TaxonomicFilterGroupType.Elements,
+                                    TaxonomicFilterGroupType.SessionProperties,
+                                    TaxonomicFilterGroupType.HogQLExpression,
+                                    TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                ]}
+                                size="small"
+                            />
+
+                            <DashboardPropertyFilterCombobox
+                                properties={effectiveEditBarFilters.properties ?? undefined}
+                                onChange={(properties) => {
+                                    if (dashboardMode !== DashboardMode.Edit) {
+                                        setDashboardMode(DashboardMode.Edit, null)
+                                    }
+                                    setProperties(properties)
+                                }}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    TaxonomicFilterGroupType.EventFeatureFlags,
+                                    TaxonomicFilterGroupType.EventMetadata,
+                                    ...groupsTaxonomicTypes,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                    TaxonomicFilterGroupType.Elements,
+                                    TaxonomicFilterGroupType.SessionProperties,
+                                    TaxonomicFilterGroupType.HogQLExpression,
+                                    TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                ]}
+                                size="small"
+                            />
+                        </>
+                    )}
+
                     <SceneStickyBar showBorderBottom={false}>
-                        <div className="flex gap-2 justify-between">
+                        <div className="flex flex-col gap-2 justify-between">
                             {![
                                 DashboardPlacement.Public,
                                 DashboardPlacement.Export,
@@ -138,9 +241,8 @@ function DashboardScene(): JSX.Element {
                                     })}
                                 >
                                     <div
-                                        className={`left-item ${
-                                            placement === DashboardPlacement.Public ? 'text-right' : ''
-                                        }`}
+                                        className={`left-item ${placement === DashboardPlacement.Public ? 'text-right' : ''
+                                            }`}
                                     >
                                         {[DashboardPlacement.Public].includes(placement) ? (
                                             <LastRefreshText />

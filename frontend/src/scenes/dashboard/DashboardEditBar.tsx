@@ -38,6 +38,7 @@ export function DashboardEditBar(): JSX.Element {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const canAccessExplicitDateToggle = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DATE_PICKER_EXPLICIT_DATE_TOGGLE]
+    const hasNewTaxonomicSearch = !!featureFlags[FEATURE_FLAGS.UX_NEW_TAXONOMIC_SEARCH]
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new',
@@ -81,7 +82,7 @@ export function DashboardEditBar(): JSX.Element {
         >
             <div
                 className={clsx(
-                    'flex gap-2 items-end flex-wrap border md:[&>*]:grow-0 [&>*]:grow',
+                    'w-full flex gap-2 items-end flex-wrap border md:[&>*]:grow-0 [&>*]:grow',
                     dashboardMode === DashboardMode.Edit
                         ? '-m-1.5 p-1.5 border-primary border-dashed rounded-lg'
                         : 'border-transparent'
@@ -118,58 +119,62 @@ export function DashboardEditBar(): JSX.Element {
                         />
                     </AppShortcut>
                 </div>
-                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
-                    <PropertyFilters
-                        onChange={(properties) => {
-                            if (dashboardMode !== DashboardMode.Edit) {
-                                setDashboardMode(DashboardMode.Edit, null)
-                            }
-                            setProperties(properties)
-                        }}
-                        pageKey={'dashboard_' + dashboard?.id}
-                        propertyFilters={effectiveEditBarFilters.properties}
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.EventFeatureFlags,
-                            TaxonomicFilterGroupType.EventMetadata,
-                            ...groupsTaxonomicTypes,
-                            TaxonomicFilterGroupType.Cohorts,
-                            TaxonomicFilterGroupType.Elements,
-                            TaxonomicFilterGroupType.SessionProperties,
-                            TaxonomicFilterGroupType.HogQLExpression,
-                            TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                        ]}
-                    />
-                </div>
-                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
-                    <BindLogic logic={insightLogic} props={insightProps}>
-                        <TaxonomicBreakdownFilter
-                            insightProps={insightProps}
-                            breakdownFilter={effectiveEditBarFilters.breakdown_filter}
-                            isTrends={false}
-                            showLabel={false}
-                            updateBreakdownFilter={(breakdown_filter) => {
+                {!hasNewTaxonomicSearch && (
+                    <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                        <PropertyFilters
+                            onChange={(properties) => {
                                 if (dashboardMode !== DashboardMode.Edit) {
                                     setDashboardMode(DashboardMode.Edit, null)
                                 }
-                                let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
-                                // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
-                                if (
-                                    breakdown_filter &&
-                                    !breakdown_filter.breakdown_type &&
-                                    !breakdown_filter.breakdowns
-                                ) {
-                                    saved_breakdown_filter = null
-                                }
-                                setBreakdownFilter(saved_breakdown_filter)
+                                setProperties(properties)
                             }}
-                            updateDisplay={() => {}}
-                            disablePropertyInfo
-                            size="small"
+                            pageKey={'dashboard_' + dashboard?.id}
+                            propertyFilters={effectiveEditBarFilters.properties}
+                            taxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.PersonProperties,
+                                TaxonomicFilterGroupType.EventFeatureFlags,
+                                TaxonomicFilterGroupType.EventMetadata,
+                                ...groupsTaxonomicTypes,
+                                TaxonomicFilterGroupType.Cohorts,
+                                TaxonomicFilterGroupType.Elements,
+                                TaxonomicFilterGroupType.SessionProperties,
+                                TaxonomicFilterGroupType.HogQLExpression,
+                                TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                            ]}
                         />
-                    </BindLogic>
-                </div>
+                    </div>
+                )}
+                {!hasNewTaxonomicSearch && (
+                    <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                        <BindLogic logic={insightLogic} props={insightProps}>
+                            <TaxonomicBreakdownFilter
+                                insightProps={insightProps}
+                                breakdownFilter={effectiveEditBarFilters.breakdown_filter}
+                                isTrends={false}
+                                showLabel={false}
+                                updateBreakdownFilter={(breakdown_filter) => {
+                                    if (dashboardMode !== DashboardMode.Edit) {
+                                        setDashboardMode(DashboardMode.Edit, null)
+                                    }
+                                    let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
+                                    // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
+                                    if (
+                                        breakdown_filter &&
+                                        !breakdown_filter.breakdown_type &&
+                                        !breakdown_filter.breakdowns
+                                    ) {
+                                        saved_breakdown_filter = null
+                                    }
+                                    setBreakdownFilter(saved_breakdown_filter)
+                                }}
+                                updateDisplay={() => { }}
+                                disablePropertyInfo
+                                size="small"
+                            />
+                        </BindLogic>
+                    </div>
+                )}
 
                 <VariablesForDashboard />
             </div>

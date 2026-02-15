@@ -77,17 +77,20 @@ export function TaxonomicBreakdownFilter({
     return (
         <>
             <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
-                <TaxonomicBreakdownCombobox
-                    insightProps={insightProps}
-                    breakdownFilter={breakdownFilter}
-                    display={display}
-                    isTrends={isTrends}
-                    disabledReason={disabledReason}
-                    updateBreakdownFilter={updateBreakdownFilter}
-                    updateDisplay={updateDisplay}
-                    disablePropertyInfo={disablePropertyInfo}
-                    size={size}
-                />
+                Taxonomic Breakdown Combobox
+                <div className="mt-10">
+                    <TaxonomicBreakdownCombobox
+                        insightProps={insightProps}
+                        breakdownFilter={breakdownFilter}
+                        display={display}
+                        isTrends={isTrends}
+                        disabledReason={disabledReason}
+                        updateBreakdownFilter={updateBreakdownFilter}
+                        updateDisplay={updateDisplay}
+                        disablePropertyInfo={disablePropertyInfo}
+                        size={size}
+                    />
+                </div>
                 {(showLabel || isMultipleBreakdownsEnabled) && (
                     <div className="flex items-center justify-between gap-2">
                         {showLabel && (

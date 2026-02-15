@@ -2,7 +2,7 @@ import { Combobox } from '@base-ui/react/combobox'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconSearch, IconX } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { taxonomicFilterTypeToPropertyFilterType } from 'lib/components/PropertyFilters/utils'
@@ -238,7 +238,8 @@ function TaxonomicBreakdownComboboxInner({
                     }
                 }}
             >
-                <IconSearch className="size-4 text-tertiary shrink-0" />
+                {/* <IconSearch className="size-4 text-tertiary shrink-0" /> */}
+                <span className="border-r pr-1 text-xs whitespace-nowrap shrink-0">Breakdown by</span>
 
                 <Combobox.Chips className="contents">
                     <Combobox.Value>
