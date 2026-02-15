@@ -15,6 +15,7 @@ import {
 } from './sentiment-scheduler'
 
 jest.mock('~/llm-analytics/services/temporal.service')
+jest.mock('posthog-node')
 
 describe('Sentiment Scheduler', () => {
     const teamId = 1
@@ -200,6 +201,57 @@ describe('Sentiment Scheduler', () => {
             await provider.start()
 
             expect(provider.getSampleRate()).toBe(0.05)
+
+            await provider.stop()
+        })
+
+        it('disables sampling when flag is explicitly off (false)', async () => {
+            const { PostHog } = require('posthog-node')
+            const mockClient = {
+                getFeatureFlag: jest.fn().mockResolvedValue(false),
+                getFeatureFlagPayload: jest.fn(),
+                shutdown: jest.fn(),
+            }
+            PostHog.mockImplementation(() => mockClient)
+
+            const provider = new SampleRateProvider(0.05, 'test-key', 'http://localhost')
+            await provider.start()
+
+            expect(provider.getSampleRate()).toBe(0)
+
+            await provider.stop()
+        })
+
+        it('uses fallback rate when flag does not exist (undefined)', async () => {
+            const { PostHog } = require('posthog-node')
+            const mockClient = {
+                getFeatureFlag: jest.fn().mockResolvedValue(undefined),
+                getFeatureFlagPayload: jest.fn(),
+                shutdown: jest.fn(),
+            }
+            PostHog.mockImplementation(() => mockClient)
+
+            const provider = new SampleRateProvider(0.05, 'test-key', 'http://localhost')
+            await provider.start()
+
+            expect(provider.getSampleRate()).toBe(0.05)
+
+            await provider.stop()
+        })
+
+        it('uses flag payload sample rate when flag is on', async () => {
+            const { PostHog } = require('posthog-node')
+            const mockClient = {
+                getFeatureFlag: jest.fn().mockResolvedValue(true),
+                getFeatureFlagPayload: jest.fn().mockResolvedValue('{"sample_rate": 0.5}'),
+                shutdown: jest.fn(),
+            }
+            PostHog.mockImplementation(() => mockClient)
+
+            const provider = new SampleRateProvider(0.05, 'test-key', 'http://localhost')
+            await provider.start()
+
+            expect(provider.getSampleRate()).toBe(0.5)
 
             await provider.stop()
         })

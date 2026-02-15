@@ -208,9 +208,12 @@ export class SampleRateProvider {
         }
         try {
             const flagValue = await this.posthogClient.getFeatureFlag(FEATURE_FLAG_KEY, FLAG_DISTINCT_ID)
-            if (!flagValue) {
-                // Flag is off — use 0 to disable sampling entirely
+            if (flagValue === false) {
+                // Flag is explicitly off — disable sampling
                 this.currentRate = 0
+            } else if (flagValue === undefined) {
+                // Flag doesn't exist or SDK can't evaluate — use fallback
+                this.currentRate = this.fallbackRate
             } else {
                 const payload = await this.posthogClient.getFeatureFlagPayload(
                     FEATURE_FLAG_KEY,
