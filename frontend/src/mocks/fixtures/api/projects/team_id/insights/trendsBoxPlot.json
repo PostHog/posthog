@@ -1,0 +1,141 @@
+{
+    "id": 800,
+    "short_id": "bxPl0t01",
+    "name": "",
+    "derived_name": "Revenue sum",
+    "filters": {},
+    "filters_hash": "cache_boxplot_test_001",
+    "order": null,
+    "deleted": false,
+    "dashboard": null,
+    "layouts": {},
+    "color": null,
+    "last_refresh": null,
+    "refreshing": false,
+    "result": [],
+    "boxplot_data": [
+        {
+            "day": "2022-03-05",
+            "label": "5-Mar-2022",
+            "min": 12.5,
+            "q1": 45.0,
+            "median": 78.3,
+            "q3": 120.0,
+            "max": 210.0,
+            "mean": 85.2
+        },
+        {
+            "day": "2022-03-06",
+            "label": "6-Mar-2022",
+            "min": 8.0,
+            "q1": 35.0,
+            "median": 62.0,
+            "q3": 98.0,
+            "max": 180.0,
+            "mean": 70.5
+        },
+        {
+            "day": "2022-03-07",
+            "label": "7-Mar-2022",
+            "min": 20.0,
+            "q1": 55.0,
+            "median": 95.0,
+            "q3": 145.0,
+            "max": 250.0,
+            "mean": 102.3
+        },
+        {
+            "day": "2022-03-08",
+            "label": "8-Mar-2022",
+            "min": 5.0,
+            "q1": 28.0,
+            "median": 50.0,
+            "q3": 85.0,
+            "max": 160.0,
+            "mean": 58.7
+        },
+        {
+            "day": "2022-03-09",
+            "label": "9-Mar-2022",
+            "min": 15.0,
+            "q1": 42.0,
+            "median": 72.0,
+            "q3": 110.0,
+            "max": 195.0,
+            "mean": 78.9
+        },
+        {
+            "day": "2022-03-10",
+            "label": "10-Mar-2022",
+            "min": 30.0,
+            "q1": 65.0,
+            "median": 105.0,
+            "q3": 155.0,
+            "max": 280.0,
+            "mean": 115.4
+        },
+        {
+            "day": "2022-03-11",
+            "label": "11-Mar-2022",
+            "min": 18.0,
+            "q1": 50.0,
+            "median": 88.0,
+            "q3": 130.0,
+            "max": 230.0,
+            "mean": 95.1
+        }
+    ],
+    "created_at": "2022-04-04T19:54:43.148529Z",
+    "created_by": {
+        "id": 1,
+        "uuid": "017f5653-cd43-0000-7d2a-0e01599ee2cd",
+        "distinct_id": "5SnGi4opWlUsnwPFpfMMHsAicmYl6w4En87xyQty6oi",
+        "first_name": "Michael",
+        "email": "michael@example.com"
+    },
+    "description": "",
+    "updated_at": "2022-04-04T19:54:43.148560Z",
+    "tags": [],
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-04-04T19:54:43.147831Z",
+    "last_modified_by": {
+        "id": 1,
+        "uuid": "017f5653-cd43-0000-7d2a-0e01599ee2cd",
+        "distinct_id": "5SnGi4opWlUsnwPFpfMMHsAicmYl6w4En87xyQty6oi",
+        "first_name": "Michael",
+        "email": "michael@example.com"
+    },
+    "is_sample": false,
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": []
+                    }
+                ]
+            },
+            "series": [
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview",
+                    "math": "sum",
+                    "math_property": "revenue"
+                }
+            ],
+            "trendsFilter": {
+                "display": "BoxPlot"
+            },
+            "version": 2
+        },
+        "full": true
+    }
+}

@@ -1037,43 +1037,45 @@ function useMathSelectorOptions({
     if (
         mathAvailability !== MathAvailability.ActorsOnly &&
         mathAvailability !== MathAvailability.FunnelsOnly &&
-        mathAvailability !== MathAvailability.CalendarHeatmapOnly &&
-        mathAvailability !== MathAvailability.BoxPlotOnly
+        mathAvailability !== MathAvailability.CalendarHeatmapOnly
     ) {
-        // Add count per user option if any CountPerActorMathType is included in onlyMathTypes
-        const shouldShowCountPerUser =
-            !allowedMathTypes || Object.values(CountPerActorMathType).some((type) => allowedMathTypes.includes(type))
+        if (mathAvailability !== MathAvailability.BoxPlotOnly) {
+            // Add count per user option if any CountPerActorMathType is included in onlyMathTypes
+            const shouldShowCountPerUser =
+                !allowedMathTypes ||
+                Object.values(CountPerActorMathType).some((type) => allowedMathTypes.includes(type))
 
-        if (shouldShowCountPerUser) {
-            options.splice(1, 0, {
-                value: countPerActorMathTypeShown,
-                label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
-                labelInMenu: (
-                    <div className="flex items-center gap-2">
-                        <span>Count per user</span>
-                        <LemonSelect
-                            value={countPerActorMathTypeShown}
-                            onSelect={(value) => {
-                                setCountPerActorMathTypeShown(value as CountPerActorMathType)
-                                onMathSelect(index, value)
-                            }}
-                            options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS)
-                                .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
-                                .map(([key, definition]) => ({
-                                    value: key,
-                                    label: definition.shortName,
-                                    'data-attr': `math-${key}-${index}`,
-                                }))}
-                            onClick={(e) => e.stopPropagation()}
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            optionTooltipPlacement="right"
-                        />
-                    </div>
-                ),
-                tooltip: 'Statistical analysis of event count per user.',
-                'data-attr': `math-node-count-per-actor-${index}`,
-            })
+            if (shouldShowCountPerUser) {
+                options.splice(1, 0, {
+                    value: countPerActorMathTypeShown,
+                    label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
+                    labelInMenu: (
+                        <div className="flex items-center gap-2">
+                            <span>Count per user</span>
+                            <LemonSelect
+                                value={countPerActorMathTypeShown}
+                                onSelect={(value) => {
+                                    setCountPerActorMathTypeShown(value as CountPerActorMathType)
+                                    onMathSelect(index, value)
+                                }}
+                                options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS)
+                                    .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
+                                    .map(([key, definition]) => ({
+                                        value: key,
+                                        label: definition.shortName,
+                                        'data-attr': `math-${key}-${index}`,
+                                    }))}
+                                onClick={(e) => e.stopPropagation()}
+                                size="small"
+                                dropdownMatchSelectWidth={false}
+                                optionTooltipPlacement="right"
+                            />
+                        </div>
+                    ),
+                    tooltip: 'Statistical analysis of event count per user.',
+                    'data-attr': `math-node-count-per-actor-${index}`,
+                })
+            }
         }
 
         const shouldShowPropertyValue =
@@ -1120,40 +1122,7 @@ function useMathSelectorOptions({
         }
     }
 
-    if (mathAvailability === MathAvailability.BoxPlotOnly) {
-        options.push({
-            value: propertyMathTypeShown,
-            label: `Property value ${PROPERTY_MATH_DEFINITIONS[propertyMathTypeShown].shortName}`,
-            labelInMenu: (
-                <div className="flex items-center gap-2">
-                    <span>Property value</span>
-                    <LemonSelect
-                        value={propertyMathTypeShown}
-                        onSelect={(value) => {
-                            setPropertyMathTypeShown(value as PropertyMathType)
-                            onMathSelect(index, value)
-                        }}
-                        options={Object.entries(PROPERTY_MATH_DEFINITIONS).map(([key, definition]) => ({
-                            value: key,
-                            label: definition.shortName,
-                            tooltip: definition.description,
-                            'data-attr': `math-${key}-${index}`,
-                        }))}
-                        onClick={(e) => e.stopPropagation()}
-                        size="small"
-                        dropdownMatchSelectWidth={false}
-                        optionTooltipPlacement="right"
-                    />
-                </div>
-            ),
-            tooltip: 'Select a numeric property to visualize its distribution.',
-            'data-attr': `math-node-property-value-${index}`,
-        })
-    }
-
-    const isBoxPlot = mathAvailability === MathAvailability.BoxPlotOnly
-
-    if (isGroupsEnabled && !isCalendarHeatmap && !isBoxPlot) {
+    if (isGroupsEnabled && !isCalendarHeatmap && mathAvailability !== MathAvailability.BoxPlotOnly) {
         const uniqueActorsOptions = [
             {
                 value: 'users',

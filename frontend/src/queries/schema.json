@@ -2180,6 +2180,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "BoxPlot",
+                    "type": "string"
+                },
+                {
                     "not": {}
                 }
             ]
@@ -2270,7 +2274,8 @@
                         "ActionsTable",
                         "WorldMap",
                         "CalendarHeatmap",
-                        "TwoDimensionalHeatmap"
+                        "TwoDimensionalHeatmap",
+                        "BoxPlot"
                     ],
                     "type": "string"
                 },
@@ -2502,6 +2507,37 @@
         "BingAdsTableKeywords": {
             "enum": ["campaigns"],
             "type": "string"
+        },
+        "BoxPlotDatum": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "max": {
+                    "type": "number"
+                },
+                "mean": {
+                    "type": "number"
+                },
+                "median": {
+                    "type": "number"
+                },
+                "min": {
+                    "type": "number"
+                },
+                "q1": {
+                    "type": "number"
+                },
+                "q3": {
+                    "type": "number"
+                }
+            },
+            "required": ["day", "label", "min", "q1", "median", "q3", "max", "mean"],
+            "type": "object"
         },
         "Breakdown": {
             "additionalProperties": false,
@@ -6910,6 +6946,13 @@
         "CachedTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "boxplot_data": {
+                    "description": "Box plot data when display type is BoxPlot",
+                    "items": {
+                        "$ref": "#/definitions/BoxPlotDatum"
+                    },
+                    "type": "array"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -8058,7 +8101,8 @@
                 "ActionsTable",
                 "WorldMap",
                 "CalendarHeatmap",
-                "TwoDimensionalHeatmap"
+                "TwoDimensionalHeatmap",
+                "BoxPlot"
             ],
             "type": "string"
         },
@@ -26357,6 +26401,13 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "boxplot_data": {
+                            "description": "Box plot data when display type is BoxPlot",
+                            "items": {
+                                "$ref": "#/definitions/BoxPlotDatum"
+                            },
+                            "type": "array"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -32487,6 +32538,13 @@
         "TrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "boxplot_data": {
+                    "description": "Box plot data when display type is BoxPlot",
+                    "items": {
+                        "$ref": "#/definitions/BoxPlotDatum"
+                    },
+                    "type": "array"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"

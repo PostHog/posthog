@@ -111,7 +111,7 @@ export function BoxPlotChart(_props: ChartParams): JSX.Element {
     }
 
     return (
-        <div className="TrendsInsight w-full h-full">
+        <div className="TrendsInsight w-full h-full" data-attr="box-plot-graph">
             <canvas ref={canvasRef} />
         </div>
     )

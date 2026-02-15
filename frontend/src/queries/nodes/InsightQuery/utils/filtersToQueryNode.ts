@@ -63,7 +63,6 @@ import {
     HogQLMathType,
     InsightType,
     PathsFilterType,
-    PropertyMathType,
     RetentionEntity,
     RetentionFilterType,
     TrendsFilterType,
@@ -96,18 +95,6 @@ const actorsOnlyMathTypes = [
 const funnelsMathTypes = [FunnelMathType.FirstTimeForUser, FunnelMathType.FirstTimeForUserWithFilters]
 
 const calendarHeatmapMathTypes = [CalendarHeatmapMathType.TotalCount, CalendarHeatmapMathType.UniqueUsers]
-
-const boxPlotMathTypes = [
-    PropertyMathType.Average,
-    PropertyMathType.Sum,
-    PropertyMathType.Minimum,
-    PropertyMathType.Maximum,
-    PropertyMathType.Median,
-    PropertyMathType.P75,
-    PropertyMathType.P90,
-    PropertyMathType.P95,
-    PropertyMathType.P99,
-]
 
 export type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
@@ -178,22 +165,6 @@ export const legacyEntityToNode = (
                     ...shared,
                     math: entity.math as MathType,
                 }
-            }
-        } else if (mathAvailability === MathAvailability.BoxPlotOnly) {
-            if (boxPlotMathTypes.includes(entity.math as any)) {
-                shared = {
-                    ...shared,
-                    math: entity.math as MathType,
-                    math_property: entity.math_property,
-                    math_property_type: entity.math_property_type,
-                } as any
-            } else {
-                shared = {
-                    ...shared,
-                    math: PropertyMathType.Average as unknown as MathType,
-                    math_property: entity.math_property,
-                    math_property_type: entity.math_property_type,
-                } as any
             }
         } else {
             shared = {

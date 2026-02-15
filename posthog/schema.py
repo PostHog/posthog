@@ -611,6 +611,20 @@ class BingAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
+class BoxPlotDatum(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: str
+    label: str
+    max: float
+    mean: float
+    median: float
+    min: float
+    q1: float
+    q3: float
+
+
 class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
@@ -6696,20 +6710,6 @@ class TrendsFilter(BaseModel):
     showValuesOnSeries: bool | None = False
     smoothingIntervals: int | None = 1
     yAxisScaleType: YAxisScaleType | None = YAxisScaleType.LINEAR
-
-
-class BoxPlotDatum(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    day: str
-    label: str
-    min: float
-    q1: float
-    median: float
-    q3: float
-    max: float
-    mean: float
 
 
 class TrendsQueryResponse(BaseModel):
@@ -13230,6 +13230,9 @@ class QueryResponseAlternative64(BaseModel):
 class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    boxplot_data: list[BoxPlotDatum] | None = Field(
+        default=None, description="Box plot data when display type is BoxPlot"
     )
     error: str | None = Field(
         default=None,
