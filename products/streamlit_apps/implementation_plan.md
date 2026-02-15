@@ -261,25 +261,25 @@ This phase replaces the tunnel-based proxy with a two-layer security model:
 
 ### 7.1 Types and API
 
-- [ ] Create `products/streamlit_apps/frontend/types.ts`
+- [x] Create `products/streamlit_apps/frontend/types.ts`
   - Define `StreamlitApp`, `StreamlitAppVersion`, `StreamlitAppStatus` types
-- [ ] Verify API client generation works (or add manual API calls)
+- [x] Verify API client generation works (or add manual API calls)
 
 ### 7.2 List Logic
 
-- [ ] Create `products/streamlit_apps/frontend/streamlitAppsLogic.ts`
+- [x] Create `products/streamlit_apps/frontend/streamlitAppsLogic.ts`
   - Use `kea-loaders` for `loadStreamlitApps`, `createStreamlitApp`, `deleteStreamlitApp`
   - Add `updateStreamlitApp` reducer for syncing from detail logic
 - [ ] Write tests for the logic
 
 ### 7.3 List Component
 
-- [ ] Create `products/streamlit_apps/frontend/StreamlitApps.tsx`
+- [x] Create `products/streamlit_apps/frontend/StreamlitApps.tsx`
   - Grid of app cards showing: name, status, current viewers, created by
   - "New app" button navigates to create page
   - Click card navigates to app viewer
-- [ ] Add route in `frontend/src/scenes/urls.ts`
-- [ ] Register scene in `frontend/src/scenes/sceneTypes.ts`
+- [x] Add route in `frontend/src/scenes/urls.ts`
+- [x] Register scene in `frontend/src/scenes/sceneTypes.ts`
 - [ ] Add "Apps" to project navigation sidebar
 
 ### 7.4 UI Verification Checkpoint
@@ -296,7 +296,7 @@ This phase replaces the tunnel-based proxy with a two-layer security model:
 
 ### 8.1 Edit Logic
 
-- [ ] Create `products/streamlit_apps/frontend/streamlitAppEditLogic.ts`
+- [x] Create `products/streamlit_apps/frontend/streamlitAppEditLogic.ts`
   - Key by `short_id` (or `'new'` for create mode)
   - `loadStreamlitApp` loader (skip in create mode)
   - `saveApp` action (create or update)
@@ -306,23 +306,19 @@ This phase replaces the tunnel-based proxy with a two-layer security model:
 
 ### 8.2 Zip Upload Component
 
-- [ ] Create `products/streamlit_apps/frontend/StreamlitAppZipUpload.tsx`
+- [x] Create `products/streamlit_apps/frontend/StreamlitAppZipUpload.tsx`
   - Drag-and-drop zone + click to browse
   - Show uploaded file name and size
-  - Parse and display file list from zip:
-    - ✓ app.py (required, show error if missing)
-    - ✓ requirements.txt (optional, validate packages)
-    - · other files (just list them)
-  - Show package validation (allowed/not allowed)
+  - Server-side validation on upload (app.py check, package allowlist)
 - [ ] Write tests for zip parsing and validation display
 
 ### 8.3 Edit Page Component
 
-- [ ] Create `products/streamlit_apps/frontend/StreamlitAppEdit.tsx`
+- [x] Create `products/streamlit_apps/frontend/StreamlitAppEdit.tsx`
   - Create mode: name (required), description, zip upload (required), resources
   - Edit mode: same + version dropdown, status controls, delete button
   - "Create app" / "Save changes" button
-- [ ] Add routes: `/project/:id/apps/new`, `/project/:id/apps/:appId/edit`
+- [x] Add routes: `/project/:id/apps/new`, `/project/:id/apps/:appId/edit`
 
 ### 8.4 UI Verification Checkpoint
 
@@ -344,23 +340,23 @@ This phase replaces the tunnel-based proxy with a two-layer security model:
 
 ### 9.1 Viewer Logic
 
-- [ ] Create `products/streamlit_apps/frontend/streamlitAppLogic.ts`
+- [x] Create `products/streamlit_apps/frontend/streamlitAppLogic.ts`
   - Key by `short_id`
   - `loadStreamlitApp` loader
   - `startApp`, `stopApp`, `restartApp` actions
   - `pollStatus` for checking sandbox readiness
-- [ ] Add status polling (every 2s while starting)
+- [x] Add status polling (every 2s while starting)
 
 ### 9.2 Loading State
 
-- [ ] Create `products/streamlit_apps/frontend/StreamlitAppLoading.tsx`
+- [x] Create `products/streamlit_apps/frontend/StreamlitAppLoading.tsx`
   - "Waking up the hedgehogs..." message
   - Progress indicator
   - Auto-refresh when status becomes `running`
 
 ### 9.3 Viewer Component
 
-- [ ] Create `products/streamlit_apps/frontend/StreamlitApp.tsx`
+- [x] Create `products/streamlit_apps/frontend/StreamlitApp.tsx`
   - Header: back link, app name, edit button
   - Show loading state while sandbox starts
   - Fetch connect URL via `GET /api/projects/{team_id}/streamlit_apps/{short_id}/connect_url/`
@@ -368,7 +364,7 @@ This phase replaces the tunnel-based proxy with a two-layer security model:
   - Periodically refresh the connect token (tokens are short-lived)
   - Show error state with error message (not full traceback)
   - Show "App is busy" state when concurrent limit reached
-- [ ] Add route for `/project/:id/apps/:appId`
+- [x] Add route for `/project/:id/apps/:appId`
 
 ### 9.4 UI Verification Checkpoint
 
