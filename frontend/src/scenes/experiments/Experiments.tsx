@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
+import { IconMagicWand } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -529,51 +530,62 @@ export function Experiments(): JSX.Element {
                             resourceType={AccessControlResourceType.Experiment}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <MaxTool
-                                identifier="create_experiment"
-                                initialMaxPrompt="Create an experiment for "
-                                suggestions={[
-                                    'Create an experiment to test…',
-                                    'Set up an A/B test with a 70/30 split between control and test for…',
-                                ]}
-                                callback={(toolOutput: {
-                                    experiment_id?: string | number
-                                    experiment_name?: string
-                                    feature_flag_key?: string
-                                    error?: string
-                                }) => {
-                                    if (toolOutput?.error || !toolOutput?.experiment_id) {
-                                        lemonToast.error(
-                                            `Failed to create experiment: ${toolOutput?.error || 'Unknown error'}`
-                                        )
-                                        return
-                                    }
-                                    // Refresh experiments list to show new experiment, then redirect to it
-                                    loadExperiments()
-                                    router.actions.push(urls.experiment(toolOutput.experiment_id))
-                                }}
-                                position="bottom-right"
-                                active={true}
-                                context={{}}
-                            >
-                                <AppShortcut
-                                    name="NewExperiment"
-                                    keybind={[keyBinds.new]}
-                                    intent="New experiment"
-                                    interaction="click"
-                                    scope={Scene.Experiments}
+                            <div className="flex items-center gap-2">
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    icon={<IconMagicWand />}
+                                    data-attr="create-experiment-wizard"
+                                    to={urls.experiment('new') + '?mode=wizard'}
                                 >
-                                    <LemonButton
-                                        size="small"
-                                        type="primary"
-                                        data-attr="create-experiment"
-                                        to={urls.experiment('new')}
-                                        tooltip="New experiment"
+                                    Guided creation
+                                </LemonButton>
+                                <MaxTool
+                                    identifier="create_experiment"
+                                    initialMaxPrompt="Create an experiment for "
+                                    suggestions={[
+                                        'Create an experiment to test…',
+                                        'Set up an A/B test with a 70/30 split between control and test for…',
+                                    ]}
+                                    callback={(toolOutput: {
+                                        experiment_id?: string | number
+                                        experiment_name?: string
+                                        feature_flag_key?: string
+                                        error?: string
+                                    }) => {
+                                        if (toolOutput?.error || !toolOutput?.experiment_id) {
+                                            lemonToast.error(
+                                                `Failed to create experiment: ${toolOutput?.error || 'Unknown error'}`
+                                            )
+                                            return
+                                        }
+                                        // Refresh experiments list to show new experiment, then redirect to it
+                                        loadExperiments()
+                                        router.actions.push(urls.experiment(toolOutput.experiment_id))
+                                    }}
+                                    position="bottom-right"
+                                    active={true}
+                                    context={{}}
+                                >
+                                    <AppShortcut
+                                        name="NewExperiment"
+                                        keybind={[keyBinds.new]}
+                                        intent="New experiment"
+                                        interaction="click"
+                                        scope={Scene.Experiments}
                                     >
-                                        <span className="pr-3">New experiment</span>
-                                    </LemonButton>
-                                </AppShortcut>
-                            </MaxTool>
+                                        <LemonButton
+                                            size="small"
+                                            type="primary"
+                                            data-attr="create-experiment"
+                                            to={urls.experiment('new')}
+                                            tooltip="New experiment"
+                                        >
+                                            <span className="pr-3">New experiment</span>
+                                        </LemonButton>
+                                    </AppShortcut>
+                                </MaxTool>
+                            </div>
                         </AccessControlAction>
                     ) : undefined
                 }

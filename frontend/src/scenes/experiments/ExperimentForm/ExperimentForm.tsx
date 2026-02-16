@@ -175,10 +175,10 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                         className="mb-4"
                         action={{
                             children: (
-                                <>
+                                <span className="flex items-center gap-1">
                                     <IconMagicWand className="text-sm" />
                                     Use the guided wizard
-                                </>
+                                </span>
                             ),
                             onClick: switchToWizard,
                         }}

@@ -235,7 +235,12 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                       ? undefined
                       : formMode
 
-            return [urls.experiment(id, effectiveFormMode), undefined, undefined]
+            return [
+                // This covers calling the wizard given a url /experiments/new?mode=wizard
+                urls.experiment(id, effectiveFormMode),
+                values.wizardMode ? { mode: 'wizard' } : undefined,
+                undefined,
+            ]
         }
 
         return {

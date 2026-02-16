@@ -124,4 +124,39 @@ describe('experimentSceneLogic', () => {
 
         logic.unmount()
     })
+
+    it('defaults wizardMode to false (classical form)', async () => {
+        const logic = experimentSceneLogic({ tabId, experimentId: 'new', formMode: FORM_MODES.create })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({ wizardMode: false })
+
+        logic.unmount()
+    })
+
+    it('enables wizard mode via setWizardMode', async () => {
+        const logic = experimentSceneLogic({ tabId, experimentId: 'new', formMode: FORM_MODES.create })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setWizardMode(true)
+        }).toMatchValues({ wizardMode: true })
+
+        logic.unmount()
+    })
+
+    it('disables wizard mode via setWizardMode', async () => {
+        const logic = experimentSceneLogic({ tabId, experimentId: 'new', formMode: FORM_MODES.create })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setWizardMode(true)
+        }).toMatchValues({ wizardMode: true })
+
+        await expectLogic(logic, () => {
+            logic.actions.setWizardMode(false)
+        }).toMatchValues({ wizardMode: false })
+
+        logic.unmount()
+    })
 })
