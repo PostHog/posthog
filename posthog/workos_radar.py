@@ -4,9 +4,9 @@ WorkOS Radar integration for bot/fraud detection during authentication flows.
 This module provides a client for the WorkOS Radar Attempts API to evaluate
 signup and signin attempts for potential fraud or bot activity.
 
-When enforce=True and Radar returns a BLOCK verdict, the attempt is rejected
-with a SuspiciousAttemptBlocked exception unless the email is on the bypass
-list (WORKOS_RADAR_BYPASS_EMAILS setting).
+When bypass=False and Radar returns a BLOCK verdict, the attempt is rejected
+with a SuspiciousAttemptBlocked exception unless the email is on the Redis
+bypass list managed via the admin tool.
 """
 
 import time
@@ -98,7 +98,7 @@ def evaluate_auth_attempt(
         user_id: Optional user ID if the user already exists (for signin)
         bypass: When True (default), blocking is skipped (log-only mode).
             When False and verdict is BLOCK, raises SuspiciousAttemptBlocked
-            (unless the email is in WORKOS_RADAR_BYPASS_EMAILS).
+            (unless the email is in the Redis bypass list).
 
     Returns:
         The Radar verdict (allow, challenge, block, error, or disabled)
@@ -107,9 +107,8 @@ def evaluate_auth_attempt(
         SuspiciousAttemptBlocked: When bypass=False and verdict is BLOCK and
             the email is not in the bypass list.
     """
-    # TODO: remove – bypassed for local testing
-    # if not settings.WORKOS_RADAR_ENABLED or not settings.WORKOS_RADAR_API_KEY:
-    #     return None
+    if not settings.WORKOS_RADAR_ENABLED or not settings.WORKOS_RADAR_API_KEY:
+        return None
 
     ip_address = get_ip_address(request)
     raw_user_agent = _get_raw_user_agent(request)
@@ -167,9 +166,6 @@ def _call_radar_api(
     """
     Make the actual API call to WorkOS Radar.
     """
-    # TODO: remove – hardcoded BLOCK for local testing
-    return RadarVerdict.BLOCK
-
     try:
         response = requests.post(
             WORKOS_RADAR_API_URL,
