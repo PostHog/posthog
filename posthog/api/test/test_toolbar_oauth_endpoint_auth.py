@@ -63,6 +63,7 @@ class TestToolbarEndpointOAuthAuth(APIBaseTest):
     TOOLBAR_ENDPOINTS = [
         ("actions_list", "/api/projects/{team_id}/actions/", "get", "action"),
         ("feature_flags_list", "/api/projects/{team_id}/feature_flags/", "get", "feature_flag"),
+        ("feature_flags_my_flags", "/api/projects/{team_id}/feature_flags/my_flags/", "get", "feature_flag"),
         ("web_experiments_list", "/api/projects/{team_id}/web_experiments/", "get", "experiment"),
         ("product_tours_list", "/api/projects/{team_id}/product_tours/", "get", "product_tour"),
         ("web_vitals_list", "/api/environments/{team_id}/web_vitals/?pathname=/", "get", "query"),

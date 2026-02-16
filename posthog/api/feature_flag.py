@@ -1722,7 +1722,7 @@ class FeatureFlagViewSet(
             200: OpenApiResponse(response=MyFlagsResponseListSerializer),
         },
     )
-    @action(methods=["GET"], detail=False, pagination_class=None)
+    @action(methods=["GET"], detail=False, pagination_class=None, required_scopes=["feature_flag:read"])
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
@@ -2394,7 +2394,7 @@ class FeatureFlagViewSet(
             )
         ],
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["feature_flag:read"])
     def evaluation_reasons(self, request: request.Request, **kwargs):
         distinct_id = request.validated_query_data["distinct_id"]
         groups = request.validated_query_data.get("groups", {})
