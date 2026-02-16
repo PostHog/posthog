@@ -184,8 +184,8 @@ class HogQLQueryFixerTool(MaxTool):
     context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     def _run_impl(self) -> tuple[str, str | None]:
-        database = Database.create_for(team=self._team)
-        hogql_context = HogQLContext(team=self._team, enable_select_queries=True, database=database)
+        database = Database.create_for(team=self._team, user=self._user)
+        hogql_context = HogQLContext(team=self._team, user=self._user, enable_select_queries=True, database=database)
 
         all_table_names = database.get_all_table_names()
         schema_description = _get_schema_description(self.context, hogql_context, database)
