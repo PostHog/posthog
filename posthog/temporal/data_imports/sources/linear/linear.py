@@ -91,7 +91,7 @@ def _make_paginated_request(
             yield data
 
             page_info = payload["data"][graphql_query_name]["pageInfo"]
-            has_next_page = page_info.get("hasNextPage", False)
+            has_next_page = page_info["hasNextPage"]
             if has_next_page:
                 variables["cursor"] = page_info["endCursor"]
     finally:
