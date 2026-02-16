@@ -17,6 +17,7 @@ jobs:
         runs-on: ubuntu-24.04
         permissions:
             contents: read
+            pull-requests: read
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
         name: Determine need to run node Docker build
@@ -108,6 +109,7 @@ jobs:
                       type=ref,event=pr
                       type=ref,event=branch
                       type=sha
+                      type=raw,value=${{ github.sha }}
                       type=raw,value=latest,enable={{is_default_branch}}
 
             - name: Build and push container image

@@ -219,6 +219,14 @@ func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
 		log.Printf("Error decoding JSON %s: %v", err, string(kafkaMessage))
 	}
 
+	if wrapperMessage.Timestamp != "" {
+		if eventTime, err := time.Parse(time.RFC3339Nano, wrapperMessage.Timestamp); err == nil {
+			if lag := time.Since(eventTime).Seconds(); lag >= 0 {
+				metrics.EventLagHistogram.Observe(lag)
+			}
+		}
+	}
+
 	phEvent := PostHogEvent{
 		Timestamp:  wrapperMessage.Timestamp,
 		Token:      "",

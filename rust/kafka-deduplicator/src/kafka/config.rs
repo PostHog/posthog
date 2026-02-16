@@ -1,43 +1,66 @@
 use rdkafka::ClientConfig;
 
-/// Default Kafka consumer configuration builder with sensible defaults for PostHog services
+/// Kafka consumer configuration builder with sensible defaults for PostHog services.
+///
+/// Two entry points provide appropriate defaults for each consumer type:
+/// - `for_batch_consumer`: Group-based consumer with full consumer-group settings
+///   (auto commit/store disabled, session/heartbeat/max.poll defaults).
+/// - `for_watermark_consumer`: Assign-only consumer with minimal connection settings
+///   (no group-coordination defaults). `group.id` is still required by rdkafka but
+///   the consumer will not join a consumer group.
+///
+/// All `with_*` methods are available on both; callers simply don't call group-only
+/// methods (session, heartbeat, max_poll, sticky, offset_reset) for watermark consumers.
 pub struct ConsumerConfigBuilder {
     config: ClientConfig,
 }
 
 impl ConsumerConfigBuilder {
-    /// Create a new consumer config builder with PostHog defaults
-    pub fn new(bootstrap_servers: &str, group_id: &str) -> Self {
+    /// Create a config builder for a **group-based batch consumer** with PostHog defaults.
+    ///
+    /// Sets: auto.offset.store=false, auto.commit=false, socket.timeout.ms,
+    /// session.timeout.ms, heartbeat.interval.ms, max.poll.interval.ms.
+    pub fn for_batch_consumer(bootstrap_servers: &str, group_id: &str) -> Self {
         let mut config = ClientConfig::new();
 
-        // Required settings
         config
             .set("bootstrap.servers", bootstrap_servers)
             .set("group.id", group_id);
 
-        // PostHog standard defaults for consumer
+        // Group-consumer defaults
         config
-            .set("enable.auto.offset.store", "false") // Manual store for full control
-            .set("enable.auto.commit", "false") // Manual commit for exactly-once semantics
+            .set("enable.auto.offset.store", "false")
+            .set("enable.auto.commit", "false")
             .set("socket.timeout.ms", "10000")
-            .set("session.timeout.ms", "30000")
+            .set("session.timeout.ms", "60000")
             .set("heartbeat.interval.ms", "5000")
             .set("max.poll.interval.ms", "300000");
 
         Self { config }
     }
 
-    /// Override offset reset policy
-    pub fn with_offset_reset(mut self, policy: &str) -> Self {
-        self.config.set("auto.offset.reset", policy);
-        self
+    /// Create a config builder for an **assign-only watermark consumer** with minimal defaults.
+    ///
+    /// Sets only bootstrap.servers, group.id (required by rdkafka), and socket.timeout.ms.
+    /// No session/heartbeat/max.poll/auto.commit/offset.store — those are irrelevant
+    /// when using manual partition assignment without consumer-group coordination.
+    pub fn for_watermark_consumer(bootstrap_servers: &str, group_id: &str) -> Self {
+        let mut config = ClientConfig::new();
+
+        config
+            .set("bootstrap.servers", bootstrap_servers)
+            .set("group.id", group_id)
+            .set("socket.timeout.ms", "10000");
+
+        Self { config }
     }
 
-    /// Add any custom configuration
-    pub fn set(mut self, key: &str, value: &str) -> Self {
-        self.config.set(key, value);
-        self
+    /// Backward-compatible alias for `for_batch_consumer`.
+    pub fn new(bootstrap_servers: &str, group_id: &str) -> Self {
+        Self::for_batch_consumer(bootstrap_servers, group_id)
     }
+
+    // ---- Shared connection/fetch settings (useful for both consumer types) ----
 
     /// Enable TLS/SSL for Kafka connection
     pub fn with_tls(mut self, enabled: bool) -> Self {
@@ -46,6 +69,12 @@ impl ConsumerConfigBuilder {
                 .set("security.protocol", "ssl")
                 .set("enable.ssl.certificate.verification", "false");
         }
+        self
+    }
+
+    /// Add any custom configuration
+    pub fn set(mut self, key: &str, value: &str) -> Self {
+        self.config.set(key, value);
         self
     }
 
@@ -97,9 +126,32 @@ impl ConsumerConfigBuilder {
         self
     }
 
+    // ---- Group-consumer-only settings (batch consumer) ----
+
+    /// Override offset reset policy (group consumers only)
+    pub fn with_offset_reset(mut self, policy: &str) -> Self {
+        self.config.set("auto.offset.reset", policy);
+        self
+    }
+
     /// Set maximum time between poll() calls before consumer leaves group
     pub fn with_max_poll_interval_ms(mut self, ms: u32) -> Self {
         self.config.set("max.poll.interval.ms", ms.to_string());
+        self
+    }
+
+    /// Set session timeout: how long broker waits for heartbeats before declaring consumer dead.
+    /// With static membership (group.instance.id), broker holds partition assignments for this
+    /// duration after a consumer disappears. Should be longer than typical pod restart time.
+    pub fn with_session_timeout_ms(mut self, ms: u32) -> Self {
+        self.config.set("session.timeout.ms", ms.to_string());
+        self
+    }
+
+    /// Set heartbeat interval: how often consumer sends heartbeats to broker.
+    /// Should be ~1/3 of session.timeout.ms to allow multiple missed heartbeats before timeout.
+    pub fn with_heartbeat_interval_ms(mut self, ms: u32) -> Self {
+        self.config.set("heartbeat.interval.ms", ms.to_string());
         self
     }
 
@@ -107,13 +159,11 @@ impl ConsumerConfigBuilder {
     /// Always uses cooperative-sticky strategy for consistent behavior across all pods.
     /// When client_id is provided, also enables static membership for truly sticky assignments.
     pub fn with_sticky_partition_assignment(mut self, client_id: Option<&str>) -> Self {
-        // Always use cooperative-sticky for consistent behavior across all pods
         self.config
             .set("partition.assignment.strategy", "cooperative-sticky");
 
         if let Some(found_client_id) = client_id {
             self.config.set("client.id", found_client_id);
-            // Enable static membership for truly sticky assignments
             self.config.set("group.instance.id", found_client_id);
         }
         self

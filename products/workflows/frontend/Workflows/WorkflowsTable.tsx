@@ -7,6 +7,7 @@ import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkli
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { MailHog } from 'lib/components/hedgehogs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -16,10 +17,12 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { WorkflowsSceneProps } from '../WorkflowsScene'
 import { NewWorkflowModal } from './NewWorkflowModal'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { newWorkflowLogic } from './newWorkflowLogic'
+import { workflowLogic } from './workflowLogic'
 import { workflowsLogic } from './workflowsLogic'
 
 function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
@@ -82,10 +85,11 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
     )
 }
 
-export function WorkflowsTable(): JSX.Element {
+export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
     useMountedLogic(workflowsLogic)
     const { filteredWorkflows, archivedWorkflows, workflowsLoading, filters } = useValues(workflowsLogic)
     const {
+        loadWorkflows,
         toggleWorkflowStatus,
         duplicateWorkflow,
         archiveWorkflow,
@@ -96,6 +100,17 @@ export function WorkflowsTable(): JSX.Element {
         setStatus,
     } = useActions(workflowsLogic)
     const { showNewWorkflowModal } = useActions(newWorkflowLogic)
+
+    useOnMountEffect(() => {
+        // Tricky: unmount the new workflow logic when leaving the new workflow scene
+        // We can't just reset state within the logic's unmount as that would trigger when switching tabs
+        const newWorkflowLogic = workflowLogic.findMounted({ id: 'new', tabId: props.tabId })
+        newWorkflowLogic?.unmount()
+
+        // Since logic isn't getting unmounted when navigating away from this scene, we need to reload workflows
+        // when the component re-mounts
+        loadWorkflows()
+    })
 
     const columns: LemonTableColumns<HogFlow> = [
         {

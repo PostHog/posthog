@@ -33,7 +33,6 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
@@ -257,32 +256,6 @@ export function LegacyExploreButton({
     )
 }
 
-export function ResultsHeader(): JSX.Element {
-    const { legacyPrimaryMetricsResults } = useValues(experimentLogic)
-
-    const result = legacyPrimaryMetricsResults?.[0]
-
-    return (
-        <div className="flex">
-            <div className="w-1/2">
-                <div className="inline-flex items-center deprecated-space-x-2 mb-2">
-                    <h2 className="m-0 font-semibold text-lg">Results</h2>
-                    <ResultsTag />
-                </div>
-            </div>
-
-            <div className="w-1/2 flex flex-col justify-end">
-                <div className="ml-auto">
-                    {/* TODO: Only show explore button if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                    {result &&
-                        (result.kind === NodeKind.ExperimentTrendsQuery ||
-                            result.kind === NodeKind.ExperimentFunnelsQuery) && <LegacyExploreButton result={result} />}
-                </div>
-            </div>
-        </div>
-    )
-}
-
 export function EllipsisAnimation(): JSX.Element {
     const [ellipsis, setEllipsis] = useState('.')
     const { isVisible: isPageVisible } = usePageVisibility()
@@ -308,18 +281,6 @@ export function EllipsisAnimation(): JSX.Element {
     }, [isPageVisible])
 
     return <span>{ellipsis}</span>
-}
-
-export function ExperimentLoadingAnimation(): JSX.Element {
-    return (
-        <div className="flex flex-col flex-1 justify-center items-center">
-            <LoadingBar />
-            <div className="text-xs text-secondary w-44">
-                <span className="mr-1">Fetching experiment results</span>
-                <EllipsisAnimation />
-            </div>
-        </div>
-    )
 }
 
 export function PageHeaderCustom(): JSX.Element {

@@ -1,4 +1,5 @@
 import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils'
+import { isValidRE2 } from 'lib/utils/regexp'
 
 import { DataNode, InsightQueryNode, Node } from '~/queries/schema/schema-general'
 import {
@@ -90,11 +91,34 @@ export const compareDataNodeQuery = (a: Node, b: Node, opts?: CompareQueryOpts):
     return objectsEqual(objectCleanWithEmpty(a as any), objectCleanWithEmpty(b as any))
 }
 
-/** Tests wether a query is valid to prevent unnecessary requests.  */
+export const hasInvalidRegexFilter = (obj: unknown): boolean => {
+    if (Array.isArray(obj)) {
+        return obj.some(hasInvalidRegexFilter)
+    }
+
+    if (obj !== null && typeof obj === 'object') {
+        const record = obj as Record<string, unknown>
+        if (
+            (record.operator === 'regex' || record.operator === 'not_regex') &&
+            typeof record.value === 'string' &&
+            !isValidRE2(record.value)
+        ) {
+            return true
+        }
+
+        return Object.values(record).some(hasInvalidRegexFilter)
+    }
+
+    return false
+}
+
 export const validateQuery = (q: DataNode): boolean => {
     if (isFunnelsQuery(q)) {
         // funnels require at least two steps
         return q.series.length >= 2
+    }
+    if (hasInvalidRegexFilter(q)) {
+        return false
     }
     return true
 }
@@ -174,6 +198,7 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             showFullUrls: undefined,
             selectedInterval: undefined,
             funnelStepReference: undefined,
+            breakdownSorting: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined

@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { MatchedRecording } from '~/types'
 
+import { sessionRecordingExistsLogic } from './sessionRecordingExistsLogic'
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
 
 export enum ViewRecordingButtonVariant {
@@ -35,6 +36,8 @@ type ViewRecordingProps = {
     openPlayerIn?: RecordingPlayerType
     matchingEvents?: MatchedRecording[]
     hasRecording?: boolean
+    /** If true, automatically check if a recording exists for this session via batched API call */
+    checkRecordingExists?: boolean
 }
 
 export default function ViewRecordingButton({
@@ -48,14 +51,32 @@ export default function ViewRecordingButton({
     checkIfViewed = false,
     matchingEvents,
     hasRecording,
+    checkRecordingExists = false,
     variant = ViewRecordingButtonVariant.Button,
+    iconOnly = false,
+    noPadding = false,
     ...props
 }: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'> &
     ViewRecordingProps & {
         checkIfViewed?: boolean
         label?: ReactNode
         variant?: ViewRecordingButtonVariant
+        iconOnly?: boolean
+        noPadding?: boolean
     }): JSX.Element {
+    const { checkRecordingExists: registerCheck } = useActions(sessionRecordingExistsLogic)
+    const { getRecordingExists } = useValues(sessionRecordingExistsLogic)
+
+    useEffect(() => {
+        if (checkRecordingExists && sessionId) {
+            registerCheck(sessionId)
+        }
+    }, [checkRecordingExists, sessionId, registerCheck])
+
+    if (hasRecording === undefined && checkRecordingExists && sessionId) {
+        hasRecording = getRecordingExists(sessionId)
+    }
+
     const { onClick, disabledReason, warningReason } = useRecordingButton({
         sessionId,
         recordingStatus,
@@ -106,7 +127,12 @@ export default function ViewRecordingButton({
                           ? 'Recording unavailable'
                           : null
                 }
-                className={classNames(props.className, props.loading && 'opacity-50', props.fullWidth && 'w-full')}
+                className={classNames(
+                    props.className,
+                    props.loading && 'opacity-50',
+                    props.fullWidth && 'w-full',
+                    disabledReason && 'opacity-50'
+                )}
                 data-attr={props['data-attr']}
             >
                 {props.loading ? <Spinner className="text-sm" /> : null}
@@ -114,6 +140,20 @@ export default function ViewRecordingButton({
                 {sideIcon}
                 {maybeUnwatchedIndicator}
             </Link>
+        )
+    }
+
+    if (iconOnly) {
+        return (
+            <LemonButton
+                disabledReason={disabledReason}
+                onClick={onClick}
+                icon={sideIcon}
+                tooltip="View recording"
+                aria-label="View recording"
+                noPadding={noPadding}
+                {...props}
+            />
         )
     }
 
@@ -132,7 +172,9 @@ export const recordingDisabledReason = (
     recordingStatus: string | undefined,
     hasRecording?: boolean
 ): JSX.Element | string | null => {
-    if (!sessionId) {
+    if (!sessionId && hasRecording === false) {
+        return 'No recording for this event'
+    } else if (!sessionId) {
         return (
             <>
                 No session ID associated with this event.{' '}

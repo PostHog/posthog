@@ -217,6 +217,48 @@ class RangeAsStringLoader(Loader):
         return bytes(data).decode("utf-8")
 
 
+class SafeDateLoader(Loader):
+    """Load PostgreSQL dates, handling edge cases beyond Python's date range.
+
+    PostgreSQL can store dates beyond Python's datetime.date limits (year 1 to
+    year 9999). This includes 'infinity', '-infinity', and dates in years > 9999.
+    When encountering such dates, we clamp to Python's date limits rather than
+    raising an error.
+    """
+
+    def load(self, data) -> date | None:
+        if data is None:
+            return None
+
+        s = bytes(data).decode("utf-8")
+
+        if s in ("infinity", "-infinity"):
+            return date.max if s == "infinity" else date.min
+
+        # Handle negative years (BC dates)
+        if s.startswith("-") or "bc" in s.lower():
+            return date.min
+
+        try:
+            parts = s.split("-")
+            if len(parts) == 3:
+                year = int(parts[0])
+                month = int(parts[1])
+                day = int(parts[2])
+
+                if year > 9999:
+                    return date.max
+                if year < 1:
+                    return date.min
+
+                return date(year, month, day)
+        except (ValueError, IndexError):
+            pass
+
+        # Fallback: clamp to max for unparseable dates
+        return date.max
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -808,6 +850,7 @@ def postgres_source(
                 connection.adapters.register_loader("tsrange", RangeAsStringLoader)
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
+                connection.adapters.register_loader("date", SafeDateLoader)
                 return connection
 
             def offset_chunking(offset: int, chunk_size: int):

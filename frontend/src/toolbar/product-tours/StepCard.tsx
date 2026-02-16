@@ -1,15 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconCursorClick, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { IconArrowRight, IconChevronDown, IconCursorClick, IconTrash, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonSlider, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { IconDragHandle } from 'lib/lemon-ui/icons'
-import { STEP_TYPE_ICONS, STEP_TYPE_LABELS } from 'scenes/product-tours/stepUtils'
+import { getStepIcon, getStepTitle, hasElementTarget, hasIncompleteTargeting } from 'scenes/product-tours/stepUtils'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { ProductTourProgressionTriggerType } from '~/types'
+import { joinWithUiHost } from '~/toolbar/utils'
 
-import { TourStep, getStepElement, productToursLogic } from './productToursLogic'
+import { TourStep, productToursLogic } from './productToursLogic'
 
 interface StepCardProps {
     step: TourStep
@@ -34,15 +34,15 @@ export function StepCard({
     isDragging,
     isDropTarget,
 }: StepCardProps): JSX.Element {
-    const { apiHost, temporaryToken } = useValues(toolbarConfigLogic)
-    const { selectingStepIndex } = useValues(productToursLogic)
-    const { removeStep, setStepTargetingMode, updateStepSelector, updateStepProgressionTrigger, setEditorState } =
-        useActions(productToursLogic)
+    const { uiHost, temporaryToken } = useValues(toolbarConfigLogic)
+    const { selectingStepIndex, expandedStepRect } = useValues(productToursLogic)
+    const { removeStep, updateStep, setEditorState } = useActions(productToursLogic)
 
-    const isElementStep = step.type === 'element'
+    const hasTarget = hasElementTarget(step)
+    const shouldShowElementSettings = step.elementTargeting !== undefined
     const isSelecting = selectingStepIndex === index
-    const element = isElementStep && isExpanded ? getStepElement(step) : null
-    const elementNotFound = isElementStep && isExpanded && step.selector && !element
+    const elementNotFound = hasTarget && isExpanded && selectingStepIndex === null && expandedStepRect === null
+    const isMissingElement = hasIncompleteTargeting(step)
 
     const handleReselectElement = (): void => {
         setEditorState({ mode: 'selecting', stepIndex: index })
@@ -52,7 +52,7 @@ export function StepCard({
         step.selector && step.selector.length > 25 ? step.selector.slice(0, 22) + '...' : step.selector
 
     const screenshotUrl = step.screenshotMediaId
-        ? `${apiHost}/uploaded_media/${step.screenshotMediaId}?token=${temporaryToken}`
+        ? joinWithUiHost(uiHost, `/uploaded_media/${step.screenshotMediaId}?token=${temporaryToken}`)
         : null
 
     return (
@@ -62,21 +62,29 @@ export function StepCard({
             style={{
                 opacity: isDragging ? 0.4 : 1,
                 transform: isDragging ? 'scale(0.98)' : 'scale(1)',
-                border: `1px solid ${isDropTarget || isSelecting ? 'var(--primary-3000)' : 'var(--border-bold-3000)'}`,
-                boxShadow: isDropTarget || isSelecting ? '0 0 0 2px var(--primary-3000)' : 'none',
+                border: `1px solid ${
+                    isDropTarget || isSelecting
+                        ? 'var(--primary-3000)'
+                        : isMissingElement
+                          ? 'var(--danger)'
+                          : 'var(--border-bold-3000)'
+                }`,
+                boxShadow:
+                    isDropTarget || isSelecting
+                        ? '0 0 0 2px var(--primary-3000)'
+                        : isMissingElement
+                          ? '0 0 0 2px var(--danger)'
+                          : 'none',
                 backgroundColor: isExpanded ? 'var(--secondary-3000)' : 'var(--color-bg-light)',
             }}
-            draggable
-            onDragStart={onDragStart}
             onDragOver={onDragOver}
-            onDragEnd={onDragEnd}
         >
             <button
                 type="button"
                 onClick={onToggleExpand}
                 className="w-full flex items-center gap-2 p-2.5 text-left bg-transparent border-none cursor-pointer"
             >
-                <span className="text-muted-3000 cursor-grab">
+                <span className="text-muted-3000 cursor-grab" draggable onDragStart={onDragStart} onDragEnd={onDragEnd}>
                     <IconDragHandle className="w-3 h-3" />
                 </span>
 
@@ -93,14 +101,18 @@ export function StepCard({
 
                 <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                     <div className="flex items-center gap-1.5">
-                        <span className="text-muted-3000">
-                            {STEP_TYPE_ICONS[step.type] ?? <IconCursorClick className="w-3.5 h-3.5" />}
-                        </span>
+                        <span className="text-muted-3000">{getStepIcon(step.type)}</span>
                         <span className="text-[13px] font-medium overflow-hidden text-ellipsis whitespace-nowrap">
-                            {STEP_TYPE_LABELS[step.type] ?? step.type}
+                            {getStepTitle(step, index)}
                         </span>
                     </div>
-                    {isElementStep && step.useManualSelector && step.selector && !isExpanded && (
+                    {isMissingElement && (
+                        <span className="text-[10px] text-danger flex items-center gap-1">
+                            <IconWarning className="w-3 h-3" />{' '}
+                            {step.elementTargeting === 'manual' ? 'Enter a selector' : 'Select an element'}
+                        </span>
+                    )}
+                    {hasTarget && step.elementTargeting === 'manual' && step.selector && !isExpanded && (
                         <span
                             title={step.selector}
                             className="text-[10px] font-mono text-muted-3000 overflow-hidden text-ellipsis whitespace-nowrap"
@@ -110,7 +122,7 @@ export function StepCard({
                     )}
                 </div>
 
-                {!step.useManualSelector && screenshotUrl && !isExpanded && (
+                {step.elementTargeting !== 'manual' && screenshotUrl && !isExpanded && (
                     <div className="w-8 h-6 rounded overflow-hidden border border-border-3000 flex-shrink-0 bg-secondary-3000">
                         <img
                             src={screenshotUrl}
@@ -134,20 +146,36 @@ export function StepCard({
 
             {isExpanded && (
                 <div className="px-3 pb-3 pt-1 flex flex-col gap-3">
-                    {!step.useManualSelector && screenshotUrl && (
-                        <div className="rounded-md overflow-hidden border border-border-3000 bg-secondary-3000">
-                            <img
-                                src={screenshotUrl}
-                                alt="Element preview"
-                                className="w-full h-auto max-h-24 object-contain"
-                                onError={(e) => {
-                                    e.currentTarget.parentElement!.style.display = 'none'
-                                }}
-                            />
+                    {step.elementTargeting !== 'manual' && hasTarget && (
+                        <div className="group relative rounded-md overflow-hidden border border-border-3000 bg-secondary-3000">
+                            {screenshotUrl ? (
+                                <img
+                                    src={screenshotUrl}
+                                    alt="Element preview"
+                                    className="w-full h-auto max-h-24 object-contain group-hover:opacity-50 transition-opacity"
+                                    onError={(e) => {
+                                        e.currentTarget.style.display = 'none'
+                                    }}
+                                />
+                            ) : (
+                                <div className="flex items-center justify-center py-4 text-xs text-muted-3000 group-hover:opacity-50 transition-opacity">
+                                    Selected element
+                                </div>
+                            )}
+                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <LemonButton
+                                    size="xsmall"
+                                    type="primary"
+                                    icon={<IconCursorClick />}
+                                    onClick={handleReselectElement}
+                                >
+                                    Change element
+                                </LemonButton>
+                            </div>
                         </div>
                     )}
 
-                    {isElementStep && (
+                    {shouldShowElementSettings ? (
                         <>
                             {elementNotFound && (
                                 <div className="flex items-center gap-2 p-2 rounded-md text-xs bg-warning-highlight">
@@ -162,8 +190,8 @@ export function StepCard({
                                 <LemonSegmentedButton
                                     size="xsmall"
                                     fullWidth
-                                    value={step.useManualSelector ? 'manual' : 'auto'}
-                                    onChange={(value) => setStepTargetingMode(index, value === 'manual')}
+                                    value={step.elementTargeting ?? 'auto'}
+                                    onChange={(value) => updateStep(index, { elementTargeting: value })}
                                     options={[
                                         { value: 'auto', label: 'Auto' },
                                         { value: 'manual', label: 'Manual' },
@@ -171,7 +199,7 @@ export function StepCard({
                                 />
                             </div>
 
-                            {step.useManualSelector && (
+                            {step.elementTargeting === 'manual' ? (
                                 <div>
                                     <label className="block text-[11px] font-medium text-muted-3000 mb-1.5">
                                         CSS selector
@@ -179,24 +207,66 @@ export function StepCard({
                                     <LemonInput
                                         size="small"
                                         value={step.selector || ''}
-                                        onChange={(value) => updateStepSelector(index, value)}
+                                        onChange={(value) => updateStep(index, { selector: value, element: undefined })}
                                         placeholder="#my-element, .my-class"
                                         className="font-mono text-xs"
+                                        autoFocus={shouldShowElementSettings && !hasTarget}
                                     />
                                 </div>
+                            ) : (
+                                <>
+                                    <div>
+                                        <Tooltip title="How strictly we should identify the target element">
+                                            <label className="flex text-[11px] font-medium text-muted-3000 mb-1 gap-1">
+                                                Precision
+                                            </label>
+                                        </Tooltip>
+                                        <LemonSlider
+                                            min={0}
+                                            max={1}
+                                            step={0.1}
+                                            value={step.inferenceData?.precision ?? 1}
+                                            onChange={(value) =>
+                                                step.inferenceData &&
+                                                updateStep(index, {
+                                                    inferenceData: { ...step.inferenceData, precision: value },
+                                                })
+                                            }
+                                            className="!mb-0"
+                                        />
+                                        <div className="flex justify-between text-[10px] text-muted-3000">
+                                            <span>Loose</span>
+                                            <span>Strict</span>
+                                        </div>
+                                    </div>
+                                    {step.inferenceData?.text && (
+                                        <LemonSwitch
+                                            checked={step.inferenceData?.excludeText ?? false}
+                                            onChange={(value) =>
+                                                step.inferenceData &&
+                                                updateStep(index, {
+                                                    inferenceData: { ...step.inferenceData, excludeText: value },
+                                                })
+                                            }
+                                            label="Dynamic text"
+                                            labelClassName="text-[11px] font-medium text-muted-3000"
+                                            tooltip="Whether this element's text is dynamic and may change"
+                                        />
+                                    )}
+                                </>
                             )}
 
                             <div>
-                                <label className="block text-[11px] font-medium text-muted-3000 mb-1.5">
-                                    Advance on
-                                </label>
+                                <Tooltip title="When the tour should proceed to the next step">
+                                    <label className="flex text-[11px] font-medium text-muted-3000 mb-1.5 gap-1">
+                                        Advance on
+                                    </label>
+                                </Tooltip>
                                 <LemonSegmentedButton
                                     size="xsmall"
                                     fullWidth
                                     value={step.progressionTrigger || 'button'}
-                                    onChange={(value) =>
-                                        updateStepProgressionTrigger(index, value as ProductTourProgressionTriggerType)
-                                    }
+                                    onChange={(value) => updateStep(index, { progressionTrigger: value })}
                                     options={[
                                         { value: 'button', label: 'Next button' },
                                         { value: 'click', label: 'Element click' },
@@ -204,15 +274,63 @@ export function StepCard({
                                 />
                             </div>
 
+                            <div className="flex gap-2">
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    fullWidth
+                                    icon={<IconCursorClick />}
+                                    onClick={handleReselectElement}
+                                >
+                                    Change
+                                </LemonButton>
+                                {step.type === 'modal' && (
+                                    <LemonButton
+                                        size="small"
+                                        type="tertiary"
+                                        status="danger"
+                                        onClick={() =>
+                                            updateStep(index, {
+                                                type: 'modal',
+                                                selector: undefined,
+                                                inferenceData: undefined,
+                                                screenshotMediaId: undefined,
+                                                useManualSelector: undefined,
+                                                element: undefined,
+                                                elementTargeting: undefined,
+                                            })
+                                        }
+                                        icon={<IconTrash />}
+                                    />
+                                )}
+                            </div>
+                        </>
+                    ) : (
+                        <>
                             <LemonButton
                                 size="small"
                                 type="secondary"
                                 fullWidth
                                 icon={<IconCursorClick />}
                                 onClick={handleReselectElement}
+                                disabledReason={isSelecting ? 'Click your element' : undefined}
                             >
-                                {step.selector ? 'Re-select element' : 'Select element'}
+                                {isSelecting ? 'Click your element' : 'Attach to element'}
                             </LemonButton>
+                            {isSelecting && (
+                                <LemonButton
+                                    size="small"
+                                    type="tertiary"
+                                    fullWidth
+                                    sideIcon={<IconArrowRight />}
+                                    onClick={() => {
+                                        updateStep(index, { elementTargeting: 'manual' })
+                                        setEditorState({ mode: 'idle' })
+                                    }}
+                                >
+                                    or use CSS selector
+                                </LemonButton>
+                            )}
                         </>
                     )}
 

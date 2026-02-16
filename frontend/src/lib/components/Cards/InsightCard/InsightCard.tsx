@@ -219,42 +219,47 @@ function InsightCardInternal(
 
     return (
         <div
-            className={clsx('InsightCard border', highlighted && 'InsightCard--highlighted', className)}
+            className={clsx(
+                'InsightCard border',
+                highlighted && 'InsightCard--highlighted',
+                areDetailsShown && 'InsightCard--details-shown',
+                className
+            )}
             data-attr="insight-card"
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ ...divProps?.style, ...theme?.boxStyle }}
             ref={mergedRefs}
         >
-            {isVisible ? (
-                <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
-                    <BindLogic logic={insightLogic} props={insightLogicProps}>
-                        <InsightMeta
-                            tile={tile}
-                            insight={insight}
-                            ribbonColor={ribbonColor}
-                            dashboardId={dashboardId}
-                            updateColor={updateColor}
-                            removeFromDashboard={removeFromDashboard}
-                            deleteWithUndo={deleteWithUndo}
-                            refresh={refresh}
-                            refreshEnabled={refreshEnabled}
-                            loadingQueued={loadingQueued}
-                            loading={loading}
-                            rename={rename}
-                            duplicate={duplicate}
-                            setOverride={setOverride}
-                            moveToDashboard={moveToDashboard}
-                            areDetailsShown={areDetailsShown}
-                            setAreDetailsShown={setAreDetailsShown}
-                            showEditingControls={showEditingControls}
-                            showDetailsControls={showDetailsControls}
-                            moreButtons={moreButtons}
-                            filtersOverride={filtersOverride}
-                            variablesOverride={variablesOverride}
-                            placement={placement}
-                            surveyOpportunity={surveyOpportunity}
-                        />
+            <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
+                <BindLogic logic={insightLogic} props={insightLogicProps}>
+                    <InsightMeta
+                        tile={tile}
+                        insight={insight}
+                        ribbonColor={ribbonColor}
+                        dashboardId={dashboardId}
+                        updateColor={updateColor}
+                        removeFromDashboard={removeFromDashboard}
+                        deleteWithUndo={deleteWithUndo}
+                        refresh={refresh}
+                        refreshEnabled={refreshEnabled}
+                        loadingQueued={loadingQueued}
+                        loading={loading}
+                        rename={rename}
+                        duplicate={duplicate}
+                        setOverride={setOverride}
+                        moveToDashboard={moveToDashboard}
+                        areDetailsShown={areDetailsShown}
+                        setAreDetailsShown={setAreDetailsShown}
+                        showEditingControls={showEditingControls}
+                        showDetailsControls={showDetailsControls}
+                        moreButtons={moreButtons}
+                        filtersOverride={filtersOverride}
+                        variablesOverride={variablesOverride}
+                        placement={placement}
+                        surveyOpportunity={surveyOpportunity}
+                    />
+                    {isVisible ? (
                         <div className="InsightCard__viz">
                             {BlockingEmptyState ? (
                                 BlockingEmptyState
@@ -273,17 +278,17 @@ function InsightCardInternal(
                                 />
                             )}
                         </div>
-                    </BindLogic>
-                    {showResizeHandles && (
-                        <>
-                            {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
-                            <ResizeHandle1D orientation="horizontal" />
-                            {canResizeWidth ? <ResizeHandle2D /> : null}
-                        </>
-                    )}
-                    {children /* Extras, specifically resize handles injected by ReactGridLayout */}
-                </ErrorBoundary>
-            ) : null}
+                    ) : null}
+                </BindLogic>
+                {showResizeHandles && (
+                    <>
+                        {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
+                        <ResizeHandle1D orientation="horizontal" />
+                        {canResizeWidth ? <ResizeHandle2D /> : null}
+                    </>
+                )}
+                {children /* Extras, specifically resize handles injected by ReactGridLayout */}
+            </ErrorBoundary>
         </div>
     )
 }

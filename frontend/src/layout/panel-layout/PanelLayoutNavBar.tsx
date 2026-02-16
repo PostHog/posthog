@@ -8,9 +8,11 @@ import {
     IconChevronRight,
     IconClock,
     IconDatabase,
+    IconDownload,
     IconFolderOpen,
     IconGear,
     IconHome,
+    IconNotification,
     IconPeople,
     IconSearch,
     IconShortcut,
@@ -24,10 +26,14 @@ import { Link } from '@posthog/lemon-ui'
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
+import { HealthMenu } from 'lib/components/HealthMenu/HealthMenu'
 import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
+import { PosthogStatusShownOnlyIfNotOperational } from 'lib/components/PosthogStatus/PosthogStatusShownOnlyIfNotOperational'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -99,6 +105,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleCommand } = useActions(commandLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -137,6 +144,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (itemIdentifier === 'Settings' && currentPath.startsWith('/settings/')) {
             return true
         }
+        if (itemIdentifier === 'Inbox' && currentPath.startsWith('/inbox')) {
+            return true
+        }
         if (itemIdentifier === 'Toolbar' && currentPath === '/toolbar') {
             return true
         }
@@ -146,6 +156,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
         return false
     }
+
+    useAppShortcut({
+        name: 'ToggleLeftNav',
+        keybind: [keyBinds.toggleLeftNav],
+        intent: 'Toggle collapse left navigation',
+        interaction: 'function',
+        callback: toggleLayoutNavCollapsed,
+    })
 
     const navItems: {
         identifier: string
@@ -195,6 +213,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             collapsedTooltip: 'Activity',
             documentationUrl: 'https://posthog.com/docs/data/events',
         },
+        ...(isProductAutonomyEnabled
+            ? [
+                  {
+                      identifier: 'Inbox',
+                      label: 'Inbox',
+                      icon: <IconNotification />,
+                      to: urls.inbox(),
+                      onClick: () => handleStaticNavbarItemClick(urls.inbox(), true),
+                      collapsedTooltip: 'Inbox',
+                  },
+              ]
+            : []),
         ...(featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] === 'test'
             ? []
             : [
@@ -319,7 +349,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                     <ProjectMenu
                                         buttonProps={{
-                                            className: 'max-w-[175px]',
+                                            className: 'max-w-full flex-1',
                                             variant: 'panel',
                                             tooltipCloseDelayMs: 0,
                                             iconOnly: isLayoutNavCollapsed,
@@ -478,14 +508,21 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             </ListBox>
                         </ScrollableShadows>
 
-                        {!isRemovingSidePanelFlag && <div className="border-b border-primary h-px " />}
+                        <div className="border-b border-primary h-px " />
 
                         <div
                             className={cn('p-1 flex flex-col gap-px items-center', {
-                                'pb-2 pl-2 items-start': isRemovingSidePanelFlag,
+                                'p-1 items-start pb-2': isRemovingSidePanelFlag,
                             })}
                         >
-                            <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                            <div
+                                className={cn('flex flex-col gap-px w-full', {
+                                    'items-center': isLayoutNavCollapsed,
+                                })}
+                            >
+                                <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                            </div>
+
                             <NavPanelAdvertisement />
 
                             {!isRemovingSidePanelFlag ? (
@@ -524,7 +561,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         tooltip={isLayoutNavCollapsed ? 'Toolbar' : undefined}
                                         tooltipDocLink="https://posthog.com/docs/toolbar"
                                         tooltipPlacement="right"
-                                        data-attr="menu-item-toolbar"
+                                        data-attr="navbar-toolbar"
                                     >
                                         <span className="flex text-tertiary group-hover:text-primary">
                                             <IconToolbar />
@@ -586,7 +623,33 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                 </>
                             ) : (
-                                <HelpMenu />
+                                <div
+                                    className={cn('flex flex-col gap-px w-full', {
+                                        'items-center': isLayoutNavCollapsed,
+                                    })}
+                                >
+                                    <Link
+                                        to={urls.settings('project')}
+                                        buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
+                                        tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
+                                        tooltipPlacement="right"
+                                    >
+                                        <IconGear />
+                                        {!isLayoutNavCollapsed && 'Settings'}
+                                    </Link>
+                                    <Link
+                                        to={urls.exports()}
+                                        buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
+                                        tooltip={isLayoutNavCollapsed ? 'Exports' : undefined}
+                                        tooltipPlacement="right"
+                                    >
+                                        <IconDownload />
+                                        {!isLayoutNavCollapsed && 'Exports'}
+                                    </Link>
+                                    <HealthMenu iconOnly={isLayoutNavCollapsed} />
+                                    <HelpMenu iconOnly={isLayoutNavCollapsed} />
+                                    <PosthogStatusShownOnlyIfNotOperational iconOnly={isLayoutNavCollapsed} />
+                                </div>
                             )}
                         </div>
                     </div>

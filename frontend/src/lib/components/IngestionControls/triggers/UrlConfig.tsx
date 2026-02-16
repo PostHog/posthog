@@ -17,6 +17,7 @@ import { UrlTriggerConfig } from '../types'
 
 export function UrlConfig({
     logic,
+    logicProps,
     formKey,
     addUrl,
     validationWarning,
@@ -28,6 +29,7 @@ export function UrlConfig({
     ...props
 }: {
     logic: LogicWrapper
+    logicProps: Record<string, any>
     formKey: string
     addUrl: (urlTriggerConfig: UrlTriggerConfig) => void
     validationWarning: string | null
@@ -70,6 +72,7 @@ export function UrlConfig({
             {props.isAddFormVisible && (
                 <UrlConfigForm
                     logic={logic}
+                    logicProps={logicProps}
                     formKey={formKey}
                     addUrl={addUrl}
                     validationWarning={validationWarning}
@@ -104,6 +107,7 @@ export function UrlConfig({
             {props.config?.map((trigger, index) => (
                 <UrlConfigRow
                     logic={logic}
+                    logicProps={logicProps}
                     formKey={formKey}
                     addUrl={addUrl}
                     validationWarning={validationWarning}
@@ -129,6 +133,7 @@ function UrlConfigRow({
     onRemove,
     checkUrlResult,
     logic,
+    logicProps,
     formKey,
     addUrl,
     validationWarning,
@@ -141,6 +146,7 @@ function UrlConfigRow({
     onRemove: (index: number) => void
     checkUrlResult?: boolean
     logic: LogicWrapper
+    logicProps: Record<string, any>
     formKey: string
     addUrl: (urlTriggerConfig: UrlTriggerConfig) => void
     validationWarning: string | null
@@ -151,6 +157,7 @@ function UrlConfigRow({
             <div className="border rounded p-2 bg-surface-primary">
                 <UrlConfigForm
                     logic={logic}
+                    logicProps={logicProps}
                     formKey={formKey}
                     addUrl={addUrl}
                     validationWarning={validationWarning}
@@ -229,6 +236,7 @@ function UrlConfigForm({
     onCancel,
     isSubmitting,
     logic,
+    logicProps,
     formKey,
     validationWarning,
     addUrl,
@@ -236,6 +244,7 @@ function UrlConfigForm({
     onCancel: () => void
     isSubmitting: boolean
     logic: LogicWrapper
+    logicProps: Record<string, any>
     formKey: string
     addUrl: (urlTriggerConfig: UrlTriggerConfig) => void
     validationWarning: string | null
@@ -243,6 +252,7 @@ function UrlConfigForm({
     return (
         <Form
             logic={logic}
+            props={logicProps}
             formKey={formKey}
             enableFormOnSubmit
             className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-surface-primary gap-2"

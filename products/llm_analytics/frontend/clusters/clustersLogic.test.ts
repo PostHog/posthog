@@ -4,7 +4,7 @@ import { initKeaTests } from '~/test/init'
 
 import { clustersLogic } from './clustersLogic'
 import { NOISE_CLUSTER_ID } from './constants'
-import { Cluster, ClusteringRun } from './types'
+import { Cluster, ClusterMetrics, ClusteringRun } from './types'
 
 describe('clustersLogic', () => {
     let logic: ReturnType<typeof clustersLogic.build>
@@ -143,6 +143,84 @@ describe('clustersLogic', () => {
                 })
             })
         })
+
+        describe('clusterMetrics', () => {
+            it('defaults to empty object', () => {
+                expect(logic.values.clusterMetrics).toEqual({})
+            })
+
+            it('sets cluster metrics', async () => {
+                const metrics: Record<number, ClusterMetrics> = {
+                    0: {
+                        avgCost: 0.05,
+                        avgLatency: 1.5,
+                        avgTokens: 500,
+                        totalCost: 0.5,
+                        errorRate: 0.1,
+                        errorCount: 1,
+                        itemCount: 10,
+                    },
+                    1: {
+                        avgCost: 0.02,
+                        avgLatency: 0.8,
+                        avgTokens: 200,
+                        totalCost: 0.2,
+                        errorRate: 0,
+                        errorCount: 0,
+                        itemCount: 10,
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.setClusterMetrics(metrics)
+                }).toMatchValues({
+                    clusterMetrics: metrics,
+                })
+            })
+
+            it('clears metrics when clustering level changes', async () => {
+                const metrics: Record<number, ClusterMetrics> = {
+                    0: {
+                        avgCost: 0.05,
+                        avgLatency: 1.5,
+                        avgTokens: 500,
+                        totalCost: 0.5,
+                        errorRate: 0.1,
+                        errorCount: 1,
+                        itemCount: 10,
+                    },
+                }
+
+                logic.actions.setClusterMetrics(metrics)
+                expect(logic.values.clusterMetrics).toEqual(metrics)
+
+                await expectLogic(logic, () => {
+                    logic.actions.setClusteringLevel('generation')
+                }).toMatchValues({
+                    clusterMetrics: {},
+                })
+            })
+        })
+
+        describe('clusterMetricsLoading', () => {
+            it('defaults to false', () => {
+                expect(logic.values.clusterMetricsLoading).toBe(false)
+            })
+
+            it('sets loading state', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setClusterMetricsLoading(true)
+                }).toMatchValues({
+                    clusterMetricsLoading: true,
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setClusterMetricsLoading(false)
+                }).toMatchValues({
+                    clusterMetricsLoading: false,
+                })
+            })
+        })
     })
 
     describe('selectors', () => {
@@ -152,8 +230,22 @@ describe('clustersLogic', () => {
             title: 'Cluster A',
             description: 'Description A',
             traces: {
-                'trace-1': { distance_to_centroid: 0.1, rank: 0, x: 0.0, y: 0.0, timestamp: '2025-01-05T10:00:00Z' },
-                'trace-2': { distance_to_centroid: 0.2, rank: 1, x: 0.1, y: 0.1, timestamp: '2025-01-05T11:00:00Z' },
+                'trace-1': {
+                    distance_to_centroid: 0.1,
+                    rank: 0,
+                    x: 0.0,
+                    y: 0.0,
+                    timestamp: '2025-01-05T10:00:00Z',
+                    trace_id: 'trace-1',
+                },
+                'trace-2': {
+                    distance_to_centroid: 0.2,
+                    rank: 1,
+                    x: 0.1,
+                    y: 0.1,
+                    timestamp: '2025-01-05T11:00:00Z',
+                    trace_id: 'trace-2',
+                },
             },
             centroid: [1.0],
             centroid_x: 0.05,
@@ -166,7 +258,14 @@ describe('clustersLogic', () => {
             title: 'Cluster B',
             description: 'Description B',
             traces: {
-                'trace-3': { distance_to_centroid: 0.1, rank: 0, x: 1.0, y: 1.0, timestamp: '2025-01-05T12:00:00Z' },
+                'trace-3': {
+                    distance_to_centroid: 0.1,
+                    rank: 0,
+                    x: 1.0,
+                    y: 1.0,
+                    timestamp: '2025-01-05T12:00:00Z',
+                    trace_id: 'trace-3',
+                },
             },
             centroid: [2.0],
             centroid_x: 1.0,
@@ -179,7 +278,14 @@ describe('clustersLogic', () => {
             title: 'Outliers',
             description: 'Noise points',
             traces: {
-                'trace-noise-1': { distance_to_centroid: 0.9, rank: 0, x: 5.0, y: 5.0, timestamp: '' },
+                'trace-noise-1': {
+                    distance_to_centroid: 0.9,
+                    rank: 0,
+                    x: 5.0,
+                    y: 5.0,
+                    timestamp: '',
+                    trace_id: 'trace-noise-1',
+                },
             },
             centroid: [],
             centroid_x: 5.0,
@@ -196,7 +302,7 @@ describe('clustersLogic', () => {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-08T00:00:00Z',
-                    totalTracesAnalyzed: 30,
+                    totalItemsAnalyzed: 30,
                     clusters: [mockCluster1, mockCluster2],
                     timestamp: '2025-01-08T00:00:00Z',
                     clusteringParams: undefined,
@@ -227,7 +333,7 @@ describe('clustersLogic', () => {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-08T00:00:00Z',
-                    totalTracesAnalyzed: 15,
+                    totalItemsAnalyzed: 15,
                     clusters: [mockCluster1, mockCluster2],
                     timestamp: '2025-01-08T00:00:00Z',
                     clusteringParams: undefined,
@@ -251,7 +357,7 @@ describe('clustersLogic', () => {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-08T00:00:00Z',
-                    totalTracesAnalyzed: 10,
+                    totalItemsAnalyzed: 10,
                     clusters: [clusterWithoutTitle],
                     timestamp: '2025-01-08T00:00:00Z',
                     clusteringParams: undefined,
@@ -270,7 +376,7 @@ describe('clustersLogic', () => {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-08T00:00:00Z',
-                    totalTracesAnalyzed: 15,
+                    totalItemsAnalyzed: 15,
                     clusters: [mockCluster1, mockCluster2],
                     timestamp: '2025-01-08T00:00:00Z',
                     clusteringParams: undefined,
@@ -293,7 +399,7 @@ describe('clustersLogic', () => {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-08T00:00:00Z',
-                    totalTracesAnalyzed: 15,
+                    totalItemsAnalyzed: 15,
                     clusters: [mockCluster1, mockNoiseCluster],
                     timestamp: '2025-01-08T00:00:00Z',
                     clusteringParams: undefined,
@@ -313,7 +419,7 @@ describe('clustersLogic', () => {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-08T00:00:00Z',
-                    totalTracesAnalyzed: 15,
+                    totalItemsAnalyzed: 15,
                     clusters: [mockCluster1, mockNoiseCluster],
                     timestamp: '2025-01-08T00:00:00Z',
                     clusteringParams: undefined,
@@ -334,7 +440,7 @@ describe('clustersLogic', () => {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-08T00:00:00Z',
-                    totalTracesAnalyzed: 10,
+                    totalItemsAnalyzed: 10,
                     clusters: [mockCluster1],
                     timestamp: '2025-01-08T00:00:00Z',
                     clusteringParams: undefined,

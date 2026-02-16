@@ -139,8 +139,6 @@ pub async fn try_grouping_rules(
     team_manager: &TeamManager,
     exception_properties: &RawErrProps,
 ) -> Result<Option<GroupingRule>, UnhandledError> {
-    let timing = common_metrics::timing_guard(GROUPING_RULES_PROCESSING_TIME, &[]);
-
     let mut props_json = serde_json::to_value(exception_properties)?;
 
     if let Value::Object(ref mut props) = props_json {
@@ -171,6 +169,17 @@ pub async fn try_grouping_rules(
         );
     }
 
+    evaluate_grouping_rules(con, team_id, team_manager, props_json).await
+}
+
+pub async fn evaluate_grouping_rules(
+    con: &mut PgConnection,
+    team_id: TeamId,
+    team_manager: &TeamManager,
+    props: Value,
+) -> Result<Option<GroupingRule>, UnhandledError> {
+    let timing = common_metrics::timing_guard(GROUPING_RULES_PROCESSING_TIME, &[]);
+
     let mut rules = team_manager.get_grouping_rules(&mut *con, team_id).await?;
 
     metrics::counter!(GROUPING_RULES_FOUND).increment(rules.len() as u64);
@@ -178,7 +187,7 @@ pub async fn try_grouping_rules(
     rules.sort_unstable_by_key(|r| r.order_key);
 
     for rule in rules {
-        match rule.try_match(&props_json) {
+        match rule.try_match(&props) {
             Ok(false) => continue,
             Ok(true) => {
                 timing.label("outcome", "match").fin();
@@ -186,7 +195,7 @@ pub async fn try_grouping_rules(
                 return Ok(Some(rule));
             }
             Err(err) => {
-                rule.disable(&mut *con, err.to_string(), props_json.clone())
+                rule.disable(&mut *con, err.to_string(), props.clone())
                     .await?
             }
         }
@@ -209,9 +218,8 @@ mod test {
     use uuid::Uuid;
 
     use crate::{
-        config::Config,
         fingerprinting::resolve_fingerprint,
-        teams::TeamManager,
+        test_utils::create_test_context,
         types::{ExceptionList, RawErrProps},
     };
 
@@ -261,7 +269,7 @@ mod test {
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_grouping_rules(db: PgPool) {
-        let config = Config::init_with_defaults().unwrap();
+        let ctx = create_test_context(db).await;
 
         let test_team_id = 1;
         let mut test_props = test_props();
@@ -271,12 +279,12 @@ mod test {
 
         let rule = get_test_rule();
         let expected_fingerprint = format!("custom-rule:{}", rule.id);
-        let team_manager = TeamManager::new(&config);
         // Insert the rule, so we skip the DB lookup
-        team_manager.grouping_rules.insert(test_team_id, vec![rule]);
+        ctx.team_manager
+            .grouping_rules
+            .insert(test_team_id, vec![rule]);
 
-        let mut conn = db.acquire().await.unwrap();
-        let res = resolve_fingerprint(&mut conn, &team_manager, test_team_id, &test_props)
+        let res = resolve_fingerprint(&ctx, test_team_id, &test_props)
             .await
             .unwrap();
 
@@ -287,9 +295,11 @@ mod test {
         let mut rule = get_test_rule();
         let expected_fingerprint = format!("custom-rule:{}", rule.id);
         rule.user_id = Some(1);
-        team_manager.grouping_rules.insert(test_team_id, vec![rule]);
+        ctx.team_manager
+            .grouping_rules
+            .insert(test_team_id, vec![rule]);
 
-        let res = resolve_fingerprint(&mut conn, &team_manager, test_team_id, &test_props)
+        let res = resolve_fingerprint(&ctx, test_team_id, &test_props)
             .await
             .unwrap();
 
@@ -302,7 +312,7 @@ mod test {
             .other
             .insert("test_value".to_string(), JsonValue::from("no_match"));
 
-        let res = resolve_fingerprint(&mut conn, &team_manager, test_team_id, &test_props)
+        let res = resolve_fingerprint(&ctx, test_team_id, &test_props)
             .await
             .unwrap();
 

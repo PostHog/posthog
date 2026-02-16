@@ -1,17 +1,22 @@
-import { ProfilePicture } from '@posthog/lemon-ui'
+import { JSONContent } from '@tiptap/core'
+
+import { IconLock } from '@posthog/icons'
+import { ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-import type { ChatMessage } from '../../types'
+import type { ChatMessage, MessageDeliveryStatus } from '../../types'
+import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
 
 export interface MessageProps {
     message: ChatMessage
     isCustomer: boolean
+    deliveryStatus?: MessageDeliveryStatus
 }
 
-export function Message({ message, isCustomer }: MessageProps): JSX.Element {
+export function Message({ message, isCustomer, deliveryStatus }: MessageProps): JSX.Element {
     const profileType = message.authorType === 'AI' ? 'bot' : 'person'
+    const isPrivate = message.isPrivate
 
     return (
         <div className={`flex ${isCustomer ? 'mr-10' : 'flex-row-reverse ml-10'} mb-4`}>
@@ -25,13 +30,41 @@ export function Message({ message, isCustomer }: MessageProps): JSX.Element {
                             type={profileType}
                             showName={true}
                         />
-                        <span className="text-xs text-muted-alt">
-                            <TZLabel time={message.createdAt} />
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                            {isPrivate && (
+                                <Tooltip title="Only visible to your team">
+                                    <span className="inline-flex items-center gap-0.5 text-xs text-warning-dark bg-warning-highlight px-1.5 py-0.5 rounded">
+                                        <IconLock className="text-xs" />
+                                        Private message
+                                    </span>
+                                </Tooltip>
+                            )}
+                            <span className="text-xs text-muted-alt">
+                                <TZLabel time={message.createdAt} />
+                            </span>
+                        </div>
                     </div>
                     <div className="max-w-full min-w-80">
-                        <div className="border py-2 px-3 rounded-lg bg-surface-primary">
-                            <LemonMarkdown className="text-sm">{message.content}</LemonMarkdown>
+                        <div
+                            className={`border py-2 px-3 rounded-lg ${
+                                isPrivate ? 'bg-warning-highlight border-warning' : 'bg-surface-primary'
+                            } [&_.SupportMarkdown__image]:max-h-64 [&_.SupportEditor__image]:max-h-64`}
+                        >
+                            {message.richContent ? (
+                                <SupportRichContentPreview
+                                    content={message.richContent as JSONContent}
+                                    className="text-sm"
+                                />
+                            ) : (
+                                <SupportMarkdown className="text-sm">{message.content}</SupportMarkdown>
+                            )}
+                        </div>
+                        <div className="flex items-center justify-end gap-1">
+                            {deliveryStatus && (
+                                <span className="text-xs text-muted-alt">
+                                    {deliveryStatus === 'read' ? 'Read' : 'Sent'}
+                                </span>
+                            )}
                         </div>
                     </div>
                 </div>

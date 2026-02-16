@@ -16,6 +16,7 @@ import structlog
 from temporalio import activity
 
 from posthog.models.team import Team
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.clustering import (
     calculate_distances_to_cluster_means,
@@ -26,7 +27,10 @@ from posthog.temporal.llm_analytics.trace_clustering.clustering import (
     reduce_dimensions_for_clustering,
     reduce_dimensions_pca,
 )
-from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_embeddings_for_clustering
+from posthog.temporal.llm_analytics.trace_clustering.data import (
+    fetch_item_embeddings_for_clustering,
+    fetch_item_summaries,
+)
 from posthog.temporal.llm_analytics.trace_clustering.event_emission import emit_cluster_events
 from posthog.temporal.llm_analytics.trace_clustering.labeling import generate_cluster_labels
 from posthog.temporal.llm_analytics.trace_clustering.models import (
@@ -34,9 +38,11 @@ from posthog.temporal.llm_analytics.trace_clustering.models import (
     ClusteringComputeResult,
     ClusteringMetrics,
     ClusteringResult,
+    ClusterItem,
     EmitEventsActivityInputs,
     GenerateLabelsActivityInputs,
     GenerateLabelsActivityOutputs,
+    TraceSummary,
 )
 
 logger = structlog.get_logger(__name__)
@@ -57,46 +63,87 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
     if window_start is None or window_end is None:
         raise ValueError(f"Invalid datetime format: window_start={inputs.window_start}, window_end={inputs.window_end}")
 
-    # Generate run_id with optional label suffix for experiment tracking
-    base_run_id = f"{inputs.team_id}_{window_end.strftime('%Y%m%d_%H%M%S')}"
+    # Generate run_id with analysis_level for uniqueness and optional label suffix for experiment tracking
+    base_run_id = f"{inputs.team_id}_{inputs.analysis_level}_{window_end.strftime('%Y%m%d_%H%M%S')}"
     clustering_run_id = f"{base_run_id}_{inputs.run_label}" if inputs.run_label else base_run_id
 
     team = Team.objects.get(id=inputs.team_id)
 
-    trace_ids, embeddings_map, batch_run_ids_map = fetch_trace_embeddings_for_clustering(
+    item_ids, embeddings_map, batch_run_ids_map = fetch_item_embeddings_for_clustering(
         team=team,
         window_start=window_start,
         window_end=window_end,
         max_samples=inputs.max_samples,
-        trace_filters=inputs.trace_filters if inputs.trace_filters else None,
+        analysis_level=inputs.analysis_level,
+        event_filters=inputs.event_filters if inputs.event_filters else None,
     )
 
     logger.debug(
         "perform_clustering_compute_fetched_embeddings",
-        num_traces=len(trace_ids),
+        num_items=len(item_ids),
+        analysis_level=inputs.analysis_level,
     )
 
-    # Need at least 2 traces to perform clustering
-    if len(trace_ids) < 2:
+    # Need enough items for UMAP (n_neighbors default=15) and meaningful clusters
+    if len(item_ids) < constants.MIN_TRACES_FOR_CLUSTERING:
         logger.warning(
-            "Not enough traces for clustering",
-            trace_count=len(trace_ids),
+            "Not enough items for clustering",
+            item_count=len(item_ids),
             team_id=inputs.team_id,
+            analysis_level=inputs.analysis_level,
         )
         return ClusteringComputeResult(
             clustering_run_id=clustering_run_id,
-            trace_ids=[],
+            items=[],
             labels=[],
             centroids=[],
             distances=[],
             coords_2d=[],
             centroid_coords_2d=[],
             probabilities=[],
+            analysis_level=inputs.analysis_level,
             num_noise_points=0,
             batch_run_ids={},
         )
 
-    embeddings_array = np.array(list(embeddings_map.values()))
+    # Fetch summaries to get parent trace_id for generation-level clustering
+    summaries = fetch_item_summaries(
+        team=team,
+        item_ids=item_ids,
+        batch_run_ids=batch_run_ids_map,
+        window_start=window_start,
+        window_end=window_end,
+        analysis_level=inputs.analysis_level,
+    )
+
+    # Build ClusterItem list with explicit trace_id and generation_id
+    # For generation-level, skip items without trace_id in summary to avoid invalid data
+    items: list[ClusterItem] = []
+    filtered_embeddings: list[list[float]] = []
+    skipped_missing_trace_id = 0
+
+    for item_id in item_ids:
+        summary: TraceSummary | dict[str, str] = summaries.get(item_id, {})
+        if inputs.analysis_level == "generation":
+            # For generation-level: item_id is generation_id, trace_id comes from summary
+            trace_id = summary.get("trace_id")
+            if not trace_id:
+                skipped_missing_trace_id += 1
+                continue
+            items.append(ClusterItem(trace_id=trace_id, generation_id=item_id))
+        else:
+            # For trace-level: item_id is trace_id, no generation_id
+            items.append(ClusterItem(trace_id=item_id, generation_id=None))
+        filtered_embeddings.append(embeddings_map[item_id])
+
+    if skipped_missing_trace_id > 0:
+        logger.warning(
+            "Skipped generations missing trace_id",
+            skipped_count=skipped_missing_trace_id,
+            team_id=inputs.team_id,
+        )
+
+    embeddings_array = np.array(filtered_embeddings)
 
     # Step 0: Optionally L2 normalize embeddings
     if inputs.embedding_normalization == "l2":
@@ -185,13 +232,14 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
 
     return ClusteringComputeResult(
         clustering_run_id=clustering_run_id,
-        trace_ids=trace_ids,
+        items=items,
         labels=labels_list,
         centroids=centroids_list,
         distances=distances_matrix.tolist(),
         coords_2d=coords_2d.tolist(),
         centroid_coords_2d=centroid_coords_2d.tolist(),
         probabilities=probabilities,
+        analysis_level=inputs.analysis_level,
         num_noise_points=num_noise_points,
         batch_run_ids=batch_run_ids_map,
     )
@@ -210,7 +258,8 @@ async def perform_clustering_compute_activity(inputs: ClusteringActivityInputs) 
     Output is ~150 KB (labels, centroids, distances, coords).
     Embeddings (~3-4 MB) are not passed to subsequent activities.
     """
-    return await asyncio.to_thread(_perform_clustering_compute, inputs)
+    async with Heartbeater():
+        return await asyncio.to_thread(_perform_clustering_compute, inputs)
 
 
 def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
@@ -228,13 +277,14 @@ def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLa
 
     cluster_labels = generate_cluster_labels(
         team=team,
-        trace_ids=inputs.trace_ids,
+        items=inputs.items,
         labels=inputs.labels,
-        trace_metadata=inputs.trace_metadata,
+        item_metadata=inputs.item_metadata,
         centroid_coords_2d=inputs.centroid_coords_2d,
         window_start=window_start,
         window_end=window_end,
         batch_run_ids=inputs.batch_run_ids,
+        analysis_level=inputs.analysis_level,
     )
 
     return GenerateLabelsActivityOutputs(cluster_labels=cluster_labels)
@@ -244,15 +294,16 @@ def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLa
 async def generate_cluster_labels_activity(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
     """Activity 2: LLM labeling - generate titles and descriptions for clusters.
 
-    This activity runs a LangGraph agent (Claude Sonnet 4.5) that iteratively
-    explores cluster structure using tools to sample traces and generate
-    high-quality, distinctive labels.
+    This activity runs a LangGraph agent that iteratively explores cluster
+    structure using tools to sample traces and generate high-quality,
+    distinctive labels.
 
     Timeout: 10 minutes for full agent run
     Input: ~250 KB (trace IDs, cluster data, coordinates)
     Output: ~4 KB (cluster labels)
     """
-    return await asyncio.to_thread(_generate_cluster_labels, inputs)
+    async with Heartbeater():
+        return await asyncio.to_thread(_generate_cluster_labels, inputs)
 
 
 def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
@@ -264,13 +315,14 @@ def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
         window_end=inputs.window_end,
         labels=inputs.labels,
         centroids=inputs.centroids,
-        trace_ids=inputs.trace_ids,
+        items=inputs.items,
         distances_matrix=np.array(inputs.distances),
         cluster_labels=inputs.cluster_labels,
         coords_2d=np.array(inputs.coords_2d),
         centroid_coords_2d=np.array(inputs.centroid_coords_2d),
         batch_run_ids=inputs.batch_run_ids,
         clustering_params=inputs.clustering_params,
+        analysis_level=inputs.analysis_level,
     )
 
     return ClusteringResult(
@@ -280,7 +332,7 @@ def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
         window_start=inputs.window_start,
         window_end=inputs.window_end,
         metrics=ClusteringMetrics(
-            total_traces_analyzed=len(inputs.trace_ids),
+            total_items_analyzed=len(inputs.items),
             num_clusters=len(inputs.centroids),
         ),
         clusters=clusters,
@@ -297,4 +349,5 @@ async def emit_cluster_events_activity(inputs: EmitEventsActivityInputs) -> Clus
     Input: ~150 KB (all clustering data)
     Output: ClusteringResult with metrics and cluster info
     """
-    return await asyncio.to_thread(_emit_cluster_events, inputs)
+    async with Heartbeater():
+        return await asyncio.to_thread(_emit_cluster_events, inputs)

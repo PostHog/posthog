@@ -11,6 +11,12 @@ class TestOpenAIConfig(SimpleTestCase):
     def test_default_temperature(self):
         assert OpenAIConfig.TEMPERATURE == 0
 
+    def test_timeout_below_activity_timeout(self):
+        # SDK timeout (300s) must be less than activity timeout (360s) to allow graceful error handling
+        activity_timeout_seconds = 360
+        assert OpenAIConfig.TIMEOUT < activity_timeout_seconds
+        assert OpenAIConfig.TIMEOUT == 300.0
+
     def test_supported_models_include_expected(self):
         expected_models = [
             "gpt-4o",

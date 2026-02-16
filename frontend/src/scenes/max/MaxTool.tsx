@@ -1,16 +1,18 @@
 import clsx from 'clsx'
 import React from 'react'
 
-import { IconSparkles, IconWrench } from '@posthog/icons'
+import { IconPlusSmall, IconSparkles, IconWrench } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { AnimatedSparkles } from './components/AnimatedSparkles'
 import { ToolRegistration } from './max-constants'
 import { useMaxTool } from './useMaxTool'
 
-interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
+export interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
     /** The child element(s) that will be wrapped by this component */
-    children: React.ReactElement | (({ toolAvailable }: { toolAvailable: boolean }) => React.ReactElement)
+    children: React.ReactNode | (({ toolAvailable }: { toolAvailable: boolean }) => React.ReactNode)
     /** Whether MaxTool functionality is active. When false, just renders children without MaxTool wrapper. */
     active?: boolean
     initialMaxPrompt?: string
@@ -37,6 +39,8 @@ export function MaxTool({
     className,
     position = 'top-right',
 }: MaxToolProps): JSX.Element {
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+
     const { definition, isMaxOpen, openMax } = useMaxTool({
         identifier,
         context,
@@ -78,16 +82,21 @@ export function MaxTool({
                 >
                     <button
                         className={clsx(
-                            'absolute z-10 transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110 rounded-lg border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)]',
+                            'absolute z-[750] transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110 rounded-lg border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)]',
                             position === 'top-right' && '-top-2 -right-2',
                             position === 'bottom-right' && '-bottom-2 -right-2',
                             position === 'top-left' && '-top-2 -left-2',
-                            position === 'bottom-left' && '-bottom-2 -left-2'
+                            position === 'bottom-left' && '-bottom-2 -left-2',
+                            isRemovingSidePanelFlag && 'border-ai bg-ai/08 dark:bg-ai/20 hover:scale-110'
                         )}
                         type="button"
                         onClick={openMax || undefined}
                     >
-                        <AnimatedSparkles className="relative size-full pl-0.5 pb-0.5" />
+                        {isRemovingSidePanelFlag ? (
+                            <IconPlusSmall className="relative size-full text-ai dark:text-white p-0.5" />
+                        ) : (
+                            <AnimatedSparkles className="relative size-full pl-0.5 pb-0.5" />
+                        )}
                     </button>
                 </Tooltip>
                 {typeof Children === 'function' ? <Children toolAvailable={true} /> : Children}
@@ -99,9 +108,15 @@ export function MaxTool({
             className={clsx(
                 'relative flex flex-col',
                 // Rounding is +1px to account for the border
-                isMaxOpen &&
+                !isRemovingSidePanelFlag &&
+                    isMaxOpen &&
                     active &&
                     'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]',
+                className,
+                isRemovingSidePanelFlag &&
+                    isMaxOpen &&
+                    active &&
+                    'border border-ai -m-px rounded-[calc(var(--radius)+1px)]',
                 className
             )}
         >

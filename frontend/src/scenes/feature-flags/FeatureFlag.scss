@@ -51,3 +51,25 @@
         white-space: pre-wrap;
     }
 }
+
+// Animated glow to highlight template-modified fields
+// Loops infinitely until user edits the field
+.template-highlight-glow {
+    position: relative;
+    border-radius: var(--radius);
+    animation: FeatureFlag__HighlightGlow 2s ease-in-out infinite;
+}
+
+@keyframes FeatureFlag__HighlightGlow {
+    0%,
+    100% {
+        outline: 2px solid color-mix(in oklab, var(--color-accent), transparent 60%);
+        outline-offset: 1px;
+    }
+
+    50% {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 1px;
+        box-shadow: 0 0 12px color-mix(in oklab, var(--color-accent), transparent 50%);
+    }
+}

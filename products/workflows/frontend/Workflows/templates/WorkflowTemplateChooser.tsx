@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonDialog, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -22,10 +22,14 @@ import type { HogFlowTemplate } from '../hogflows/types'
 import { newWorkflowLogic } from '../newWorkflowLogic'
 import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 
+interface WorkflowTemplateChooserProps {
+    showEmptyWorkflow?: boolean
+}
+
 // Adapted from DashboardTemplateChooser.tsx; try to keep parity for a consistent user experience
-export function WorkflowTemplateChooser(): JSX.Element {
-    const { filteredTemplates, workflowTemplatesLoading } = useValues(workflowTemplatesLogic)
-    const { deleteHogflowTemplate } = useActions(workflowTemplatesLogic)
+export function WorkflowTemplateChooser(props: WorkflowTemplateChooserProps): JSX.Element {
+    const { filteredTemplates, workflowTemplatesLoading, tagFilter, availableTags } = useValues(workflowTemplatesLogic)
+    const { deleteHogflowTemplate, setTagFilter } = useActions(workflowTemplatesLogic)
     const { user } = useValues(userLogic)
 
     const { createWorkflowFromTemplate, createEmptyWorkflow } = useActions(newWorkflowLogic)
@@ -45,18 +49,43 @@ export function WorkflowTemplateChooser(): JSX.Element {
 
     return (
         <div>
+            <div className="mb-4 flex flex-wrap gap-2">
+                {availableTags.length > 0 && (
+                    <LemonButton
+                        type={tagFilter === null ? 'primary' : 'secondary'}
+                        onClick={() => setTagFilter(null)}
+                        size="small"
+                    >
+                        All
+                    </LemonButton>
+                )}
+                {availableTags.map((tag) => (
+                    <LemonButton
+                        key={tag}
+                        type={tagFilter === tag ? 'primary' : 'secondary'}
+                        onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
+                        size="small"
+                    >
+                        {tag}
+                    </LemonButton>
+                ))}
+            </div>
             <div className="WorkflowTemplateChooser">
-                <TemplateItem
-                    key={0}
-                    template={{
-                        name: 'Empty workflow',
-                        description: 'Create a blank workflow from scratch',
-                        image_url: BlankWorkflowHog,
-                    }}
-                    onClick={createEmptyWorkflow}
-                    index={0}
-                    data-attr="create-workflow-blank"
-                />
+                {props.showEmptyWorkflow && (
+                    <TemplateItem
+                        key={0}
+                        template={{
+                            name: 'Empty workflow',
+                            description: 'Create a blank workflow from scratch',
+                            image_url: BlankWorkflowHog,
+                            scope: 'team',
+                            tags: [],
+                        }}
+                        onClick={createEmptyWorkflow}
+                        index={0}
+                        data-attr="create-workflow-blank"
+                    />
+                )}
                 {workflowTemplatesLoading ? (
                     <Spinner className="text-6xl" />
                 ) : (
@@ -105,7 +134,7 @@ export function WorkflowTemplateChooser(): JSX.Element {
                                       }
                                     : undefined
                             }
-                            index={index + 1}
+                            index={props.showEmptyWorkflow ? index + 1 : index}
                             data-attr="create-workflow-from-template"
                         />
                     ))
@@ -123,7 +152,7 @@ function TemplateItem({
     index,
     'data-attr': dataAttr,
 }: {
-    template: Pick<HogFlowTemplate, 'name' | 'description' | 'image_url' | 'scope'>
+    template: Pick<HogFlowTemplate, 'name' | 'description' | 'image_url' | 'scope' | 'tags'>
     onClick: () => void
     onEdit?: (e: React.MouseEvent) => void
     onDelete?: (e: React.MouseEvent) => void
@@ -199,12 +228,17 @@ function TemplateItem({
             </div>
 
             <h5 className="px-2 mb-1">{template?.name || 'Unnamed template'}</h5>
-            <div className="flex gap-x-1 px-2 mb-1">
+            <div className="flex gap-x-1 px-2 mb-1 flex-wrap">
                 {scopeTag && (
                     <LemonTag key="scope" type="option">
                         {scopeTag}
                     </LemonTag>
                 )}
+                {template.tags.map((tag) => (
+                    <LemonTag key={tag} type="default">
+                        {tag}
+                    </LemonTag>
+                ))}
             </div>
             <div className={clsx('px-2 py-1 grow', isHovering ? 'overflow-y-auto' : 'overflow-hidden')}>
                 <p className={clsx('text-secondary text-xs', isHovering ? '' : 'line-clamp-2')}>

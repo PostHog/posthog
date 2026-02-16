@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -11,7 +11,9 @@ import type { CommentType, PersonType } from '~/types'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { TicketAssignee } from '../../components/Assignee'
+import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import type { ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
+import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
@@ -86,10 +88,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'ticket', 'supportTicketSceneLogic']),
     props({ id: 'new' as string | number }),
     key((props) => props.id),
+    connect(() => ({
+        actions: [supportTicketsSceneLogic, ['loadTickets']],
+    })),
     actions({
         loadTicket: true,
         setTicket: (ticket: Ticket | null) => ({ ticket }),
         setTicketLoading: (loading: boolean) => ({ loading }),
+        incrementUnreadCustomerCount: true,
         updateTicket: true,
 
         loadMessages: true,
@@ -101,7 +107,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setOlderMessagesLoading: (loading: boolean) => ({ loading }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
 
-        sendMessage: (content: string, onSuccess?: () => void) => ({ content, onSuccess }),
+        sendMessage: (
+            content: string,
+            richContent: Record<string, unknown> | null,
+            isPrivate: boolean,
+            onSuccess?: () => void
+        ) => ({
+            content,
+            richContent,
+            isPrivate,
+            onSuccess,
+        }),
         setMessageSending: (sending: boolean) => ({ sending }),
 
         setStatus: (status: TicketStatus) => ({ status }),
@@ -180,6 +196,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             null as Ticket | null,
             {
                 setTicket: (_, { ticket }) => ticket,
+                incrementUnreadCustomerCount: (state) =>
+                    state ? { ...state, unread_customer_count: state.unread_customer_count + 1 } : state,
             },
         ],
         ticketLoading: [
@@ -250,6 +268,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     selectors({
+        hasUnsavedChanges: [
+            (s) => [s.status, s.priority, s.assignee, s.ticket],
+            (status, priority, assignee, ticket): boolean => {
+                if (!ticket) {
+                    return false
+                }
+                return (
+                    status !== ticket.status ||
+                    priority !== ticket.priority ||
+                    JSON.stringify(assignee) !== JSON.stringify(ticket.assignee)
+                )
+            },
+        ],
         chatPanelWidth: [
             () => [],
             () =>
@@ -267,33 +298,42 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             (messages: CommentType[], ticket: Ticket | null): ChatMessage[] =>
                 messages.map((message) => {
                     const authorType = message.item_context?.author_type || 'customer'
-                    let displayName = 'Customer'
+                    let displayName = 'Anonymous user'
                     if (message.created_by) {
                         displayName =
                             [message.created_by.first_name, message.created_by.last_name].filter(Boolean).join(' ') ||
                             message.created_by.email ||
                             'Support'
-                    } else if (authorType === 'customer' && ticket?.anonymous_traits) {
-                        displayName = ticket.anonymous_traits.name || ticket.anonymous_traits.email || 'Customer'
+                    } else if (authorType === 'customer') {
+                        // Try person properties first (from ticket.person), then ticket traits
+                        displayName =
+                            ticket?.person?.properties?.name ||
+                            ticket?.person?.properties?.email ||
+                            ticket?.anonymous_traits?.name ||
+                            ticket?.anonymous_traits?.email ||
+                            'Anonymous user'
                     }
 
                     return {
                         id: message.id,
                         content: message.content || '',
+                        richContent: message.rich_content,
                         authorType: authorType === 'support' ? 'human' : authorType,
                         authorName: displayName,
                         createdBy: message.created_by,
                         createdAt: message.created_at,
+                        isPrivate: message.item_context?.is_private || false,
                     }
                 }),
         ],
         eventsQuery: [
-            (s) => [s.person, s.ticket],
-            (person: PersonType | null, ticket: Ticket | null): DataTableNode | null => {
-                if (!person?.id) {
+            (s) => [s.ticket],
+            (ticket: Ticket | null): DataTableNode | null => {
+                // Use person from ticket (no extra API call needed)
+                if (!ticket?.person?.id) {
                     return null
                 }
-                return createEventsQuery(person.id, ticket?.session_id, ticket?.created_at)
+                return createEventsQuery(ticket.person.id, ticket.session_id, ticket.created_at)
             },
         ],
         exceptionsQuery: [
@@ -320,15 +360,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // Load session context data
                 actions.loadPerson()
 
-                // Clear any existing interval
-                if (cache.pollingInterval) {
-                    clearInterval(cache.pollingInterval)
-                }
+                // Refresh the unread count since viewing a ticket marks it as read
+                supportTicketCounterLogic.findMounted()?.actions.refreshCount()
 
-                // Start new polling interval
-                cache.pollingInterval = setInterval(() => {
-                    actions.loadMessages()
-                }, MESSAGE_POLL_INTERVAL)
+                // Start message polling using disposables pattern
+                cache.disposables.dispose('messagePolling')
+                cache.disposables.add(() => {
+                    const intervalId = setInterval(() => {
+                        actions.loadMessages()
+                    }, MESSAGE_POLL_INTERVAL)
+                    return () => clearInterval(intervalId)
+                }, 'messagePolling')
             } catch (error) {
                 console.error('Failed to load ticket:', error)
                 lemonToast.error('Failed to load ticket')
@@ -361,6 +403,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const ticket = await api.conversationsTickets.update(props.id.toString(), data)
                 actions.setTicket(ticket)
                 lemonToast.success('Ticket updated')
+                actions.loadTickets()
             } catch {
                 lemonToast.error('Failed to update ticket')
             }
@@ -409,7 +452,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setOlderMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content, onSuccess }) => {
+        sendMessage: async ({ content, richContent, isPrivate, onSuccess }) => {
             if (props.id === 'new') {
                 actions.setMessageSending(false)
                 return
@@ -418,21 +461,26 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 await api.comments.create(
                     {
                         content,
+                        rich_content: richContent,
                         scope: 'conversations_ticket',
                         item_id: props.id.toString(),
                         item_context: {
                             author_type: 'support',
-                            is_private: false,
+                            is_private: isPrivate,
                         },
                     },
                     {}
                 )
-                lemonToast.success('Message sent')
+                lemonToast.success(isPrivate ? 'Private message sent' : 'Message sent')
                 actions.setMessageSending(false)
                 onSuccess?.()
+                if (!isPrivate) {
+                    actions.incrementUnreadCustomerCount()
+                }
                 setTimeout(() => {
                     actions.loadMessages()
                 }, 300)
+                actions.loadTickets()
             } catch {
                 lemonToast.error('Failed to send message')
                 actions.setMessageSending(false)
@@ -445,8 +493,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         }
     }),
     beforeUnmount(({ cache }) => {
-        if (cache.pollingInterval) {
-            clearInterval(cache.pollingInterval)
-        }
+        cache.disposables.disposeAll()
     }),
 ])

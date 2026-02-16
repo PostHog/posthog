@@ -35,7 +35,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
+from posthog.api.insight_suggestions import generate_insight_name, get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -90,7 +90,13 @@ from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    LLMAnalyticsSummarizationBurstThrottle,
+    LLMAnalyticsSummarizationDailyThrottle,
+    LLMAnalyticsSummarizationSustainedThrottle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
 from posthog.schema_migrations.upgrade import upgrade
@@ -105,6 +111,8 @@ from posthog.utils import (
     tile_filters_override_requested_by_client,
     variables_override_requested_by_client,
 )
+
+from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
 
@@ -461,6 +469,7 @@ class InsightSerializer(InsightBasicSerializer):
         InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
 
         if dashboards is not None:
+            # nosemgrep: idor-lookup-without-team
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
@@ -603,6 +612,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
         ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
+        # nosemgrep: idor-lookup-without-team (team check after lookup)
         candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add)
         dashboard: Dashboard
         for dashboard in candidate_dashboards:
@@ -625,6 +635,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         if ids_to_remove:
             # Check permission before removing insight from dashboards
+            # nosemgrep: idor-lookup-without-team (team check after lookup)
             dashboards_to_remove = Dashboard.objects.filter(id__in=ids_to_remove)
             for dashboard in dashboards_to_remove:
                 if (
@@ -862,13 +873,12 @@ class InsightSerializer(InsightBasicSerializer):
                     variables_override=variables_override,
                     tile_filters_override=tile_filters_override,
                 )
-            except (ExposedHogQLError, ExposedCHQueryError) as e:
+            except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))
             except ConcurrencyLimitExceeded as e:
                 logger.warn(
                     "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
                 )
-
                 return InsightResult(
                     result=None,
                     last_refresh=now(),
@@ -880,6 +890,29 @@ class InsightSerializer(InsightBasicSerializer):
                             insight_id=str(insight.id),
                             dashboard_id=str(dashboard.id) if dashboard else None,
                             error_message="concurrency_limit_exceeded",
+                            error=True,
+                        )
+                    ),
+                    cache_key=None,
+                    hogql=None,
+                    columns=None,
+                    has_more=None,
+                    timezone=self.context["get_team"]().timezone,
+                )
+            except Exception as e:
+                # Capture unexpected crashes so the API list doesn't fail
+                logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
+                return InsightResult(
+                    result=None,
+                    last_refresh=None,
+                    is_cached=False,
+                    query_status=dict(
+                        QueryStatus(
+                            id=self.context["request"].query_params.get("client_query_id"),
+                            team_id=insight.team_id,
+                            insight_id=str(insight.id),
+                            dashboard_id=str(dashboard.id) if dashboard else None,
+                            error_message=str(e),
                             error=True,
                         )
                     ),
@@ -947,12 +980,27 @@ class InsightViewSet(
     ]
     renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.CSVRenderer)
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["short_id", "created_by"]
+    filterset_fields = ["short_id"]
     sharing_enabled_actions = ["retrieve", "list"]
     queryset = Insight.objects_including_soft_deleted.all()
 
     stickiness_query_class = Stickiness
     parser_classes = (QuerySchemaParser,)
+
+    def get_throttles(self):
+        """Apply LLM-specific throttles to AI analysis endpoints."""
+        if self.action in ["analyze", "suggestions"]:
+            return [
+                LLMAnalyticsSummarizationBurstThrottle(),
+                LLMAnalyticsSummarizationSustainedThrottle(),
+                LLMAnalyticsSummarizationDailyThrottle(),
+            ]
+        return super().get_throttles()
+
+    def _validate_ai_feature_access(self) -> None:
+        """Validate that AI data processing is approved by the organization."""
+        if not self.organization.is_ai_data_processing_approved:
+            raise PermissionDenied("AI data processing must be approved by your organization before using AI analysis")
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
@@ -1115,6 +1163,9 @@ class InsightViewSet(
                 if insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.exclude(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
+                    queryset = queryset.exclude(
+                        query__kind__in=WRAPPER_NODE_KINDS, query__source__kind__in=legacy_to_hogql_mapping.values()
+                    )
                 elif insight == "SQL":
                     queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.filter(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
@@ -1145,6 +1196,36 @@ class InsightViewSet(
                             .values_list("insight__id", flat=True)
                             .all()
                         )
+            elif key == "tags":
+                tags_filter = request.GET["tags"]
+                if tags_filter:
+                    tags_list = json.loads(tags_filter)
+                    if tags_list:
+                        queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+            elif key == "created_by":
+                created_by_filter = request.GET["created_by"]
+                if created_by_filter:
+                    created_by_ids = json.loads(created_by_filter)
+                    if created_by_ids:
+                        queryset = queryset.filter(created_by__id__in=created_by_ids)
+            elif key == "created_date_from":
+                queryset = queryset.filter(
+                    created_at__gt=relative_date_parse(request.GET["created_date_from"], self.team.timezone_info)
+                )
+            elif key == "created_date_to":
+                queryset = queryset.filter(
+                    created_at__lt=relative_date_parse(request.GET["created_date_to"], self.team.timezone_info)
+                )
+            elif key == "last_viewed_date_from":
+                queryset = queryset.filter(
+                    last_viewed_at__gt=relative_date_parse(
+                        request.GET["last_viewed_date_from"], self.team.timezone_info
+                    )
+                )
+            elif key == "last_viewed_date_to":
+                queryset = queryset.filter(
+                    last_viewed_at__lt=relative_date_parse(request.GET["last_viewed_date_to"], self.team.timezone_info)
+                )
 
         return queryset
 
@@ -1194,7 +1275,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         try:
             serialized_data = self.get_serializer(instance, context=serializer_context).data
-        except (ExposedHogQLError, ExposedCHQueryError) as e:
+        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
 
         if dashboard_tile is not None:
@@ -1212,6 +1293,8 @@ When set, the specified dashboard's filters and date range override will be appl
 
     @action(methods=["GET"], detail=True)
     def analyze(self, request: Request, **kwargs) -> Response:
+        self._validate_ai_feature_access()
+
         insight = self.get_object()
 
         if not insight.query:
@@ -1253,6 +1336,8 @@ When set, the specified dashboard's filters and date range override will be appl
 
     @action(methods=["GET", "POST"], detail=True)
     def suggestions(self, request: Request, **kwargs) -> Response:
+        self._validate_ai_feature_access()
+
         insight = self.get_object()
 
         if not insight.query:
@@ -1291,6 +1376,27 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response([s.model_dump() for s in suggestions])
 
+    @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
+    def generate_name(self, request: Request, **kwargs) -> Response:
+        """Generate an AI-suggested name for an insight based on its query configuration."""
+        query_data = request.data.get("query")
+        if not query_data:
+            return Response(
+                {"error": "Missing 'query' field in request body"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            query = schema.InsightVizNode.model_validate(query_data)
+        except Exception:
+            return Response(
+                {"error": "Invalid query format"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        name = generate_insight_name(query, self.team)
+        return Response({"name": name})
+
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
@@ -1304,7 +1410,7 @@ When set, the specified dashboard's filters and date range override will be appl
                     result = self.calculate_trends_hogql(request)
                 else:
                     result = self.calculate_trends(request)
-        except (ExposedHogQLError, ExposedCHQueryError) as e:
+        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
         except UserAccessControlError as e:
             raise ValidationError(str(e))
@@ -1400,7 +1506,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 else:
                     funnel = self.calculate_funnel(request)
 
-        except (ExposedHogQLError, ExposedCHQueryError) as e:
+        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
 
         if isinstance(funnel["result"], BaseModel):

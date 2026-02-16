@@ -33,6 +33,10 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     sorter?: ((a: T, b: T) => number) | true
     /** Menu containing extra column options, accessible via a "More" button in the title of the column. */
     more?: JSX.Element
+    /** Optional icon to use for the more button. If not provided, defaults to ellipsis icon. */
+    moreIcon?: JSX.Element
+    /** Number of active filters for this column. Shows a badge on the more icon. */
+    moreFilterCount?: number
     className?: string | ((dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => string)
     style?:
         | CSSProperties

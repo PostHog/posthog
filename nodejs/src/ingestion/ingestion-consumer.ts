@@ -33,7 +33,10 @@ import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createContext } from './pipelines/helpers'
 import { ok } from './pipelines/results'
-import { MemoryRateLimiter } from './utils/overflow-detector'
+import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
+import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
+import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redis-repository'
 
 /**
  * Narrowed Hub type for IngestionConsumer.
@@ -82,7 +85,8 @@ export class IngestionConsumer {
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
-    private overflowRateLimiter: MemoryRateLimiter
+    private overflowRedirectService?: OverflowRedirectService
+    private overflowLaneTTLRefreshService?: OverflowRedirectService
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
@@ -130,10 +134,31 @@ export class IngestionConsumer {
         })
 
         this.name = `ingestion-consumer-${this.topic}`
-        this.overflowRateLimiter = new MemoryRateLimiter(
-            this.hub.EVENT_OVERFLOW_BUCKET_CAPACITY,
-            this.hub.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE
-        )
+
+        // Create shared Redis repository for overflow redirect services
+        const overflowRedisRepository = new RedisOverflowRepository({
+            redisPool: this.hub.redisPool,
+            redisTTLSeconds: this.hub.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
+        })
+
+        // Create overflow redirect service only when overflow is enabled (main lane)
+        if (this.overflowEnabled()) {
+            this.overflowRedirectService = new MainLaneOverflowRedirect({
+                redisRepository: overflowRedisRepository,
+                localCacheTTLSeconds: this.hub.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                bucketCapacity: this.hub.EVENT_OVERFLOW_BUCKET_CAPACITY,
+                replenishRate: this.hub.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                statefulEnabled: this.hub.INGESTION_STATEFUL_OVERFLOW_ENABLED,
+            })
+        }
+
+        // Create TTL refresh service when consuming from overflow topic (overflow lane)
+        if (this.hub.INGESTION_LANE === 'overflow' && this.hub.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
+            this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
+                redisRepository: overflowRedisRepository,
+            })
+        }
+
         this.hogTransformer = new HogTransformerService(hub)
 
         this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.kafkaProducer, {
@@ -184,11 +209,12 @@ export class IngestionConsumer {
             personsStore: this.personsStore,
             hogTransformer: this.hogTransformer,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-            overflowRateLimiter: this.overflowRateLimiter,
             overflowEnabled: this.overflowEnabled(),
             overflowTopic: this.overflowTopic || '',
             dlqTopic: this.dlqTopic,
             promiseScheduler: this.promiseScheduler,
+            overflowRedirectService: this.overflowRedirectService,
+            overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             perDistinctIdOptions: {
                 CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,

@@ -90,6 +90,9 @@ def _get_event_summary(event: dict[str, Any]) -> str:
         if props.get("$ai_latency") is not None:
             parts.append(_format_latency(props["$ai_latency"]))
 
+        if props.get("$ai_time_to_first_token") is not None:
+            parts.append(f"TTFT: {_format_latency(props['$ai_time_to_first_token'])}")
+
         if props.get("$ai_total_cost_usd") is not None:
             parts.append(_format_cost(props["$ai_total_cost_usd"]))
 

@@ -6,11 +6,13 @@ import {
     IconBook,
     IconBug,
     IconCircleDashed,
+    IconClock,
+    IconCode,
     IconCode2,
-    IconCursor,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
+    IconDownload,
     IconExternal,
     IconFeatures,
     IconFlask,
@@ -31,6 +33,7 @@ import {
     IconPeople,
     IconPieChart,
     IconPiggyBank,
+    IconPlay,
     IconPlug,
     IconRetention,
     IconRewindPlay,
@@ -38,6 +41,7 @@ import {
     IconSearch,
     IconServer,
     IconSpotlight,
+    IconStethoscope,
     IconStickiness,
     IconSupport,
     IconToggle,
@@ -185,7 +189,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconBug />,
     },
     action: {
-        icon: <IconCursor />,
+        icon: <IconPlay />,
+    },
+    activity: {
+        icon: <IconClock />,
     },
     comment: {
         icon: <IconNotification />,
@@ -276,6 +283,37 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     settings: {
         icon: <IconGear />,
+    },
+    health: {
+        icon: <IconStethoscope />,
+    },
+    inbox: {
+        icon: <IconNotification />,
+    },
+    sdk_doctor: {
+        icon: <IconCode />,
+    },
+    pipeline_status: {
+        icon: <IconDatabase />,
+    },
+    llm_evaluations: {
+        icon: <IconFlask />,
+        iconColor: ['var(--color-product-llm-evaluations-light)'],
+    },
+    llm_datasets: {
+        icon: <IconDatabase />,
+        iconColor: ['var(--color-product-llm-datasets-light)'],
+    },
+    llm_prompts: {
+        icon: <IconBook />,
+        iconColor: ['var(--color-product-llm-prompts-light)'],
+    },
+    llm_clusters: {
+        icon: <IconPeople />,
+        iconColor: ['var(--color-product-llm-clusters-light)'],
+    },
+    exports: {
+        icon: <IconDownload />,
     },
 }
 

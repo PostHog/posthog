@@ -1,6 +1,7 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -8,16 +9,22 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroupType,
+    isQuickFilterItem,
+    quickFilterToPropertyFilters,
+} from 'lib/components/TaxonomicFilter/types'
 import {
     TaxonomicPopover,
     TaxonomicPopoverProps,
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { teamLogic } from 'scenes/teamLogic'
 import { MathCategory, mathsLogic } from 'scenes/trends/mathsLogic'
 
-import { BaseMathType } from '~/types'
+import { BaseMathType, EntityTypes, InsightType } from '~/types'
 
 import {
     ActionFilterRow,
@@ -46,6 +53,7 @@ interface ActionFilterGroupProps {
     dataWarehousePopoverFields?: any[]
     excludedProperties?: TaxonomicPopoverProps['excludedProperties']
     trendsDisplayCategory?: any
+    insightType?: InsightType
 }
 
 export function ActionFilterGroup({
@@ -62,14 +70,28 @@ export function ActionFilterGroup({
     dataWarehousePopoverFields,
     excludedProperties,
     trendsDisplayCategory,
+    insightType,
 }: ActionFilterGroupProps): JSX.Element {
+    const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
+    const effectiveActionsTaxonomicGroupTypes = showQuickFilters
+        ? [TaxonomicFilterGroupType.SuggestedFilters, ...actionsTaxonomicGroupTypes]
+        : actionsTaxonomicGroupTypes
+
+    const { currentTeamId } = useValues(teamLogic)
     const { removeLocalFilter, splitLocalFilter } = useActions(entityFilterLogic({ typeKey }))
     const { mathDefinitions } = useValues(mathsLogic)
     const { setNodeRef, attributes, transform, transition, isDragging } = useSortable({ id: filter.uuid })
 
     const groupLogic = actionFilterGroupLogic({ filterUuid: filter.uuid, typeKey, groupIndex: index })
     const { nestedFilters, operator, isHogQLDropdownVisible } = useValues(groupLogic)
-    const { addNestedFilter, setMath, setMathProperty, setMathHogQL, setHogQLDropdownVisible } = useActions(groupLogic)
+    const {
+        addNestedFilter,
+        updateNestedFilterProperties,
+        setMath,
+        setMathProperty,
+        setMathHogQL,
+        setHogQLDropdownVisible,
+    } = useActions(groupLogic)
 
     return (
         <li
@@ -214,7 +236,13 @@ export function ActionFilterGroup({
                                 <LemonButton
                                     size="small"
                                     icon={<IconUndo />}
-                                    onClick={() => splitLocalFilter(index)}
+                                    onClick={() => {
+                                        splitLocalFilter(index)
+                                        posthog.capture('split_events', {
+                                            insight_type: insightType,
+                                            team_id: currentTeamId,
+                                        })
+                                    }}
                                     data-attr={`group-filter-split-${index}`}
                                 />
                             </Tooltip>
@@ -278,12 +306,28 @@ export function ActionFilterGroup({
                             icon={<IconPlusSmall />}
                             sideIcon={null}
                             onChange={(value, groupType, item) => {
+                                if (isQuickFilterItem(item)) {
+                                    if (item.eventName) {
+                                        const newIndex = nestedFilters.length
+                                        addNestedFilter(item.eventName, item.eventName, EntityTypes.EVENTS)
+                                        updateNestedFilterProperties(newIndex, quickFilterToPropertyFilters(item))
+                                        posthog.capture('add_event_to_group', {
+                                            insight_type: insightType,
+                                            team_id: currentTeamId,
+                                        })
+                                    }
+                                    return
+                                }
                                 const entityType = taxonomicFilterGroupTypeToEntityType(groupType)
                                 if (entityType && value) {
                                     addNestedFilter(String(value), item?.name || String(value), entityType)
+                                    posthog.capture('add_event_to_group', {
+                                        insight_type: insightType,
+                                        team_id: currentTeamId,
+                                    })
                                 }
                             }}
-                            groupTypes={actionsTaxonomicGroupTypes}
+                            groupTypes={effectiveActionsTaxonomicGroupTypes}
                             placeholder="Add event"
                             placeholderClass=""
                             showNumericalPropsOnly={showNumericalPropsOnly}

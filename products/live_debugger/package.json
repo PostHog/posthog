@@ -6,15 +6,15 @@
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",
-        "kea": "*",
-        "kea-loaders": "*",
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
         "react": "*",
         "react-dom": "*"
     },
     "dependencies": {
-        "fuse.js": "^6.6.2"
+        "fuse.js": "catalog:"
     },
     "devDependencies": {
-        "kea-test-utils": "^0.2.4"
+        "kea-test-utils": "catalog:"
     }
 }

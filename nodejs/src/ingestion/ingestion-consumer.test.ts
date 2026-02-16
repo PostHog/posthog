@@ -161,7 +161,7 @@ describe('IngestionConsumer', () => {
 
         // hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
-        const team2Id = await createTeam(hub.postgres, team.organization_id)
+        const team2Id = await createTeam(hub.postgres, team.organization_id, 'THIS IS NOT A TOKEN FOR TEAM 3')
         team2 = (await getTeam(hub, team2Id))!
 
         jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((...args) => {
@@ -269,7 +269,11 @@ describe('IngestionConsumer', () => {
             })
 
             it('should emit to overflow if token and distinct_id are overflowed', async () => {
-                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
+                ;(ingester['overflowRedirectService'] as any)['rateLimiter'].consume(
+                    `${team.api_token}:overflow-distinct-id`,
+                    1000,
+                    now()
+                )
                 const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
                 await ingester.handleKafkaBatch(overflowMessages)
                 expect(
@@ -290,7 +294,10 @@ describe('IngestionConsumer', () => {
                 const overflowIngester = await createIngestionConsumer(hub, {
                     INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
                 })
-                overflowIngester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
+
+                // Overflow consumer doesn't have overflowRedirectService (overflowEnabled() returns false)
+                // so events are never redirected back to overflow
+                expect(overflowIngester['overflowRedirectService']).toBeUndefined()
 
                 const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
                 await overflowIngester.handleKafkaBatch(overflowMessages)
@@ -303,6 +310,85 @@ describe('IngestionConsumer', () => {
                 ).toHaveLength(1)
 
                 await overflowIngester.stop()
+            })
+
+            describe('stateful overflow redirect', () => {
+                it('refreshes Redis TTL when processing events in overflow lane', async () => {
+                    // Enable stateful overflow
+                    hub.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
+                    hub.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
+                    hub.INGESTION_LANE = 'overflow'
+
+                    // Create overflow lane consumer
+                    const overflowIngester = await createIngestionConsumer(hub, {
+                        INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
+                    })
+
+                    // Verify TTL refresh service is created
+                    expect(overflowIngester['overflowLaneTTLRefreshService']).toBeDefined()
+
+                    // Pre-seed Redis with overflow flags (simulating main lane has flagged these keys)
+                    const redis = await hub.redisPool.acquire()
+                    const redisKey = `@posthog/stateful-overflow/events:${team.api_token}:overflow-user`
+                    await redis.set(redisKey, '1', 'EX', 300)
+
+                    // Get initial TTL
+                    const initialTTL = await redis.ttl(redisKey)
+                    expect(initialTTL).toBeGreaterThan(0)
+                    expect(initialTTL).toBeLessThanOrEqual(300)
+
+                    // Process an event in the overflow lane
+                    const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-user' })])
+                    await overflowIngester.handleKafkaBatch(overflowMessages)
+
+                    // Verify TTL was refreshed (should be back to ~300 seconds)
+                    const refreshedTTL = await redis.ttl(redisKey)
+                    expect(refreshedTTL).toBeGreaterThan(0)
+                    expect(refreshedTTL).toBeLessThanOrEqual(300)
+                    // The TTL should be close to the configured value after refresh
+                    expect(refreshedTTL).toBeGreaterThanOrEqual(298) // Allow for some time to pass
+
+                    // Verify the event was still processed normally
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                    ).toHaveLength(1)
+
+                    await hub.redisPool.release(redis)
+                    await overflowIngester.stop()
+                })
+
+                it('does not create keys when refreshing TTL for non-existent keys', async () => {
+                    // Enable stateful overflow
+                    hub.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
+                    hub.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
+                    hub.INGESTION_LANE = 'overflow'
+
+                    // Create overflow lane consumer
+                    const overflowIngester = await createIngestionConsumer(hub, {
+                        INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
+                    })
+
+                    const redis = await hub.redisPool.acquire()
+                    const redisKey = `@posthog/stateful-overflow/events:${team.api_token}:new-user`
+
+                    // Verify key doesn't exist initially
+                    expect(await redis.exists(redisKey)).toBe(0)
+
+                    // Process an event for a user that wasn't flagged
+                    const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'new-user' })])
+                    await overflowIngester.handleKafkaBatch(overflowMessages)
+
+                    // Verify key was NOT created (GETEX doesn't create keys, only refreshes existing ones)
+                    expect(await redis.exists(redisKey)).toBe(0)
+
+                    // Verify the event was still processed
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                    ).toHaveLength(1)
+
+                    await hub.redisPool.release(redis)
+                    await overflowIngester.stop()
+                })
             })
 
             describe('force overflow', () => {
@@ -847,7 +933,7 @@ describe('IngestionConsumer', () => {
             )
             expect(dlqMessages).toHaveLength(1)
             expect(dlqMessages[0].value).toEqual(parseJSON(messages[0].value!.toString()))
-            expect(dlqMessages[0].headers!['dlq-reason']).toEqual(error.message)
+            expect(dlqMessages[0].headers!['dlq_reason']).toEqual(error.message)
         })
     })
 

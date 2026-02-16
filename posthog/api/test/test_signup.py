@@ -117,6 +117,30 @@ class TestSignupAPI(APIBaseTest):
         # Assert that the password was correctly saved
         self.assertTrue(user.check_password(VALID_TEST_PASSWORD))
 
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthoganalytics.capture")
+    def test_api_sign_up_with_ai_referral_source(self, mock_capture):
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "hedgehog2@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Hedgehogs United, LLC",
+                "role_at_organization": "product",
+                "referral_source": "ChatGPT recommended it",
+                "referral_source_ai_prompt": "What is the best product analytics tool?",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        mock_capture.assert_called_once()
+        event_props = mock_capture.call_args.kwargs["properties"]
+        self.assertEqual(event_props["referral_source"], "ChatGPT recommended it")
+        self.assertEqual(event_props["referral_source_ai_prompt"], "What is the best product analytics tool?")
+        self.assertEqual(event_props["$set"]["referral_source"], "ChatGPT recommended it")
+        self.assertEqual(event_props["$set"]["referral_source_ai_prompt"], "What is the best product analytics tool?")
+
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
     def test_api_sign_up_requires_verification(self, mock_email_verifier, mock_is_email_available):
@@ -1357,6 +1381,35 @@ class TestPasskeySignupAPI(APIBaseTest):
                 "first_name": "No",
                 "last_name": "Password",
                 "email": "nopassword@posthog.com",
+                "organization_name": "Test Org",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "required",
+                "detail": "This field is required.",
+                "attr": "password",
+            },
+        )
+        self.assertEqual(User.objects.count(), count)
+
+    def test_non_empty_password_required_without_passkey_credential(self):
+        """
+        When signing up without a passkey credential in the session, non-empty password is required.
+        """
+        count = User.objects.count()
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "No",
+                "last_name": "Password",
+                "email": "nopassword@posthog.com",
+                "password": "",
                 "organization_name": "Test Org",
             },
         )

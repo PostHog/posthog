@@ -1,4 +1,5 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -18,6 +19,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DataModelingTab } from './scene/DataModelingTab'
 import { OverviewTab } from './scene/OverviewTab'
 import { SourcesTab } from './scene/SourcesTab'
 import { ViewsTab } from './scene/ViewsTab'
@@ -31,7 +33,7 @@ export const scene: SceneExport = {
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTab } = useValues(dataWarehouseSceneLogic)
-    const { setActiveTab } = useActions(dataWarehouseSceneLogic)
+    const { searchParams } = useValues(router)
 
     if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
         return <NotFound object="Data warehouse" />
@@ -47,9 +49,6 @@ export function DataWarehouseScene(): JSX.Element {
                 }}
                 actions={
                     <div className="flex gap-2">
-                        <LemonButton type="secondary" to={urls.sqlEditor()} size="small" data-attr="sql-editor-button">
-                            Create view
-                        </LemonButton>
                         <AppShortcut
                             name="NewDataWarehouseSource"
                             keybind={[keyBinds.new]}
@@ -73,24 +72,39 @@ export function DataWarehouseScene(): JSX.Element {
             />
             <LemonTabs
                 activeKey={activeTab}
-                onChange={(newKey) => setActiveTab(newKey)}
                 sceneInset
                 tabs={[
                     {
                         key: DataWarehouseTab.OVERVIEW,
                         label: 'Overview',
                         content: <OverviewTab />,
+                        link: urls.dataWarehouse(),
                     },
                     {
                         key: DataWarehouseTab.SOURCES,
                         label: 'Sources',
                         content: <SourcesTab />,
+                        link: combineUrl(urls.dataWarehouse(), { ...searchParams, tab: DataWarehouseTab.SOURCES }).url,
                     },
                     {
                         key: DataWarehouseTab.VIEWS,
                         label: 'Views',
                         content: <ViewsTab />,
+                        link: combineUrl(urls.dataWarehouse(), { ...searchParams, tab: DataWarehouseTab.VIEWS }).url,
                     },
+                    ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]
+                        ? [
+                              {
+                                  key: DataWarehouseTab.MODELING,
+                                  label: 'Modeling',
+                                  content: <DataModelingTab />,
+                                  link: combineUrl(urls.dataWarehouse(), {
+                                      ...searchParams,
+                                      tab: DataWarehouseTab.MODELING,
+                                  }).url,
+                              },
+                          ]
+                        : []),
                 ]}
             />
         </SceneContent>

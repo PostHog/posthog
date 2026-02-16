@@ -6,7 +6,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconArchive, IconCheck, IconPlus } from '@posthog/icons'
+import { IconArchive, IconCheck, IconPlus, IconSearch } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -228,7 +228,7 @@ interface InfiniteListRowProps {
         group: TaxonomicFilterGroup,
         value: string | number | null,
         item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true },
-        query: string
+        originalQuery?: string
     ) => void
     setHighlightedItemElement: (element: HTMLDivElement | null) => void
 }
@@ -337,24 +337,46 @@ const InfiniteListRow = ({
     }
 
     if (item && itemGroup) {
+        const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
+        const isExactMatchItem =
+            listGroupType === TaxonomicFilterGroupType.SuggestedFilters && itemGroup.type !== listGroupType
+
         return (
             <div
                 {...commonDivProps}
+                className={clsx(commonDivProps.className, isDisabledItem && 'cursor-not-allowed opacity-60')}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                onClick={() => {
+                role="button"
+                aria-disabled={isDisabledItem}
+                onClick={(event) => {
+                    if (isDisabledItem) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        return
+                    }
                     return (
                         canSelectItem(listGroupType, dataWarehousePopoverFields) &&
-                        selectItem(itemGroup, itemValue ?? null, item, items.originalQuery ?? '')
+                        selectItem(
+                            itemGroup,
+                            itemValue ?? null,
+                            item,
+                            isExactMatchItem ? trimmedSearchQuery : items.originalQuery
+                        )
                     )
                 }}
             >
                 {renderItemContents({
                     item,
-                    listGroupType,
+                    listGroupType: isExactMatchItem ? itemGroup.type : listGroupType,
                     itemGroup,
                     eventNames,
                     isActive,
                 })}
+                {isExactMatchItem && (
+                    <LemonTag size="small" type="highlight">
+                        {itemGroup.name}
+                    </LemonTag>
+                )}
             </div>
         )
     }
@@ -462,16 +484,30 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list', 'h-full')}>
             {showEmptyState ? (
                 <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
-                    <IconArchive className="text-5xl text-tertiary" />
-                    <span>
-                        {searchQuery ? (
-                            <>
-                                No results for "<strong>{searchQuery}</strong>"
-                            </>
-                        ) : (
-                            'No results'
-                        )}
-                    </span>
+                    {listGroupType === TaxonomicFilterGroupType.SuggestedFilters && !searchQuery ? (
+                        <>
+                            <IconSearch className="text-5xl text-tertiary" />
+                            <span className="text-secondary text-center">
+                                Start searching and we'll suggest filters...
+                            </span>
+                            <span className="text-secondary text-center">
+                                Try pasting an email, URL, screen name, or element text
+                            </span>
+                        </>
+                    ) : (
+                        <>
+                            <IconArchive className="text-5xl text-tertiary" />
+                            <span>
+                                {searchQuery ? (
+                                    <>
+                                        No results for "<strong>{searchQuery}</strong>"
+                                    </>
+                                ) : (
+                                    'No results'
+                                )}
+                            </span>
+                        </>
+                    )}
                 </div>
             ) : isLoading && (!results || results.length === 0) ? (
                 <div className="flex items-center justify-center h-full">

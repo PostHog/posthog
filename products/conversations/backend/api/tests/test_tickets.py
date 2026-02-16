@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.db import transaction
 
@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ActivityLog, Comment, Organization, User
+from posthog.models.person import Person
 
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, Priority, Status
@@ -19,37 +20,8 @@ def immediate_on_commit(func):
     func()
 
 
-class BaseConversationsAPITest(APIBaseTest):
-    feature_flag_patcher: MagicMock
-    mock_feature_flag: MagicMock
-
-    def setUp(self):
-        super().setUp()
-        # Enable conversations feature flag by default
-        self.set_conversations_feature_flag(True)
-
-    def tearDown(self):
-        if hasattr(self, "feature_flag_patcher"):
-            self.feature_flag_patcher.stop()
-        super().tearDown()
-
-    def set_conversations_feature_flag(self, enabled=True):
-        if hasattr(self, "feature_flag_patcher"):
-            self.feature_flag_patcher.stop()
-
-        self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")  # type: ignore[assignment]
-        self.mock_feature_flag = self.feature_flag_patcher.start()
-
-        def check_flag(flag_name, *_args, **_kwargs):
-            if flag_name == "product-support":
-                return enabled
-            return False
-
-        self.mock_feature_flag.side_effect = check_flag
-
-
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
-class TestTicketAPI(BaseConversationsAPITest):
+class TestTicketAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.ticket = Ticket.objects.create_with_number(
@@ -96,6 +68,99 @@ class TestTicketAPI(BaseConversationsAPITest):
 
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.unread_team_count, 0)
+
+    def test_retrieve_ticket_includes_person_data(self, mock_on_commit):
+        """Test that retrieve includes person data when person exists."""
+        person = Person.objects.create(
+            team=self.team,
+            distinct_ids=["user-123", "user@example.com", "another-id"],
+            properties={"email": "test@example.com", "name": "Test User"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("person", response.json())
+        self.assertIsNotNone(response.json()["person"])
+        self.assertEqual(response.json()["person"]["id"], str(person.uuid))
+        self.assertEqual(response.json()["person"]["properties"]["email"], "test@example.com")
+        # Verify all distinct_ids are returned, not just the ticket's
+        self.assertCountEqual(
+            response.json()["person"]["distinct_ids"],
+            ["user-123", "user@example.com", "another-id"],
+        )
+
+    def test_retrieve_ticket_person_null_when_no_person(self, mock_on_commit):
+        """Test that person is null when no person exists for distinct_id."""
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("person", response.json())
+        self.assertIsNone(response.json()["person"])
+
+    def test_list_tickets_includes_person_data(self, mock_on_commit):
+        """Test that list includes person data for tickets with persons."""
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user-123", "user@example.com"],
+            properties={"email": "test@example.com"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertIn("person", response.json()["results"][0])
+        self.assertIsNotNone(response.json()["results"][0]["person"])
+        self.assertEqual(response.json()["results"][0]["person"]["properties"]["email"], "test@example.com")
+        # Verify all distinct_ids are returned, not just the ticket's
+        self.assertCountEqual(
+            response.json()["results"][0]["person"]["distinct_ids"],
+            ["user-123", "user@example.com"],
+        )
+
+    def test_list_tickets_person_null_when_no_person(self, mock_on_commit):
+        """Test that person is null in list when no person exists."""
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertIn("person", response.json()["results"][0])
+        self.assertIsNone(response.json()["results"][0]["person"])
+
+    def test_retrieve_ticket_includes_anonymous_traits(self, mock_on_commit):
+        """Test that retrieve includes anonymous_traits."""
+        self.ticket.anonymous_traits = {"name": "John Doe", "email": "john@example.com"}
+        self.ticket.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("anonymous_traits", response.json())
+        self.assertEqual(response.json()["anonymous_traits"]["name"], "John Doe")
+        self.assertEqual(response.json()["anonymous_traits"]["email"], "john@example.com")
+
+    def test_list_tickets_includes_anonymous_traits(self, mock_on_commit):
+        """Test that list includes anonymous_traits."""
+        self.ticket.anonymous_traits = {"name": "Jane Doe", "company": "ACME"}
+        self.ticket.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertIn("anonymous_traits", response.json()["results"][0])
+        self.assertEqual(response.json()["results"][0]["anonymous_traits"]["name"], "Jane Doe")
+        self.assertEqual(response.json()["results"][0]["anonymous_traits"]["company"], "ACME")
+
+    def test_person_data_scoped_to_team(self, mock_on_commit):
+        """Test that person lookup is scoped to team (no cross-team leakage)."""
+        # Create person in different team
+        other_team = self.organization.teams.create(name="Other Team")
+        Person.objects.create(
+            team=other_team,
+            distinct_ids=["user-123"],  # Same distinct_id as ticket
+            properties={"email": "other@example.com"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Should be null because person is in different team
+        self.assertIsNone(response.json()["person"])
 
     @parameterized.expand(
         [
@@ -164,6 +229,186 @@ class TestTicketAPI(BaseConversationsAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
+    def test_filter_by_multiple_statuses(self, mock_on_commit):
+        """Test filtering tickets by multiple statuses (comma-separated)."""
+        self.ticket.status = Status.NEW
+        self.ticket.save()
+
+        open_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="open-session",
+            distinct_id="open-user",
+            status=Status.OPEN,
+        )
+        resolved_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="resolved-session",
+            distinct_id="resolved-user",
+            status=Status.RESOLVED,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?status=new,open")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        ticket_ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(self.ticket.id), ticket_ids)
+        self.assertIn(str(open_ticket.id), ticket_ids)
+        self.assertNotIn(str(resolved_ticket.id), ticket_ids)
+
+    def test_filter_by_multiple_priorities(self, mock_on_commit):
+        """Test filtering tickets by multiple priorities (comma-separated)."""
+        self.ticket.priority = Priority.LOW
+        self.ticket.save()
+
+        high_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="high-session",
+            distinct_id="high-user",
+            priority=Priority.HIGH,
+        )
+        medium_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="medium-session",
+            distinct_id="medium-user",
+            priority=Priority.MEDIUM,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?priority=low,high")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        ticket_ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(self.ticket.id), ticket_ids)
+        self.assertIn(str(high_ticket.id), ticket_ids)
+        self.assertNotIn(str(medium_ticket.id), ticket_ids)
+
+    def test_filter_multiple_statuses_and_priorities(self, mock_on_commit):
+        """Test filtering tickets by multiple statuses AND multiple priorities."""
+        self.ticket.status = Status.NEW
+        self.ticket.priority = Priority.HIGH
+        self.ticket.save()
+
+        open_low = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="open-low-session",
+            distinct_id="open-low-user",
+            status=Status.OPEN,
+            priority=Priority.LOW,
+        )
+        resolved_high = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="resolved-high-session",
+            distinct_id="resolved-high-user",
+            status=Status.RESOLVED,
+            priority=Priority.HIGH,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?status=new,open&priority=high,low"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        ticket_ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(self.ticket.id), ticket_ids)
+        self.assertIn(str(open_low.id), ticket_ids)
+        self.assertNotIn(str(resolved_high.id), ticket_ids)
+
+    def test_filter_multiple_statuses_with_invalid_value(self, mock_on_commit):
+        """Test that invalid values in comma-separated list are ignored."""
+        self.ticket.status = Status.NEW
+        self.ticket.save()
+
+        open_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="open-session",
+            distinct_id="open-user",
+            status=Status.OPEN,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?status=new,invalid,open")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        ticket_ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(self.ticket.id), ticket_ids)
+        self.assertIn(str(open_ticket.id), ticket_ids)
+
+    def test_filter_empty_status_returns_all(self, mock_on_commit):
+        """Test that empty status param returns all tickets."""
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-session",
+            distinct_id="other-user",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?status=")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+
+    def test_filter_single_status_backward_compatible(self, mock_on_commit):
+        """Test that single status filter still works (backward compatibility)."""
+        self.ticket.status = Status.NEW
+        self.ticket.save()
+
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="open-session",
+            distinct_id="open-user",
+            status=Status.OPEN,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?status=new")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_filter_date_from_all_returns_all_tickets(self, mock_on_commit):
+        """Test that date_from=all returns all tickets without date filtering."""
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-session",
+            distinct_id="other-user",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?date_from=all")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+
+    def test_filter_multiple_priorities_excludes_null(self, mock_on_commit):
+        """Test that multiple priority filter excludes tickets with NULL priority."""
+        self.ticket.priority = Priority.LOW
+        self.ticket.save()
+
+        high_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="high-session",
+            distinct_id="high-user",
+            priority=Priority.HIGH,
+        )
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="null-session",
+            distinct_id="null-user",
+            priority=None,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?priority=low,high")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        ticket_ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(self.ticket.id), ticket_ids)
+        self.assertIn(str(high_ticket.id), ticket_ids)
+
     @parameterized.expand(
         [
             (
@@ -207,17 +452,24 @@ class TestTicketAPI(BaseConversationsAPITest):
                 self.assertEqual(response.json()[field_name], expected_value)
 
     def test_list_tickets_no_n_plus_one_queries(self, mock_on_commit):
-        """Verify ticket list doesn't trigger N+1 queries for assigned users.
+        """Verify ticket list doesn't trigger N+1 queries for assigned users or persons.
         Message stats (message_count, last_message_at, last_message_text) are now
         denormalized on the Ticket model, so no subqueries needed.
+        Person data is batch-fetched in a single query.
         """
-        # Create 10 tickets with messages and assignments
+        # Create 10 tickets with messages, assignments, and persons
         for i in range(10):
             ticket = Ticket.objects.create_with_number(
                 team=self.team,
                 channel_source=Channel.WIDGET,
                 widget_session_id=f"session-{i}",
                 distinct_id=f"user-{i}",
+            )
+            # Create person for this ticket
+            Person.objects.create(
+                team=self.team,
+                distinct_ids=[f"user-{i}"],
+                properties={"email": f"user{i}@example.com"},
             )
             # Assign user to ticket
             TicketAssignment.objects.create(ticket=ticket, user=self.user)
@@ -238,9 +490,10 @@ class TestTicketAPI(BaseConversationsAPITest):
             )
 
         # Query count should be constant regardless of number of tickets
-        # Includes: session, user, org, team, permissions, feature flag check, count query, tickets query
+        # Includes: session, user, org, team, permissions, feature flag check, count query, tickets query,
+        # person distinct_id query (batch), person prefetch, all distinct_ids query (batch)
         # Note: message stats are denormalized, no subqueries needed
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(13):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total
@@ -251,29 +504,10 @@ class TestTicketAPI(BaseConversationsAPITest):
                 self.assertIn("last_message_at", ticket_data)
                 self.assertIn("last_message_text", ticket_data)
                 self.assertIn("assignee", ticket_data)
-
-    def test_feature_flag_required(self, mock_on_commit):
-        """Verify that product-support feature flag is required for API access."""
-        self.set_conversations_feature_flag(False)
-
-        endpoints = [
-            (f"/api/projects/{self.team.id}/conversations/tickets/", "GET"),
-            (f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", "GET"),
-            (f"/api/projects/{self.team.id}/conversations/tickets/", "POST"),
-            (f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", "PATCH"),
-            (f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", "DELETE"),
-        ]
-
-        for url, method in endpoints:
-            response = getattr(self.client, method.lower())(url, format="json")
-            self.assertEqual(
-                response.status_code,
-                status.HTTP_403_FORBIDDEN,
-                f"Failed for {method} {url}: expected 403, got {response.status_code}",
-            )
+                self.assertIn("person", ticket_data)
 
 
-class TestTicketAssignment(BaseConversationsAPITest):
+class TestTicketAssignment(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.ticket = Ticket.objects.create_with_number(
@@ -485,6 +719,213 @@ class TestTicketAssignment(BaseConversationsAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("does not belong to this organization", str(response.json()))
         self.assertEqual(TicketAssignment.objects.count(), 0)
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestUnreadCountEndpoint(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_enabled = True
+        self.team.save()
+
+    def test_unread_count_returns_zero_when_no_tickets(self, mock_on_commit):
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/unread_count/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_unread_count_returns_sum_of_unread_team_count(self, mock_on_commit):
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            unread_team_count=3,
+        )
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-2",
+            distinct_id="user-2",
+            unread_team_count=2,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/unread_count/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 5)
+
+    def test_unread_count_excludes_resolved_tickets(self, mock_on_commit):
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            unread_team_count=3,
+            status=Status.NEW,
+        )
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-2",
+            distinct_id="user-2",
+            unread_team_count=5,
+            status=Status.RESOLVED,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/unread_count/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 3)
+
+    def test_unread_count_returns_zero_when_conversations_disabled(self, mock_on_commit):
+        self.team.conversations_enabled = False
+        self.team.save()
+
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            unread_team_count=5,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/unread_count/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_retrieve_ticket_invalidates_cache_when_marking_as_read(self, mock_invalidate, mock_on_commit):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            unread_team_count=3,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_invalidate.assert_called_once_with(self.team.id)
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_retrieve_ticket_does_not_invalidate_cache_when_already_read(self, mock_invalidate, mock_on_commit):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            unread_team_count=0,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_invalidate.assert_not_called()
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_update_ticket_invalidates_cache_when_resolved(self, mock_invalidate, mock_on_commit):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            status=Status.NEW,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/",
+            {"status": Status.RESOLVED},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_invalidate.assert_called_once_with(self.team.id)
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_update_ticket_invalidates_cache_when_reopened(self, mock_invalidate, mock_on_commit):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            status=Status.RESOLVED,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/",
+            {"status": Status.OPEN},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_invalidate.assert_called_once_with(self.team.id)
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_update_ticket_does_not_invalidate_cache_for_other_changes(self, mock_invalidate, mock_on_commit):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            status=Status.NEW,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/",
+            {"priority": Priority.HIGH},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_invalidate.assert_not_called()
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestPrivateMessageAppAPI(APIBaseTest):
+    """Test that authenticated App API users can create private messages."""
+
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="test-session-123",
+            distinct_id="user-123",
+            status=Status.NEW,
+        )
+
+    def test_app_api_can_create_private_message(self, mock_on_commit):
+        """Verify authenticated users can create private messages via App API."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments/",
+            {
+                "content": "Private internal note",
+                "scope": "conversations_ticket",
+                "item_id": str(self.ticket.id),
+                "item_context": {"author_type": "support", "is_private": True},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify comment was created with is_private=True
+        comment = Comment.objects.get(id=response.json()["id"])
+        assert comment.item_context is not None
+        self.assertTrue(comment.item_context["is_private"])
+
+        # Verify private message doesn't affect denormalized stats
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.message_count, 0)
+        self.assertIsNone(self.ticket.last_message_text)
+
+    def test_app_api_private_message_visible_in_comments_list(self, mock_on_commit):
+        """Verify private messages are returned in App API comments list."""
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Private note",
+            created_by=self.user,
+            item_context={"author_type": "support", "is_private": True},
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments/?scope=conversations_ticket&item_id={self.ticket.id}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["content"], "Private note")
+        self.assertTrue(response.json()["results"][0]["item_context"]["is_private"])
 
 
 class TestTicketManager(BaseTest):

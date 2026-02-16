@@ -43,9 +43,17 @@ export function Settings({
         filteredLevels,
         filteredSections,
         collapsedLevels,
+        collapsedGroups,
     } = useValues(settingsLogic(props))
-    const { selectSection, selectLevel, selectSetting, openCompactNavigation, setSearchTerm, toggleLevelCollapse } =
-        useActions(settingsLogic(props))
+    const {
+        selectSection,
+        selectLevel,
+        selectSetting,
+        openCompactNavigation,
+        setSearchTerm,
+        toggleLevelCollapse,
+        toggleGroupCollapse,
+    } = useActions(settingsLogic(props))
     const { currentTeam } = useValues(teamLogic)
 
     const { ref, size } = useResizeBreakpoints(
@@ -90,6 +98,97 @@ export function Settings({
               const isCollapsed = collapsedLevels[level]
               const hasItems = levelSections.length > 0
 
+              // Separate danger zone sections (always rendered last)
+              const dangerZoneSections = levelSections.filter((s) => s.id.endsWith('-danger-zone'))
+              const nonDangerSections = levelSections.filter((s) => !s.id.endsWith('-danger-zone'))
+
+              // Build section option helper
+              const buildSectionOption = (section: (typeof levelSections)[0]): SettingOption => {
+                  const { id, to, accessControl } = section
+                  const isDangerZone = id.endsWith('-danger-zone')
+
+                  return {
+                      key: section.id,
+                      content: (
+                          <OptionButton
+                              key={id}
+                              to={to ?? urls.settings(id)}
+                              handleLocally={handleLocally}
+                              active={selectedSectionId === id}
+                              isLink={!!to}
+                              isDanger={isDangerZone}
+                              onClick={() => {
+                                  if (to) {
+                                      router.actions.push(to)
+                                  } else {
+                                      selectSection(id, level)
+                                  }
+                              }}
+                              disabledReason={
+                                  accessControl
+                                      ? getAccessControlDisabledReason(
+                                            accessControl.resourceType,
+                                            accessControl.minimumAccessLevel
+                                        )
+                                      : undefined
+                              }
+                              data-attr={`settings-menu-item-${id}`}
+                          >
+                              {section.title}
+                          </OptionButton>
+                      ),
+                  }
+              }
+
+              // Build items in SETTINGS_MAP order, rendering groups when we first encounter them
+              const renderedGroups = new Set<string>()
+              const levelItems: SettingOption[] = !isCollapsed
+                  ? [
+                        ...nonDangerSections.flatMap((section) => {
+                            // Ungrouped section - render directly
+                            if (!section.group) {
+                                return [buildSectionOption(section)]
+                            }
+
+                            // Grouped section - render entire group when we first see it
+                            if (renderedGroups.has(section.group)) {
+                                return [] // Already rendered this group
+                            }
+
+                            renderedGroups.add(section.group)
+                            const groupKey = `${level}-${section.group}`
+                            const isGroupCollapsed = collapsedGroups[groupKey]
+                            const sectionsInGroup = nonDangerSections.filter((s) => s.group === section.group)
+
+                            return [
+                                {
+                                    key: groupKey,
+                                    content: (
+                                        <OptionButton
+                                            handleLocally={handleLocally}
+                                            active={false}
+                                            onClick={() => toggleGroupCollapse(groupKey)}
+                                            sideIcon={
+                                                <IconChevronDown
+                                                    className={clsx(
+                                                        'w-4 h-4 transition-transform',
+                                                        isGroupCollapsed && '-rotate-90'
+                                                    )}
+                                                />
+                                            }
+                                        >
+                                            {section.group}
+                                        </OptionButton>
+                                    ),
+                                    items: !isGroupCollapsed ? sectionsInGroup.map(buildSectionOption) : [],
+                                },
+                            ]
+                        }),
+                        // Danger zone always at the bottom
+                        ...dangerZoneSections.map(buildSectionOption),
+                    ]
+                  : []
+
               return {
                   key: level,
                   content: (
@@ -114,42 +213,7 @@ export function Settings({
                           <span className="text-secondary">{SettingLevelNames[level]}</span>
                       </OptionButton>
                   ),
-                  items: !isCollapsed
-                      ? levelSections.map((section) => {
-                            const { id, to, accessControl } = section
-
-                            return {
-                                key: section.id,
-                                content: (
-                                    <OptionButton
-                                        key={id}
-                                        to={to ?? urls.settings(id)}
-                                        handleLocally={handleLocally}
-                                        active={selectedSectionId === id}
-                                        isLink={!!to}
-                                        onClick={() => {
-                                            if (to) {
-                                                router.actions.push(to)
-                                            } else {
-                                                selectSection(id, level)
-                                            }
-                                        }}
-                                        disabledReason={
-                                            accessControl
-                                                ? getAccessControlDisabledReason(
-                                                      accessControl.resourceType,
-                                                      accessControl.minimumAccessLevel
-                                                  )
-                                                : undefined
-                                        }
-                                        data-attr={`settings-menu-item-${id}`}
-                                    >
-                                        {section.title}
-                                    </OptionButton>
-                                ),
-                            }
-                        })
-                      : [],
+                  items: levelItems,
               }
           })
 
@@ -222,9 +286,9 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
     return (
         <div className="flex flex-col gap-y-8 pb-[80vh]">
             {settings.length ? (
-                settings.map((x) => (
-                    <div key={x.id} className="relative last:mb-4">
-                        {!settingsInSidebar && (
+                settings.map((x, index) => (
+                    <div key={`${x.id}-${index}`} className="relative last:mb-4">
+                        {!settingsInSidebar && x.title && (
                             <h2 id={x.id} className="flex gap-2 items-center">
                                 {x.title}
                                 {props.logicKey === 'settingsScene' && (
@@ -254,6 +318,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
 
 const depthMap: Record<number, string> = {
     1: 'pl-4',
+    2: 'pl-8',
 }
 
 const OptionGroup = ({ options, depth = 0 }: { options: SettingOption[]; depth?: number }): JSX.Element => {
@@ -276,6 +341,7 @@ const OptionButton = ({
     children,
     handleLocally,
     isLink = false,
+    isDanger = false,
     sideIcon,
     disabledReason,
     'data-attr': dataAttr,
@@ -283,6 +349,7 @@ const OptionButton = ({
     handleLocally: boolean
     onClick: () => void
     isLink?: boolean
+    isDanger?: boolean
     sideIcon?: JSX.Element
     'data-attr'?: string
 }): JSX.Element => {
@@ -301,6 +368,7 @@ const OptionButton = ({
             sideIcon={isLink ? <IconExternal /> : sideIcon}
             fullWidth
             active={active}
+            status={isDanger ? 'danger' : undefined}
             disabledReason={disabledReason}
             data-attr={dataAttr}
         >

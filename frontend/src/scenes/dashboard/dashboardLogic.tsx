@@ -239,6 +239,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setAccessDeniedToDashboard: true,
         /** Update the dashboard in dashboardsModel with given payload. */
         triggerDashboardUpdate: (payload) => ({ payload }),
+        updateDashboardTags: (tags: string[]) => ({ tags }),
         /** Update page visibility for virtualized rendering. */
         setPageVisibility: (visible: boolean) => ({ visible }),
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
@@ -868,6 +869,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     breakdown_filter: undefined,
                     explicitDate: undefined,
                 }),
+            },
+        ],
+        isSavingTags: [
+            false,
+            {
+                updateDashboardTags: () => true,
+                [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
+                    return dashboard && dashboard.id === props.id ? false : state
+                },
+                [dashboardsModel.actionTypes.updateDashboardFailure]: () => false,
             },
         ],
     })),
@@ -1700,8 +1711,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     action: RefreshDashboardItemsAction.Refresh,
                     forceRefresh: false,
                 })
-            } else if (mode === null && source === DashboardEventSource.DashboardHeaderSaveDashboard) {
-                // save edit mode changes
+            } else if (
+                mode === null &&
+                (source === DashboardEventSource.DashboardHeaderSaveDashboard ||
+                    source === DashboardEventSource.SceneCommonButtons)
+            ) {
+                // save edit mode changes when exiting via Save button or E key/Edit layout button
                 actions.saveEditModeChanges()
             }
 
@@ -1888,7 +1903,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 id: props.id,
                 last_refresh: lastDashboardRefresh.toISOString(),
                 discardResult: true,
+                allowUndo: false,
             })
+        },
+        updateDashboardTags: ({ tags }: { tags: string[] }) => {
+            actions.triggerDashboardUpdate({ tags })
         },
         setTileOverride: ({ tile }) => {
             const tileLogicProps = { dashboardId: props.id, tileId: tile.id, filtersOverrides: tile.filters_overrides }

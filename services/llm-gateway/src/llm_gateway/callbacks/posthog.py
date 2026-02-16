@@ -1,3 +1,5 @@
+import ast
+import json
 from typing import Any
 from uuid import uuid4
 
@@ -5,9 +7,60 @@ import posthoganalytics
 import structlog
 
 from llm_gateway.callbacks.base import InstrumentedCallback
-from llm_gateway.request_context import get_auth_user, get_product
+from llm_gateway.request_context import get_auth_user, get_product, get_time_to_first_token
 
 logger = structlog.get_logger(__name__)
+
+
+def _replace_binary_content(data: Any) -> Any:
+    """
+    Replace binary content with metadata before storing in PostHog.
+    Handles both raw bytes/tuples and their stringified repr() forms.
+    """
+    match data:
+        case None | int() | float() | bool():
+            return data
+        case str() if "b'\\x" in data or 'b"\\x' in data:
+            try:
+                return _replace_binary_content(ast.literal_eval(data))
+            except (ValueError, SyntaxError):
+                return data
+        case str():
+            return data
+        case bytes():
+            return {"type": "binary", "size_bytes": len(data)}
+        case tuple():
+            return tuple(_replace_binary_content(item) for item in data)
+        case list():
+            return [_replace_binary_content(item) for item in data]
+        case dict():
+            return {k: _replace_binary_content(v) for k, v in data.items()}
+        case _:
+            return data
+
+
+_MAX_CAPTURE_SIZE = 800 * 1024
+_MIN_FIELD_SIZE_TO_TRUNCATE = 10 * 1024
+_TRUNCATION_MARKER = "[truncated: content too large for capture]"
+_TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")
+
+
+def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
+    serialized = json.dumps(properties, default=str)
+    if len(serialized) <= _MAX_CAPTURE_SIZE:
+        return properties
+
+    result = dict(properties)
+    for field in _TRUNCATABLE_FIELDS:
+        if field not in result:
+            continue
+        field_size = len(json.dumps(result[field], default=str))
+        if field_size < _MIN_FIELD_SIZE_TO_TRUNCATE:
+            continue
+        result[field] = _TRUNCATION_MARKER
+        if len(json.dumps(result, default=str)) <= _MAX_CAPTURE_SIZE:
+            break
+    return result
 
 
 class PostHogCallback(InstrumentedCallback):
@@ -45,13 +98,16 @@ class PostHogCallback(InstrumentedCallback):
             model=standard_logging_object.get("model", ""),
         )
 
+        is_streaming = standard_logging_object.get("stream", False)
+
         properties: dict[str, Any] = {
             "$ai_model": standard_logging_object.get("model", ""),
             "$ai_provider": standard_logging_object.get("custom_llm_provider", ""),
-            "$ai_input": standard_logging_object.get("messages"),
+            "$ai_input": _replace_binary_content(standard_logging_object.get("messages")),
             "$ai_input_tokens": standard_logging_object.get("prompt_tokens", 0),
             "$ai_output_tokens": standard_logging_object.get("completion_tokens", 0),
             "$ai_latency": standard_logging_object.get("response_time", 0.0),
+            "$ai_stream": is_streaming,
             "$ai_trace_id": trace_id,
             "$ai_span_id": str(uuid4()),
             "ai_product": product,
@@ -67,6 +123,13 @@ class PostHogCallback(InstrumentedCallback):
         response = standard_logging_object.get("response")
         if response:
             properties["$ai_output_choices"] = response
+
+        # Add time to first token for streaming requests
+        time_to_first_token = get_time_to_first_token()
+        if time_to_first_token is not None:
+            properties["$ai_time_to_first_token"] = time_to_first_token
+
+        properties = _truncate_for_capture(properties)
 
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,
@@ -84,7 +147,6 @@ class PostHogCallback(InstrumentedCallback):
             groups=capture_kwargs.get("groups"),
         )
         posthoganalytics.capture(**capture_kwargs)
-        posthoganalytics.flush()
 
     async def _on_failure(
         self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float, end_user_id: str | None
@@ -136,7 +198,6 @@ class PostHogCallback(InstrumentedCallback):
             groups=capture_kwargs.get("groups"),
         )
         posthoganalytics.capture(**capture_kwargs)
-        posthoganalytics.flush()
 
     def _extract_metadata(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         litellm_params = kwargs.get("litellm_params", {}) or {}
