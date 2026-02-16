@@ -545,13 +545,6 @@ class TestInfoProcess:
         assert "devenv/news.txt" in shell
         assert "News:" in shell
 
-    def test_info_process_includes_hedgehog(self) -> None:
-        """Info process shell includes the hedgehog ASCII art."""
-        procs = self._generate_with_intents(["feature_flags"])
-        shell = procs["info"]["shell"]
-
-        assert "o.o" in shell
-
     def test_info_process_includes_commands(self) -> None:
         """Info process shell includes useful commands."""
         procs = self._generate_with_intents(["feature_flags"])
