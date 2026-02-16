@@ -7,7 +7,6 @@ use uuid::Uuid;
 
 use crate::{
     error::{EventError, UnhandledError},
-    stages::post_processing::update_properties::PropertiesContainer,
     types::exception_properties::ExceptionProperties,
 };
 
@@ -22,6 +21,11 @@ pub struct AnyEvent {
 
     #[serde(flatten)]
     pub others: HashMap<String, Value>,
+}
+
+pub trait PropertiesContainer: Send + Clone + 'static {
+    fn set_properties(&mut self, new_props: ExceptionProperties) -> Result<(), UnhandledError>;
+    fn attach_error(&mut self, error: String) -> Result<(), UnhandledError>;
 }
 
 impl PropertiesContainer for AnyEvent {
@@ -202,5 +206,60 @@ impl TryFrom<AnyEvent> for ClickHouseEvent {
             person_mode,
             historical_migration,
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::pipeline::exception::MAX_EXCEPTION_VALUE_LENGTH;
+
+    use super::*;
+    use uuid::Uuid;
+
+    fn make_exception_event(exception_value: &str) -> ClickHouseEvent {
+        let props = serde_json::json!({
+            "$exception_list": [{
+                "type": "Error",
+                "value": exception_value
+            }]
+        });
+        ClickHouseEvent {
+            uuid: Uuid::now_v7(),
+            team_id: 1,
+            project_id: Some(1),
+            event: "$exception".to_string(),
+            distinct_id: "test".to_string(),
+            properties: Some(props.to_string()),
+            timestamp: "2021-01-01T00:00:00Z".to_string(),
+            created_at: "2021-01-01T00:00:00Z".to_string(),
+            elements_chain: None,
+            person_id: None,
+            person_created_at: None,
+            person_properties: None,
+            group0_properties: None,
+            group1_properties: None,
+            group2_properties: None,
+            group3_properties: None,
+            group4_properties: None,
+            group0_created_at: None,
+            group1_created_at: None,
+            group2_created_at: None,
+            group3_created_at: None,
+            group4_created_at: None,
+            person_mode: common_types::PersonMode::Full,
+            captured_at: None,
+            historical_migration: None,
+        }
+    }
+
+    #[test]
+    fn test_exception_value_truncation() {
+        let long_value = "x".repeat(MAX_EXCEPTION_VALUE_LENGTH + 100);
+        let event = make_exception_event(&long_value);
+        let any_event = AnyEvent::try_from(event).unwrap();
+        let exc_props = ExceptionProperties::try_from(any_event).unwrap();
+
+        let expected = format!("{}...", "x".repeat(MAX_EXCEPTION_VALUE_LENGTH));
+        assert_eq!(exc_props.exception_list[0].exception_message, expected);
     }
 }

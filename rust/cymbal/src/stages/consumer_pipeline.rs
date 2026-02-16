@@ -8,12 +8,12 @@ use crate::{
     app_context::AppContext,
     error::{EventError, UnhandledError},
     metric_consts::CONSUMER_EXCEPTION_PIPELINE,
-    stages::{
-        pipeline::{ExceptionEventHandledError, ExceptionEventPipeline},
-        post_processing::update_properties::{PropertiesContainer, UpdatePropertiesStage},
-    },
+    stages::pipeline::{ExceptionEventHandledError, ExceptionEventPipeline},
     types::{
-        batch::Batch, event::AnyEvent, exception_properties::ExceptionProperties, stage::Stage,
+        batch::Batch,
+        event::{AnyEvent, PropertiesContainer},
+        exception_properties::ExceptionProperties,
+        stage::Stage,
     },
 };
 
@@ -29,7 +29,7 @@ impl ConsumerEventPipeline {
 
 impl Stage for ConsumerEventPipeline {
     type Input = ClickHouseEvent;
-    type Output = Result<ClickHouseEvent, EventError>;
+    type Output = Result<ClickHouseEvent, ExceptionEventHandledError>;
     type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
@@ -40,15 +40,14 @@ impl Stage for ConsumerEventPipeline {
         self,
         batch: Batch<Self::Input>,
     ) -> Result<Batch<Self::Output>, UnhandledError> {
-        let event_pipeline = ExceptionEventPipeline::new(self.app_context.clone());
         let clickhouse_events_by_id = Arc::new(Mutex::new(HashMap::new()));
         batch
             // Resolve stack traces
             .apply_func(clickhouse_to_props, clickhouse_events_by_id.clone())
             .await?
-            .apply_stage(event_pipeline)
+            .apply_stage(ExceptionEventPipeline::new(self.app_context.clone()))
             .await?
-            .apply_stage(UpdatePropertiesStage::new(clickhouse_events_by_id))
+            .apply_func(handle_results, clickhouse_events_by_id.clone())
             .await
     }
 }
@@ -66,6 +65,36 @@ async fn clickhouse_to_props(
         },
         Err(err) => Ok(Err(ExceptionEventHandledError::new(event_uuid, err))),
     }
+}
+
+async fn handle_results(
+    item: Result<ExceptionProperties, ExceptionEventHandledError>,
+    map: Arc<Mutex<HashMap<Uuid, ClickHouseEvent>>>,
+) -> Result<Result<ClickHouseEvent, ExceptionEventHandledError>, UnhandledError> {
+    let new_item = match item {
+        Ok(props) => {
+            let mut mutex_guard = map.lock().await;
+            let mut original_evt = mutex_guard
+                .remove(&props.uuid)
+                .ok_or(UnhandledError::Other("Missing event".into()))?;
+            original_evt.set_properties(props)?;
+            Ok(original_evt)
+        }
+        Err(err) => match err.error {
+            // we keep suppressed errors to drop events later in the pipeline
+            EventError::Suppressed(_) => Err(err),
+            // we attach error to original event and continue
+            evt_err => {
+                let mut mutex_guard = map.lock().await;
+                let mut original_evt = mutex_guard
+                    .remove(&err.uuid)
+                    .ok_or(UnhandledError::Other("Missing event".into()))?;
+                original_evt.attach_error(evt_err.to_string())?;
+                Ok(original_evt.clone())
+            }
+        },
+    };
+    Ok(new_item)
 }
 
 impl PropertiesContainer for ClickHouseEvent {

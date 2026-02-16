@@ -11,7 +11,6 @@ use crate::{
     issue_resolution::Issue,
     pipeline::exception::MAX_EXCEPTION_VALUE_LENGTH,
     recursively_sanitize_properties,
-    stages::pipeline::ExceptionEventHandledError,
     types::{event::AnyEvent, ExceptionList, OutputErrProps},
 };
 

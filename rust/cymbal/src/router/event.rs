@@ -12,8 +12,8 @@ use tracing::warn;
 
 use crate::{
     app_context::AppContext,
-    error::{EventError, UnhandledError},
-    stages::pipeline::ExceptionEventPipeline,
+    error::UnhandledError,
+    stages::http_pipeline::HttpEventPipeline,
     types::{batch::Batch, event::AnyEvent, stage::Stage},
 };
 
@@ -30,7 +30,7 @@ impl IntoResponse for UnhandledError {
     }
 }
 
-impl IntoResponse for Batch<Result<AnyEvent, EventError>> {
+impl IntoResponse for Batch<AnyEvent> {
     fn into_response(self) -> axum::response::Response {
         match serde_json::to_value(Vec::from(self)) {
             Ok(value) => (StatusCode::OK, Json(value)).into_response(),
@@ -53,8 +53,8 @@ impl IntoResponse for Batch<Result<AnyEvent, EventError>> {
 pub async fn process_events(
     State(ctx): State<Arc<AppContext>>,
     Json(events): Json<Vec<AnyEvent>>,
-) -> Result<Batch<Result<AnyEvent, EventError>>, UnhandledError> {
-    let pipeline = ExceptionEventPipeline::new(ctx);
+) -> Result<Batch<AnyEvent>, UnhandledError> {
+    let pipeline = HttpEventPipeline::new(ctx);
     let input = Batch::from(events);
     let output = pipeline.process(input).await?;
     Ok(output)
