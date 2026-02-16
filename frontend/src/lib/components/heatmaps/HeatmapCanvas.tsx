@@ -10,6 +10,7 @@ import { cn } from 'lib/utils/css-classes'
 import { HeatmapEventsPanel } from './HeatmapEventsPanel'
 import { ScrollDepthCanvas } from './ScrollDepthCanvas'
 import { useMousePosition } from './useMousePosition'
+import { useScrollSync } from './useScrollSync'
 
 // Radius in pixels to search for nearby heatmap elements when clicking
 const CLICK_RADIUS_PX = 15
@@ -94,13 +95,14 @@ export function HeatmapCanvas({
         heightOverride,
         heatmapFixedPositionMode,
         heatmapElements,
-        heatmapScrollY,
         windowWidthOverride,
     } = useValues(heatmapDataLogic({ context, exportToken }))
     const { setSelectedArea } = useActions(heatmapDataLogic({ context, exportToken }))
 
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
+    const isToolbar = context === 'toolbar'
+    const { innerRef, scrollYRef } = useScrollSync(isToolbar)
     const [hasValueUnderMouse, setHasValueUnderMouse] = useState(false)
 
     const heatmapJSColorGradient = useMemo((): Record<string, string> => {
@@ -122,7 +124,7 @@ export function HeatmapCanvas({
         (e: React.MouseEvent<HTMLDivElement>): void => {
             const rect = e.currentTarget.getBoundingClientRect()
             const clickX = e.clientX - rect.left
-            const clickY = e.clientY - rect.top
+            const clickY = isToolbar ? e.clientY - rect.top + scrollYRef.current : e.clientY - rect.top
 
             const width = windowWidthOverride ?? windowWidth
 
@@ -131,12 +133,8 @@ export function HeatmapCanvas({
             let totalCount = 0
 
             for (const element of heatmapElements) {
-                // Calculate visual position (same logic as heatmapJsData selector)
-                const visualY =
-                    element.targetFixed && heatmapFixedPositionMode === 'fixed' ? element.y : element.y - heatmapScrollY
                 const visualX = element.xPercentage * width
-
-                const distance = Math.sqrt(Math.pow(clickX - visualX, 2) + Math.pow(clickY - visualY, 2))
+                const distance = Math.sqrt(Math.pow(clickX - visualX, 2) + Math.pow(clickY - element.y, 2))
 
                 if (distance <= CLICK_RADIUS_PX) {
                     nearbyElements.push({
@@ -157,7 +155,7 @@ export function HeatmapCanvas({
                 })
             }
         },
-        [heatmapElements, heatmapScrollY, windowWidth, windowWidthOverride, heatmapFixedPositionMode, setSelectedArea]
+        [heatmapElements, windowWidth, windowWidthOverride, setSelectedArea, isToolbar, scrollYRef]
     )
 
     const updateHeatmapData = useCallback((): void => {
@@ -183,7 +181,7 @@ export function HeatmapCanvas({
 
             updateHeatmapData()
         },
-        [updateHeatmapData, heatmapJSColorGradient] // oxlint-disable-line react-hooks/exhaustive-deps
+        [updateHeatmapData, heatmapJSColorGradient]
     )
 
     useEffect(() => {
@@ -217,6 +215,39 @@ export function HeatmapCanvas({
         )
     }
 
+    if (isToolbar) {
+        return (
+            <div
+                className={cn(
+                    'fixed inset-0 overflow-hidden',
+                    isReady ? 'heatmaps-ready' : 'heatmaps-loading',
+                    hasValueUnderMouse && 'cursor-pointer'
+                )}
+                data-attr="heatmap-canvas"
+                onClick={handleCanvasClick}
+            >
+                <div
+                    ref={innerRef}
+                    className="absolute top-0 left-0 w-full"
+                    style={{ height: heightOverride, willChange: 'transform' }}
+                >
+                    <div
+                        key={`${widthOverride ?? windowWidth}x${heightOverride}x${heatmapFixedPositionMode}`}
+                        className="absolute top-0 left-0 w-full h-full"
+                        ref={setHeatmapContainer}
+                    />
+                </div>
+                <HeatmapMouseInfo
+                    heatmapJsRef={heatmapsJsRef}
+                    containerRef={heatmapsJsContainerRef}
+                    context={context}
+                    onHasValue={setHasValueUnderMouse}
+                />
+                <HeatmapEventsPanel context={context} exportToken={exportToken} />
+            </div>
+        )
+    }
+
     return (
         <div
             className={cn(
@@ -228,7 +259,6 @@ export function HeatmapCanvas({
             data-attr="heatmap-canvas"
             onClick={handleCanvasClick}
         >
-            {/* NOTE: We key on the window dimensions and fixed position mode which triggers a recreation of the canvas */}
             <div
                 key={
                     exportToken
