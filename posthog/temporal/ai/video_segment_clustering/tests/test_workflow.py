@@ -184,6 +184,10 @@ async def test_emit_signals_activity_calls_emit_signal(ateam, test_segments_and_
             "posthog.temporal.ai.video_segment_clustering.activities.a4_emit_signals_from_clusters.count_distinct_persons",
             return_value=3,
         ),
+        patch(
+            "posthog.temporal.ai.video_segment_clustering.priority.count_distinct_persons",
+            return_value=3,
+        ),
     ):
         mock_genai_module.AsyncClient.return_value = mock_genai_client
 

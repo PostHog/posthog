@@ -1,1 +1,1 @@
-0002_signalreport_clustering_fields
+0003_remove_signalreport_cluster_centroid_fields
