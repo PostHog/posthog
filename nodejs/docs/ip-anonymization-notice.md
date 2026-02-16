@@ -25,21 +25,22 @@ Your GeoIP transformation will stop enriching events with location data (city, c
 
 ### To restore GeoIP functionality
 
-**Step 1:** Add the "Filter Properties" transformation
+**Step 1:** Disable "Discard client IP data"
 
-1. Go to Data Pipeline -> Transformations
-2. Click "New transformation"
-3. Select "Filter Properties"
-4. Configure it to filter out `$ip`
-5. Save and enable the transformation
-
-**Step 2:** Disable "Discard client IP data"
-
-1. Go to Settings -> Project -> IP Capture
+1. Go to Settings -> Environment -> Product analytics
 2. Turn OFF "Discard client IP data"
 3. Save changes
 
-This ensures you get geographic insights without storing IP addresses long-term.
+**Step 2:** Add the "Filter Properties" transformation
+
+1. Go to Data management -> Transformations
+2. Click "New transformation"
+3. Click "Create" on "Filter Properties"
+4. In the "Properties to filter" field, enter `$ip`
+5. Save and enable the transformation
+6. **Important:** Position it AFTER your GeoIP transformation (click the priority badge to open "Reorder transformations" and drag it below GeoIP)
+
+This ensures GeoIP can read `$ip` to add geographic properties, then Filter Properties removes `$ip` from the stored event.
 
 **You have 14 days to make this change.**
 
@@ -72,15 +73,15 @@ Since IP addresses will be removed before this plugin runs, the plugin will no l
 
 **Step 1:** Review your current configuration
 
-1. Go to Data Pipeline -> Transformations
+1. Go to Data management -> Transformations
 2. Find your "Advanced GeoIP" plugin
 3. Note which libraries you're configured to filter (in the `discardLibs` setting)
 
 **Step 2:** Create a custom transformation to remove `$ip` for specific libraries
 
-1. Go to Data Pipeline -> Transformations
+1. Go to Data management -> Transformations
 2. Click "New transformation"
-3. Select "Custom transformation"
+3. Click "Create" on "Custom transformation"
 4. Paste the following code (modify the library names to match your `discardLibs` configuration):
 
 ```hog
@@ -94,26 +95,26 @@ return returnEvent
 ```
 
 5. Save and enable the transformation
-6. Position it BEFORE the GeoIP transformation in your pipeline (execution order matters)
+6. Position it BEFORE the GeoIP transformation (click the priority badge to open "Reorder transformations" and drag it above GeoIP)
 
 **Step 3:** Add the "GeoIP" transformation (if not already added)
 
 1. Click "New transformation"
-2. Select "GeoIP"
+2. Click "Create" on "GeoIP"
 3. Save and enable the transformation
-4. Position it AFTER the custom transformation from Step 2
+4. Position it AFTER the custom transformation from Step 2 (use "Reorder transformations" to drag it into place)
 
 **Step 4:** Add a "Filter Properties" transformation to remove `$ip` from all events
 
 1. Click "New transformation"
-2. Select "Filter Properties"
-3. Configure it to filter out `$ip`
+2. Click "Create" on "Filter Properties"
+3. In the "Properties to filter" field, enter `$ip`
 4. Save and enable the transformation
-5. Position it AFTER the GeoIP transformation
+5. Position it AFTER the GeoIP transformation (use "Reorder transformations" to drag it into place)
 
 **Step 5:** Disable "Discard client IP data"
 
-1. Go to Settings -> Project -> IP Capture
+1. Go to Settings -> Environment -> Product analytics
 2. Turn OFF "Discard client IP data"
 3. Save changes
 
@@ -126,7 +127,7 @@ return returnEvent
 
 **Step 7:** Disable the legacy plugin
 
-1. Go to Data Pipeline -> Transformations
+1. Go to Data management -> Transformations
 2. Find your "Advanced GeoIP" plugin
 3. Disable it
 
@@ -163,7 +164,7 @@ Since IP addresses will be removed before this plugin runs, this functionality i
 
 The new system already removes IPs at the ingestion level, achieving the same result as your `discardIp` setting. You can simply disable the legacy plugin:
 
-1. Go to Data Pipeline -> Transformations
+1. Go to Data management -> Transformations
 2. Find your "Advanced GeoIP" plugin
 3. Disable it
 
@@ -196,21 +197,22 @@ Your GeoIP transformation will stop enriching events with location data. Events 
 
 **Step 1:** Add the new "GeoIP" transformation
 
-1. Go to Data Pipeline -> Transformations
+1. Go to Data management -> Transformations
 2. Click "New transformation"
-3. Select "GeoIP" (modern template)
+3. Click "Create" on "GeoIP" (modern template)
 4. Enable the transformation
 
 **Step 2:** Add the "Filter Properties" transformation
 
 1. Click "New transformation"
-2. Select "Filter Properties"
-3. Configure it to filter out `$ip`
+2. Click "Create" on "Filter Properties"
+3. In the "Properties to filter" field, enter `$ip`
 4. Save and enable the transformation
+5. **Important:** Position it AFTER your GeoIP transformation (click the priority badge to open "Reorder transformations" and drag it below GeoIP)
 
 **Step 3:** Disable "Discard client IP data"
 
-1. Go to Settings -> Project -> IP Capture
+1. Go to Settings -> Environment -> Product analytics
 2. Turn OFF "Discard client IP data"
 3. Save changes
 
@@ -222,7 +224,7 @@ Your GeoIP transformation will stop enriching events with location data. Events 
 
 **Step 5:** Disable the legacy plugin
 
-1. Go to Data Pipeline -> Transformations
+1. Go to Data management -> Transformations
 2. Find your legacy "PostHog GeoIP" plugin
 3. Disable it
 
@@ -255,16 +257,16 @@ Your bot detection transformation will stop filtering bot traffic based on IP ad
 
 **Step 1:** Add the "Filter Properties" transformation
 
-1. Go to Data Pipeline -> Transformations
+1. Go to Data management -> Transformations
 2. Click "New transformation"
-3. Select "Filter Properties"
-4. Configure it to filter out `$ip`
-5. Position it AFTER your Bot Detection transformation in the pipeline
+3. Click "Create" on "Filter Properties"
+4. In the "Properties to filter" field, enter `$ip`
+5. Position it AFTER your Bot Detection transformation (click the priority badge to open "Reorder transformations" and drag it below Bot Detection)
 6. Save and enable the transformation
 
 **Step 2:** Disable "Discard client IP data"
 
-1. Go to Settings -> Project -> IP Capture
+1. Go to Settings -> Environment -> Product analytics
 2. Turn OFF "Discard client IP data"
 3. Save changes
 
@@ -301,13 +303,13 @@ The new system removes IPs at the ingestion level (before transformations run), 
 
 **Step 1:** Disable "Discard client IP data"
 
-1. Go to Settings -> Project -> IP Capture
+1. Go to Settings -> Environment -> Product analytics
 2. Turn OFF "Discard client IP data"
 3. Save changes
 
 **Step 2:** Verify your IP Anonymization transformation is enabled
 
-1. Go to Data Pipeline -> Transformations
+1. Go to Data management -> Transformations
 2. Find your IP Anonymization transformation
 3. Verify it's enabled
 4. No other changes needed - it will continue to anonymize IPs
@@ -316,13 +318,13 @@ The new system removes IPs at the ingestion level (before transformations run), 
 
 **Step 1:** Disable this transformation
 
-1. Go to Data Pipeline -> Transformations
+1. Go to Data management -> Transformations
 2. Find your IP Anonymization transformation
 3. Disable it
 
 **Step 2:** Verify "Discard client IP data" is enabled
 
-1. Go to Settings -> Project -> IP Capture
+1. Go to Settings -> Environment -> Product analytics
 2. Verify "Discard client IP data" is ON
 3. IPs will now be completely removed instead of anonymized
 
@@ -353,13 +355,13 @@ If your PII Hashing transformation is configured to hash `$ip` (check your trans
 
 **Step 1:** Disable "Discard client IP data"
 
-1. Go to Settings -> Project -> IP Capture
+1. Go to Settings -> Environment -> Product analytics
 2. Turn OFF "Discard client IP data"
 3. Save changes
 
 **Step 2:** Verify your PII Hashing transformation configuration
 
-1. Go to Data Pipeline -> Transformations
+1. Go to Data management -> Transformations
 2. Find your PII Hashing transformation
 3. Check that `$ip` is included in the "Properties to Hash" configuration
 4. If not, add it
@@ -367,9 +369,9 @@ If your PII Hashing transformation is configured to hash `$ip` (check your trans
 **Step 3 (Optional):** Add "Filter Properties" transformation to remove hashed IP
 
 1. Click "New transformation"
-2. Select "Filter Properties"
-3. Configure it to filter out `$ip`
-4. Position it AFTER your PII Hashing transformation
+2. Click "Create" on "Filter Properties"
+3. In the "Properties to filter" field, enter `$ip`
+4. Position it AFTER your PII Hashing transformation (click the priority badge to open "Reorder transformations" and drag it below PII Hashing)
 5. Save and enable the transformation
 
 Note: Hashed IPs are already anonymized, so removing them afterward is optional.
@@ -419,35 +421,35 @@ If your Property Filter transformation is configured to filter `$ip`, it will no
 
 **Step 1:** Disable "Discard client IP data"
 
-1. Go to Settings -> Project -> IP Capture
+1. Go to Settings -> Environment -> Product analytics
 2. Turn OFF "Discard client IP data"
 3. Save changes
 
 **Step 2:** Keep your Property Filter transformation with IP rules
 
-1. Verify it's still enabled in Data Pipeline -> Transformations
+1. Verify it's still enabled in Data management -> Transformations
 2. Verify your IP-based dropping rules are configured
 
 **Step 3:** Add a new "Filter Properties" transformation to remove IP
 
 1. Click "New transformation"
-2. Select "Filter Properties"
-3. Configure it to filter out `$ip`
-4. Position it AFTER your existing Property Filter
+2. Click "Create" on "Filter Properties"
+3. In the "Properties to filter" field, enter `$ip`
+4. Position it AFTER your existing Property Filter (click the priority badge to open "Reorder transformations" and drag it below your existing filter)
 5. Save and enable the transformation
 
 ### Recommended: Migrate to new "Filter Properties" transformation
 
 **Step 1:** Review your current filter configuration
 
-1. Go to Data Pipeline -> Transformations
+1. Go to Data management -> Transformations
 2. Find your legacy Property Filter plugin
 3. Note down all your current filter settings
 
 **Step 2:** Add the new "Filter Properties" transformation
 
 1. Click "New transformation"
-2. Select "Filter Properties" (modern template, ID: `template-filter-properties`)
+2. Click "Create" on "Filter Properties" (modern template, ID: `template-filter-properties`)
 3. Configure it with the same settings from your legacy plugin
 4. Save and enable the transformation
 
@@ -498,23 +500,23 @@ Your custom transformation references `$ip` in its code. Depending on how it's u
 
 **Step 1:** Review your transformation code
 
-1. Go to Data Pipeline -> Transformations
+1. Go to Data management -> Transformations
 2. Find your custom transformation
 3. Review how `$ip` is being used in the code
 4. Determine if `$ip` is critical to functionality
 
 **Step 2 (if `$ip` is critical):** Disable "Discard client IP data"
 
-1. Go to Settings -> Project -> IP Capture
+1. Go to Settings -> Environment -> Product analytics
 2. Turn OFF "Discard client IP data"
 3. Save changes
 
 **Step 3 (if `$ip` is critical):** Add "Filter Properties" transformation
 
 1. Click "New transformation"
-2. Select "Filter Properties"
-3. Configure it to filter out `$ip`
-4. Position it AFTER your custom transformation
+2. Click "Create" on "Filter Properties"
+3. In the "Properties to filter" field, enter `$ip`
+4. Position it AFTER your custom transformation (click the priority badge to open "Reorder transformations" and drag it below your custom transformation)
 5. Save and enable the transformation
 
 **Step 4:** Verify everything is working
