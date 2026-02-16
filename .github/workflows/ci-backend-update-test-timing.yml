@@ -3,7 +3,6 @@ name: Backend CI - Update test timing
 on:
     pull_request:
         paths:
-            - '.github/workflows/ci-backend-update-test-timing.yml'
             - '.github/scripts/optimize_test_durations.py'
     workflow_dispatch:
         inputs:
