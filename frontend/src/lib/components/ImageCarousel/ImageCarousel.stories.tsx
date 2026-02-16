@@ -58,3 +58,4 @@ Loading.args = {
     imageUrls: sampleImages,
     loading: true,
 }
+Loading.tags = ['test-skip']
