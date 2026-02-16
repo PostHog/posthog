@@ -88,18 +88,6 @@ fn format_checkpoint_list_start_after(partition_prefix: &str, cutoff: DateTime<U
     )
 }
 
-/// Classify an object_store error into a short, searchable label for structured logging.
-fn s3_error_kind(e: &object_store::Error) -> &'static str {
-    match e {
-        object_store::Error::NotFound { .. } => "not_found",
-        object_store::Error::PermissionDenied { .. } => "permission_denied",
-        object_store::Error::Unauthenticated { .. } => "unauthenticated",
-        object_store::Error::Precondition { .. } => "precondition",
-        object_store::Error::Generic { .. } => "generic",
-        _ => "other",
-    }
-}
-
 /// S3Downloader using `object_store` crate with `LimitStore` for bounded concurrency.
 /// The LimitStore wraps the S3 client with a semaphore that limits concurrent requests.
 /// Each download holds a permit for the entire stream duration, ensuring memory is bounded.
@@ -143,14 +131,6 @@ impl CheckpointDownloader for S3Downloader {
                 result
             }
             Err(e) => {
-                let error_kind = s3_error_kind(&e);
-                error!(
-                    remote_key,
-                    bucket = %self.s3_bucket,
-                    error_kind,
-                    error = %e,
-                    "S3 object download failed"
-                );
                 metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
                     .increment(1);
                 return Err(anyhow::anyhow!(e)).with_context(|| {
@@ -201,14 +181,6 @@ impl CheckpointDownloader for S3Downloader {
         let result = match self.store.get(&path).await {
             Ok(result) => result,
             Err(e) => {
-                let error_kind = s3_error_kind(&e);
-                error!(
-                    remote_key,
-                    bucket = %self.s3_bucket,
-                    error_kind,
-                    error = %e,
-                    "S3 object download failed"
-                );
                 metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
                     .increment(1);
                 return Err(anyhow::anyhow!(e)).with_context(|| {
@@ -382,7 +354,7 @@ impl CheckpointDownloader for S3Downloader {
                     keys_found.push(meta.location.to_string());
                 }
                 Err(e) => {
-                    error!("Error listing S3 objects: {e:#}");
+                    error!("Error listing S3 objects: {e}");
                 }
             }
         }

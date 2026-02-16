@@ -4369,8 +4369,6 @@ export interface AppContext {
     current_team: TeamType | TeamPublicType | null
     preflight: PreflightStatus
     default_event_name: string | null
-    has_pageview: boolean
-    has_screen: boolean
     persisted_feature_flags?: string[]
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
@@ -5170,14 +5168,12 @@ export interface DataModelingNode {
     type: DataModelingNodeType
     dag_id: string
     saved_query_id?: string
+    properties: Record<string, unknown>
     created_at: string
     updated_at: string
     upstream_count: number
     downstream_count: number
-    user_tag?: string
     last_run_at?: string
-    last_run_status?: DataModelingJobStatus
-    sync_interval?: DataWarehouseSyncInterval
 }
 
 export interface DataModelingEdge {
@@ -5768,7 +5764,6 @@ export enum SDKKey {
     REMIX = 'remix',
     RETOOL = 'retool',
     RUBY = 'ruby',
-    RUBY_ON_RAILS = 'ruby_on_rails',
     RUDDERSTACK = 'rudderstack',
     RUST = 'rust',
     SEGMENT = 'segment',
@@ -6780,7 +6775,7 @@ export interface ApprovalPolicy {
 }
 
 export interface WebAnalyticsFiltersConfig {
-    properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
+    properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[]
     dateFrom?: string | null
     dateTo?: string | null
     interval?: IntervalType

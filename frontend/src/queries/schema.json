@@ -15674,7 +15674,6 @@
                 "toolbar",
                 "settings",
                 "health",
-                "inbox",
                 "sdk_doctor",
                 "pipeline_status",
                 "llm_evaluations",
@@ -30501,9 +30500,6 @@
         "SourceFieldInputConfig": {
             "additionalProperties": false,
             "properties": {
-                "caption": {
-                    "type": "string"
-                },
                 "label": {
                     "type": "string"
                 },
@@ -31535,7 +31531,6 @@
                 "activity_log_properties",
                 "max_ai_context",
                 "workflow_variables",
-                "quick_filters",
                 "empty"
             ],
             "type": "string"
@@ -33227,9 +33222,6 @@
                 },
                 {
                     "$ref": "#/definitions/SessionPropertyFilter"
-                },
-                {
-                    "$ref": "#/definitions/CohortPropertyFilter"
                 }
             ]
         },

@@ -716,46 +716,5 @@ describe('snapshotDataLogic', () => {
                 expect(testLogic.values.isWaitingForPlayableFullSnapshot).toBe(false)
             })
         })
-
-        describe('buffer-ahead throttle', () => {
-            it.each([
-                {
-                    sourceCount: 80,
-                    flagEnabled: true,
-                    expectAllLoaded: false,
-                    description: 'pauses for long recording with flag enabled',
-                },
-                {
-                    sourceCount: 30,
-                    flagEnabled: true,
-                    expectAllLoaded: true,
-                    description: 'does not pause for 30-minute recording',
-                },
-                {
-                    sourceCount: 50,
-                    flagEnabled: false,
-                    expectAllLoaded: true,
-                    description: 'does not pause without flag',
-                },
-            ])('$description', async ({ sourceCount, flagEnabled, expectAllLoaded }) => {
-                const sources = createBlobSources(sourceCount)
-                setupSessionRecordingTest({ snapshotSources: sources })
-                if (flagEnabled) {
-                    enableTimestampBasedLoading()
-                }
-
-                const testLogic = snapshotDataLogic({
-                    sessionRecordingId: '2',
-                    blobV2PollingDisabled: true,
-                })
-                testLogic.mount()
-
-                await expectLogic(testLogic, () => {
-                    testLogic.actions.loadSnapshots()
-                }).toFinishAllListeners()
-
-                expect(testLogic.values.allSourcesLoaded).toBe(expectAllLoaded)
-            })
-        })
     })
 })

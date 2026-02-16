@@ -6,10 +6,10 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../config/config'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
 import {
-    SessionReplayPipelineInput,
-    SessionReplayPipelineOutput,
-    createSessionReplayPipeline,
-    runSessionReplayPipeline,
+    RestrictionPipelineInput,
+    RestrictionPipelineOutput,
+    applyRestrictions,
+    createRestrictionPipeline,
 } from '../ingestion/session_replay'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
@@ -28,6 +28,12 @@ import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { captureIngestionWarning } from '../worker/ingestion/utils'
+import {
+    KAFKA_CONSUMER_GROUP_ID,
+    KAFKA_CONSUMER_GROUP_ID_OVERFLOW,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+} from './constants'
 import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
@@ -83,9 +89,9 @@ export class SessionRecordingIngester {
     private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
     private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    private readonly sessionReplayPipeline: BatchPipelineUnwrapper<
-        SessionReplayPipelineInput,
-        SessionReplayPipelineOutput,
+    private readonly restrictionPipeline: BatchPipelineUnwrapper<
+        RestrictionPipelineInput,
+        RestrictionPipelineOutput,
         { message: Message }
     >
     private readonly kafkaMetadataProducer: KafkaProducerWrapper
@@ -103,9 +109,11 @@ export class SessionRecordingIngester {
         kafkaMessageProducer: KafkaProducerWrapper,
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
-        this.topic = hub.INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC
-        this.overflowTopic = hub.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC
-        this.consumerGroupId = hub.INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID
+        this.topic = consumeOverflow
+            ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
+            : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        this.overflowTopic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
+        this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
         this.isDebugLoggingEnabled = buildIntegerMatcher(hub.SESSION_RECORDING_DEBUG_PARTITION, true)
 
         this.promiseScheduler = new PromiseScheduler()
@@ -242,7 +250,7 @@ export class SessionRecordingIngester {
             sessionFilter,
         })
 
-        this.sessionReplayPipeline = createSessionReplayPipeline({
+        this.restrictionPipeline = createRestrictionPipeline({
             kafkaProducer: this.kafkaMessageProducer,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: !this.consumeOverflow,
@@ -289,10 +297,10 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
-        // Apply event processing pipeline steps first
+        // Apply event ingestion restrictions before parsing
         const messagesToProcess = await instrumentFn(
-            `recordingingesterv2.handleEachBatch.runPipeline`,
-            async () => await runSessionReplayPipeline(this.sessionReplayPipeline, messages)
+            `recordingingesterv2.handleEachBatch.applyRestrictions`,
+            async () => await applyRestrictions(this.restrictionPipeline, messages)
         )
 
         const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.parseBatch`, async () => {

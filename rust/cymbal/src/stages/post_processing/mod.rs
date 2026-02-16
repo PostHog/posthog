@@ -3,6 +3,8 @@ use std::{collections::HashMap, sync::Arc};
 use serde_json::Value;
 use tokio::sync::Mutex;
 use uuid::Uuid;
+pub mod drop_suppressed;
+pub mod update_properties;
 
 use crate::{
     error::{EventError, UnhandledError},
@@ -50,10 +52,10 @@ impl PostProcessingStage {
     async fn handle_error(
         &self,
         error: ExceptionEventHandledError,
-    ) -> Result<Option<AnyEvent>, UnhandledError> {
+    ) -> Result<Result<AnyEvent, EventError>, UnhandledError> {
         let (uuid, error) = (error.uuid, error.error);
         match error {
-            EventError::Suppressed(_) => Ok(None),
+            EventError::Suppressed(issue_id) => Ok(Err(EventError::Suppressed(issue_id))),
             err => {
                 let event = self
                     .events_by_id
@@ -62,7 +64,7 @@ impl PostProcessingStage {
                     .remove(&uuid)
                     .ok_or(UnhandledError::Other("Missing event".into()))?;
                 let event = self.add_error_to_event(event, err)?;
-                Ok(Some(event))
+                Ok(Ok(event))
             }
         }
     }
@@ -70,7 +72,7 @@ impl PostProcessingStage {
     async fn handle_value(
         &self,
         props: ExceptionProperties,
-    ) -> Result<Option<AnyEvent>, UnhandledError> {
+    ) -> Result<Result<AnyEvent, EventError>, UnhandledError> {
         let mut evt = self
             .events_by_id
             .lock()
@@ -78,13 +80,13 @@ impl PostProcessingStage {
             .remove(&props.uuid)
             .ok_or(UnhandledError::Other("Missing event".into()))?;
         evt.properties = serde_json::to_value(&props)?;
-        Ok(Some(evt))
+        Ok(Ok(evt))
     }
 }
 
 impl Stage for PostProcessingStage {
     type Input = ExceptionEventPipelineItem;
-    type Output = AnyEvent;
+    type Output = Result<AnyEvent, EventError>;
     type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
@@ -92,8 +94,7 @@ impl Stage for PostProcessingStage {
     }
 
     async fn process(self, input: Batch<Self::Input>) -> StageResult<Self> {
-        // Implement error handling logic here
-        Ok(input
+        input
             .apply_func(
                 async |item, ctx| match item {
                     Err(e) => ctx.handle_error(e).await,
@@ -101,10 +102,6 @@ impl Stage for PostProcessingStage {
                 },
                 self,
             )
-            .await?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .into())
+            .await
     }
 }

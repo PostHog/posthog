@@ -138,7 +138,6 @@ export function userNameForLogItem(logItem: ActivityLogItem): string {
 
 const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]
 
-// Keep in sync with SCOPE_DISPLAY_NAMES in ee/hogai/context/activity_log/context.py
 const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plural: string }>> = {
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },

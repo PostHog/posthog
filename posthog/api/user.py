@@ -481,16 +481,9 @@ class UserViewSet(
     time_sensitive_allow_if_only_fields = [
         "theme_mode",
         "set_current_organization",
-        "set_current_team",
         "allow_sidebar_suggestions",
         "shortcut_position",
         "has_seen_product_intro_for",
-        "events_column_config",
-        "role_at_organization",
-    ]
-    time_sensitive_exclude_actions = [
-        "hedgehog_config",
-        "scene_personalisation",
     ]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]

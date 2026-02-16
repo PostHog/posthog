@@ -1,10 +1,11 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
@@ -15,6 +16,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { Experiment } from '~/types'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { experimentSceneLogic } from '../experimentSceneLogic'
 import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
 import { MetricsPanel } from './MetricsPanel'
 import { VariantsPanel } from './VariantsPanel'
@@ -35,7 +37,7 @@ interface ExperimentFormProps {
 
 export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps): JSX.Element => {
     const logic = createExperimentLogic({ experiment: draftExperiment, tabId })
-    useMountedLogic(logic)
+    useAttachedLogic(logic, tabId ? experimentSceneLogic({ tabId }) : undefined)
 
     const {
         experiment,

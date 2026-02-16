@@ -1,12 +1,8 @@
 use std::sync::Arc;
 
 use common_types::ClickHouseEvent;
-use issue_processing::do_issue_processing;
-use metrics::counter;
+
 use serde_json::Value;
-use stack_processing::do_stack_processing;
-use tracing::{error, warn};
-use uuid::Uuid;
 
 pub mod issue_processing;
 pub mod spike_detection;
@@ -15,89 +11,21 @@ pub mod stack_processing;
 use crate::{
     app_context::AppContext,
     error::{EventError, PipelineFailure, PipelineResult, UnhandledError},
-    issue_resolution::{Issue, IssueStatus},
-    metric_consts::{
-        ISSUE_PROCESSING_TIME, SPIKE_DETECTION_TIME, STACK_PROCESSING_TIME,
-        SUPPRESSED_ISSUE_DROPPED_EVENTS,
-    },
     recursively_sanitize_properties,
-    types::RawErrProps,
+    stages::{consumer_pipeline::ConsumerEventPipeline, pipeline::ExceptionEventPipeline},
+    types::{batch::Batch, event::AnyEvent, stage::Stage, RawErrProps},
 };
 
 pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
 
 pub async fn do_exception_handling(
-    mut events: Vec<PipelineResult>,
+    events: Vec<PipelineResult>,
     context: Arc<AppContext>,
 ) -> Result<Vec<PipelineResult>, PipelineFailure> {
-    // First pass through the event list, to get all the exception property sets
-    // we'll process. Events we don't get exception properties from will be skipped
-    // in all the following passes
-    let mut indexed_props = Vec::new();
-    for (index, event) in events.iter_mut().enumerate() {
-        let Ok(event) = event else {
-            continue; // some earlier stage already caused this event to be dropped, so we don't need to process it further.
-        };
-        match get_props(event) {
-            Ok(r) => indexed_props.push((index, r)),
-            Err(e) => {
-                warn!(team = event.team_id, "Failed to get props: {}", e);
-                if let Err(e) = add_error_to_event(event, e) {
-                    // If we fail to add an error to an event, we just log it.
-                    // This can happen if we failed to read the properties
-                    // of the event at all, e.g. due to a serde recursion limit.
-                    error!(team = event.team_id, "Failed to add error to event: {}", e);
-                }
-                continue;
-            }
-        };
-    }
-
-    // Freeze the events list as immutable until the final stage, to ensure we don't
-    // accidentally mutate or drop an event during processing - this ensures tha validity
-    // of the indexes in indexed_props.
-    let events = events;
-
-    let stack_timer = common_metrics::timing_guard(STACK_PROCESSING_TIME, &[]);
-    let fingerprinted = do_stack_processing(context.clone(), &events, indexed_props).await?;
-    stack_timer.fin();
-
-    let issue_timer = common_metrics::timing_guard(ISSUE_PROCESSING_TIME, &[]);
-    let issues = do_issue_processing(context.clone(), &events, &fingerprinted).await?;
-    issue_timer.fin();
-
-    // Unfreeze, as we're about to replace the event properties.
-    let mut events = events;
-    let mut issue_counts: std::collections::HashMap<Uuid, u32> = std::collections::HashMap::new();
-    let mut issues_by_id: std::collections::HashMap<Uuid, Issue> = std::collections::HashMap::new();
-    for (index, fingerprinted) in fingerprinted.into_iter() {
-        let issue = issues
-            .get(&fingerprinted.fingerprint.value)
-            .cloned()
-            .expect("Issue was resolved");
-
-        if matches!(issue.status, IssueStatus::Suppressed) {
-            counter!(SUPPRESSED_ISSUE_DROPPED_EVENTS).increment(1);
-            events[index] = Err(EventError::Suppressed(issue.id));
-            continue;
-        }
-
-        let Ok(event) = &mut events[index] else {
-            panic!("Event list modified since indexed property gathering");
-        };
-
-        let output = fingerprinted.to_output(issue.id);
-        event.properties =
-            Some(serde_json::to_string(&output).map_err(|e| (index, Arc::new(e.into())))?);
-        *issue_counts.entry(issue.id).or_insert(0) += 1;
-        issues_by_id.entry(issue.id).or_insert(issue);
-    }
-
-    let spike_timer = common_metrics::timing_guard(SPIKE_DETECTION_TIME, &[]);
-    spike_detection::do_spike_detection(context, issues_by_id, issue_counts).await;
-    spike_timer.fin();
-
-    Ok(events)
+    let pipeline = ConsumerEventPipeline::new(context);
+    let input_batch_events: Batch<Result<ClickHouseEvent, EventError>> = Batch::from(events);
+    let output_batch_events = pipeline.process(input_batch_events).await?;
+    output_batch_events
 }
 
 pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
@@ -174,9 +102,24 @@ pub fn add_error_to_event(
     Ok(())
 }
 
+impl From<Batch<PipelineResult>> for Batch<Result<AnyEvent, EventError>> {
+    fn from(value: Batch<PipelineResult>) -> Self {
+        Batch::from(
+            value
+                .into_iter()
+                .map(|item| match item {
+                    Ok(evt) => AnyEvent::try_from(evt),
+                    Err(err) => Err(err),
+                })
+                .collect::<Vec<_>>(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use uuid::Uuid;
 
     fn make_exception_event(exception_value: &str) -> ClickHouseEvent {
         let props = serde_json::json!({

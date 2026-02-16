@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -7,7 +8,6 @@ import { LemonButton, LemonCard, LemonSelect, Link, Spinner } from '@posthog/lem
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -51,9 +51,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         previousTicketsLoading,
         exceptionsQuery,
         chatPanelWidth,
-        hasUnsavedChanges,
     } = useValues(logic)
     const { setStatus, setPriority, setAssignee, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
+    const { push } = useActions(router)
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -122,8 +122,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onSendMessage={sendMessage}
                         onLoadOlderMessages={loadOlderMessages}
                         showPrivateOption
-                        unreadCustomerCount={ticket?.unread_customer_count}
-                        showDeliveryStatus={ticket?.channel_source === 'widget'}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} />
@@ -139,12 +137,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <div className="flex items-center justify-between mb-3">
                                     <h3 className="text-sm font-semibold">Customer</h3>
                                     <LemonButton
-                                        size="small"
+                                        size="xsmall"
                                         type="secondary"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            newInternalTab(urls.personByDistinctId(ticket.distinct_id))
-                                        }}
+                                        onClick={() => push(urls.personByDistinctId(ticket.distinct_id))}
                                     >
                                         View person
                                     </LemonButton>
@@ -216,7 +211,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Status</span>
                                 <LemonSelect
-                                    size="small"
+                                    size="xsmall"
                                     value={status}
                                     options={statusOptionsWithoutAll}
                                     onChange={(value: TicketStatus | null) => value && setStatus(value)}
@@ -226,7 +221,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Priority</span>
                                 <LemonSelect
-                                    size="small"
+                                    size="xsmall"
                                     value={priority}
                                     options={priorityOptions}
                                     onChange={(value: TicketPriority | null) => value && setPriority(value)}
@@ -238,7 +233,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <AssigneeSelect assignee={assignee} onChange={setAssignee}>
                                     {(resolvedAssignee, isOpen) => (
                                         <LemonButton
-                                            size="small"
+                                            size="xsmall"
                                             type="secondary"
                                             active={isOpen}
                                             sideIcon={<IconChevronDown />}
@@ -253,12 +248,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </div>
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => updateTicket()}
-                                disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
-                            >
+                            <LemonButton type="primary" size="small" onClick={() => updateTicket()}>
                                 Save changes
                             </LemonButton>
                         </div>

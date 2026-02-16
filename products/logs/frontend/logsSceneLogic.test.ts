@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator } from '~/types'
@@ -8,6 +10,13 @@ import { FilterLogicalOperator } from '~/types'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 
 import { logsSceneLogic } from './logsSceneLogic'
+
+jest.mock('@posthog/lemon-ui', () => ({
+    ...jest.requireActual('@posthog/lemon-ui'),
+    lemonToast: {
+        error: jest.fn(),
+    },
+}))
 
 describe('logsSceneLogic', () => {
     let logic: ReturnType<typeof logsSceneLogic.build>
@@ -28,6 +37,93 @@ describe('logsSceneLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    describe('toggleExpandLog', () => {
+        it('expands a log when not expanded', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleExpandLog('log-1')
+            }).toDispatchActions(['toggleExpandLog'])
+
+            expect(logic.values.expandedLogIds.has('log-1')).toBe(true)
+        })
+
+        it('collapses a log when already expanded', async () => {
+            logic.actions.toggleExpandLog('log-1')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.expandedLogIds.has('log-1')).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleExpandLog('log-1')
+            }).toDispatchActions(['toggleExpandLog'])
+
+            expect(logic.values.expandedLogIds.has('log-1')).toBe(false)
+        })
+
+        it('supports multiple expanded logs', async () => {
+            logic.actions.toggleExpandLog('log-1')
+            logic.actions.toggleExpandLog('log-2')
+            logic.actions.toggleExpandLog('log-3')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.expandedLogIds.has('log-1')).toBe(true)
+            expect(logic.values.expandedLogIds.has('log-2')).toBe(true)
+            expect(logic.values.expandedLogIds.has('log-3')).toBe(true)
+
+            logic.actions.toggleExpandLog('log-2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.expandedLogIds.has('log-1')).toBe(true)
+            expect(logic.values.expandedLogIds.has('log-2')).toBe(false)
+            expect(logic.values.expandedLogIds.has('log-3')).toBe(true)
+        })
+    })
+
+    describe('error handling', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+        })
+
+        it.each([
+            ['new query started', 'exact match for NEW_QUERY_STARTED_ERROR_MESSAGE'],
+            ['Fetch is aborted', 'Safari abort message'],
+            ['The operation was aborted', 'alternative abort message'],
+            ['ABORTED', 'uppercase abort'],
+            ['Request aborted by user', 'abort substring'],
+        ])('suppresses error "%s" (%s)', async (error) => {
+            logic.actions.fetchLogsFailure(error)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).not.toHaveBeenCalled()
+        })
+
+        it.each([['Network error'], ['Server returned 500'], ['Timeout exceeded']])(
+            'shows toast for legitimate error "%s"',
+            async (error) => {
+                logic.actions.fetchLogsFailure(error)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(lemonToast.error).toHaveBeenCalledWith(`Failed to load logs: ${error}`)
+            }
+        )
+
+        it.each([
+            ['Fetch is aborted', 'Safari abort message'],
+            ['new query started', 'exact match for NEW_QUERY_STARTED_ERROR_MESSAGE'],
+        ])('suppresses fetchNextLogsPage error "%s" (%s)', async (error) => {
+            logic.actions.fetchNextLogsPageFailure(error)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).not.toHaveBeenCalled()
+        })
+
+        it('shows toast for legitimate fetchNextLogsPage error', async () => {
+            logic.actions.fetchNextLogsPageFailure('Network error')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Failed to load more logs: Network error')
+        })
     })
 
     describe('URL parameter parsing', () => {

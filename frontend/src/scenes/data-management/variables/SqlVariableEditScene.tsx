@@ -20,7 +20,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ListVariable, Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
+import { sanitizeCodeName } from '~/queries/nodes/DataVisualization/Components/Variables/VariableFields'
+import { ListVariable, VariableType } from '~/queries/nodes/DataVisualization/types'
 
 import { VARIABLE_TYPE_OPTIONS, formatVariableReference, getCodeName } from './constants'
 import { VARIABLE_INSIGHT_COLUMNS } from './insightColumns'
@@ -125,11 +126,8 @@ export function SqlVariableEditScene(): JSX.Element {
         variableForm,
         insightsUsingVariable,
         insightsUsingVariableLoading,
-        hasChanges,
-        variable,
     } = useValues(sqlVariableEditSceneLogic)
-    const { setVariableType, setVariableFormValues, submitVariableForm, resetVariableForm } =
-        useActions(sqlVariableEditSceneLogic)
+    const { setVariableType, setVariableFormValues, submitVariableForm } = useActions(sqlVariableEditSceneLogic)
 
     const title = isNew ? 'New variable' : variableForm.name || 'Edit variable'
     const codeNameFallback = getCodeName(variableForm.name ?? '')
@@ -157,34 +155,21 @@ export function SqlVariableEditScene(): JSX.Element {
                     actions={
                         <>
                             <LemonButton
-                                data-attr="discard-variable-changes"
-                                type="secondary"
-                                size="small"
-                                disabledReason={!isNew && !hasChanges ? 'No changes to discard' : undefined}
-                                onClick={() => {
-                                    if (variable) {
-                                        resetVariableForm({
-                                            name: variable.name,
-                                            type: variable.type,
-                                            default_value: variable.default_value,
-                                            code_name: variable.code_name,
-                                            ...('values' in variable && { values: variable.values }),
-                                        } as Partial<Variable>)
-                                        setVariableType(variable.type)
-                                    }
-                                }}
-                            >
-                                Discard changes
-                            </LemonButton>
-                            <LemonButton
                                 data-attr="save-variable"
                                 type="primary"
                                 size="small"
                                 onClick={submitVariableForm}
                                 loading={isVariableFormSubmitting}
-                                disabledReason={!isNew && !hasChanges ? 'No changes to save' : undefined}
                             >
                                 Save
+                            </LemonButton>
+                            <LemonButton
+                                data-attr="cancel-variable"
+                                type="secondary"
+                                size="small"
+                                to={urls.variables()}
+                            >
+                                Cancel
                             </LemonButton>
                         </>
                     }
@@ -206,25 +191,21 @@ export function SqlVariableEditScene(): JSX.Element {
                                         value={value}
                                         onChange={(newValue) => {
                                             const filteredValue = newValue.replace(/[^a-zA-Z0-9\s_]/g, '')
-                                            if (isNew) {
-                                                const shouldUpdateCodeName =
-                                                    !variableForm.code_name ||
-                                                    variableForm.code_name === getCodeName(variableForm.name ?? '')
-                                                setVariableFormValues({
-                                                    name: filteredValue,
-                                                    code_name: shouldUpdateCodeName
-                                                        ? getCodeName(filteredValue)
-                                                        : variableForm.code_name,
-                                                })
-                                            } else {
-                                                setVariableFormValues({ name: filteredValue })
-                                            }
+                                            const shouldUpdateCodeName =
+                                                !variableForm.code_name ||
+                                                variableForm.code_name === getCodeName(variableForm.name ?? '')
+                                            setVariableFormValues({
+                                                name: filteredValue,
+                                                code_name: shouldUpdateCodeName
+                                                    ? getCodeName(filteredValue)
+                                                    : variableForm.code_name,
+                                            })
                                         }}
                                     />
                                 )}
                             </LemonField>
 
-                            {referenceCodeName && (
+                            {variableForm.name && variableForm.name.length > 0 && (
                                 <div className="text-sm text-secondary">
                                     Use this variable by referencing{' '}
                                     <code className="bg-bg-3000 px-1 py-0.5 rounded">
@@ -242,6 +223,16 @@ export function SqlVariableEditScene(): JSX.Element {
                                     />
                                 </div>
                             )}
+
+                            <LemonField name="code_name" label="Code name">
+                                {({ value, onChange }) => (
+                                    <LemonInput
+                                        placeholder="start_date"
+                                        value={value}
+                                        onChange={(newValue) => onChange(sanitizeCodeName(newValue))}
+                                    />
+                                )}
+                            </LemonField>
 
                             <LemonField.Pure label="Type">
                                 <LemonSelect<VariableType>

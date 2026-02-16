@@ -1,5 +1,6 @@
 export {
     BatchPipelineBuilder,
+    FilteredBatchPipelineBuilder,
     GroupingBatchPipelineBuilder,
     GroupProcessingBuilder,
     MessageAwareBatchPipelineBuilder,

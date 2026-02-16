@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -87,21 +86,12 @@ export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
                                     const { text, isPlaceholder } = formatVariableValue(variable)
                                     return (
                                         <LemonField.Pure key={variable.variableId} label={variable.code_name}>
-                                            <div className="flex items-center gap-1">
-                                                <div
-                                                    className={`text-sm border rounded px-2 py-1 flex-1 ${
-                                                        isPlaceholder ? 'text-muted italic' : 'font-mono bg-bg-light'
-                                                    }`}
-                                                >
-                                                    {text}
-                                                </div>
-                                                <LemonButton
-                                                    icon={<IconPencil />}
-                                                    size="small"
-                                                    type="tertiary"
-                                                    to={urls.variableEdit(variable.variableId)}
-                                                    tooltip="Edit variable"
-                                                />
+                                            <div
+                                                className={`text-sm border rounded px-2 py-1 ${
+                                                    isPlaceholder ? 'text-muted italic' : 'font-mono bg-bg-light'
+                                                }`}
+                                            >
+                                                {text}
                                             </div>
                                         </LemonField.Pure>
                                     )

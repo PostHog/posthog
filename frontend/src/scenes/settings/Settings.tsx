@@ -286,8 +286,8 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
     return (
         <div className="flex flex-col gap-y-8 pb-[80vh]">
             {settings.length ? (
-                settings.map((x, index) => (
-                    <div key={`${x.id}-${index}`} className="relative last:mb-4">
+                settings.map((x) => (
+                    <div key={x.id} className="relative last:mb-4">
                         {!settingsInSidebar && x.title && (
                             <h2 id={x.id} className="flex gap-2 items-center">
                                 {x.title}

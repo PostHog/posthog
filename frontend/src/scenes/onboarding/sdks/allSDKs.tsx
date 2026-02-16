@@ -45,7 +45,6 @@ import nuxtImage from './logos/nuxt.svg'
 import openrouterImage from './logos/openrouter.png'
 import phpImage from './logos/php.svg'
 import pythonImage from './logos/python.svg'
-import railsImage from './logos/rails.svg'
 import reactImage from './logos/react.svg'
 import reactNativeImage from './logos/react.svg'
 import rubyImage from './logos/ruby.svg'
@@ -517,13 +516,6 @@ export const ALL_SDKS: SDK[] = [
         tags: [SDKTag.SERVER],
         image: rubyImage,
         docsLink: 'https://posthog.com/docs/libraries/ruby',
-    },
-    {
-        name: 'Ruby on Rails',
-        key: SDKKey.RUBY_ON_RAILS,
-        tags: [SDKTag.SERVER],
-        image: railsImage,
-        docsLink: 'https://posthog.com/docs/libraries/rails',
     },
     {
         name: 'Rust',

@@ -109,7 +109,6 @@ jobs:
                       type=ref,event=pr
                       type=ref,event=branch
                       type=sha
-                      type=raw,value=${{ github.sha }}
                       type=raw,value=latest,enable={{is_default_branch}}
 
             - name: Build and push container image

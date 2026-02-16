@@ -142,10 +142,6 @@ pub struct Config {
     #[envconfig(default = "200")] // 200ms (reduced from 500ms for lower latency)
     pub kafka_consumer_batch_timeout_ms: u64,
 
-    // Timeout for consumer.seek_partitions() after checkpoint import (seconds)
-    #[envconfig(default = "5")]
-    pub kafka_consumer_seek_timeout_secs: u64,
-
     // Kafka consumer fetch settings for throughput optimization
     #[envconfig(default = "1048576")] // 1MB minimum fetch size
     pub kafka_consumer_fetch_min_bytes: u32,
@@ -307,29 +303,38 @@ impl Config {
 
     /// Validate configuration settings
     pub fn validate(&self) -> Result<()> {
-        fs::create_dir_all(&self.store_path).with_context(|| {
-            format!(
-                "Cannot create RocksDB store directory '{}' for consumer group '{}'",
-                self.store_path, self.kafka_consumer_group
-            )
-        })?;
+        // Check store path is writable
+        if let Err(e) = fs::create_dir_all(&self.store_path) {
+            return Err(anyhow::anyhow!(
+                "Cannot create RocksDB store directory '{}' for consumer group '{}': {}",
+                self.store_path,
+                self.kafka_consumer_group,
+                e
+            ));
+        }
 
+        // Check if we can write to the directory
         let test_file = self.store_path_buf().join(".write_test");
-        fs::write(&test_file, b"test").with_context(|| {
-            format!(
-                "RocksDB store path '{}' is not writable for consumer group '{}'",
-                self.store_path, self.kafka_consumer_group
-            )
-        })?;
+        if let Err(e) = fs::write(&test_file, b"test") {
+            return Err(anyhow::anyhow!(
+                "RocksDB store path '{}' is not writable for consumer group '{}': {}",
+                self.store_path,
+                self.kafka_consumer_group,
+                e
+            ));
+        }
         fs::remove_file(test_file).ok();
 
+        // Validate checkpoint path if S3 is configured
         if let Some(ref bucket) = self.s3_bucket {
-            fs::create_dir_all(&self.local_checkpoint_dir).with_context(|| {
-                format!(
-                    "Cannot create local checkpoint directory '{}' for S3 bucket '{}'",
-                    self.local_checkpoint_dir, bucket
-                )
-            })?;
+            if let Err(e) = fs::create_dir_all(&self.local_checkpoint_dir) {
+                return Err(anyhow::anyhow!(
+                    "Cannot create local checkpoint directory '{}' for S3 bucket '{}': {}",
+                    self.local_checkpoint_dir,
+                    bucket,
+                    e
+                ));
+            }
         }
 
         Ok(())
@@ -363,11 +368,6 @@ impl Config {
     /// Get kafka consumer batch timeout as Duration
     pub fn kafka_consumer_batch_timeout(&self) -> Duration {
         Duration::from_millis(self.kafka_consumer_batch_timeout_ms)
-    }
-
-    /// Get kafka consumer seek timeout as Duration (for seek_partitions after checkpoint import)
-    pub fn kafka_consumer_seek_timeout(&self) -> Duration {
-        Duration::from_secs(self.kafka_consumer_seek_timeout_secs)
     }
 
     /// Get flush interval as Duration

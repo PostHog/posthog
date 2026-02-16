@@ -86,7 +86,7 @@ export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
             },
         ],
     }),
-    forms(({ props, values, actions }) => ({
+    forms(({ props, values }) => ({
         variableForm: {
             defaults: NEW_VARIABLE_DEFAULTS as Partial<Variable>,
             errors: ({ name }: { name?: string }) => ({
@@ -102,14 +102,13 @@ export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
 
                 try {
                     if (props.id === 'new') {
-                        const created = await api.insightVariables.create(data)
+                        await api.insightVariables.create(data)
                         lemonToast.success('Variable created')
-                        router.actions.push(urls.variableEdit(created.id))
                     } else {
                         await api.insightVariables.update(props.id, data)
                         lemonToast.success('Variable updated')
-                        actions.loadVariable()
                     }
+                    router.actions.push(urls.variables())
                 } catch (error: unknown) {
                     const apiError = error as { data?: { detail?: string } }
                     if (apiError.data?.detail) {
@@ -124,28 +123,6 @@ export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
     })),
     selectors({
         isNew: [(_, p) => [p.id], (id: string): boolean => id === 'new'],
-        hasChanges: [
-            (s) => [s.variableForm, s.variableType, s.variable, s.variableLoading],
-            (
-                variableForm: Partial<Variable>,
-                variableType: VariableType,
-                variable: Variable | null,
-                variableLoading: boolean
-            ): boolean => {
-                if (!variable || variableLoading) {
-                    return false
-                }
-                const defaultValueForm = variableForm.default_value ?? ''
-                const defaultValueSaved = variable.default_value ?? ''
-                return (
-                    (variableForm.name ?? '') !== (variable.name ?? '') ||
-                    variableType !== variable.type ||
-                    JSON.stringify(defaultValueForm) !== JSON.stringify(defaultValueSaved) ||
-                    JSON.stringify((variableForm as any).values ?? null) !==
-                        JSON.stringify((variable as any).values ?? null)
-                )
-            },
-        ],
         breadcrumbs: [
             (s, p) => [s.variable, p.id],
             (variable: Variable | null, id: string) => [
@@ -174,7 +151,7 @@ export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
                     ...(variable.type === 'List' && { values: (variable as any).values }),
                 } as Partial<Variable>
 
-                actions.resetVariableForm(formValues)
+                actions.setVariableFormValues(formValues)
                 actions.loadInsightsUsingVariable()
             }
         },

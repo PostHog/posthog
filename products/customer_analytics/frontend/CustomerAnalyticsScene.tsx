@@ -1,15 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -25,7 +22,6 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
-import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
 import { FeedbackBanner } from './components/FeedbackBanner'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
@@ -42,10 +38,8 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
     const { addProductIntent } = useActions(teamLogic)
     const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
         useActions(eventUsageLogic)
-    const { businessType, activeTab } = useValues(customerAnalyticsSceneLogic)
+    const { businessType } = useValues(customerAnalyticsSceneLogic)
     const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { searchParams } = useValues(router)
 
     if (!tabId) {
         throw new Error('CustomerAnalyticsScene was rendered with no tabId')
@@ -55,37 +49,16 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
         reportCustomerAnalyticsViewed()
     })
 
-    const dashboardContent =
+    const content =
         businessType === 'b2b' && shouldShowGroupsIntroduction ? (
             <GroupsIntroduction />
         ) : (
             <>
-                <CustomerAnalyticsFilters />
-                <div className="space-y-2">
-                    <ActiveUsersInsights />
-                    <SignupInsights />
-                    <SessionInsights />
-                </div>
+                <ActiveUsersInsights />
+                <SignupInsights />
+                <SessionInsights />
             </>
         )
-
-    const tabs: LemonTab<string>[] = [
-        {
-            key: 'dashboard',
-            label: 'Dashboard',
-            content: dashboardContent,
-            link: combineUrl(urls.customerAnalyticsDashboard(), searchParams).url,
-        },
-    ]
-
-    if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]) {
-        tabs.push({
-            key: 'journeys',
-            label: 'Customer journeys',
-            content: <CustomerJourneys />,
-            link: combineUrl(urls.customerAnalyticsJourneys(), searchParams).url,
-        })
-    }
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
@@ -125,11 +98,8 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                     }
                 />
                 <FeedbackBanner feedbackButtonId="dashboard" />
-                {tabs.length > 1 ? (
-                    <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
-                ) : (
-                    dashboardContent
-                )}
+                <CustomerAnalyticsFilters />
+                <div className="space-y-2">{content}</div>
             </SceneContent>
         </BindLogic>
     )

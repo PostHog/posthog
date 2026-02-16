@@ -228,7 +228,13 @@ async def fetch_session_batch_events_activity(
         session_db_data = SessionSummaryDBData(
             session_metadata=session_metadata, session_events_columns=filtered_columns, session_events=filtered_events
         )
-        if not session_db_data.session_events or not session_db_data.session_events_columns:
+        summary_data = await prepare_data_for_single_session_summary(
+            session_id=session_id,
+            user_id=inputs.user_id,
+            session_db_data=session_db_data,
+            extra_summary_context=inputs.extra_summary_context,
+        )
+        if summary_data.error_msg is not None:
             # Sessions with no events after filtering are expected skips, not failures
             temporalio.activity.logger.info(
                 f"Session {session_id} in team {inputs.team_id} has no events after filtering, skipping",
@@ -236,12 +242,6 @@ async def fetch_session_batch_events_activity(
             )
             expected_skip_session_ids.append(session_id)
             continue
-        summary_data = await prepare_data_for_single_session_summary(
-            session_id=session_id,
-            user_id=inputs.user_id,
-            session_db_data=session_db_data,
-            extra_summary_context=inputs.extra_summary_context,
-        )
         input_data = prepare_single_session_summary_input(
             session_id=session_id,
             user_id=inputs.user_id,
@@ -674,7 +674,7 @@ async def _start_session_group_summary_workflow(
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        task_queue=settings.MAX_AI_TASK_QUEUE,
         retry_policy=retry_policy,
     )
 

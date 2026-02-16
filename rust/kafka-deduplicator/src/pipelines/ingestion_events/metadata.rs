@@ -1,6 +1,6 @@
 //! Metadata implementation for ingestion events.
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Result};
 use common_types::RawEvent;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -47,18 +47,18 @@ impl TryFrom<&SerializableRawEvent> for RawEvent {
         let uuid = serializable
             .uuid
             .as_ref()
-            .map(|s| s.parse().with_context(|| "Invalid UUID"))
+            .map(|s| s.parse().map_err(|e| anyhow!("Invalid UUID: {e}")))
             .transpose()?;
 
         let distinct_id = serializable
             .distinct_id_json
             .as_ref()
-            .map(|s| serde_json::from_str(s).with_context(|| "Invalid distinct_id JSON"))
+            .map(|s| serde_json::from_str(s).map_err(|e| anyhow!("Invalid distinct_id JSON: {e}")))
             .transpose()?;
 
         let properties: HashMap<String, serde_json::Value> =
             serde_json::from_str(&serializable.properties_json)
-                .with_context(|| "Invalid properties JSON")?;
+                .map_err(|e| anyhow!("Invalid properties JSON: {e}"))?;
 
         Ok(RawEvent {
             uuid,
@@ -161,13 +161,13 @@ impl DeduplicationMetadata<RawEvent> for TimestampMetadata {
 
     fn to_bytes(&self) -> Result<Vec<u8>> {
         bincode::serde::encode_to_vec(self, bincode::config::standard())
-            .with_context(|| "Failed to serialize metadata")
+            .map_err(|e| anyhow::anyhow!("Failed to serialize metadata: {}", e))
     }
 
     fn from_bytes(bytes: &[u8]) -> Result<Self> {
         bincode::serde::decode_from_slice(bytes, bincode::config::standard())
             .map(|(m, _)| m)
-            .with_context(|| "Failed to deserialize metadata")
+            .map_err(|e| anyhow::anyhow!("Failed to deserialize metadata: {}", e))
     }
 }
 

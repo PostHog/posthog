@@ -1,1 +1,0 @@
-export { RegionMap } from './RegionMap'

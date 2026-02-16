@@ -42,7 +42,7 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
                 inst.isMouseOver = false
                 inst.hideTimeout = setTimeout(() => {
                     if (!inst.isMouseOver) {
-                        inst.element.style.opacity = '0'
+                        inst.element.classList.add('opacity-0', 'invisible')
                     }
                 }, 100)
             }
@@ -91,7 +91,7 @@ export function hideTooltip(id?: string): void {
 
     instance.hideTimeout = setTimeout(() => {
         if (!instance.isMouseOver) {
-            instance.element.style.opacity = '0'
+            instance.element.classList.add('opacity-0', 'invisible')
         }
     }, 100)
 }

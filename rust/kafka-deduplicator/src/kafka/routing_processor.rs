@@ -101,9 +101,10 @@ where
         for (partition, result) in results {
             if let Err(e) = result {
                 warn!(
-                    "Failed to route batch to partition {}:{}: {e:#}",
+                    "Failed to route batch to partition {}:{}: {}",
                     partition.topic(),
-                    partition.partition_number()
+                    partition.partition_number(),
+                    e
                 );
             }
         }

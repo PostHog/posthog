@@ -98,7 +98,7 @@ impl ClickHouseEventsBatchProcessor {
                 if let Ok(event) = result {
                     Some(event)
                 } else if let Err(e) = &parsed_events[idx] {
-                    error!("Failed to parse ClickHouseEvent: {e:#}");
+                    error!("Failed to parse ClickHouseEvent: {}", e);
                     None
                 } else {
                     None

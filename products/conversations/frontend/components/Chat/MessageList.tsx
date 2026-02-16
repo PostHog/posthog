@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 
-import type { ChatMessage, MessageDeliveryStatus } from '../../types'
+import type { ChatMessage } from '../../types'
 import { Message } from './Message'
 
 export interface MessageListProps {
@@ -17,10 +17,6 @@ export interface MessageListProps {
     maxHeight?: string
     /** When true, flips alignment so customer messages appear on the right (for customer-facing views) */
     isCustomerView?: boolean
-    /** Number of team messages that haven't been read by the customer */
-    unreadCustomerCount?: number
-    /** Whether to show delivery status on team messages */
-    showDeliveryStatus?: boolean
 }
 
 export function MessageList({
@@ -34,8 +30,6 @@ export function MessageList({
     minHeight = '300px',
     maxHeight = '400px',
     isCustomerView = false,
-    unreadCustomerCount = 0,
-    showDeliveryStatus = false,
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -66,32 +60,6 @@ export function MessageList({
         }
     }
 
-    // Compute delivery status for team messages (non-customer, non-private messages)
-    // The last unreadCustomerCount team messages are "sent", the rest are "read"
-    const getDeliveryStatusMap = (): Map<string, MessageDeliveryStatus> => {
-        if (!showDeliveryStatus) {
-            return new Map()
-        }
-
-        const statusMap = new Map<string, MessageDeliveryStatus>()
-        const teamMessages = messages.filter((m) => m.authorType !== 'customer' && !m.isPrivate)
-
-        let unreadRemaining = unreadCustomerCount
-        for (let i = teamMessages.length - 1; i >= 0; i--) {
-            const msg = teamMessages[i]
-            if (unreadRemaining > 0) {
-                statusMap.set(msg.id, 'sent')
-                unreadRemaining--
-            } else {
-                statusMap.set(msg.id, 'read')
-            }
-        }
-
-        return statusMap
-    }
-
-    const deliveryStatusMap = getDeliveryStatusMap()
-
     return (
         <div
             ref={containerRef}
@@ -119,7 +87,6 @@ export function MessageList({
                                 key={message.id}
                                 message={message}
                                 isCustomer={isCustomerView ? !isCustomer : isCustomer}
-                                deliveryStatus={deliveryStatusMap.get(message.id)}
                             />
                         )
                     })}

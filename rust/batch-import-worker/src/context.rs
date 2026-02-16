@@ -8,7 +8,6 @@ use tracing::info;
 
 use crate::cache::{GroupCache, IdentifyCache, MemoryGroupCache, MemoryIdentifyCache};
 use crate::config::Config;
-use crate::person_processing_filter::PersonProcessingFilter;
 
 pub struct AppContext {
     pub config: Config,
@@ -19,7 +18,6 @@ pub struct AppContext {
     pub worker_liveness: Arc<HealthHandle>,
     pub identify_cache: Arc<dyn IdentifyCache>,
     pub group_cache: Arc<dyn GroupCache>,
-    pub person_processing_filter: PersonProcessingFilter,
 }
 
 impl AppContext {
@@ -55,9 +53,6 @@ impl AppContext {
             Duration::from_secs(config.group_memory_cache_ttl_seconds),
         ));
 
-        let person_processing_filter =
-            PersonProcessingFilter::new(&config.force_disable_person_processing);
-
         let ctx = Self {
             config: config.clone(),
             db,
@@ -71,7 +66,6 @@ impl AppContext {
             worker_liveness: liveness,
             identify_cache,
             group_cache,
-            person_processing_filter,
         };
 
         Ok(ctx)

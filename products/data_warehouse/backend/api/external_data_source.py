@@ -216,8 +216,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "reddit_integration_id",
             # salesforce
             "salesforce_integration_id",
-            # github
-            "repository",
             # shopify
             "shopify_store_id",
             # temporal

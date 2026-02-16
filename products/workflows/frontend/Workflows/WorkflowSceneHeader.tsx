@@ -20,14 +20,7 @@ import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const logic = workflowLogic(props)
-    const {
-        workflow,
-        workflowChanged,
-        isWorkflowSubmitting,
-        workflowLoading,
-        workflowHasErrors,
-        workflowHasActionErrors,
-    } = useValues(logic)
+    const { workflow, workflowChanged, isWorkflowSubmitting, workflowLoading, workflowHasErrors } = useValues(logic)
     const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, duplicate, archiveWorkflow } =
         useActions(logic)
     const { searchParams } = useValues(router)
@@ -86,13 +79,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                         })
                                     }
                                     size="small"
-                                    disabledReason={
-                                        workflowChanged
-                                            ? 'Save changes first'
-                                            : workflow?.status === 'draft' && workflowHasActionErrors
-                                              ? 'Fix all errors before enabling'
-                                              : undefined
-                                    }
+                                    disabledReason={workflowChanged ? 'Save changes first' : undefined}
                                     className="transition-colors duration-300 ease-in-out"
                                     data-attr="workflow-launch"
                                 >

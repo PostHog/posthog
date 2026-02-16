@@ -1,8 +1,8 @@
-import { Position, Edge as ReactFlowEdge, Node as ReactFlowNode } from '@xyflow/react'
+import { Node, Position } from '@xyflow/react'
 
-import { DataModelingJobStatus, DataModelingNodeType, DataWarehouseSyncInterval } from '~/types'
+import { DataModelingJobStatus, DataModelingNodeType } from '~/types'
 
-export interface NodeHandle {
+export interface ModelNodeHandle {
     id?: string
     type: 'source' | 'target'
     position: Position
@@ -10,47 +10,45 @@ export interface NodeHandle {
     y?: number
 }
 
-export interface NodeData extends Record<string, unknown> {
+export interface ModelNodeData extends Record<string, unknown> {
     id: string
     name: string
     type: DataModelingNodeType
     dagId?: string
     savedQueryId?: string
-    handles?: NodeHandle[]
+    handles?: ModelNodeHandle[]
+    userTag?: string
     upstreamCount: number
     downstreamCount: number
     // derived state for reactflow optimization
+    isSelected?: boolean
     isRunning?: boolean
     isTypeHighlighted?: boolean
     isSearchMatch?: boolean
-    userTag?: string
-    lastRunAt?: string
     lastJobStatus?: DataModelingJobStatus
-    syncInterval?: DataWarehouseSyncInterval
 }
 
-export interface EdgeData extends Record<string, unknown> {
+export type ModelNode = Node<ModelNodeData>
+
+export interface ModelEdge {
     from: string
     to: string
     type: 'dependency'
 }
 
-export type ViewMode = 'list' | 'graph'
-
-export type SearchMode = 'search' | 'upstream' | 'downstream' | 'all'
-
-export type ElkDirection = 'DOWN' | 'RIGHT'
-
-export type Node = ReactFlowNode<NodeData>
-export type Edge = ReactFlowEdge<EdgeData>
-
-export interface Graph {
-    nodes: Node[]
-    edges: Edge[]
+export interface DataModelingGraph {
+    nodes: ModelNodeData[]
+    edges: ModelEdge[]
 }
 
 export interface CreateModelNodeType {
     type: DataModelingNodeType
     name: string
     description?: string
+}
+
+export interface ModelNodeProps {
+    id: string
+    data: ModelNodeData
+    selected?: boolean
 }

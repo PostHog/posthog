@@ -270,11 +270,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'heatmap',
         description: 'Heatmaps are a way to visualize user behavior on your website.',
     },
-    [Scene.Inbox]: {
-        projectBased: true,
-        name: 'Inbox',
-        description: 'Actionable reports automatically generated from user session analysis and other signals.',
-    },
     [Scene.Heatmap]: {
         projectBased: true,
         name: 'Heatmap',
@@ -917,7 +912,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],
-    [urls.inbox()]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkDoctor()]: [Scene.SdkDoctor, 'sdkDoctor'],
     [urls.exports()]: [Scene.Exports, 'exports'],

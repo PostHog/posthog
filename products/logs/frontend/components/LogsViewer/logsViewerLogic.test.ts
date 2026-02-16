@@ -1,75 +1,42 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { useMocks } from '~/mocks/jest'
-import { LogMessage } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
-import { logsViewerFiltersLogic } from './Filters/logsViewerFiltersLogic'
-import { logsViewerConfigLogic } from './config/logsViewerConfigLogic'
-import { logsViewerDataLogic } from './data/logsViewerDataLogic'
 import { logsViewerLogic } from './logsViewerLogic'
 
-const createMockRawLog = (uuid: string): LogMessage => ({
-    uuid,
-    trace_id: 'trace-1',
-    span_id: 'span-1',
-    body: `Log ${uuid}`,
-    attributes: {},
-    timestamp: '2024-01-01T00:00:00Z',
-    observed_timestamp: '2024-01-01T00:00:00Z',
-    severity_text: 'info' as const,
-    severity_number: 9,
-    level: 'info' as const,
-    resource_attributes: {},
-    instrumentation_scope: 'test',
-    event_name: 'log',
-})
-
 const createMockParsedLog = (uuid: string): ParsedLogMessage => {
-    const baseLog = createMockRawLog(uuid)
+    const baseLog = {
+        uuid,
+        trace_id: 'trace-1',
+        span_id: 'span-1',
+        body: `Log ${uuid}`,
+        attributes: {},
+        timestamp: '2024-01-01T00:00:00Z',
+        observed_timestamp: '2024-01-01T00:00:00Z',
+        severity_text: 'info' as const,
+        severity_number: 9,
+        level: 'info' as const,
+        resource_attributes: {},
+        instrumentation_scope: 'test',
+        event_name: 'log',
+    }
     return {
         ...baseLog,
-        attributes: {},
         cleanBody: `Log ${uuid}`,
         parsedBody: null,
         originalLog: baseLog,
     }
 }
 
-const mockRawLogs = [createMockRawLog('log-1'), createMockRawLog('log-2'), createMockRawLog('log-3')]
-
-const TEST_ID = 'test-tab'
-
-function mountWithLogs(rawLogs: LogMessage[] = mockRawLogs): {
-    logic: ReturnType<typeof logsViewerLogic.build>
-    dataLogic: ReturnType<typeof logsViewerDataLogic.build>
-} {
-    const filtersLogic = logsViewerFiltersLogic({ id: TEST_ID })
-    filtersLogic.mount()
-    const configLogic = logsViewerConfigLogic({ id: TEST_ID })
-    configLogic.mount()
-    const dataLogic = logsViewerDataLogic({ id: TEST_ID, autoLoad: false })
-    dataLogic.mount()
-    if (rawLogs.length > 0) {
-        dataLogic.actions.setLogs(rawLogs)
-    }
-    const logic = logsViewerLogic({ tabId: TEST_ID })
-    logic.mount()
-    return { logic, dataLogic }
-}
+const mockLogs = [createMockParsedLog('log-1'), createMockParsedLog('log-2'), createMockParsedLog('log-3')]
 
 describe('logsViewerLogic', () => {
     let logic: ReturnType<typeof logsViewerLogic.build>
 
     beforeEach(() => {
-        useMocks({
-            post: {
-                '/api/environments/:team_id/logs/query/': () => [200, { results: [], maxExportableLogs: 5000 }],
-                '/api/environments/:team_id/logs/sparkline/': () => [200, []],
-            },
-        })
+        // Clear localStorage to reset persisted state
         localStorage.clear()
         initKeaTests()
     })
@@ -80,7 +47,8 @@ describe('logsViewerLogic', () => {
 
     describe('cursor navigation', () => {
         beforeEach(() => {
-            ;({ logic } = mountWithLogs())
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
         })
 
         it('sets cursor index', async () => {
@@ -244,7 +212,8 @@ describe('logsViewerLogic', () => {
 
     describe('empty logs', () => {
         beforeEach(() => {
-            ;({ logic } = mountWithLogs([]))
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: [], orderBy: 'latest' })
+            logic.mount()
         })
 
         it('moveCursorDown does nothing when logs are empty', async () => {
@@ -269,7 +238,8 @@ describe('logsViewerLogic', () => {
         const mockLog2 = createMockParsedLog('log-2')
 
         beforeEach(() => {
-            ;({ logic } = mountWithLogs())
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
         })
 
         it('pins a log when not pinned', async () => {
@@ -328,7 +298,8 @@ describe('logsViewerLogic', () => {
 
     describe('focus state', () => {
         beforeEach(() => {
-            ;({ logic } = mountWithLogs())
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
         })
 
         it('defaults to not focused', () => {
@@ -352,7 +323,8 @@ describe('logsViewerLogic', () => {
 
     describe('display options', () => {
         beforeEach(() => {
-            ;({ logic } = mountWithLogs())
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
         })
 
         it('defaults wrapBody to true', () => {
@@ -382,7 +354,8 @@ describe('logsViewerLogic', () => {
 
     describe('timezone', () => {
         beforeEach(() => {
-            ;({ logic } = mountWithLogs())
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
         })
 
         it('defaults to UTC', () => {
@@ -411,7 +384,8 @@ describe('logsViewerLogic', () => {
 
     describe('multi-select', () => {
         beforeEach(() => {
-            ;({ logic } = mountWithLogs())
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
         })
 
         it('defaults to no selection', () => {
@@ -491,7 +465,7 @@ describe('logsViewerLogic', () => {
             })
 
             it('selects only provided logs when argument given', async () => {
-                const subset = [logic.values.logs[0], logic.values.logs[2]]
+                const subset = [mockLogs[0], mockLogs[2]]
                 await expectLogic(logic, () => {
                     logic.actions.selectAll(subset)
                 }).toFinishAllListeners()
@@ -568,7 +542,7 @@ describe('logsViewerLogic', () => {
                 expect(logic.values.selectedCount).toBe(2)
 
                 await expectLogic(logic, () => {
-                    logic.actions.setLogs([createMockRawLog('new-log')])
+                    logic.actions.setLogs([createMockParsedLog('new-log')])
                 }).toMatchValues({
                     selectedLogIds: {},
                     isSelectionActive: false,
@@ -579,7 +553,8 @@ describe('logsViewerLogic', () => {
 
     describe('attribute columns', () => {
         beforeEach(() => {
-            ;({ logic } = mountWithLogs())
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
         })
 
         describe('moveAttributeColumn', () => {
@@ -635,7 +610,8 @@ describe('logsViewerLogic', () => {
 
     describe('expansion', () => {
         beforeEach(() => {
-            ;({ logic } = mountWithLogs())
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
         })
 
         it('defaults to no expanded logs', () => {
@@ -681,7 +657,8 @@ describe('logsViewerLogic', () => {
 
     describe('per-row prettification', () => {
         beforeEach(() => {
-            ;({ logic } = mountWithLogs())
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
         })
 
         it('defaults to empty set', () => {
@@ -732,7 +709,7 @@ describe('logsViewerLogic', () => {
             expect(logic.values.prettifiedLogIds.size).toBe(2)
 
             await expectLogic(logic, () => {
-                logic.actions.setLogs([createMockRawLog('new-log')])
+                logic.actions.setLogs([createMockParsedLog('new-log')])
             }).toFinishAllListeners()
 
             expect(logic.values.prettifiedLogIds.size).toBe(0)

@@ -26,7 +26,6 @@ import {
     ReloadFlagsSnippet,
     RemixInstallation,
     RubyInstallation,
-    RubyOnRailsInstallation,
     SvelteInstallation,
     VueInstallation,
     WebflowInstallation,
@@ -101,10 +100,6 @@ const FeatureFlagsPHPInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const FeatureFlagsRubyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RubyInstallation,
-    snippets: SERVER_SDK_SNIPPETS,
-})
-const FeatureFlagsRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: RubyOnRailsInstallation,
     snippets: SERVER_SDK_SNIPPETS,
 })
 const FeatureFlagsGoInstructionsWrapper = withOnboardingDocsWrapper({
@@ -266,7 +261,6 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.TANSTACK_START]: FeatureFlagsReactInstructionsWrapper,
     [SDKKey.REMIX]: FeatureFlagsRemixJSInstructionsWrapper,
     [SDKKey.RUBY]: FeatureFlagsRubyInstructionsWrapper,
-    [SDKKey.RUBY_ON_RAILS]: FeatureFlagsRubyOnRailsInstructionsWrapper,
     [SDKKey.SVELTE]: FeatureFlagsSvelteInstructionsWrapper,
     [SDKKey.VITE]: FeatureFlagsReactInstructionsWrapper,
     [SDKKey.VUE_JS]: FeatureFlagsVueInstructionsWrapper,

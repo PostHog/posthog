@@ -2,18 +2,13 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-    SourceFieldOauthConfig,
-    SourceFieldSelectConfig,
 )
 
-from posthog.models.integration import GitHubIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import GithubSourceConfig
@@ -27,7 +22,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
+class GithubSource(SimpleSource[GithubSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GITHUB
@@ -38,51 +33,23 @@ class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
             name=SchemaExternalDataSourceType.GITHUB,
             label="GitHub",
             betaSource=True,
-            caption="Connect your GitHub repository to sync issues, pull requests, commits, and more.",
+            caption="""Enter your GitHub personal access token and repository to pull data into the PostHog Data warehouse.
+
+You can create a personal access token in your [GitHub Settings](https://github.com/settings/tokens) under **Developer settings > Personal access tokens**.
+
+The token needs `repo` scope for private repositories, or just `public_repo` for public repositories.
+""",
             iconPath="/static/services/github.png",
             iconClassName="dark:bg-white rounded",
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldSelectConfig(
-                        name="auth_method",
-                        label="Authentication type",
+                    SourceFieldInputConfig(
+                        name="personal_access_token",
+                        label="Personal access token",
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
-                        defaultValue="oauth",
-                        options=[
-                            Option(
-                                label="OAuth (GitHub App)",
-                                value="oauth",
-                                fields=cast(
-                                    list[FieldType],
-                                    [
-                                        SourceFieldOauthConfig(
-                                            name="github_integration_id",
-                                            label="GitHub account",
-                                            required=False,
-                                            kind="github",
-                                        ),
-                                    ],
-                                ),
-                            ),
-                            Option(
-                                label="Personal access token",
-                                value="pat",
-                                fields=cast(
-                                    list[FieldType],
-                                    [
-                                        SourceFieldInputConfig(
-                                            name="personal_access_token",
-                                            label="Personal access token",
-                                            type=SourceFieldInputConfigType.PASSWORD,
-                                            required=False,
-                                            placeholder="github_pat_...",
-                                            caption="You can create a personal access token in your [GitHub Settings](https://github.com/settings/tokens) under **Developer settings > Personal access tokens**.",
-                                        ),
-                                    ],
-                                ),
-                            ),
-                        ],
+                        placeholder="github_pat_...",
                     ),
                     SourceFieldInputConfig(
                         name="repository",
@@ -97,29 +64,10 @@ class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error": "Invalid GitHub credentials. Please reconnect your account.",
-            "403 Client Error": "Access forbidden. Your token may lack required permissions or have hit rate limits.",
-            "404 Client Error": "Repository not found. Please verify the repository name and access permissions.",
-            "Bad credentials": "Your GitHub connection is invalid or expired. Please reconnect.",
+            "401 Client Error": "Invalid GitHub personal access token. Please check your token and try again.",
+            "403 Client Error": "Access forbidden. Your token may lack required permissions or have hit rate limits. Please check your token permissions.",
+            "404 Client Error": "Repository not found. Please verify the repository name and that your token has access to it.",
         }
-
-    def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:
-        if config.auth_method.selection == "pat":
-            if not config.auth_method.personal_access_token:
-                raise ValueError("Missing personal access token")
-            return config.auth_method.personal_access_token
-
-        if not config.auth_method.github_integration_id:
-            raise ValueError("Missing GitHub integration ID")
-        integration = self.get_oauth_integration(config.auth_method.github_integration_id, team_id)
-
-        github_integration = GitHubIntegration(integration)
-        if github_integration.access_token_expired():
-            github_integration.refresh_access_token()
-
-        if not integration.access_token:
-            raise ValueError("GitHub access token not found")
-        return integration.access_token
 
     def get_schemas(self, config: GithubSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
@@ -135,17 +83,11 @@ class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
     def validate_credentials(
         self, config: GithubSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        try:
-            access_token = self._get_access_token(config, team_id)
-            return validate_github_credentials(access_token, config.repository)
-        except Exception as e:
-            return False, str(e)
+        return validate_github_credentials(config.personal_access_token, config.repository)
 
     def source_for_pipeline(self, config: GithubSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        access_token = self._get_access_token(config, inputs.team_id)
-
         return github_source(
-            personal_access_token=access_token,
+            personal_access_token=config.personal_access_token,
             repository=config.repository,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,

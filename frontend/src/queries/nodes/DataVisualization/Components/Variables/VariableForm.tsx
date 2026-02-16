@@ -17,6 +17,7 @@ import {
     VARIABLE_TYPE_OPTIONS,
     formatVariableReference,
     getCodeName,
+    sanitizeCodeName,
 } from './VariableFields'
 
 function renderField<T extends Variable>(
@@ -65,7 +66,13 @@ export interface VariableFormProps {
     onTypeChange: (variableType: VariableType) => void
 }
 
-export const VariableForm = ({ variable, updateVariable, onSave, onTypeChange }: VariableFormProps): JSX.Element => {
+export const VariableForm = ({
+    variable,
+    updateVariable,
+    onSave,
+    modalType,
+    onTypeChange,
+}: VariableFormProps): JSX.Element => {
     const codeNameFallback = getCodeName(variable.name)
     const referenceCodeName = variable.code_name || codeNameFallback
     const nameLabel = (
@@ -84,10 +91,16 @@ export const VariableForm = ({ variable, updateVariable, onSave, onTypeChange }:
                     value={variable.name}
                     onChange={(value) => {
                         const filteredValue = value.replace(/[^a-zA-Z0-9\s_]/g, '')
-                        updateVariable({ ...variable, name: filteredValue })
+                        const shouldUpdateCodeName =
+                            !variable.code_name || variable.code_name === getCodeName(variable.name)
+                        updateVariable({
+                            ...variable,
+                            name: filteredValue,
+                            code_name: shouldUpdateCodeName ? getCodeName(filteredValue) : variable.code_name,
+                        })
                     }}
                 />
-                {referenceCodeName && (
+                {modalType === 'new' && variable.name.length > 0 && (
                     <span className="text-xs">
                         Use this variable by referencing <code>{formatVariableReference(referenceCodeName)}</code>
                         <LemonButton
@@ -102,6 +115,18 @@ export const VariableForm = ({ variable, updateVariable, onSave, onTypeChange }:
                         />
                     </span>
                 )}
+            </LemonField.Pure>
+            <LemonField.Pure label="Code name" className="gap-1">
+                <LemonInput
+                    placeholder="code_name"
+                    value={variable.code_name}
+                    onChange={(value) => {
+                        updateVariable({
+                            ...variable,
+                            code_name: sanitizeCodeName(value),
+                        })
+                    }}
+                />
             </LemonField.Pure>
             <LemonField.Pure label="Type" className="gap-1">
                 <LemonSelect

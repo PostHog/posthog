@@ -1,6 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { urlToAction } from 'kea-router'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { fullName, toSentenceCase } from 'lib/utils'
@@ -551,18 +550,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             }
 
             actions.closeRuleModal()
-        },
-    })),
-
-    urlToAction(({ actions }) => ({
-        '/settings/:section': (_, searchParams) => {
-            const tab = searchParams.access_tab
-            if (tab === 'roles' || tab === 'members' || tab === 'defaults') {
-                actions.setActiveTab(tab)
-            }
-            if (tab === 'roles' && searchParams.access_role_id) {
-                actions.setFilters({ roleIds: [searchParams.access_role_id] })
-            }
         },
     })),
 ])

@@ -312,7 +312,7 @@ export function LineGraph_({
         if (!isShiftPressed) {
             setHoveredDatasetIndex(null)
         }
-    }, [isShiftPressed, setHoveredDatasetIndex])
+    }, [isShiftPressed])
 
     // Add event listeners to canvas
     useOnMountEffect(() => {

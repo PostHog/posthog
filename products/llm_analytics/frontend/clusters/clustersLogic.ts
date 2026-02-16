@@ -1,13 +1,12 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { urls } from 'scenes/urls'
 
 import { hogql } from '~/queries/utils'
@@ -57,14 +56,8 @@ export interface ScatterDataset {
         | 'triangle'
 }
 
-export interface ClustersLogicProps {
-    tabId?: string
-}
-
 export const clustersLogic = kea<clustersLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clustersLogic']),
-    props({} as ClustersLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         setClusteringLevel: (level: ClusteringLevel) => ({ level }),
@@ -452,13 +445,6 @@ export const clustersLogic = kea<clustersLogicType>([
             }
             // Load all trace summaries when a run is loaded for scatter plot tooltips
             if (currentRun) {
-                if (currentRun.clusters.length === 0) {
-                    posthog.capture('llma clusters empty state shown', {
-                        reason: 'no_clusters_in_run',
-                        clustering_level: currentRun.level || values.clusteringLevel,
-                        run_id: currentRun.runId,
-                    })
-                }
                 actions.loadTraceSummariesForRun(currentRun)
                 // Load cluster metrics for displaying averages in cluster cards
                 actions.loadClusterMetricsForRun(currentRun)
@@ -470,12 +456,6 @@ export const clustersLogic = kea<clustersLogicType>([
         },
 
         loadClusteringRunsSuccess: ({ clusteringRuns }) => {
-            if (clusteringRuns.length === 0) {
-                posthog.capture('llma clusters empty state shown', {
-                    reason: 'no_clustering_runs',
-                    clustering_level: values.clusteringLevel,
-                })
-            }
             // Auto-load the first run if available and no run is selected
             if (clusteringRuns.length > 0 && !values.selectedRunId) {
                 actions.loadClusteringRun(clusteringRuns[0].runId)
@@ -500,7 +480,7 @@ export const clustersLogic = kea<clustersLogicType>([
         actions.loadClusteringRuns()
     }),
 
-    tabAwareUrlToAction(({ actions }) => ({
+    urlToAction(({ actions }) => ({
         '/llm-analytics/clusters': () => {
             actions.setSelectedRunId(null)
         },
@@ -510,7 +490,7 @@ export const clustersLogic = kea<clustersLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
+    actionToUrl(({ values }) => ({
         setSelectedRunId: () => {
             if (values.selectedRunId) {
                 return urls.llmAnalyticsClusters(values.selectedRunId)

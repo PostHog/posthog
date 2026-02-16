@@ -11374,6 +11374,17 @@ export namespace Endpoints {
         }
         responses: { 204: unknown }
     }
+    export type post_Environments_rollback_create = {
+        method: 'POST'
+        path: '/api/organizations/{id}/environments_rollback/'
+        requestFormat: 'json'
+        parameters: {
+            path: { id: string }
+
+            body: Schemas.Organization
+        }
+        responses: { 200: Schemas.Organization }
+    }
     export type get_Batch_exports_list = {
         method: 'GET'
         path: '/api/organizations/{organization_id}/batch_exports/'
@@ -16116,6 +16127,7 @@ export type EndpointByMethod = {
         '/api/environments/{project_id}/warehouse_tables/{id}/update_schema/': Endpoints.post_Environments_warehouse_tables_update_schema_create
         '/api/environments/{project_id}/warehouse_tables/file/': Endpoints.post_Environments_warehouse_tables_file_create
         '/api/organizations/': Endpoints.post_Create
+        '/api/organizations/{id}/environments_rollback/': Endpoints.post_Environments_rollback_create
         '/api/organizations/{organization_id}/batch_exports/': Endpoints.post_Batch_exports_create
         '/api/organizations/{organization_id}/batch_exports/{id}/backfill/': Endpoints.post_Batch_exports_backfill_create
         '/api/organizations/{organization_id}/batch_exports/{id}/pause/': Endpoints.post_Batch_exports_pause_create

@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, PipelineEvent, PreIngestionEvent, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
@@ -27,6 +28,7 @@ export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelin
     kafkaProducer: KafkaProducerWrapper,
     teamManager: TeamManager,
     groupTypeManager: GroupTypeManager,
+    hogTransformer: HogTransformerService,
     personsStore: PersonsStore
 ): ProcessingStep<TInput, EventPipelineRunnerHeatmapStepResult<TInput>> {
     return async function eventPipelineRunnerHeatmapStep(
@@ -45,6 +47,7 @@ export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelin
             teamManager,
             groupTypeManager,
             normalizedEvent,
+            hogTransformer,
             personsStore,
             groupStoreForBatch,
             headers

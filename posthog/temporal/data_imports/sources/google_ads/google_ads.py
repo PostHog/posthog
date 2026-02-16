@@ -8,10 +8,10 @@ from django.conf import settings
 import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from google.ads.googleads.client import GoogleAdsClient
-from google.ads.googleads.v23.common import types as ga_common
-from google.ads.googleads.v23.enums import types as ga_enums
-from google.ads.googleads.v23.resources import types as ga_resources
-from google.ads.googleads.v23.services import types as ga_services
+from google.ads.googleads.v19.common import types as ga_common
+from google.ads.googleads.v19.enums import types as ga_enums
+from google.ads.googleads.v19.resources import types as ga_resources
+from google.ads.googleads.v19.services import types as ga_services
 from google.oauth2 import service_account
 from google.protobuf.json_format import MessageToJson
 
@@ -21,7 +21,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.sources.common import config
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
-from posthog.temporal.data_imports.sources.google_ads.schemas import FIELD_ALIASES, RESOURCE_SCHEMAS
+from posthog.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
@@ -72,17 +72,16 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
         if config.is_mcc_account and config.is_mcc_account.enabled:
             login_customer_id = clean_customer_id(config.is_mcc_account.mcc_client_id)
 
-        config_dict: dict[str, object] = {
-            "developer_token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
-            "refresh_token": integration.refresh_token,
-            "client_id": settings.GOOGLE_ADS_APP_CLIENT_ID,
-            "client_secret": settings.GOOGLE_ADS_APP_CLIENT_SECRET,
-            "use_proto_plus": False,
-        }
-        if login_customer_id is not None:
-            config_dict["login_customer_id"] = login_customer_id
-
-        client = GoogleAdsClient.load_from_dict(config_dict)
+        client = GoogleAdsClient.load_from_dict(
+            {
+                "developer_token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                "refresh_token": integration.refresh_token,
+                "client_id": settings.GOOGLE_ADS_APP_CLIENT_ID,
+                "client_secret": settings.GOOGLE_ADS_APP_CLIENT_SECRET,
+                "use_proto_plus": False,
+                "login_customer_id": login_customer_id,
+            }
+        )
     else:
         credentials = service_account.Credentials.from_service_account_info(
             {
@@ -106,9 +105,8 @@ class GoogleAdsColumn(Column):
         data_type: ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType,
         is_repeatable: bool,
         type_url: str,
-        output_name: str | None = None,
     ):
-        self.name = output_name if output_name is not None else qualified_name.replace(".", "_")
+        self.name = qualified_name.replace(".", "_")
         self.qualified_name = qualified_name
         self.data_type = data_type
         self.type_url = type_url
@@ -168,32 +166,32 @@ class GoogleAdsColumn(Column):
 def _resolve_protobuf_message_type_url(type_url: str) -> type:
     """Traverse a protobuf message type URL to find it's Python type."""
     match type_url.split("."):
-        case ["google", "ads", "googleads", "v23", "common", *rest] | [
+        case ["google", "ads", "googleads", "v19", "common", *rest] | [
             "com",
             "google",
             "ads",
             "googleads",
-            "v23",
+            "v19",
             "common",
             *rest,
         ]:
             return _traverse_attributes(ga_common, *rest)
-        case ["google", "ads", "googleads", "v23", "enums", *rest] | [
+        case ["google", "ads", "googleads", "v19", "enums", *rest] | [
             "com",
             "google",
             "ads",
             "googleads",
-            "v23",
+            "v19",
             "enums",
             *rest,
         ]:
             return _traverse_attributes(ga_enums, *rest)
-        case ["google", "ads", "googleads", "v23", "resources", *rest] | [
+        case ["google", "ads", "googleads", "v19", "resources", *rest] | [
             "com",
             "google",
             "ads",
             "googleads",
-            "v23",
+            "v19",
             "resources",
             *rest,
         ]:
@@ -275,16 +273,12 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
             except KeyError:
                 field = fields_map[field_name.removeprefix(f"{resource_name}.")]
 
-            alias = FIELD_ALIASES.get(field_name)
-            output_name = alias.replace(".", "_") if alias else None
-
             columns.append(
                 GoogleAdsColumn(
                     qualified_name=field_name,
                     data_type=field.data_type,
                     is_repeatable=field.is_repeated,
                     type_url=field.type_url,
-                    output_name=output_name,
                 )
             )
 
@@ -349,7 +343,7 @@ def google_ads_source(
                 query += f" AND {incremental_field} < '2100-01-01'"
 
         client = google_ads_client(config, team_id)
-        service = client.get_service("GoogleAdsService", version="v23")
+        service = client.get_service("GoogleAdsService", version="v19")
         stream = service.search_stream(query=query, customer_id=clean_customer_id(config.customer_id))
 
         yield from _stream_as_arrow_table(stream, table)
@@ -402,14 +396,13 @@ def _stream_response_as_dicts(
     """
     field_paths = response.field_mask.paths
     get_enum_name = operator.attrgetter("name")
-    path_to_column = {col.qualified_name: col for col in table}
 
     for row in response.results:
         row_dict = {}
 
         for path in field_paths:
             value = _traverse_attributes(row, *path.split("."))
-            column = path_to_column[path]
+            column = table[path.replace(".", "_")]
 
             # TODO: Special type handling moved somewhere else.
             if column.is_enum:
@@ -427,9 +420,9 @@ def _stream_response_as_dicts(
 
             elif column.is_date:
                 if column.is_repeatable:
-                    value = [dt.date.fromisoformat(v[:10]) if v else None for v in value]
+                    value = list(map(dt.date.fromisoformat, value))
                 else:
-                    value = dt.date.fromisoformat(value[:10]) if value else None
+                    value = dt.date.fromisoformat(value)
 
             row_dict[column.name] = value
 

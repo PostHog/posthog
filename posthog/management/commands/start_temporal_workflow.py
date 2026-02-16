@@ -7,7 +7,7 @@ from django.core.management.base import BaseCommand
 
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
-from posthog.temporal.ai import AI_WORKFLOWS
+from posthog.temporal.ai import WORKFLOWS as AI_WORKFLOWS
 from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS

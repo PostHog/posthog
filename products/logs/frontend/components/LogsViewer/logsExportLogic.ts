@@ -9,13 +9,10 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { PropertyGroupFilter, SidePanelTab } from '~/types'
 
-import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
-
-import { ParsedLogMessage } from '../../types'
+import { LogsOrderBy, ParsedLogMessage } from '../../types'
 import { logsViewerFiltersLogic } from './Filters/logsViewerFiltersLogic'
-import { logsViewerDataLogic } from './data/logsViewerDataLogic'
 import type { logsExportLogicType } from './logsExportLogicType'
-import { logsViewerLogic } from './logsViewerLogic'
+import { LogsViewerLogicProps, logsViewerLogic } from './logsViewerLogic'
 
 function triggerBlobDownload(blob: Blob, filename: string): void {
     const url = URL.createObjectURL(blob)
@@ -43,22 +40,19 @@ export function getExportColumns(attributeColumns: string[]): string[] {
 
 export interface LogsExportLogicProps {
     tabId: string
+    orderBy: LogsOrderBy
 }
 
 export const logsExportLogic = kea<logsExportLogicType>([
     path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsExportLogic', tabId]),
     props({} as LogsExportLogicProps),
     key((props) => props.tabId),
-    connect(({ tabId }: LogsExportLogicProps) => ({
+    connect((props: LogsExportLogicProps) => ({
         values: [
-            logsViewerLogic({ tabId }),
+            logsViewerLogic({ tabId: props.tabId } as LogsViewerLogicProps),
             ['selectedLogsArray', 'attributeColumns'],
-            logsViewerFiltersLogic({ id: tabId }),
+            logsViewerFiltersLogic({ id: props.tabId }),
             ['filters', 'utcDateRange'],
-            logsViewerDataLogic({ id: tabId }),
-            ['maxExportableLogs'],
-            logsViewerConfigLogic({ id: tabId }),
-            ['orderBy'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
@@ -69,7 +63,7 @@ export const logsExportLogic = kea<logsExportLogicType>([
         exportServerSide: (totalLogsCount?: number) => ({ totalLogsCount }),
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         copySelectedLogs: () => {
             const selectedLogs = values.selectedLogsArray
             posthog.capture('logs bulk copy', { count: selectedLogs.length })
@@ -104,7 +98,7 @@ export const logsExportLogic = kea<logsExportLogicType>([
                 filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                 severityLevels: values.filters.severityLevels,
                 serviceNames: values.filters.serviceNames,
-                orderBy: values.orderBy,
+                orderBy: props.orderBy,
             }
             posthog.capture('logs exported', { format: 'csv', source: 'server', totalLogsCount })
             try {

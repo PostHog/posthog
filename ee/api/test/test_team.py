@@ -3,9 +3,18 @@ from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import FuzzyInt
+from unittest.mock import patch
 
-from rest_framework.status import HTTP_200_OK, HTTP_204_NO_CONTENT, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
+from rest_framework.status import (
+    HTTP_200_OK,
+    HTTP_204_NO_CONTENT,
+    HTTP_400_BAD_REQUEST,
+    HTTP_403_FORBIDDEN,
+    HTTP_404_NOT_FOUND,
+)
 
+from posthog.api.test.test_team import EnvironmentToProjectRewriteClient
+from posthog.models.dashboard import Dashboard
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team import Team
@@ -27,6 +36,94 @@ def team_enterprise_api_test_factory():
             starting_log_response = self.client.get(f"/api/environments/{team_id}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
             assert starting_log_response.json()["results"] == expected
+
+        # Creating projects
+
+        def test_non_admin_cannot_create_team(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            project_id = self.project.id
+            self.team.delete()
+            count = Team.objects.count()
+            response = self.client.post(f"/api/projects/{project_id}/environments/", {"name": "Test"})
+            self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
+            self.assertEqual(Team.objects.count(), count)
+            self.assertEqual(
+                response.json(),
+                self.permission_denied_response("Your organization access level is insufficient."),
+            )
+
+        def test_cannot_create_team_with_primary_dashboard_id(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            # Create a second project with its team to hold the dashboard
+            _, other_team = Project.objects.create_with_team(
+                organization=self.organization, initiating_user=self.user, name="Other"
+            )
+            dashboard_x = Dashboard.objects.create(team=other_team, name="Test")
+            # Delete the original team to make room for creating a new one
+            project_id = self.project.id
+            self.team.delete()
+            response = self.client.post(
+                f"/api/projects/{project_id}/environments/", {"name": "Test", "primary_dashboard": dashboard_x.id}
+            )
+            self.assertEqual(response.status_code, HTTP_400_BAD_REQUEST, response.json())
+            self.assertEqual(
+                response.json(),
+                self.validation_error_response(
+                    "Primary dashboard cannot be set on project creation.", attr="primary_dashboard"
+                ),
+            )
+
+        @patch("posthog.demo.matrix.manager.MatrixManager.run_on_team")  # We don't actually need demo data, it's slow
+        def test_create_demo_team(self, *args):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.assertEqual(Team.objects.count(), 1)
+            response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": True})
+            self.assertEqual(response.status_code, 201, response.json())
+            self.assertEqual(Team.objects.count(), 2)
+            response_data = response.json()
+            self.assertLessEqual(
+                {
+                    "name": "Hedgebox",
+                    "access_control": False,
+                    "effective_membership_level": OrganizationMembership.Level.ADMIN,
+                }.items(),
+                response_data.items(),
+            )
+            self.assertEqual(self.organization.teams.count(), 2)
+
+        @patch("posthog.demo.matrix.manager.MatrixManager.run_on_team")  # We don't actually need demo data, it's slow
+        def test_create_two_demo_teams(self, *args):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.assertEqual(Team.objects.count(), 1)
+            response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": True})
+            self.assertEqual(response.status_code, 201, response.json())
+            self.assertEqual(Team.objects.count(), 2)
+
+            response_data = response.json()
+            self.assertLessEqual(
+                {
+                    "name": "Hedgebox",
+                    "access_control": False,
+                    "effective_membership_level": OrganizationMembership.Level.ADMIN,
+                }.items(),
+                response_data.items(),
+            )
+            response_2 = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": True})
+            self.assertEqual(Team.objects.count(), 2, response_2.json())
+            response_2_data = response_2.json()
+            self.assertEqual(
+                response_2_data.get("detail"),
+                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
+                if self.client_class is not EnvironmentToProjectRewriteClient
+                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
+            )
+            self.assertEqual(response_2_data.get("type"), "authentication_error")
+            self.assertEqual(response_2_data.get("code"), "permission_denied")
+            self.assertEqual(self.organization.teams.count(), 2)
 
         # Deleting projects
 
@@ -234,6 +331,28 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
             self.validation_error_response(
                 "Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead."
             ),
+        )
+
+    def test_cannot_create_team_in_nonexistent_project(self):
+        _, _, team = Organization.objects.bootstrap(self.user, name="other_org")
+        self.organization_membership.delete()
+
+        response = self.client.post("/api/projects/4444444/environments/", {"name": "Test"})
+
+        self.assertEqual(response.status_code, 404, response.json())
+        self.assertEqual(response.json(), self.not_found_response("Project not found."))
+
+    def test_cannot_create_team_in_project_without_org_access(self):
+        project_id = self.project.id
+        self.team.delete()
+        self.organization_membership.delete()
+
+        response = self.client.post(f"/api/projects/{project_id}/environments/", {"name": "Test"})
+
+        self.assertEqual(response.status_code, 404, response.json())
+        self.assertEqual(
+            response.json(),
+            self.not_found_response("Organization not found."),
         )
 
     def test_rename_team_as_org_member_allowed(self):

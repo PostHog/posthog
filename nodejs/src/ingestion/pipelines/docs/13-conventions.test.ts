@@ -453,41 +453,39 @@ describe('Pipeline Phases', () => {
             promiseScheduler,
         }
 
-        // Compose subpipelines like joined-ingestion-pipeline:
-        // messageAware → concurrently(preTeam) → filterMap(addTeam,
-        //     teamAware(concurrently(postTeam) → groupBy → concurrently(sequentially(processing)))
-        //     → handleIngestionWarnings)
-        // → handleResults → handleSideEffects
+        // Compose subpipelines like joined-ingestion-pipeline
         function createPipeline() {
-            return newBatchPipelineBuilder<RawInput, { message: Message }>()
-                .messageAware((b) =>
-                    b
-                        // Pre-team preprocessing: parse and resolve team (concurrent)
-                        .concurrently((b) => createPreTeamPreprocessingSubpipeline(b))
-                        // Add team to context, then process team-aware steps
-                        .filterMap(
-                            (element) => ({
-                                result: element.result,
-                                context: { ...element.context, team: element.result.value.team },
-                            }),
-                            (b) =>
+            return (
+                newBatchPipelineBuilder<RawInput, { message: Message }>()
+                    // Pre-team preprocessing: parse and resolve team (concurrent)
+                    .messageAware((b) => b.concurrently((b) => createPreTeamPreprocessingSubpipeline(b)))
+                    .handleResults(pipelineConfig)
+                    .handleSideEffects(promiseScheduler, { await: false })
+                    .gather()
+                    .filterOk()
+                    // Add team to context
+                    .map((element) => ({
+                        result: element.result,
+                        context: { ...element.context, team: element.result.value.team },
+                    }))
+                    .messageAware((b) =>
+                        b
+                            .teamAware((b) =>
                                 b
-                                    .teamAware((b) =>
-                                        b
-                                            // Post-team preprocessing: validate (concurrent)
-                                            .concurrently((b) => createPostTeamPreprocessingSubpipeline(b))
-                                            // Processing: group by team and process sequentially within each group
-                                            .groupBy((item) => item.teamId)
-                                            .concurrently((group) =>
-                                                group.sequentially((b) => createProcessingSubpipeline(b))
-                                            )
-                                    )
-                                    .handleIngestionWarnings(mockKafkaProducer)
-                        )
-                )
-                .handleResults(pipelineConfig)
-                .handleSideEffects(promiseScheduler, { await: true })
-                .build()
+                                    // Post-team preprocessing: validate (concurrent)
+                                    .concurrently((b) => createPostTeamPreprocessingSubpipeline(b))
+                                    // Processing: group by team and process sequentially within each group
+                                    .groupBy((item) => item.teamId)
+                                    .concurrently((group) => group.sequentially((b) => createProcessingSubpipeline(b)))
+                                    .gather()
+                            )
+                            .handleIngestionWarnings(mockKafkaProducer)
+                    )
+                    .handleResults(pipelineConfig)
+                    .handleSideEffects(promiseScheduler, { await: true })
+                    .gather()
+                    .build()
+            )
         }
 
         const pipeline = createPipeline()

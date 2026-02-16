@@ -32,7 +32,6 @@ import {
     RemixInstallation,
     RetoolInstallation,
     RubyInstallation,
-    RubyOnRailsInstallation,
     RudderstackInstallation,
     SegmentInstallation,
     SentryInstallation,
@@ -175,9 +174,6 @@ const ProductAnalyticsGoInstructionsWrapper = withOnboardingDocsWrapper({ Instal
 const ProductAnalyticsPHPInstructionsWrapper = withOnboardingDocsWrapper({ Installation: PHPInstallation })
 const ProductAnalyticsLaravelInstructionsWrapper = withOnboardingDocsWrapper({ Installation: LaravelInstallation })
 const ProductAnalyticsRubyInstructionsWrapper = withOnboardingDocsWrapper({ Installation: RubyInstallation })
-const ProductAnalyticsRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: RubyOnRailsInstallation,
-})
 const ProductAnalyticsElixirInstructionsWrapper = withOnboardingDocsWrapper({ Installation: ElixirInstallation })
 
 // API
@@ -236,7 +232,6 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.REMIX]: ProductAnalyticsRemixJSInstructionsWrapper,
     [SDKKey.RETOOL]: ProductAnalyticsRetoolInstructionsWrapper,
     [SDKKey.RUBY]: ProductAnalyticsRubyInstructionsWrapper,
-    [SDKKey.RUBY_ON_RAILS]: ProductAnalyticsRubyOnRailsInstructionsWrapper,
     [SDKKey.RUDDERSTACK]: ProductAnalyticsRudderstackInstructionsWrapper,
     [SDKKey.SEGMENT]: ProductAnalyticsSegmentInstructionsWrapper,
     [SDKKey.SENTRY]: ProductAnalyticsSentryInstructionsWrapper,

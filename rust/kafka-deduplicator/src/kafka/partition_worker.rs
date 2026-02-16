@@ -147,9 +147,10 @@ impl<T: Send + 'static> PartitionWorker<T> {
                 }
                 Err(e) => {
                     warn!(
-                        "Partition worker for {}:{} panicked during shutdown: {e:#}",
+                        "Partition worker for {}:{} panicked during shutdown: {}",
                         self.partition.topic(),
-                        self.partition.partition_number()
+                        self.partition.partition_number(),
+                        e
                     );
                 }
             }
@@ -222,7 +223,8 @@ impl<T: Send + 'static> PartitionWorker<T> {
                         batch_id = batch_id,
                         first_offset = ?first_offset,
                         last_offset = ?last_offset,
-                        error = ?e,
+                        error = %e,
+                        error_chain = ?e,
                         "Error processing batch - offset not advanced"
                     );
 

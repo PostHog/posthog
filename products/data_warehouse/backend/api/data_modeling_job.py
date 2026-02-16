@@ -57,23 +57,18 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
 
     @action(methods=["GET"], detail=False)
     def running(self, request, *args, **kwargs):
-        """Get all currently running jobs from the v2 backend."""
-        queryset = self.get_queryset().filter(
-            status=DataModelingJob.Status.RUNNING,
-            workflow_id__startswith="materialize",
-        )
+        """Get all currently running jobs."""
+        queryset = self.get_queryset().filter(status=DataModelingJob.Status.RUNNING)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
     @action(methods=["GET"], detail=False)
     def recent(self, request, *args, **kwargs):
-        """Get the most recent non-running job for each saved query from the v2 backend."""
-        queryset = (
-            self.get_queryset()
-            .exclude(status=DataModelingJob.Status.RUNNING)
-            .filter(saved_query_id__isnull=False, workflow_id__startswith="materialize")
-            .order_by("saved_query_id", "-created_at")
-            .distinct("saved_query_id")
-        )
+        """Get recently completed/failed jobs (paginated)."""
+        queryset = self.get_queryset().exclude(status__in=["Running", "Cancelled"])
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)

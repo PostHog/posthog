@@ -1,9 +1,6 @@
 .NetworkView {
-    .NetworkView__table td:first-child,
-    .NetworkView__table th:first-child {
-        max-width: var(--url-col-width, 250px);
-        overflow: hidden;
-        text-overflow: ellipsis;
+    .NetworkView__table table {
+        table-layout: fixed;
     }
 
     .NetworkView__column-resize {

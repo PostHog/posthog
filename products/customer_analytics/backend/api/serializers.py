@@ -2,7 +2,7 @@ import json
 
 from rest_framework import serializers
 
-from products.customer_analytics.backend.models import CustomerJourney, CustomerProfileConfig
+from products.customer_analytics.backend.models import CustomerProfileConfig
 
 
 class CustomerProfileConfigSerializer(serializers.ModelSerializer):
@@ -60,27 +60,3 @@ class CustomerProfileConfigSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         return super().create(validated_data)
-
-
-class CustomerJourneySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CustomerJourney
-        fields = ["id", "insight", "name", "description", "created_at", "created_by", "updated_at"]
-        read_only_fields = ["id", "created_at", "created_by", "updated_at"]
-
-    def validate_insight(self, value):
-        if value.team_id != self.context["team_id"]:
-            raise serializers.ValidationError("The insight does not belong to this team.")
-        return value
-
-    def create(self, validated_data):
-        from django.db import IntegrityError
-
-        from posthog.exceptions import Conflict
-
-        validated_data["created_by"] = self.context["request"].user
-        validated_data["team_id"] = self.context["team_id"]
-        try:
-            return super().create(validated_data)
-        except IntegrityError:
-            raise Conflict("A customer journey already exists for this insight.")

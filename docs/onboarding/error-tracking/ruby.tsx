@@ -16,7 +16,7 @@ export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                 <Blockquote>
                     <Markdown>
                         {dedent`
-                            **Using Ruby on Rails?** The \`posthog-rails\` gem provides automatic exception capture for controllers and background jobs. Select "Ruby on Rails" from the SDK list for setup instructions.
+                            **Note:** The Ruby SDK currently only supports manual exception capture. Automatic exception capture is not yet available.
                         `}
                     </Markdown>
                 </Blockquote>
@@ -77,7 +77,11 @@ export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
         ),
     }
 
-    return [...installSteps, manualCaptureStep, verifyStep]
+    return [
+        ...installSteps,
+        manualCaptureStep,
+        verifyStep,
+    ]
 }
 
 export const RubyInstallation = createInstallation(getRubySteps)

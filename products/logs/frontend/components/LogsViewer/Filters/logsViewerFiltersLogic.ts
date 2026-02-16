@@ -1,13 +1,11 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import posthog from 'posthog-js'
+import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
 
 import { DateRange, LogSeverityLevel, LogsQuery } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
+import { UniversalFiltersGroup } from '~/types'
 
-import { zoomDateRange } from 'products/logs/frontend/components/LogsViewer/Filters/zoom-utils'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 
 import type { logsViewerFiltersLogicType } from './logsViewerFiltersLogicType'
@@ -45,20 +43,6 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         setFilters: (filters: Partial<LogsViewerFilters>, pushToHistory: boolean = true) => ({
             filters,
             pushToHistory,
-        }),
-
-        zoomDateRange: (multiplier: number) => ({ multiplier }),
-
-        addFilter: (
-            key: string,
-            value: string,
-            operator: PropertyOperator = PropertyOperator.Exact,
-            propertyType: PropertyFilterType = PropertyFilterType.LogAttribute
-        ) => ({
-            key,
-            value,
-            operator,
-            propertyType,
         }),
     }),
 
@@ -133,33 +117,4 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             }),
         ],
     }),
-
-    listeners(({ actions, values }) => ({
-        zoomDateRange: ({ multiplier }) => {
-            posthog.capture('logs date range zoomed', {
-                direction: multiplier > 1 ? 'out' : 'in',
-                multiplier,
-            })
-            const newDateRange = zoomDateRange(values.filters.dateRange, multiplier)
-            actions.setDateRange(newDateRange)
-        },
-        addFilter: ({ key, value, operator, propertyType }) => {
-            const currentGroup = values.filters.filterGroup.values[0] as UniversalFiltersGroup
-
-            const newGroup: UniversalFiltersGroup = {
-                ...currentGroup,
-                values: [
-                    ...currentGroup.values,
-                    {
-                        key,
-                        value: [value],
-                        operator,
-                        type: propertyType,
-                    } as UniversalFiltersGroupValue,
-                ],
-            }
-
-            actions.setFilterGroup({ ...values.filters.filterGroup, values: [newGroup] }, false)
-        },
-    })),
 ])

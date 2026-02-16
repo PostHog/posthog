@@ -121,7 +121,6 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
             guardAvailableFeature,
             showCreateProjectModal,
             currentOrganization?.teams?.length,
-            setAccountMenuOpen,
         ]
     )
 

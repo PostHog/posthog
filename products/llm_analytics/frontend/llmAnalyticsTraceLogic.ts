@@ -1,6 +1,6 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -8,8 +8,6 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
@@ -74,20 +72,14 @@ export function getDataNodeLogicProps({
     return dataNodeLogicProps
 }
 
-export interface LLMAnalyticsTraceLogicProps {
-    tabId?: string
-}
-
 export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
-    props({} as LLMAnalyticsTraceLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect((props: LLMAnalyticsTraceLogicProps) => ({
+    connect(() => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            llmAnalyticsSharedLogic({ tabId: props.tabId }),
+            llmAnalyticsSharedLogic,
             ['dateFilter', 'propertyFilters', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces'],
         ],
     })),
@@ -456,7 +448,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         },
     })),
 
-    tabAwareUrlToAction(({ actions }) => ({
+    urlToAction(({ actions }) => ({
         [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
@@ -477,7 +469,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => {
+    actionToUrl(({ values }) => {
         const buildUrl = (): string | undefined => {
             if (!values.traceId) {
                 return undefined

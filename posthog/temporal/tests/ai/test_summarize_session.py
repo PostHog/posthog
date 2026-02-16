@@ -22,7 +22,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai import AI_WORKFLOWS, SIGNALS_WORKFLOWS
+from posthog.temporal.ai import WORKFLOWS
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     _compress_redis_data,
@@ -40,6 +40,7 @@ from posthog.temporal.ai.session_summary.summarize_session import (
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext, SyncRedisTestContext
 
+from ee.hogai.session_summaries import ExceptionToRetry
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryData, SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
@@ -133,7 +134,7 @@ class TestFetchSessionDataActivity:
             assert decompressed_data.user_id == input_data.user_id
 
     @pytest.mark.asyncio
-    async def test_fetch_session_data_activity_no_events_returns_false(
+    async def test_fetch_session_data_activity_no_events_raises_error(
         self,
         mock_single_session_summary_inputs: Callable,
         mock_session_id: str,
@@ -142,9 +143,10 @@ class TestFetchSessionDataActivity:
         mock_raw_metadata: dict[str, Any],
         mock_raw_events_columns: list[str],
     ):
-        """Test that fetch_session_data_activity returns False when no events are found (e.g., for static recordings)."""
+        """Test that fetch_session_data_activity raises ApplicationError when no events are found (e.g., for fresh real-time replays)."""
         input_data = mock_single_session_summary_inputs(mock_session_id, ateam.id, auser.id, "test-no-events-key-base")
         with (
+            # Mock DB calls - return columns but no events (empty list)
             patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=ateam),
             patch(
                 "ee.hogai.session_summaries.session.summarize_session.get_session_metadata",
@@ -152,11 +154,17 @@ class TestFetchSessionDataActivity:
             ),
             patch(
                 "ee.hogai.session_summaries.session.summarize_session.get_session_events",
-                return_value=(mock_raw_events_columns, []),
+                return_value=(mock_raw_events_columns, []),  # Return columns but no events
             ),
         ):
-            result = await fetch_session_data_activity(input_data)
-            assert result is False
+            with patch("temporalio.activity.logger.exception") as mock_logger_exception:
+                # Call the activity and expect an ExceptionToRetry to be raised
+                with pytest.raises(ExceptionToRetry):
+                    await fetch_session_data_activity(input_data)
+                # Verify that the logger was called with the expected message
+                mock_logger_exception.assert_called_once()
+                logged_message = mock_logger_exception.call_args[0][0]
+                assert "No events found for this replay yet" in logged_message
 
 
 class TestStreamLlmSummaryActivity:
@@ -289,8 +297,8 @@ class TestSummarizeSingleSessionStreamWorkflow:
         try:
             async with Worker(
                 activity_environment.client,
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                workflows=AI_WORKFLOWS + SIGNALS_WORKFLOWS,
+                task_queue=settings.MAX_AI_TASK_QUEUE,
+                workflows=WORKFLOWS,
                 activities=[stream_llm_single_session_summary_activity, fetch_session_data_activity],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ) as worker:
@@ -372,6 +380,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
             user_id=mock_user.id,
             prompt_data=True,  # type: ignore
             prompt=True,  # type: ignore
+            error_msg=None,
         )
         input_data = mock_single_session_summary_llm_inputs(mock_session_id, mock_user.id)
         # Mock Redis data for streaming updates
@@ -483,6 +492,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
             user_id=mock_user.id,
             prompt_data=True,  # type: ignore
             prompt=True,  # type: ignore
+            error_msg=None,
         )
         input_data = mock_single_session_summary_llm_inputs(mock_session_id, mock_user.id)
         # Create invalid compressed data (not valid gzip)
@@ -543,6 +553,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
             user_id=mock_user.id,
             prompt_data=True,  # type: ignore
             prompt=True,  # type: ignore
+            error_msg=None,
         )
         input_data = mock_single_session_summary_llm_inputs(mock_session_id, mock_user.id)
         # Mock Redis data for streaming updates

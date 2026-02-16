@@ -5,16 +5,15 @@ import { ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import type { ChatMessage, MessageDeliveryStatus } from '../../types'
+import type { ChatMessage } from '../../types'
 import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
 
 export interface MessageProps {
     message: ChatMessage
     isCustomer: boolean
-    deliveryStatus?: MessageDeliveryStatus
 }
 
-export function Message({ message, isCustomer, deliveryStatus }: MessageProps): JSX.Element {
+export function Message({ message, isCustomer }: MessageProps): JSX.Element {
     const profileType = message.authorType === 'AI' ? 'bot' : 'person'
     const isPrivate = message.isPrivate
 
@@ -57,13 +56,6 @@ export function Message({ message, isCustomer, deliveryStatus }: MessageProps): 
                                 />
                             ) : (
                                 <SupportMarkdown className="text-sm">{message.content}</SupportMarkdown>
-                            )}
-                        </div>
-                        <div className="flex items-center justify-end gap-1">
-                            {deliveryStatus && (
-                                <span className="text-xs text-muted-alt">
-                                    {deliveryStatus === 'read' ? 'Read' : 'Sent'}
-                                </span>
                             )}
                         </div>
                     </div>

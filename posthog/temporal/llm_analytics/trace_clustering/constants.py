@@ -13,11 +13,6 @@ DEFAULT_MAX_K = 10
 # Minimum traces required for clustering
 MIN_TRACES_FOR_CLUSTERING = 20
 
-# Maximum eligible IDs to return from filter pre-query.
-# These IDs are expanded into an IN(...) clause in subsequent queries;
-# ClickHouse max_query_size is 1MB so we cap to avoid oversized SQL strings.
-MAX_ELIGIBLE_IDS = 20_000
-
 # Coordinator concurrency settings
 DEFAULT_MAX_CONCURRENT_TEAMS = 4  # Max teams to process in parallel
 

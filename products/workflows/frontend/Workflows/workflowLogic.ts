@@ -228,14 +228,12 @@ export const workflowLogic = kea<workflowLogicType>([
     forms(({ actions, values }) => ({
         workflow: {
             defaults: NEW_WORKFLOW,
-            errors: ({ name, actions, status }) => {
+            errors: ({ name, actions }) => {
                 const errors = {
                     name: !name ? 'Name is required' : undefined,
-                    actions:
-                        status === 'active' &&
-                        actions.some((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
-                            ? 'Some fields need work'
-                            : undefined,
+                    actions: actions.some((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
+                        ? 'Some fields need work'
+                        : undefined,
                 } as DeepPartialMap<HogFlow, ValidationErrorType>
 
                 return errors
@@ -387,16 +385,6 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
 
-        workflowHasActionErrors: [
-            (s) => [s.workflow, s.actionValidationErrorsById],
-            (
-                workflow: HogFlow,
-                actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
-            ): boolean => {
-                return workflow.actions.some((action) => !(actionValidationErrorsById[action.id]?.valid ?? true))
-            },
-        ],
-
         triggerAction: [
             (s) => [s.workflow],
             (workflow): TriggerAction | null => {
@@ -413,12 +401,10 @@ export const workflowLogic = kea<workflowLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         saveWorkflowPartial: async ({ workflow }) => {
-            const merged = { ...values.workflow, ...workflow }
-            if (merged.status === 'active' && values.workflowHasActionErrors) {
-                lemonToast.error('Fix all errors before enabling')
-                return
-            }
-            actions.saveWorkflow(merged)
+            actions.saveWorkflow({
+                ...values.workflow,
+                ...workflow,
+            })
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
             actions.resetWorkflow(originalWorkflow)

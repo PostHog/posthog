@@ -327,11 +327,19 @@ impl StoreManager {
                     // Real failure - no one succeeded in creating the store
                     metrics::counter!(STORE_CREATION_EVENTS, "outcome" => "failure").increment(1);
 
+                    // Build the complete error chain
+                    let mut error_chain = vec![format!("{:?}", e)];
+                    let mut source = e.source();
+                    while let Some(err) = source {
+                        error_chain.push(format!("Caused by: {err:?}"));
+                        source = err.source();
+                    }
+
                     error!(
                         topic = topic,
                         partition = partition,
                         duration_ms = creation_duration.as_millis(),
-                        error = ?e,
+                        error = error_chain.join(" -> "),
                         "Failed to create deduplication store"
                     );
 
@@ -494,7 +502,7 @@ impl StoreManager {
             Err(e) => {
                 warn!(
                     path = %base_path.display(),
-                    error = ?e,
+                    error = %e,
                     "Failed to read store base directory for cleanup"
                 );
                 return Ok(());
@@ -507,7 +515,7 @@ impl StoreManager {
                     .map_err(|e| {
                         warn!(
                             path = %base_path.display(),
-                            error = ?e,
+                            error = %e,
                             "Error reading directory entry during cleanup"
                         );
                     })
@@ -558,7 +566,7 @@ impl StoreManager {
                         Ok(())
                     }
                     Err(e) => {
-                        warn!(path = %path_str, error = ?e, "Failed to delete partition directory");
+                        warn!(path = %path_str, error = %e, "Failed to delete partition directory");
                         Err(e)
                     }
                 }
@@ -841,7 +849,7 @@ impl StoreManager {
                                 info!("Cleaned up {} bytes of orphaned directories", bytes_freed);
                             }
                             Err(e) => {
-                                warn!("Failed to clean up orphaned directories: {e:#}");
+                                warn!("Failed to clean up orphaned directories: {}", e);
                             }
                         }
 
@@ -855,7 +863,7 @@ impl StoreManager {
                                     info!("Periodic cleanup freed {} bytes", bytes_freed);
                                 }
                                 Err(e) => {
-                                    error!("Periodic cleanup failed: {e:#}");
+                                    error!("Periodic cleanup failed: {}", e);
                                 }
                             }
                         } else {
@@ -1308,7 +1316,7 @@ impl CleanupTaskHandle {
 
         match tokio::time::timeout(Duration::from_secs(5), self.handle).await {
             Ok(Ok(())) => info!("Cleanup task shut down successfully"),
-            Ok(Err(e)) => warn!("Cleanup task failed: {e:#}"),
+            Ok(Err(e)) => warn!("Cleanup task failed: {}", e),
             Err(_) => warn!("Cleanup task shutdown timed out"),
         }
     }

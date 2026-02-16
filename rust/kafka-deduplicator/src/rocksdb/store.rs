@@ -311,13 +311,12 @@ impl RocksDbStore {
                 entry_count = entry_count,
                 batch_size_bytes = batch_size_bytes,
                 db_path = %self.path_location.display(),
-                rocksdb_error = ?e,
+                rocksdb_error = %e,
                 "RocksDB write_opt failed"
             );
-            anyhow::Error::from(e).context(format!(
-                "Failed to put batch ({} entries, {} bytes)",
-                entry_count, batch_size_bytes
-            ))
+            anyhow::anyhow!(
+                "Failed to put batch ({entry_count} entries, {batch_size_bytes} bytes): {e}"
+            )
         })
     }
 
@@ -423,7 +422,7 @@ impl RocksDbStore {
             Ok(_) => Ok(()),
             Err(e) => {
                 self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
-                Err(anyhow::Error::from(e).context("Failed to flush"))
+                Err(anyhow::anyhow!("Failed to flush: {e}"))
             }
         }
     }
@@ -442,7 +441,7 @@ impl RocksDbStore {
     pub fn flush_wal(&self, sync: bool) -> Result<()> {
         self.db
             .flush_wal(sync)
-            .with_context(|| format!("Failed to flush WAL (sync={sync})"))
+            .map_err(|e| anyhow::anyhow!("Failed to flush WAL (sync={sync}): {e}"))
     }
 
     /// Get the latest sequence number from the database

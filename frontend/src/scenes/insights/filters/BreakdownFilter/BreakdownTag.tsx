@@ -59,7 +59,7 @@ export function EditableBreakdownTag({
                 taxonomicType={taxonomicBreakdownType}
             >
                 {!isMultipleBreakdownsEnabled || isHistogramable || isNormalizeable ? (
-                    <div className="max-w-full">
+                    <div>
                         {/* :TRICKY: we don't want the close button to be active when the edit popover is open.
                          * Therefore we're wrapping the lemon tag a context provider to override the parent context. */}
                         <PopoverReferenceContext.Provider value={null}>
@@ -83,7 +83,7 @@ export function EditableBreakdownTag({
                         </PopoverReferenceContext.Provider>
                     </div>
                 ) : (
-                    <div className="max-w-full">
+                    <div>
                         {/* If multiple breakdowns are enabled and it's not a numeric or URL property, enable the delete button */}
                         <BreakdownTag
                             breakdown={breakdown}
@@ -151,7 +151,6 @@ export function BreakdownTag({
                 'BreakdownTag--clickable': clickable,
             })}
             type={ButtonComponent === 'button' ? 'button' : undefined}
-            title={String(propertyName)}
             onClick={onClick}
         >
             {breakdownType === 'hogql' ? (

@@ -5,11 +5,14 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::{
-    error::UnhandledError,
+    error::{EventError, UnhandledError},
     fingerprinting::FingerprintRecordPart,
     frames::releases::ReleaseInfo,
     issue_resolution::Issue,
-    types::{ExceptionList, OutputErrProps},
+    pipeline::exception::MAX_EXCEPTION_VALUE_LENGTH,
+    recursively_sanitize_properties,
+    stages::pipeline::ExceptionEventHandledError,
+    types::{event::AnyEvent, ExceptionList, OutputErrProps},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,5 +115,64 @@ impl ExceptionProperties {
             sources,
             functions,
         })
+    }
+}
+
+impl TryFrom<AnyEvent> for ExceptionProperties {
+    type Error = EventError;
+
+    fn try_from(event: AnyEvent) -> Result<Self, Self::Error> {
+        if event.event != "$exception" {
+            return Err(EventError::WrongEventType(event.event.clone(), event.uuid));
+        }
+
+        let mut properties: Value = match serde_json::from_value(event.properties) {
+            Ok(r) => r,
+            Err(e) => {
+                return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
+            }
+        };
+
+        if let Some(v) = properties
+            .as_object_mut()
+            .and_then(|o| o.get_mut("$exception_list"))
+        {
+            // We PG sanitize the exception list, because the strings in it can end up in PG kind of arbitrarily.
+            // TODO - the prep stage has already sanitized the properties, so maybe we don't need to do this again?
+            recursively_sanitize_properties(event.uuid, v, 0)?;
+        }
+
+        let mut evt: ExceptionProperties = match serde_json::from_value(properties) {
+            Ok(r) => r,
+            Err(e) => {
+                return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
+            }
+        };
+
+        if evt.exception_list.is_empty() {
+            return Err(EventError::EmptyExceptionList(event.uuid));
+        }
+
+        for exception in evt.exception_list.iter_mut() {
+            if exception.exception_message.len() > MAX_EXCEPTION_VALUE_LENGTH {
+                let truncate_at = exception
+                    .exception_message
+                    .char_indices()
+                    .take_while(|(i, _)| *i < MAX_EXCEPTION_VALUE_LENGTH)
+                    .last()
+                    .map(|(i, c)| i + c.len_utf8())
+                    .unwrap_or(0);
+                exception.exception_message.truncate(truncate_at);
+                exception.exception_message.push_str("...");
+            }
+            exception.exception_id = Some(Uuid::now_v7().to_string());
+        }
+
+        // Set metadata fields that are skipped during deserialization
+        evt.uuid = event.uuid;
+        evt.timestamp = event.timestamp;
+        evt.team_id = event.team_id;
+
+        Ok(evt)
     }
 }

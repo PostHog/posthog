@@ -1410,38 +1410,27 @@ def failhard_threadhook_context():
     """
     Context manager to ensure that exceptions raised by threads are treated as a
     test failure.
-
-    Collects thread exceptions silently, then re-raises in the main thread after
-    context exit. Raising inside the hook itself just causes Python to print
-    "Exception in threading.excepthook:" with a full traceback per thread.
     """
-    thread_exceptions: list[BaseException] = []
 
-    def collect_hook(args: threading.ExceptHookArgs):
+    def raise_hook(args: threading.ExceptHookArgs):
+        """Capture exceptions from threads and raise them as AssertionError"""
         exc = args.exc_value
         if exc is None:
             return
 
-        # Filter out UNKNOWN_TABLE errors (code 60) in the test database.
-        # Tables may not exist during setup/teardown depending on test configuration.
-        if hasattr(exc, "code") and exc.code == 60 and "posthog_test" in str(exc):
-            return
+        # Filter out expected Kafka table errors during test setup
+        if hasattr(exc, "code") and exc.code == 60 and "kafka_" in str(exc) and "posthog_test" in str(exc):
+            return  # Silently ignore expected Kafka table errors
 
-        thread_exceptions.append(exc)
+        # For other exceptions, raise as AssertionError to fail tests
+        raise AssertionError from exc  # Must be an AssertionError to fail tests
 
-    old_hook, threading.excepthook = threading.excepthook, collect_hook
+    old_hook, threading.excepthook = threading.excepthook, raise_hook
     try:
         yield old_hook
     finally:
-        was_ours = threading.excepthook is collect_hook
+        assert threading.excepthook is raise_hook
         threading.excepthook = old_hook
-        assert was_ours, "something else replaced threading.excepthook while we held it"
-        if thread_exceptions:
-            unique_errors = {f"{type(e).__name__}: {e}" for e in thread_exceptions}
-            summary = "; ".join(sorted(unique_errors))
-            raise AssertionError(
-                f"{len(thread_exceptions)} thread(s) raised exceptions: {summary}"
-            ) from thread_exceptions[0]
 
 
 def run_clickhouse_statement_in_parallel(statements: list[str]):

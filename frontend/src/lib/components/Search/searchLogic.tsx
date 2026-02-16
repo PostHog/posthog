@@ -985,12 +985,9 @@ export const searchLogic = kea<searchLogicType>([
         setSearch: async ({ search }, breakpoint) => {
             await breakpoint(150)
 
-            // Always load recents on first call (e.g. when defaultSearchValue is non-empty)
-            if (search.trim() === '' || !values.recentsHasLoaded) {
+            if (search.trim() === '') {
                 actions.loadRecents({ search: '' })
-            }
-
-            if (search.trim() !== '') {
+            } else {
                 actions.loadUnifiedSearchResults({ searchTerm: search })
                 actions.loadPersonSearchResults({ searchTerm: search })
                 actions.loadGroupSearchResults({ searchTerm: search })

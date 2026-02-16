@@ -6,7 +6,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconArchive, IconCheck, IconPlus, IconSearch } from '@posthog/icons'
+import { IconArchive, IconCheck, IconPlus } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -337,9 +337,8 @@ const InfiniteListRow = ({
     }
 
     if (item && itemGroup) {
+        // Check if this item is disabled using the group's getIsDisabled function
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
-        const isExactMatchItem =
-            listGroupType === TaxonomicFilterGroupType.QuickFilters && itemGroup.type !== listGroupType
 
         return (
             <div
@@ -349,6 +348,7 @@ const InfiniteListRow = ({
                 role="button"
                 aria-disabled={isDisabledItem}
                 onClick={(event) => {
+                    // Prevent selection of disabled items
                     if (isDisabledItem) {
                         event.preventDefault()
                         event.stopPropagation()
@@ -362,16 +362,11 @@ const InfiniteListRow = ({
             >
                 {renderItemContents({
                     item,
-                    listGroupType: isExactMatchItem ? itemGroup.type : listGroupType,
+                    listGroupType,
                     itemGroup,
                     eventNames,
                     isActive,
                 })}
-                {isExactMatchItem && (
-                    <LemonTag size="small" type="highlight">
-                        {itemGroup.name}
-                    </LemonTag>
-                )}
             </div>
         )
     }
@@ -479,27 +474,16 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list', 'h-full')}>
             {showEmptyState ? (
                 <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
-                    {listGroupType === TaxonomicFilterGroupType.QuickFilters && !searchQuery ? (
-                        <>
-                            <IconSearch className="text-5xl text-tertiary" />
-                            <span className="text-secondary text-center">
-                                Try pasting an email, URL, screen name, or element text
-                            </span>
-                        </>
-                    ) : (
-                        <>
-                            <IconArchive className="text-5xl text-tertiary" />
-                            <span>
-                                {searchQuery ? (
-                                    <>
-                                        No results for "<strong>{searchQuery}</strong>"
-                                    </>
-                                ) : (
-                                    'No results'
-                                )}
-                            </span>
-                        </>
-                    )}
+                    <IconArchive className="text-5xl text-tertiary" />
+                    <span>
+                        {searchQuery ? (
+                            <>
+                                No results for "<strong>{searchQuery}</strong>"
+                            </>
+                        ) : (
+                            'No results'
+                        )}
+                    </span>
                 </div>
             ) : isLoading && (!results || results.length === 0) ? (
                 <div className="flex items-center justify-center h-full">

@@ -17,7 +17,6 @@ pub mod extractor;
 pub mod job;
 pub mod metrics;
 pub mod parse;
-pub mod person_processing_filter;
 pub mod source;
 
 // During job init, we can hang for a long time initialising sinks or sources, so we kick off a task to

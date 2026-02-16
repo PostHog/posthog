@@ -3,6 +3,12 @@
 exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
 [
   [
+    "transformEventStep",
+    [
+      null,
+    ],
+  ],
+  [
     "normalizeEventStep",
     [
       true,

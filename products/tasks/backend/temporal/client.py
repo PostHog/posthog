@@ -191,7 +191,9 @@ def execute_task_processing_workflow(
         logger.exception(f"Failed to start task processing workflow: {e}")
 
 
-def execute_video_segment_clustering_workflow(team_id: int, skip_priming: bool = False) -> dict[str, Any]:
+def execute_video_segment_clustering_workflow(
+    team_id: int, lookback_hours: int | None = None, skip_priming: bool = False
+) -> dict[str, Any]:
     """
     Execute the video segment clustering workflow for a single team synchronously.
     Waits for the workflow to complete and returns the result.
@@ -207,10 +209,12 @@ def execute_video_segment_clustering_workflow(team_id: int, skip_priming: bool =
     from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
 
     try:
+        effective_lookback = lookback_hours or int(constants.DEFAULT_LOOKBACK_WINDOW.total_seconds() / 3600)
         workflow_id = f"video-segment-clustering-team-{team_id}-manual-{datetime.now().isoformat()}"
 
         workflow_input = ClusteringWorkflowInputs(
             team_id=team_id,
+            lookback_hours=effective_lookback,
             min_segments=constants.MIN_SEGMENTS_FOR_CLUSTERING,
             skip_priming=skip_priming,
         )

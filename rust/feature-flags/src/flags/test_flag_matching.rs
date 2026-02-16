@@ -1194,7 +1194,7 @@ mod tests {
             None,
         );
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, &HashMap::new(), None, &None)
+            .is_condition_match(&flag, &condition, None, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1256,7 +1256,7 @@ mod tests {
             .flag_evaluation_state
             .add_flag_evaluation_result(1, FlagValue::Boolean(true));
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, &HashMap::new(), None, &None)
+            .is_condition_match(&flag, &condition, None, None, &None)
             .unwrap();
         assert!(is_match);
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
@@ -1863,7 +1863,7 @@ mod tests {
         );
 
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &flag.filters.groups[0], &HashMap::new(), None, &None)
+            .is_condition_match(&flag, &flag.filters.groups[0], None, None, &None)
             .unwrap();
 
         assert!(is_match);

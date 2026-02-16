@@ -225,11 +225,6 @@ export function isEventPersonOrSessionPropertyFilter(
         filter?.type === PropertyFilterType.Session
     )
 }
-export function isWebAnalyticsPropertyFilter(
-    filter?: AnyFilterLike | null
-): filter is EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter {
-    return isEventPersonOrSessionPropertyFilter(filter) || isCohortPropertyFilter(filter)
-}
 export function isElementPropertyFilter(filter?: AnyFilterLike | null): filter is ElementPropertyFilter {
     return filter?.type === PropertyFilterType.Element
 }

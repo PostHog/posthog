@@ -27,7 +27,6 @@ from posthog.utils import (
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
     get_compare_period_dates,
-    get_default_event_info,
     get_default_event_name,
     get_ip_address,
     get_short_user_agent,
@@ -318,45 +317,10 @@ class TestDefaultEventName(BaseTest):
         EventDefinition.objects.create(name="$screen", team=self.team)
         self.assertEqual(get_default_event_name(self.team), "$screen")
 
-    @parameterized.expand(
-        [
-            (
-                "no_events",
-                False,
-                False,
-                {"default_event_name": "$pageview", "has_pageview": False, "has_screen": False},
-            ),
-            ("only_screen", False, True, {"default_event_name": "$screen", "has_pageview": False, "has_screen": True}),
-            (
-                "only_pageview",
-                True,
-                False,
-                {"default_event_name": "$pageview", "has_pageview": True, "has_screen": False},
-            ),
-            ("both", True, True, {"default_event_name": "$pageview", "has_pageview": True, "has_screen": True}),
-        ]
-    )
-    def test_get_default_event_info(self, _name, create_pageview, create_screen, expected):
-        if create_pageview:
-            EventDefinition.objects.create(name="$pageview", team=self.team)
-        if create_screen:
-            EventDefinition.objects.create(name="$screen", team=self.team)
-        self.assertEqual(get_default_event_info(self.team), expected)
-
-    @parameterized.expand(
-        [
-            ("no_events", False, False, "$pageview"),
-            ("only_screen", False, True, "$screen"),
-            ("only_pageview", True, False, "$pageview"),
-            ("both", True, True, "$pageview"),
-        ]
-    )
-    def test_get_default_event_name(self, _name, create_pageview, create_screen, expected):
-        if create_pageview:
-            EventDefinition.objects.create(name="$pageview", team=self.team)
-        if create_screen:
-            EventDefinition.objects.create(name="$screen", team=self.team)
-        self.assertEqual(get_default_event_name(self.team), expected)
+    def test_prefer_pageview(self):
+        EventDefinition.objects.create(name="$pageview", team=self.team)
+        EventDefinition.objects.create(name="$screen", team=self.team)
+        self.assertEqual(get_default_event_name(self.team), "$pageview")
 
 
 class TestLoadDataFromRequest(TestCase):

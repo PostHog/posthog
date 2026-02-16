@@ -384,90 +384,6 @@ export interface ConnectionTokenResponseApi {
     token: string
 }
 
-/**
- * * `needs_setup` - needs_setup
- * `detected` - detected
- * `waiting_for_data` - waiting_for_data
- * `ready` - ready
- * `not_applicable` - not_applicable
- * `unknown` - unknown
- */
-export type CapabilityStateStateEnumApi = (typeof CapabilityStateStateEnumApi)[keyof typeof CapabilityStateStateEnumApi]
-
-export const CapabilityStateStateEnumApi = {
-    needs_setup: 'needs_setup',
-    detected: 'detected',
-    waiting_for_data: 'waiting_for_data',
-    ready: 'ready',
-    not_applicable: 'not_applicable',
-    unknown: 'unknown',
-} as const
-
-/**
- * Supporting evidence
- */
-export type CapabilityStateApiEvidence = { [key: string]: unknown }
-
-export interface CapabilityStateApi {
-    /** Current state of the capability
-
-* `needs_setup` - needs_setup
-* `detected` - detected
-* `waiting_for_data` - waiting_for_data
-* `ready` - ready
-* `not_applicable` - not_applicable
-* `unknown` - unknown */
-    state: CapabilityStateStateEnumApi
-    /** Whether the state is estimated from static analysis */
-    estimated: boolean
-    /** Human-readable explanation */
-    reason: string
-    /** Supporting evidence */
-    evidence?: CapabilityStateApiEvidence
-}
-
-export interface ScanEvidenceApi {
-    /** Number of files scanned */
-    filesScanned: number
-    /** Total candidate files detected */
-    detectedFilesCount: number
-    /** Number of distinct event names found */
-    eventNameCount: number
-    /** Whether posthog.init() was found in scanned files */
-    foundPosthogInit: boolean
-    /** Whether posthog.capture() was found in scanned files */
-    foundPosthogCapture: boolean
-    /** Whether error tracking signals were found in scanned files */
-    foundErrorSignal: boolean
-}
-
-export interface RepositoryReadinessResponseApi {
-    /** Normalized repository identifier */
-    repository: string
-    /** Repository classification */
-    classification: string
-    /** Whether the repository is excluded from readiness checks */
-    excluded: boolean
-    /** Tracking capability state */
-    coreSuggestions: CapabilityStateApi
-    /** Computer vision capability state */
-    replayInsights: CapabilityStateApi
-    /** Error tracking capability state */
-    errorInsights: CapabilityStateApi
-    /** Overall readiness state */
-    overall: string
-    /** Count of replay-derived evidence tasks */
-    evidenceTaskCount: number
-    /** Lookback window in days */
-    windowDays: number
-    /** ISO timestamp when the response was generated */
-    generatedAt: string
-    /** Age of cached response in seconds */
-    cacheAgeSeconds: number
-    /** Scan evidence details */
-    scan?: ScanEvidenceApi
-}
-
 export type TasksListParams = {
     /**
      * Filter by creator user ID
@@ -535,18 +451,4 @@ export type TasksRunsSessionLogsRetrieveParams = {
      * @maximum 5000
      */
     limit?: number
-}
-
-export type TasksRepositoryReadinessRetrieveParams = {
-    refresh?: boolean
-    /**
-     * Repository in org/repo format
-     * @minLength 1
-     */
-    repository: string
-    /**
-     * @minimum 1
-     * @maximum 30
-     */
-    window_days?: number
 }

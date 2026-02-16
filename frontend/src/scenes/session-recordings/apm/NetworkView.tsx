@@ -60,7 +60,7 @@ function SimpleURL({ name, entryType }: { name: string | undefined; entryType: s
 
 function NetworkStatus({ item }: { item: PerformanceEvent }): JSX.Element | null {
     return (
-        <div className="flex flex-row gap-1 items-center whitespace-nowrap">
+        <div className="flex flex-row justify-around">
             <MethodTag item={item} label={false} />
             <StatusTag item={item} detailed={false} />
         </div>
@@ -124,7 +124,8 @@ function WaterfallMeta(): JSX.Element | null {
     )
 }
 
-const MIN_TIMINGS_WIDTH = 80
+// Status (128px) + Duration (86px) + min Timings (100px)
+const FIXED_COLUMNS_WIDTH = 128 + 86 + 100
 
 function useColumnResize(
     initialWidth: number,
@@ -143,14 +144,7 @@ function useColumnResize(
             const startX = e.pageX
             const startWidth = widthRef.current
             const containerWidth = containerRef.current?.offsetWidth ?? 800
-            // Measure actual Status + Duration column widths from the rendered table header
-            const ths = containerRef.current?.querySelectorAll('th')
-            let otherColumnsWidth = 0
-            if (ths && ths.length >= 4) {
-                // Status (index 2) + Duration (index 3)
-                otherColumnsWidth = ths[2].offsetWidth + ths[3].offsetWidth
-            }
-            const maxWidth = Math.max(200, containerWidth - otherColumnsWidth - MIN_TIMINGS_WIDTH)
+            const maxWidth = Math.max(200, containerWidth - FIXED_COLUMNS_WIDTH)
 
             const onMouseMove = (moveEvent: MouseEvent): void => {
                 const delta = moveEvent.pageX - startX
@@ -194,12 +188,7 @@ export function NetworkView(): JSX.Element {
             <div className="NetworkView overflow-y-auto py-2 px-4">
                 <WaterfallMeta />
                 <LemonDivider />
-                {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div
-                    ref={containerRef}
-                    className="relative deprecated-space-y-1 px-0"
-                    style={{ '--url-col-width': `${urlColumnWidth}px` } as React.CSSProperties}
-                >
+                <div ref={containerRef} className="relative deprecated-space-y-1 px-0">
                     <div
                         className="NetworkView__column-resize absolute top-0 bottom-0 z-10 cursor-col-resize"
                         // eslint-disable-next-line react/forbid-dom-props
@@ -228,7 +217,6 @@ export function NetworkView(): JSX.Element {
                             {
                                 title: 'Timings',
                                 key: 'timings',
-                                width: '100%',
                                 render: function RenderTimings(_, item) {
                                     return <NetworkBar item={item} />
                                 },
@@ -236,7 +224,8 @@ export function NetworkView(): JSX.Element {
                             {
                                 title: 'Status',
                                 key: 'status',
-                                width: 0,
+                                width: 128,
+                                align: 'center',
                                 render: function RenderStatus(_, item) {
                                     return <NetworkStatus item={item} />
                                 },
@@ -244,7 +233,7 @@ export function NetworkView(): JSX.Element {
                             {
                                 title: 'Duration',
                                 key: 'duration',
-                                width: 0,
+                                width: 86,
                                 align: 'right',
                                 render: function RenderDuration(_, item) {
                                     return <Duration item={item} />

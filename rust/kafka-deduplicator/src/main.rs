@@ -230,7 +230,7 @@ async fn main() -> Result<()> {
     let _profiling_agent = match config.continuous_profiling.start_agent() {
         Ok(agent) => agent,
         Err(e) => {
-            tracing::warn!("Failed to start continuous profiling agent: {e:#}");
+            tracing::warn!("Failed to start continuous profiling agent: {e}");
             None
         }
     };

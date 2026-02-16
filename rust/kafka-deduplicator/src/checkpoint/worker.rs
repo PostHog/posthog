@@ -156,7 +156,8 @@ impl CheckpointWorker {
                 self.worker_id,
                 partition = self.partition.to_string(),
                 attempt_timestamp = self.attempt_timestamp.to_string(),
-                "Checkpoint worker: failed store metrics update after local checkpoint: {e:#}"
+                "Checkpoint worker: failed store metrics update after local checkpoint: {}",
+                e
             );
         }
 
@@ -175,7 +176,8 @@ impl CheckpointWorker {
             error!(
                 self.worker_id,
                 local_attempt_path = self.get_local_attempt_path().to_string_lossy().to_string(),
-                "Checkpoint worker: failed to clean up local attempt directory: {e:#}"
+                "Checkpoint worker: failed to clean up local attempt directory: {}",
+                e
             );
         }
     }
@@ -196,11 +198,11 @@ impl CheckpointWorker {
             error!(
                 self.worker_id,
                 local_base_path = base_path.to_string_lossy().to_string(),
-                "Checkpoint worker: failed to create local directory: {e:#}"
+                "Checkpoint worker: failed to create local directory: {}",
+                e
             );
 
-            return Err(anyhow::Error::from(e)
-                .context("Checkpoint worker: failed to create local directory"));
+            return Err(anyhow::anyhow!(e));
         }
 
         Ok(())
@@ -238,15 +240,24 @@ impl CheckpointWorker {
             }
 
             Err(e) => {
+                // Build the complete error chain
+                let mut error_chain = vec![format!("{:?}", e)];
+                let mut source = e.source();
+                while let Some(err) = source {
+                    error_chain.push(format!("Caused by: {err:?}"));
+                    source = err.source();
+                }
+
                 let tags = [("result", "error"), ("cause", "local_checkpoint")];
                 metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                 error!(
                     self.worker_id,
                     local_attempt_path = local_attempt_path.to_string_lossy().to_string(),
-                    "Checkpoint worker: local attempt failed: {e:#}"
+                    "Checkpoint worker: local attempt failed: {}",
+                    error_chain.join(" -> ")
                 );
 
-                Err(e.context("local checkpoint attempt failed"))
+                Err(anyhow::anyhow!(error_chain.join(" -> ")))
             }
         }
     }
@@ -342,7 +353,8 @@ impl CheckpointWorker {
                                 self.worker_id,
                                 local_attempt_path = local_attempt_path_tag,
                                 attempt_type,
-                                "Checkpoint worker: export failed: {e:#}"
+                                "Checkpoint worker: export failed: {}",
+                                e
                             );
                         }
 

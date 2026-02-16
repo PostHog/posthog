@@ -362,7 +362,6 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
         50,
         Duration::from_millis(100),
         Duration::from_millis(500),
-        Duration::from_secs(5), // seek_timeout
     )?;
 
     // Start consumer in background

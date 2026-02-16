@@ -75,7 +75,7 @@ export const AudioMuteReplayerPlugin = (isMuted: boolean): ReplayPlugin => {
             // Handle DOM mutations that might add new media elements
             if (e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.Mutation) {
                 // Apply mute state to any newly added nodes
-                if (Array.isArray(e.data.adds)) {
+                if (e.data.adds) {
                     e.data.adds.forEach((addedNode: any) => {
                         if (addedNode.node && addedNode.node.type === 1) {
                             // Element node

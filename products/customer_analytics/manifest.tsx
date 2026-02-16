@@ -1,5 +1,3 @@
-import { combineUrl } from 'kea-router'
-
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -26,18 +24,12 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
-        '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
+        // Single route for now, may want to split in the future
+        '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
         '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
-    },
-    redirects: {
-        '/customer_analytics': (_params, searchParams, hashParams) =>
-            combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
     },
     urls: {
         customerAnalytics: (): string => '/customer_analytics',
-        customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
-        customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
         customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     },
     treeItemsProducts: [

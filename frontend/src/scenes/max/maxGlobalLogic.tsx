@@ -179,6 +179,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             window.setTimeout(() => logic!.actions.askMax(prompt), 100)
         },
         openSidePanelMax: ({ conversationId }) => {
+            const isRemovingSidePanelFlag = values.featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
+            if (isRemovingSidePanelFlag) {
+                newInternalTab(urls.ai(conversationId))
+                return
+            }
+
             if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {
                 actions.openSidePanel(SidePanelTab.Max)
             }

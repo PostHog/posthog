@@ -131,6 +131,7 @@ describe('processEvent', () => {
             hub.teamManager,
             hub.groupTypeManager,
             pluginEvent,
+            null,
             personsStoreForBatch,
             groupStoreForBatch
         )
@@ -289,6 +290,7 @@ describe('processEvent', () => {
             hub.teamManager,
             hub.groupTypeManager,
             event,
+            null,
             personsStoreForBatch,
             groupStoreForBatch
         )

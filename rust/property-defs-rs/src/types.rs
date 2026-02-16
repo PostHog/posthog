@@ -354,13 +354,11 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
     let key = key.to_lowercase();
 
     // There are a whole set of special cases here, taken from the TS
-    if key.starts_with("utm_") || key.starts_with("$initial_utm_") {
+    if key.starts_with("utm_") {
         // utm_ prefixed properties should always be detected as strings.
         // Sometimes the first value sent looks like a number, event though
         // subsequent values are not. See
         // https://github.com/PostHog/posthog/issues/12529 for more context.
-        // $initial_utm_* properties are the "initial" variants set by the SDK
-        // and must follow the same rule.
         return Some(PropertyValueType::String);
     }
     if key.starts_with("$feature/") {

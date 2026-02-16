@@ -5,17 +5,19 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils'
 
+import { LogsOrderBy } from '../../types'
 import { logsExportLogic } from './logsExportLogic'
 import { logsViewerLogic } from './logsViewerLogic'
 
 interface LogsExportMenuProps {
     totalLogsCount?: number
+    orderBy: LogsOrderBy
+    maxExportableLogs: number
 }
 
-export const LogsExportMenu = ({ totalLogsCount }: LogsExportMenuProps): JSX.Element => {
-    const { selectedCount } = useValues(logsViewerLogic)
-    const { exportServerSide, exportSelectedAsCsv, copySelectedLogs } = useActions(logsExportLogic)
-    const { maxExportableLogs } = useValues(logsExportLogic)
+export const LogsExportMenu = ({ totalLogsCount, orderBy, maxExportableLogs }: LogsExportMenuProps): JSX.Element => {
+    const { selectedCount, tabId } = useValues(logsViewerLogic)
+    const { exportServerSide, exportSelectedAsCsv, copySelectedLogs } = useActions(logsExportLogic({ tabId, orderBy }))
 
     return (
         <LemonMenu

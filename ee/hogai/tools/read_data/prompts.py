@@ -7,28 +7,6 @@ If the user wants to reduce their spending, always call this tool to get suggest
 If an insight shows zero data, it could mean either the query is looking at the wrong data or there was a temporary data collection issue. You can investigate potential dips in usage/captured data using the billing tool.
 """.strip()
 
-READ_DATA_ACTIVITY_LOG_PROMPT = """
-# Activity log
-
-Retrieves recent activity log entries showing who changed what and when.
-
-## Use this when:
-- The user wants to know what changed recently in their project.
-- The user asks who made a specific change or when something was modified.
-- The user wants to audit changes to a specific entity (e.g. a feature flag or insight).
-
-## Parameters:
-- scope: Filter by entity type (e.g. 'FeatureFlag', 'Insight', 'Experiment', 'Dashboard'). Optional.
-- activity: Filter by activity type (e.g. 'created', 'updated', 'deleted'). Optional.
-- item_id: Filter by specific item ID. Optional.
-- user_email: Filter by the email of the user who made the change. Optional.
-- limit: Number of entries to return (1-50, default 20).
-
-## Important note on organization-level logs:
-Some activity logs are organization-level — they are not tied to a specific project but to the organization as a whole. Examples include Organization, OrganizationDomain, OrganizationMembership, Role, User, and similar scopes that represent org-wide settings, members, or permissions rather than project-specific entities like feature flags or insights.
-These logs are always captured, but they are only included in query results when the project has the "Include organization-level activity" setting enabled. If the user asks about such changes and no results are found, let them know this setting may need to be turned on in Project settings > Activity log.
-""".strip()
-
 READ_DATA_PROMPT = """
 Use this tool to read user data created in PostHog. This tool returns data that the user manually creates in PostHog.
 
@@ -85,19 +63,12 @@ Retrieves an experiment by its numeric ID or by its feature flag's key.
 - id: The numeric ID of the experiment (optional if feature_flag_key is provided)
 - feature_flag_key: The key of the experiment's feature flag (optional if id is provided)
 
-{{{activity_log_prompt}}}
-
 {{{billing_prompt}}}
 """.strip()
 
 BILLING_INSUFFICIENT_ACCESS_PROMPT = """
 The user does not have admin access to view detailed billing information. They would need to contact an organization admin for billing details.
 Suggest the user to contact the admins.
-""".strip()
-
-ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT = """
-Activity logs are not available on your current plan. Activity logs require the Scale or Enterprise add-on.
-Suggest the user upgrade their plan to access audit logs.
 """.strip()
 
 INSIGHT_NOT_FOUND_PROMPT = """

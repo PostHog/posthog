@@ -33,6 +33,10 @@ impl<T> Batch<T> {
         &self.0
     }
 
+    pub fn map<O>(self, func: impl FnMut(T) -> O) -> Batch<O> {
+        Batch::from(self.0.into_iter().map(func).collect::<Vec<_>>())
+    }
+
     pub fn apply_func<Ctx, O, F, Fu, E>(
         self,
         mut func: F,

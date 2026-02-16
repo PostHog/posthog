@@ -1,11 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconWarning } from '@posthog/icons'
-
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode } from '~/queries/schema/schema-general'
@@ -39,9 +36,9 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
                     numberOfRows === 1 ? 'entry' : 'entries'
                 }`
             }
-            return `Results limited to ${dataLimit} rows – add a LIMIT clause to override`
+            return `Default limit of ${dataLimit} rows reached`
         } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
-            return `Results limited to ${dataLimit} rows – add a LIMIT clause to override`
+            return `Default limit of ${dataLimit} rows reached. Try adding a LIMIT clause to adjust.`
         }
         let result = `Showing ${
             hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : canLoadNextData || numberOfRows === 1 ? '' : 'all '
@@ -91,16 +88,10 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
 
     return (
         <>
-            {showFirstPrefix ? (
-                <Tooltip title="You can override this by adding your own LIMIT clause to the query, e.g. LIMIT 10000">
-                    <span className="text-warning-dark cursor-help">
-                        <IconWarning className="mr-1" />
-                        Results limited to the first {resultCount} rows
-                    </span>
-                </Tooltip>
-            ) : (
-                <span>Showing {isSingleEntry ? 'one row' : `${resultCount} rows`}</span>
-            )}
+            <span>
+                {showFirstPrefix ? 'Limited to the first ' : 'Showing '}
+                {isSingleEntry ? 'one row' : `${resultCount} rows`}
+            </span>
             {lastRefreshTimeUtc && (
                 <>
                     <span className="ml-2 mr-2">|</span>

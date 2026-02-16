@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { MessageInput } from '../Chat/MessageInput'
 import { MessageList } from '../Chat/MessageList'
@@ -13,23 +13,14 @@ export function Ticket(): JSX.Element {
 
     return (
         <div className="flex flex-col h-full bg-surface-primary border rounded-lg p-2">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 mb-3">
                 <LemonButton icon={<IconArrowLeft />} size="small" onClick={() => setView('list')} />
                 {currentTicket?.ticket_number && (
-                    <span className="text-xs font-mono text-muted-alt">#{currentTicket.ticket_number}</span>
+                    <span className="text-xs font-mono text-muted-alt">{currentTicket.ticket_number}</span>
                 )}
-                <LemonTag
-                    type={
-                        currentTicket?.status === 'resolved'
-                            ? 'success'
-                            : currentTicket?.status === 'new'
-                              ? 'primary'
-                              : 'default'
-                    }
-                    size="small"
-                >
+                <span className="font-semibold">
                     {currentTicket?.status === 'on_hold' ? 'On hold' : currentTicket?.status}
-                </LemonTag>
+                </span>
             </div>
             <LemonDivider />
             <MessageList

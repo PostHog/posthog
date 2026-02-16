@@ -242,8 +242,6 @@ export interface SearchRootProps {
     onAskAiClick?: () => void
     /** Custom class for the container */
     className?: string
-    /** Initial search value (useful for stories/tests) */
-    defaultSearchValue?: string
 }
 
 function SearchRoot({
@@ -254,12 +252,11 @@ function SearchRoot({
     showAskAiLink = true,
     onAskAiClick,
     className = '',
-    defaultSearchValue = '',
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
 
-    const [searchValue, setSearchValue] = useState(defaultSearchValue)
+    const [searchValue, setSearchValue] = useState('')
     const inputRef = useRef<HTMLInputElement>(null!)
     const actionsRef = useRef<Autocomplete.Root.Actions>(null)
     const highlightedItemRef = useRef<SearchItem | null>(null)
