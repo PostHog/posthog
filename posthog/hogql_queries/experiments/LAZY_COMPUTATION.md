@@ -167,7 +167,7 @@ job.save()
 ### Step 8: Return job IDs
 
 ```python
-ComputationResult(
+LazyComputationResult(
     ready=True,
     job_ids=['job-uuid-for-jan-1-10', 'job-uuid-for-jan-11-15']
 )
