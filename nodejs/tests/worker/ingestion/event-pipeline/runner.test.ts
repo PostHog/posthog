@@ -196,7 +196,11 @@ describe('EventPipelineRunner', () => {
             new PostgresPersonRepository(hub.postgres),
             hub.kafkaProducer
         )
-        groupStoreForBatch = new BatchWritingGroupStore(hub.kafkaProducer, hub.groupRepository)
+        groupStoreForBatch = new BatchWritingGroupStore({
+            kafkaProducer: hub.kafkaProducer,
+            groupRepository: hub.groupRepository,
+            clickhouseGroupRepository: hub.clickhouseGroupRepository,
+        })
         const options: EventPipelineRunnerOptions = {
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
             TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
@@ -321,7 +325,11 @@ describe('EventPipelineRunner', () => {
                     new PostgresPersonRepository(hub.postgres),
                     hub.kafkaProducer
                 )
-                const heatmapGroupStoreForBatch = new BatchWritingGroupStore(hub.kafkaProducer, hub.groupRepository)
+                const heatmapGroupStoreForBatch = new BatchWritingGroupStore({
+                    kafkaProducer: hub.kafkaProducer,
+                    groupRepository: hub.groupRepository,
+                    clickhouseGroupRepository: hub.clickhouseGroupRepository,
+                })
                 const heatmapOptions: EventPipelineRunnerOptions = {
                     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
                     TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,

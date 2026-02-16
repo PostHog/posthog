@@ -64,9 +64,11 @@ export function createFlushBatchStoresStep<T>(config: FlushBatchStoresStepConfig
             personsStore.reset()
             groupStore.reset()
 
-            // Return same number of results as input, all sharing the same side effects
-            // This ensures the pipeline correctly handles the batch structure
-            return batch.map(() => ok(undefined, producePromises))
+            // Return same number of results as input (cardinality requirement)
+            // Attach all side effects to the first result only to avoid duplication
+            // The pipeline framework will accumulate them into the first item's context
+            // We return undefined because this is a terminal step (BatchProcessingStep<T, void>)
+            return batch.map((_, index) => ok(undefined, index === 0 ? producePromises : []))
         } catch (error) {
             // If flush fails, the error will bubble up and fail the entire batch
             // This maintains the existing behavior where flush errors are fatal
@@ -100,19 +102,22 @@ function createProducePromises(
                     value: message.value ? Buffer.from(message.value) : null,
                     headers: message.headers,
                 })
-                .catch(async (error) => {
+                .catch((error) => {
                     // Handle message size errors gracefully by capturing a warning
                     if (error instanceof MessageSizeTooLarge) {
-                        await captureIngestionWarning(kafkaProducer, record.teamId, 'message_size_too_large', {
-                            eventUuid: record.uuid,
-                            distinctId: record.distinctId,
-                        })
                         logger.warn('🪣', 'flushBatchStoresStep: Message size too large', {
                             topic: record.topicMessage.topic,
                             teamId: record.teamId,
                             distinctId: record.distinctId,
                             uuid: record.uuid,
                         })
+                        promises.push(
+                            captureIngestionWarning(kafkaProducer, record.teamId, 'message_size_too_large', {
+                                eventUuid: record.uuid,
+                                distinctId: record.distinctId,
+                                step: 'flushBatchStoresStep',
+                            })
+                        )
                     } else {
                         // Other errors should fail the side effect
                         logger.error('❌', 'flushBatchStoresStep: Failed to produce message', {

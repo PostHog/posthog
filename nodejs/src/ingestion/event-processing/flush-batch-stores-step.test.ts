@@ -221,6 +221,7 @@ describe('flush-batch-stores-step', () => {
             expect(captureIngestionWarning).toHaveBeenCalledWith(mockKafkaProducer, 1, 'message_size_too_large', {
                 eventUuid: 'uuid1',
                 distinctId: 'user1',
+                step: 'flushBatchStoresStep',
             })
 
             expect(results).toHaveLength(1)
@@ -318,7 +319,7 @@ describe('flush-batch-stores-step', () => {
             })
         })
 
-        it('should share same side effects across all batch items', async () => {
+        it('should attach side effects only to first batch item to avoid duplication', async () => {
             const personMessages: FlushResult[] = [
                 {
                     topicMessage: {
@@ -342,13 +343,11 @@ describe('flush-batch-stores-step', () => {
             const batch = [{ id: 1 }, { id: 2 }, { id: 3 }]
             const results = await step(batch)
 
-            // All results should share the same side effect promises
+            // Only the first result should have side effects to avoid duplication
             expect(results).toHaveLength(3)
-            const sideEffect = results[0].sideEffects[0]
-            results.forEach((result) => {
-                expect(result.sideEffects).toHaveLength(1)
-                expect(result.sideEffects[0]).toBe(sideEffect)
-            })
+            expect(results[0].sideEffects).toHaveLength(1)
+            expect(results[1].sideEffects).toHaveLength(0)
+            expect(results[2].sideEffects).toHaveLength(0)
         })
 
         it('should call lifecycle methods in correct order', async () => {
