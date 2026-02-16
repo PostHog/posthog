@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0999_remove_presorted_events_modifier"),
+        ("posthog", "1004_resource_transfer"),
     ]
 
     operations = [
