@@ -24,6 +24,7 @@ use crate::metrics_const::{
 };
 use crate::rebalance_tracker::RebalanceTracker;
 use crate::store_manager::StoreManager;
+use crate::utils::async_helpers::unwrap_blocking_task;
 
 /// Type alias for the shared task handle. The closure maps JoinHandle's Result to ()
 /// so it can be Clone (required by Shared).
@@ -322,17 +323,23 @@ where
                         }
 
                         // Register imported store (sync RocksDB open; run on blocking pool)
-                        let sm = store_manager.clone();
+                        let store_manager = store_manager.clone();
                         let topic = partition.topic().to_string();
-                        let part_num = partition.partition_number();
+                        let partition_number = partition.partition_number();
                         let import_path = path.clone();
-                        let restore_result = tokio::task::spawn_blocking(move || {
-                            sm.restore_imported_store(&topic, part_num, &import_path)
-                        })
-                        .await;
-
-                        match restore_result {
-                            Ok(Ok(_)) => {
+                        match unwrap_blocking_task(
+                            tokio::task::spawn_blocking(move || {
+                                store_manager.restore_imported_store(
+                                    &topic,
+                                    partition_number,
+                                    &import_path,
+                                )
+                            }),
+                            "restore_imported_store task panicked",
+                        )
+                        .await
+                        {
+                            Ok(_) => {
                                 metrics::counter!(
                                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                                     "result" => "success",
@@ -345,7 +352,7 @@ where
                                     "Imported checkpoint for partition"
                                 );
                             }
-                            Ok(Err(e)) => {
+                            Err(e) => {
                                 metrics::counter!(
                                     REBALANCE_CHECKPOINT_IMPORT_COUNTER,
                                     "result" => "failed",
@@ -355,23 +362,8 @@ where
                                 error!(
                                     topic = partition.topic(),
                                     partition = partition.partition_number(),
-                                    error = ?e,
+                                    error = %e,
                                     "Failed to restore checkpoint"
-                                );
-                                fallback_reasons.insert(partition.clone(), "import_failed");
-                            }
-                            Err(join_err) => {
-                                metrics::counter!(
-                                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                                    "result" => "failed",
-                                    "reason" => "restore",
-                                )
-                                .increment(1);
-                                error!(
-                                    topic = partition.topic(),
-                                    partition = partition.partition_number(),
-                                    error = %join_err,
-                                    "Restore task panicked"
                                 );
                                 fallback_reasons.insert(partition.clone(), "import_failed");
                             }
