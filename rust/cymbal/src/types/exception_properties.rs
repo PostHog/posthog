@@ -9,10 +9,11 @@ use crate::{
     fingerprinting::FingerprintRecordPart,
     frames::releases::ReleaseInfo,
     issue_resolution::Issue,
-    pipeline::exception::MAX_EXCEPTION_VALUE_LENGTH,
     recursively_sanitize_properties,
     types::{event::AnyEvent, ExceptionList, OutputErrProps},
 };
+
+pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExceptionProperties {

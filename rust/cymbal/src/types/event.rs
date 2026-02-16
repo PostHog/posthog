@@ -211,7 +211,7 @@ impl TryFrom<AnyEvent> for ClickHouseEvent {
 
 #[cfg(test)]
 mod test {
-    use crate::pipeline::exception::MAX_EXCEPTION_VALUE_LENGTH;
+    use crate::types::exception_properties::MAX_EXCEPTION_VALUE_LENGTH;
 
     use super::*;
     use uuid::Uuid;

@@ -3,17 +3,12 @@ use std::{collections::HashMap, sync::Arc};
 use common_types::ClickHouseEvent;
 use uuid::Uuid;
 
-pub mod spike_detection;
-pub mod stack_processing;
-
 use crate::{
     app_context::AppContext,
     error::{PipelineFailure, PipelineResult},
     stages::consumer_pipeline::ConsumerEventPipeline,
     types::{batch::Batch, stage::Stage},
 };
-
-pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
 
 pub async fn do_exception_handling(
     mut events: Vec<PipelineResult>,
