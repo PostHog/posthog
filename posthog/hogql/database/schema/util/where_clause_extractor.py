@@ -791,39 +791,17 @@ class EventsPredicatePushdownExtractor:
                 outer_exprs.extend(sub_outer)
             return (inner_exprs, outer_exprs)
 
-        elif isinstance(expr, ast.Or):
-            # For OR: if ANY branch references a joined table, the entire OR must stay in outer
-            if references_joined_table(expr, self.joined_table_aliases, self.events_table_type):
-                return ([], [clone_expr(expr, clear_types=False, clear_locations=True)])
-            else:
-                return ([clone_expr(expr, clear_types=False, clear_locations=True)], [])
-
-        elif isinstance(expr, ast.Not):
-            # For NOT: if inner references joined table, NOT stays outer
-            if references_joined_table(expr, self.joined_table_aliases, self.events_table_type):
-                return ([], [clone_expr(expr, clear_types=False, clear_locations=True)])
-            else:
-                return ([clone_expr(expr, clear_types=False, clear_locations=True)], [])
-
         elif isinstance(expr, ast.Call):
             # Handle function calls like and(), or(), not(), equals(), etc.
             if expr.name == "and":
                 return self._split_expression(ast.And(exprs=expr.args))
             elif expr.name == "or":
                 return self._split_expression(ast.Or(exprs=expr.args))
-            else:
-                # Other function calls - check if they reference joined tables
-                if references_joined_table(expr, self.joined_table_aliases, self.events_table_type):
-                    return ([], [clone_expr(expr, clear_types=False, clear_locations=True)])
-                else:
-                    return ([clone_expr(expr, clear_types=False, clear_locations=True)], [])
 
-        else:
-            # For all other expressions (comparisons, etc.)
-            if references_joined_table(expr, self.joined_table_aliases, self.events_table_type):
-                return ([], [clone_expr(expr, clear_types=False, clear_locations=True)])
-            else:
-                return ([clone_expr(expr, clear_types=False, clear_locations=True)], [])
+        cloned = clone_expr(expr, clear_types=False, clear_locations=True)
+        if references_joined_table(expr, self.joined_table_aliases, self.events_table_type):
+            return ([], [cloned])
+        return ([cloned], [])
 
     def _combine_with_and(self, exprs: list[ast.Expr]) -> Optional[ast.Expr]:
         """Combine a list of expressions with AND, or return None if empty."""
