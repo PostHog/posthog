@@ -147,6 +147,9 @@ export class RecordingApi {
         if (!this.decryptor) {
             uninitializedComponents.push('decryptor')
         }
+        if (!this.kafkaProducer) {
+            uninitializedComponents.push('kafkaProducer')
+        }
 
         if (uninitializedComponents.length > 0) {
             return new HealthCheckResultError('Components not initialized', {
