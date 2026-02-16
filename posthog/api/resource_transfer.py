@@ -151,7 +151,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         ]
 
         try:
-            duplicated = duplicate_resource_to_new_team(resource, destination_team, substitution_pairs)
+            duplicated = duplicate_resource_to_new_team(resource, destination_team, substitution_pairs, created_by=user)
         except (ValueError, TypeError) as e:
             raise exceptions.ValidationError(str(e))
         mutable_results = [r for r in duplicated if r is not None and not _is_immutable(r)]
