@@ -159,6 +159,86 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         assert printed == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    def test_inner_join_pushes_timestamp_down(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events INNER JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_left_join_pushes_timestamp_down(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events LEFT JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_left_outer_join_pushes_timestamp_down(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events LEFT OUTER JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_cross_join_pushes_timestamp_down(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events CROSS JOIN sessions "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_right_join_skips_pushdown(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events RIGHT JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_right_outer_join_skips_pushdown(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events RIGHT OUTER JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_full_outer_join_skips_pushdown(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events FULL OUTER JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_full_join_skips_pushdown(self):
+        printed = self._print_select(
+            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
+            "FROM events FULL JOIN sessions ON events.$session_id = sessions.session_id "
+            "WHERE events.timestamp > '2021-01-01' "
+            "GROUP BY sessions.session_id"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_bare_timestamp_with_select_alias_pushes_down(self):
         """Bare timestamp in WHERE that shadows a SELECT alias is still pushed down."""
         printed = self._print_select(
@@ -167,6 +247,88 @@ class TestEventsPredicatePushdownTransform(BaseTest):
             "WHERE timestamp >= '2024-01-01' AND timestamp <= today()"
         )
         assert printed == self.snapshot
+
+
+class TestOuterWhereNotDuplicated(BaseTest):
+    """Tests proving that pushed-down predicates are removed from the outer WHERE,
+    and that PREWHERE semantics are preserved after pushdown.
+    """
+
+    snapshot: Any
+
+    def _print_select(self, select: str):
+        expr = parse_select(select)
+        query, _ = prepare_and_print_ast(
+            expr,
+            HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(pushDownPredicates=True),
+            ),
+            "clickhouse",
+        )
+        return pretty_print_in_tests(query, self.team.pk)
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_pushed_predicate_removed_from_outer_where(self):
+        """When all predicates are pushable, no outer WHERE on events.timestamp should exist."""
+        printed = self._print_select(
+            "SELECT event, session.$session_duration FROM events WHERE timestamp >= '2024-01-01'"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_mixed_predicates_only_non_pushable_in_outer_where(self):
+        """When some predicates are pushable, outer WHERE should only contain non-pushable ones."""
+        printed = self._print_select(
+            "SELECT event, session.$session_duration FROM events "
+            "WHERE timestamp >= '2024-01-01' AND session.$session_duration > 0"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_prewhere_non_pushable_stays_as_prewhere(self):
+        """Non-pushable PREWHERE predicates should remain as PREWHERE, not move to WHERE."""
+        printed = self._print_select(
+            "SELECT event, session.$session_duration FROM events "
+            "PREWHERE timestamp >= '2024-01-01' AND session.$session_duration > 0"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_where_and_prewhere_handled_separately(self):
+        """WHERE stays as WHERE and PREWHERE stays as PREWHERE after pushdown."""
+        printed = self._print_select(
+            "SELECT event, session.$session_duration FROM events "
+            "PREWHERE session.$session_duration > 0 "
+            "WHERE timestamp >= '2024-01-01'"
+        )
+        assert printed == self.snapshot
+
+
+class TestOuterWhereAssignment:
+    """Verify that _apply_pushdown assigns outer_where back to node.where."""
+
+    def test_extractor_correctly_splits_mixed_predicates(self):
+        from posthog.hogql.database.schema.util.where_clause_extractor import EventsPredicatePushdownExtractor
+
+        timestamp_pred = ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value="2024-01-01"),
+        )
+        session_pred = ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=ast.Field(chain=["events__session", "duration"]),
+            right=ast.Constant(value=0),
+        )
+        where = ast.And(exprs=[timestamp_pred, session_pred])
+
+        extractor = EventsPredicatePushdownExtractor(joined_table_aliases={"events__session"})
+        inner_where, outer_where = extractor.get_pushdown_predicates(where)
+
+        assert inner_where is not None
+        assert outer_where is not None
 
 
 class TestEventsPredicatePushdownTransformUnit:
@@ -262,6 +424,21 @@ class TestEventsPredicatePushdownTransformUnit:
 
         assert transform._should_apply_pushdown(node) is False
 
+    def test_should_apply_pushdown_with_prewhere_instead_of_where(self):
+        """Bug: queries with PREWHERE but no WHERE skip pushdown entirely."""
+        prewhere = ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value="2024-01-01"),
+        )
+        node = self._make_events_select_with_join(where_clause=None)
+        node.prewhere = prewhere
+
+        context = HogQLContext(team_id=1)
+        transform = EventsPredicatePushdownTransform(context)
+
+        assert transform._should_apply_pushdown(node) is True
+
     def test_should_not_apply_pushdown_with_sample_clause(self):
         sample = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=10)))
         where_clause = ast.CompareOperation(
@@ -318,6 +495,29 @@ class TestEventsPredicatePushdownTransformUnit:
         aliases = transform._collect_joined_aliases(node)
 
         assert aliases == {"events__session", "events__person", "events__cohort"}
+
+    @pytest.mark.parametrize(
+        "join_type",
+        ["RIGHT JOIN", "RIGHT OUTER JOIN", "FULL JOIN", "FULL OUTER JOIN"],
+    )
+    def test_collect_joined_aliases_empty_for_unsafe_join_type(self, join_type: str):
+        events_field = ast.Field(chain=["events"])
+        mock_join = ast.JoinExpr(
+            join_type=join_type,
+            table=ast.Field(chain=["sessions"]),
+            alias="events__session",
+        )
+        select_from = ast.JoinExpr(table=events_field, next_join=mock_join)
+        node = ast.SelectQuery(
+            select=[ast.Field(chain=["event"])],
+            select_from=select_from,
+            where=ast.Constant(value=True),
+        )
+
+        context = HogQLContext(team_id=1)
+        transform = EventsPredicatePushdownTransform(context)
+
+        assert transform._collect_joined_aliases(node) == set()
 
     def test_collect_joined_aliases_empty_when_no_joins(self):
         events_field = ast.Field(chain=["events"])

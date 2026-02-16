@@ -280,6 +280,11 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     that SELECT FROM events with joins also benefit from pushdown.
     """
 
+    # Pushdown is safe when events (always the left/FROM side) is on the preserved side.
+    # RIGHT JOIN and FULL OUTER JOIN preserve the right side, so filtering events
+    # before the join would incorrectly turn matched rows into NULL-padded rows.
+    _SAFE_JOIN_TYPES = {"JOIN", "INNER JOIN", "LEFT JOIN", "LEFT OUTER JOIN", "CROSS JOIN"}
+
     def __init__(self, context: HogQLContext, dialect: HogQLDialect = "clickhouse"):
         super().__init__()
         self.context = context
@@ -304,7 +309,6 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     def _apply_pushdown(self, node: ast.SelectQuery) -> None:
         """Apply predicate pushdown to an eligible query."""
         assert node.select_from is not None
-        assert node.where is not None
 
         # Collect joined table aliases from the JOIN chain
         joined_aliases = self._collect_joined_aliases(node)
@@ -318,16 +322,26 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         if not isinstance(events_table_type, (ast.TableType, ast.TableAliasType)):
             return
 
-        # Extract pushable predicates using allowlist mode: only predicates that
-        # exclusively reference events table columns are pushed down
+        # Extract pushable predicates from WHERE and PREWHERE separately
+        # so each clause retains its semantics (PREWHERE stays PREWHERE)
         extractor = EventsPredicatePushdownExtractor(
             joined_table_aliases=joined_aliases,
             events_table_type=events_table_type,
         )
-        inner_where, _outer_where = extractor.get_pushdown_predicates(node.where)
 
-        if inner_where is None:
+        inner_from_where: ast.Expr | None = None
+        inner_from_prewhere: ast.Expr | None = None
+
+        if node.where is not None:
+            inner_from_where, node.where = extractor.get_pushdown_predicates(node.where)
+        if node.prewhere is not None:
+            inner_from_prewhere, node.prewhere = extractor.get_pushdown_predicates(node.prewhere)
+
+        # Combine inner (pushable) predicates from both clauses
+        inner_parts = [p for p in [inner_from_where, inner_from_prewhere] if p is not None]
+        if not inner_parts:
             return
+        inner_where = inner_parts[0] if len(inner_parts) == 1 else ast.And(exprs=inner_parts)
 
         # Collect all columns the outer query needs from the events table
         needed_columns = self._collect_needed_columns(node, events_table_type)
@@ -373,7 +387,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
 
         Applies to any query where:
         - FROM events (directly, not a subquery)
-        - Has WHERE clause
+        - Has WHERE or PREWHERE clause
         - Has joins (lazy or explicit)
         """
         return (
@@ -382,15 +396,21 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             and node.select_from.sample is None  # No SAMPLE clause
             and isinstance(node.select_from.table, ast.Field)
             and node.select_from.table.chain == ["events"]
-            and node.where is not None
+            and (node.where is not None or node.prewhere is not None)
             and node.select_from.next_join is not None  # Has joins
         )
 
     def _collect_joined_aliases(self, node: ast.SelectQuery) -> set[str]:
-        """Collect aliases from the JOIN chain."""
+        """Collect aliases from the JOIN chain.
+
+        Returns an empty set if any join uses an unsafe type (e.g. RIGHT JOIN,
+        FULL OUTER JOIN), which causes _apply_pushdown to bail out.
+        """
         aliases: set[str] = set()
         join = node.select_from.next_join if node.select_from else None
         while join is not None:
+            if join.join_type and join.join_type not in self._SAFE_JOIN_TYPES:
+                return set()
             if join.alias:
                 aliases.add(join.alias)
             join = join.next_join

@@ -25,3 +25,7 @@ indent_size = 4
 
 [*.ambr]
 trim_trailing_whitespace = false
+
+[posthog/coommon/hogli/manifest.yaml]
+indent_style = space
+indent_size = 4
