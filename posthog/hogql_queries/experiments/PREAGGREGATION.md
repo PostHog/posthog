@@ -257,7 +257,7 @@ GROUP BY variant
 
 2. **Query hash determines cache sharing**: Different feature flags, variants, or exposure criteria produce different hashes. Each experiment typically has its own preaggregated data.
 
-3. **TTL and expiration**: Jobs have an `expires_at` field. The system ignores jobs expiring within 1 hour to avoid race conditions. ClickHouse TTL automatically deletes expired rows.
+3. **TTL and expiration**: Jobs use variable TTL based on data age (current day: 15 min, yesterday: 1 hour, older: 60 days). This avoids recomputing frozen historical data. The system ignores jobs expiring within 1 hour to avoid race conditions. ClickHouse TTL automatically deletes expired rows.
 
 4. **Fallback**: If preaggregation fails or isn't ready, the query falls back to scanning the events table directly.
 
