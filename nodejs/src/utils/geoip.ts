@@ -129,7 +129,7 @@ export class GeoIPService {
         const mmdb = await this.loadMmdb('background refresh')
         if (mmdb) {
             this._mmdb = mmdb
-            this._mmdbMetadata = metadata
+            this._mmdbMetadata = metadata ?? this._mmdbMetadata
         } else {
             logger.warn('🌎', 'Background MMDB refresh failed, keeping existing MMDB')
         }
