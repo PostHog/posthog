@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from posthog.schema import AssistantTool
 
 from posthog.models import Team, User
+from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.context import AssistantContextManager
@@ -133,6 +134,10 @@ class CallMCPServerTool(MaxTool):
                 f"Server URL '{server_url}' is not in the user's installed MCP servers. "
                 f"Allowed URLs: {', '.join(sorted(self._allowed_server_urls))}"
             )
+
+        allowed, error = is_url_allowed(server_url)
+        if not allowed:
+            raise MaxToolFatalError(f"MCP server URL blocked by security policy: {error}")
 
         if self._is_token_expiring(server_url):
             try:

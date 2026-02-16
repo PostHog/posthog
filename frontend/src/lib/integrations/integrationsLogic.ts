@@ -176,7 +176,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 }
 
                 if (source === 'mcp_store') {
-                    replaceUrl += `${replaceUrl.includes('?') ? '&' : '?'}code=${encodeURIComponent(code)}&server_id=${encodeURIComponent(server_id)}`
+                    replaceUrl += `${replaceUrl.includes('?') ? '&' : '?'}code=${encodeURIComponent(code)}&server_id=${encodeURIComponent(server_id)}&state_token=${encodeURIComponent(token)}`
                     lemonToast.success('Authorization successful.')
                 } else {
                     const integration = await api.integrations.create({

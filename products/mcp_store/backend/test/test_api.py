@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from unittest.mock import patch
 
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -63,6 +64,38 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_servers/",
             data={"name": "Duplicate", "url": "https://mcp.example.com"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("products.mcp_store.backend.api.is_url_allowed", return_value=(False, "Disallowed scheme"))
+    def test_ssrf_disallowed_scheme_blocked(self, _mock):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_servers/",
+            data={"name": "Evil", "url": "file:///etc/passwd"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("products.mcp_store.backend.api.is_url_allowed", return_value=(False, "Local/metadata host"))
+    def test_ssrf_metadata_endpoint_blocked(self, _mock):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_servers/",
+            data={"name": "Evil", "url": "http://169.254.169.254/latest/meta-data/"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("products.mcp_store.backend.api.is_url_allowed", return_value=(False, "Private IP address not allowed"))
+    def test_ssrf_private_ip_blocked(self, _mock):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_servers/",
+            data={"name": "Evil", "url": "http://192.168.1.1/mcp"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("products.mcp_store.backend.api.is_url_allowed", return_value=(False, "Local/Loopback host not allowed"))
+    def test_ssrf_localhost_blocked(self, _mock):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_servers/",
+            data={"name": "Evil", "url": "http://localhost:8000/mcp"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 

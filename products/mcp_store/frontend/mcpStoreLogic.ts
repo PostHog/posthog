@@ -4,7 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { getCookie } from 'lib/api'
+import api from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
 
 import type { mcpStoreLogicType } from './mcpStoreLogicType'
@@ -93,11 +93,20 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     lemonToast.success('Server uninstalled')
                     return values.installations.filter((i) => i.id !== installationId)
                 },
-                completeOAuthInstall: async ({ code, serverId }: { code: string; serverId: string }) => {
+                completeOAuthInstall: async ({
+                    code,
+                    serverId,
+                    stateToken,
+                }: {
+                    code: string
+                    serverId: string
+                    stateToken: string
+                }) => {
                     try {
                         const installation = await api.mcpServerInstallations.oauthCallback({
                             code,
                             server_id: serverId,
+                            state_token: stateToken,
                         })
                         lemonToast.success('Server connected')
                         actions.loadServers()
@@ -125,20 +134,16 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
 
     urlToAction(({ actions }) => ({
         '/mcp-store': (_, searchParams) => {
-            const { code, state, server_id } = searchParams
+            const { code, state, server_id, state_token } = searchParams
             if (code && state) {
                 // DCR OAuth callback: code + state (contains token + server_id)
                 const parsed = fromParamsGivenUrl(`?${state}`)
-                if (parsed.token !== getCookie('ph_oauth_state')) {
-                    lemonToast.error('Invalid OAuth state token')
-                    router.actions.replace('/mcp-store')
-                    return
-                }
-                actions.completeOAuthInstall({ code, serverId: parsed.server_id })
+                actions.completeOAuthInstall({ code, serverId: parsed.server_id, stateToken: parsed.token })
                 router.actions.replace('/mcp-store')
             } else if (code && server_id) {
-                // Known-provider OAuth callback: code + server_id
-                actions.completeOAuthInstall({ code, serverId: server_id })
+                // Known-provider OAuth callback: code + server_id + state_token
+                actions.completeOAuthInstall({ code, serverId: server_id, stateToken: state_token })
+                router.actions.replace('/mcp-store')
             }
         },
     })),

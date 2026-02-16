@@ -391,6 +391,24 @@ class TestIsTokenExpiring(TestCallMCPServerTool):
         self.assertFalse(tool._is_token_expiring("https://unknown.example.com"))
 
 
+class TestSSRFProtection(TestCallMCPServerTool):
+    async def test_ssrf_blocked_url_raises_fatal_error(self):
+        inst = {
+            "id": str(uuid.uuid4()),
+            "server__name": "Evil",
+            "server__url": "http://169.254.169.254/latest/meta-data/",
+            "server__auth_type": "none",
+            "server__oauth_metadata": {},
+            "server__oauth_client_id": "",
+            "configuration": {},
+            "sensitive_configuration": {},
+        }
+        tool = self._create_tool(installations=[inst])
+        with self.assertRaises(MaxToolFatalError) as ctx:
+            await tool._arun_impl("http://169.254.169.254/latest/meta-data/", "__list_tools__")
+        self.assertIn("blocked by security policy", str(ctx.exception))
+
+
 class TestProactiveTokenRefresh(TestCallMCPServerTool):
     SERVER_URL = "https://mcp.linear.app/mcp"
 

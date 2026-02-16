@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import OauthIntegration
+from posthog.security.url_validation import is_url_allowed
 
 from .models import OAUTH_KIND_MAP, MCPServer, MCPServerInstallation
 from .oauth import discover_oauth_metadata, generate_pkce, register_dcr_client
@@ -44,6 +45,12 @@ class MCPServerSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "is_default", "created_at", "updated_at"]
 
+    def validate_url(self, value: str) -> str:
+        allowed, error = is_url_allowed(value)
+        if not allowed:
+            raise serializers.ValidationError(f"URL not allowed: {error}")
+        return value
+
     def create(self, validated_data: dict[str, Any]) -> MCPServer:
         request = self.context["request"]
         return MCPServer.objects.create(
@@ -64,7 +71,7 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return True
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.order_by("-created_at")
+        return queryset.filter(is_default=True).order_by("-created_at")
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         url = request.data.get("url", "")
@@ -227,7 +234,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         response = HttpResponse(status=302)
         response["Location"] = authorize_url
-        response.set_cookie("ph_oauth_state", token, max_age=600, httponly=False, samesite="Lax")
+        response.set_cookie("ph_oauth_state", token, max_age=600, httponly=True, samesite="Lax")
         response.set_cookie("ph_pkce_verifier", code_verifier, max_age=600, httponly=True, samesite="Lax")
         return response
 
@@ -235,9 +242,14 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def oauth_callback(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         code = request.data.get("code")
         server_id = request.data.get("server_id")
+        state_token = request.data.get("state_token")
 
         if not code or not server_id:
             return Response({"detail": "code and server_id are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        cookie_token = request.COOKIES.get("ph_oauth_state")
+        if not cookie_token or not state_token or not secrets.compare_digest(cookie_token, state_token):
+            return Response({"detail": "Invalid OAuth state token"}, status=status.HTTP_403_FORBIDDEN)
 
         try:
             server = MCPServer.objects.get(id=server_id)
