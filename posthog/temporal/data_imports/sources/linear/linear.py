@@ -61,7 +61,7 @@ def _make_paginated_request(
                 body = response.json()
             except Exception:
                 body = response.text
-            raise Exception(f"Linear API error {response.status_code}: {body}")
+            raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {body})")
         payload = response.json()
 
         if "errors" in payload:
