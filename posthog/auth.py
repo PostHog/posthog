@@ -621,6 +621,10 @@ class InternalAPIUser:
     is_active = True
     pk = -2
 
+    def __init__(self, current_organization_id: Any = None, current_team_id: int | None = None) -> None:
+        self.current_organization_id = current_organization_id
+        self.current_team_id = current_team_id
+
     def has_perm(self, perm, obj=None):
         return False
 
@@ -633,6 +637,37 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
 
     keyword = "InternalApiSecret"
     HEADER_NAME = "X-Internal-Api-Secret"
+
+    def _get_team_id_from_request(self, request: Request) -> str | None:
+        parser_context = getattr(request, "parser_context", None)
+        if isinstance(parser_context, dict):
+            kwargs = parser_context.get("kwargs")
+            if isinstance(kwargs, dict):
+                team_id = kwargs.get("team_id")
+                if team_id is not None:
+                    return str(team_id)
+
+        django_request = getattr(request, "_request", request)
+        resolver_match = getattr(django_request, "resolver_match", None)
+        if resolver_match and getattr(resolver_match, "kwargs", None):
+            team_id = resolver_match.kwargs.get("team_id")
+            if team_id is not None:
+                return str(team_id)
+
+        return None
+
+    def _get_internal_api_user(self, request: Request) -> InternalAPIUser:
+        team_id = self._get_team_id_from_request(request)
+        if not team_id:
+            return InternalAPIUser()
+
+        Team = apps.get_model(app_label="posthog", model_name="Team")
+        try:
+            team = Team.objects.only("id", "organization_id").get(id=team_id)
+        except (Team.DoesNotExist, ValueError):
+            raise AuthenticationFailed("Invalid internal API team.")
+
+        return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id)
 
     def authenticate(self, request: Request) -> tuple[Any, Any]:
         provided_secret = (
@@ -670,7 +705,7 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
             )
             raise AuthenticationFailed("Invalid internal API authentication.")
 
-        return (InternalAPIUser(), None)
+        return (self._get_internal_api_user(request), None)
 
     def authenticate_header(self, request: HttpRequest) -> str:
         return self.keyword

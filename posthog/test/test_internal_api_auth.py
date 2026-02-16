@@ -43,3 +43,43 @@ class TestInternalAPIAuth(APIBaseTest):
     def test_authenticate_header(self):
         request = self.factory.get("/internal/endpoint")
         self.assertEqual(self.authentication.authenticate_header(request), "InternalApiSecret")
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_sets_org_and_team_from_team_id_route_param(self):
+        request = Request(
+            self.factory.get(
+                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
+                HTTP_X_INTERNAL_API_SECRET="test-secret-123",
+            ),
+            parser_context={"kwargs": {"team_id": str(self.team.id)}},
+        )
+
+        user, _ = self.authentication.authenticate(request)
+
+        self.assertEqual(user.current_organization_id, self.organization.id)
+        self.assertEqual(user.current_team_id, self.team.id)
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_invalid_team_id_route_param_denies_access(self):
+        request = Request(
+            self.factory.get(
+                "/api/projects/999999999/internal/hog_flows/user_blast_radius",
+                HTTP_X_INTERNAL_API_SECRET="test-secret-123",
+            ),
+            parser_context={"kwargs": {"team_id": "999999999"}},
+        )
+
+        with self.assertRaises(AuthenticationFailed):
+            self.authentication.authenticate(request)
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_hog_flow_endpoint_allows_internal_auth_without_user_membership(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
+            {},
+            format="json",
+            HTTP_X_INTERNAL_API_SECRET="test-secret-123",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"error": "Missing filters for which to get blast radius"})

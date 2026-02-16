@@ -495,6 +495,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
     These endpoints require Bearer token authentication via INTERNAL_API_SECRET and are not exposed to Contour ingress
     """
 
+    scope_object = "INTERNAL"
     authentication_classes = [InternalAPIAuthentication]
 
     # Internal service-to-service endpoints (authenticated with INTERNAL_API_SECRET)
