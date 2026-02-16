@@ -53,7 +53,7 @@ logger = structlog.get_logger(__name__)
 PER_TEAM_TRACE_FILTERS: dict[int, list[dict[str, Any]]] = {
     2: [
         {"key": "ai_product", "value": "posthog_ai", "operator": "exact", "type": "event"},
-        {"key": "$ai_trace_id", "value": "batch_actions_", "operator": "not_icontains", "type": "event"},
+        {"key": "$ai_trace_id", "value": "^batch_actions_", "operator": "not_regex", "type": "event"},
     ],
 }
 
