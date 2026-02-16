@@ -19,26 +19,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="Artifact",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(
-                        default=uuid.uuid4,
-                        editable=False,
-                        primary_key=True,
-                        serialize=False,
-                    ),
-                ),
-                ("content_hash", models.CharField(db_index=True, max_length=128)),
-                ("storage_path", models.CharField(max_length=1024)),
-                ("width", models.PositiveIntegerField(blank=True, null=True)),
-                ("height", models.PositiveIntegerField(blank=True, null=True)),
-                ("size_bytes", models.PositiveIntegerField(blank=True, null=True)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-            ],
-        ),
-        migrations.CreateModel(
             name="Repo",
             fields=[
                 (
@@ -61,6 +41,34 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="+",
                         to="posthog.team",
+                    ),
+                ),
+            ],
+        ),
+        migrations.CreateModel(
+            name="Artifact",
+            fields=[
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                ("content_hash", models.CharField(db_index=True, max_length=128)),
+                ("storage_path", models.CharField(max_length=1024)),
+                ("width", models.PositiveIntegerField(blank=True, null=True)),
+                ("height", models.PositiveIntegerField(blank=True, null=True)),
+                ("size_bytes", models.PositiveIntegerField(blank=True, null=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "repo",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="artifacts",
+                        to="visual_review.repo",
                     ),
                 ),
             ],
@@ -235,15 +243,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-        ),
-        migrations.AddField(
-            model_name="artifact",
-            name="repo",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="artifacts",
-                to="visual_review.repo",
-            ),
         ),
         migrations.AddConstraint(
             model_name="runsnapshot",

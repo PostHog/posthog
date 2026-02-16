@@ -2708,6 +2708,27 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
+  products/visual_review:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.3.1)
+      kea-loaders:
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.7(react@18.3.1))
+      kea-router:
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.7(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+
   products/web_analytics:
     dependencies:
       '@posthog/icons':
@@ -24336,7 +24357,7 @@ snapshots:
 
   '@base-ui/utils@0.2.3(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
       '@floating-ui/utils': 0.2.10
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
@@ -28652,7 +28673,7 @@ snapshots:
 
   '@radix-ui/react-select@1.2.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
       '@radix-ui/number': 1.0.1
       '@radix-ui/primitive': 1.0.1
       '@radix-ui/react-collection': 1.0.3(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -28820,7 +28841,7 @@ snapshots:
 
   '@radix-ui/react-toolbar@1.0.4(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
       '@radix-ui/primitive': 1.0.1
       '@radix-ui/react-context': 1.0.1(@types/react@18.3.27)(react@18.3.1)
       '@radix-ui/react-direction': 1.0.1(@types/react@18.3.27)(react@18.3.1)
@@ -39978,7 +39999,7 @@ snapshots:
 
   polished@4.2.2:
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
 
   possible-typed-array-names@1.0.0: {}
 
@@ -41459,7 +41480,7 @@ snapshots:
 
   react-base16-styling@0.9.1:
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
       '@types/base16': 1.0.5
       '@types/lodash': 4.17.16
       base16: 1.0.0
@@ -41688,7 +41709,7 @@ snapshots:
 
   react-textarea-autosize@8.5.9(@types/react@18.3.27)(react@18.3.1):
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
       react: 18.3.1
       use-composed-ref: 1.3.0(react@18.3.1)
       use-latest: 1.2.1(@types/react@18.3.27)(react@18.3.1)
