@@ -109,8 +109,7 @@ LIMIT 20
 SELECT
     i.id,
     i.name,
-    i.status,
-    count() AS occurrences
+    i.status
 FROM system.error_tracking_issues AS i
 WHERE i.status = 'active'
   AND i.id IN (
