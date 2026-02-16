@@ -13,6 +13,7 @@ from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
     RealtimeCohortCalculationCoordinatorWorkflow,
     get_realtime_cohort_calculation_count_activity,
+    get_realtime_cohort_selection_activity,
 )
 
 WORKFLOWS = [
@@ -24,6 +25,7 @@ WORKFLOWS = [
 ACTIVITIES = [
     get_person_count_activity,
     get_realtime_cohort_calculation_count_activity,
+    get_realtime_cohort_selection_activity,
     backfill_precalculated_person_properties_activity,
     process_realtime_cohort_calculation_activity,
 ]
