@@ -5,8 +5,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.test import RequestFactory
 
 from rest_framework import status
+from rest_framework.exceptions import AuthenticationFailed
 
 from posthog.api.oauth.toolbar_service import (
     CALLBACK_PATH,
@@ -14,6 +16,7 @@ from posthog.api.oauth.toolbar_service import (
     get_or_create_toolbar_oauth_application,
     toolbar_oauth_state_cache,
 )
+from posthog.auth import TemporaryTokenAuthentication
 from posthog.models import Organization, Team, User
 
 
@@ -337,3 +340,129 @@ class TestToolbarOAuthStateCache(APIBaseTest):
         with self.assertRaises(ToolbarOAuthError) as cm:
             toolbar_oauth_state_cache.claim_or_raise("nonce-a")
         assert cm.exception.code == "state_replay"
+
+
+class TestTemporaryTokenBearerPassthrough(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.factory = RequestFactory()
+        self.auth = TemporaryTokenAuthentication()
+
+    def _make_cross_origin_request(self, **extra):
+        request = self.factory.get("/api/some-endpoint/", **extra)
+        request.META["HTTP_ORIGIN"] = "https://customer-site.example.com"
+        return request
+
+    def test_cross_origin_without_temp_token_or_bearer_raises(self):
+        request = self._make_cross_origin_request()
+        with self.assertRaises(AuthenticationFailed):
+            self.auth.authenticate(request)
+
+    def test_cross_origin_with_bearer_header_returns_none(self):
+        request = self._make_cross_origin_request(HTTP_AUTHORIZATION="Bearer pha_test123")
+        result = self.auth.authenticate(request)
+        self.assertIsNone(result)
+
+    def test_cross_origin_with_temp_token_authenticates(self):
+        self.user.temporary_token = "test-temp-token-123"
+        self.user.save(update_fields=["temporary_token"])
+
+        request = self.factory.get("/api/some-endpoint/", {"temporary_token": "test-temp-token-123"})
+        request.META["HTTP_ORIGIN"] = "https://customer-site.example.com"
+        result = self.auth.authenticate(request)
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], self.user)
+
+
+class TestToolbarOAuthRefresh(APIBaseTest):
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_refresh_success(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "pha_new",
+            "refresh_token": "phr_new",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": "openid",
+        }
+
+        response = self.client.post(
+            "/api/user/toolbar_oauth_refresh/",
+            data=json.dumps({"refresh_token": "phr_old", "client_id": "test_client_id"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["access_token"], "pha_new")
+        self.assertEqual(data["refresh_token"], "phr_new")
+        self.assertEqual(data["expires_in"], 3600)
+
+    def test_refresh_rejects_missing_refresh_token(self):
+        response = self.client.post(
+            "/api/user/toolbar_oauth_refresh/",
+            data=json.dumps({"client_id": "test_client_id"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "invalid_request")
+
+    def test_refresh_rejects_missing_client_id(self):
+        response = self.client.post(
+            "/api/user/toolbar_oauth_refresh/",
+            data=json.dumps({"refresh_token": "phr_old"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "invalid_request")
+
+    def test_refresh_rejects_invalid_json(self):
+        response = self.client.post(
+            "/api/user/toolbar_oauth_refresh/",
+            data="{not-json",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "invalid_json")
+
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_refresh_surfaces_token_error(self, mock_post):
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.json.return_value = {
+            "error": "invalid_grant",
+            "error_description": "Refresh token expired",
+        }
+
+        response = self.client.post(
+            "/api/user/toolbar_oauth_refresh/",
+            data=json.dumps({"refresh_token": "phr_expired", "client_id": "test_client_id"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "invalid_grant")
+
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_refresh_handles_non_json_response(self, mock_post):
+        mock_post.return_value.status_code = 502
+        mock_post.return_value.json.side_effect = ValueError("No JSON")
+
+        response = self.client.post(
+            "/api/user/toolbar_oauth_refresh/",
+            data=json.dumps({"refresh_token": "phr_old", "client_id": "test_client_id"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()["code"], "token_refresh_failed")
+
+    def test_refresh_does_not_require_session_auth(self):
+        self.client.logout()
+        response = self.client.post(
+            "/api/user/toolbar_oauth_refresh/",
+            data=json.dumps({"refresh_token": "phr_old", "client_id": "test_client_id"}),
+            content_type="application/json",
+        )
+        # Should get 400 (bad client_id) or similar, NOT 401/403
+        self.assertNotIn(response.status_code, [401, 403])
+
+    def test_refresh_rejects_get_method(self):
+        response = self.client.get("/api/user/toolbar_oauth_refresh/")
+        self.assertEqual(response.status_code, 405)
