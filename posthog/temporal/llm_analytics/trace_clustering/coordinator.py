@@ -36,6 +36,10 @@ with temporalio.workflow.unsafe.imports_passed_through():
         increment_team_succeeded,
         record_teams_discovered,
     )
+    from posthog.temporal.llm_analytics.shared_activities import (
+        FetchAllClusteringFiltersInput,
+        fetch_all_clustering_filters_activity,
+    )
     from posthog.temporal.llm_analytics.team_discovery import (
         DISCOVERY_ACTIVITY_RETRY_POLICY,
         DISCOVERY_ACTIVITY_TIMEOUT,
@@ -43,10 +47,6 @@ with temporalio.workflow.unsafe.imports_passed_through():
         SAMPLE_PERCENTAGE,
         TeamDiscoveryInput,
         get_team_ids_for_llm_analytics,
-    )
-    from posthog.temporal.llm_analytics.trace_clustering.activities import (
-        FetchAllClusteringFiltersInput,
-        fetch_all_clustering_filters_activity,
     )
 
 logger = structlog.get_logger(__name__)
