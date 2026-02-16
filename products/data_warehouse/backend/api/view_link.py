@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, cast
 
 from clickhouse_driver.errors import ServerException
 from rest_framework import filters, response, serializers, status, viewsets
@@ -18,6 +18,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.errors import look_up_clickhouse_error_code_meta
 from posthog.exceptions_capture import capture_exception
+from posthog.models.user import User
 
 from products.data_warehouse.backend.models import DataWarehouseJoin
 
@@ -173,7 +174,8 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id, user=self.request.user)
+        user = cast(User, self.request.user)
+        context["database"] = Database.create_for(team_id=self.team_id, user=user)
         return context
 
     def safely_get_queryset(self, queryset):
@@ -229,10 +231,11 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         try:
+            user = cast(User, self.request.user)
             query_response = execute_hogql_query(
                 query=validation_query,
                 team=self.team,
-                context=HogQLContext(database=database, user=self.request.user),
+                context=HogQLContext(database=database, user=user),
             )
             response_data["hogql"] = query_response.hogql
             response_data["results"] = query_response.results
