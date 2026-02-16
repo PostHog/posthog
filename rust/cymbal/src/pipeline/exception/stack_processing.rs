@@ -260,7 +260,7 @@ mod test {
         langs::{java::RawJavaFrame, CommonFrameMetadata},
         pipeline::exception::stack_processing::remap_exception_type_and_module,
         symbol_store::{
-            pple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider, proguard::ProguardProvider,
+            apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider, proguard::ProguardProvider,
             saving::SymbolSetRecord, sourcemap::SourcemapProvider, Catalog, MockS3Client,
         },
     };
