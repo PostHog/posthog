@@ -5,7 +5,7 @@ from rest_framework import status
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 from posthog.models.hog_flow.hog_flow_template import HogFlowTemplate
 from posthog.models.hog_function_template import HogFunctionTemplate
 
@@ -584,13 +584,14 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         other_org = Organization.objects.create(name="Other Org")
         other_org_team = Team.objects.create(organization=other_org, name="Other Org Team")
+        other_user = User.objects.create_and_join(other_org, "other-org-user@posthog.com", "testpassword12345")
+        self.client.force_login(other_user)
 
         response = self.client.get(f"/api/projects/{other_org_team.id}/hog_flow_templates")
         assert response.status_code == 200
 
-        template_ids = [t["id"] for t in response.json()["results"]]
         assert not any(t["scope"] == "organization" for t in response.json()["results"]), (
-            f"Org-scoped template leaked to another org: {template_ids}"
+            "Org-scoped template leaked to another org"
         )
 
     def test_can_create_org_scoped_template(self):
