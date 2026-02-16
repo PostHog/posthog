@@ -125,7 +125,9 @@ def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     )
 
 
-def find_dependent_flags_batch(flags_to_check: list[FeatureFlag]) -> dict[int, list[FeatureFlag]]:
+def find_dependent_flags_batch(
+    flags_to_check: list[FeatureFlag],
+) -> dict[int, list[FeatureFlag]]:
     """Find all active flags that depend on any of the given flags via flag-type filter properties.
 
     Returns a dict mapping each flag ID to its list of dependent flags.
@@ -1189,7 +1191,10 @@ class FeatureFlagSerializer(
         # Find disabled dependency flags
         return list(
             FeatureFlag.objects.filter(
-                team=flag_to_check.team, id__in=dependency_ids, deleted=False, active=False
+                team=flag_to_check.team,
+                id__in=dependency_ids,
+                deleted=False,
+                active=False,
             ).order_by("key")
         )
 
@@ -1892,6 +1897,25 @@ class FeatureFlagViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Validate filter keys against allowlist to prevent accidental mass deletion
+        if filters:
+            valid_filter_keys = {
+                "active",
+                "created_by_id",
+                "search",
+                "type",
+                "evaluation_runtime",
+                "excluded_properties",
+                "tags",
+                "has_evaluation_tags",
+            }
+            unknown_keys = set(filters.keys()) - valid_filter_keys
+            if unknown_keys:
+                return Response(
+                    {"error": f"Unknown filter keys: {', '.join(sorted(unknown_keys))}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         # Build base queryset
         queryset = self.queryset.filter(team__project_id=self.project_id, deleted=False)
 
@@ -1925,27 +1949,25 @@ class FeatureFlagViewSet(
 
             queryset = queryset.filter(id__in=validated_ids)
 
-        # Prefetch related data for validation
-        queryset = queryset.prefetch_related("features", "experiment_set")
-
         # Apply access control - filter to only editable flags
         if self.user_access_control:
-            flags = list(queryset.only("id"))
-            self.user_access_control.preload_object_access_controls(cast(list, flags))
+            # Fetch just IDs for access control check (lightweight query)
+            flags_for_access_check = list(queryset.only("id"))
+            self.user_access_control.preload_object_access_controls(cast(list, flags_for_access_check))
 
             editable_ids = []
-            for flag in flags:
+            for flag in flags_for_access_check:
                 user_access_level = self.user_access_control.get_user_access_level(flag)
                 if user_access_level and access_level_satisfied_for_resource(
                     "feature_flag", user_access_level, "editor"
                 ):
                     editable_ids.append(flag.id)
 
-            # Re-fetch with prefetch_related for editable flags only
-            queryset = self.queryset.filter(
-                id__in=editable_ids, team__project_id=self.project_id, deleted=False
-            ).prefetch_related("features", "experiment_set")
+            # Filter the existing queryset to only editable flags (preserves all exclusions)
+            queryset = queryset.filter(id__in=editable_ids)
 
+        # Prefetch related data for validation (only for flags we'll actually process)
+        queryset = queryset.prefetch_related("features", "experiment_set")
         flags_list = list(queryset)
 
         # Batch query for dependent flags

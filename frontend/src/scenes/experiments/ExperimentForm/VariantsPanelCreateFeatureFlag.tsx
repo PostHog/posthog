@@ -1,7 +1,8 @@
 import { useState } from 'react'
 
-import { IconBalance, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconBalance, IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 
+import { getSeriesColor } from 'lib/colors'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -10,7 +11,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link/Link'
-import { alphabet } from 'lib/utils'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { alphabet, formatPercentage } from 'lib/utils'
 
 import type { Experiment, MultivariateFlagVariant } from '~/types'
 
@@ -44,10 +46,13 @@ const RolloutPercentageControl = ({
     onChange,
 }: RolloutPercentageControlProps): JSX.Element => {
     return (
-        <div className="border border-primary rounded p-4 flex flex-col gap-3">
-            <div className={`flex items-center gap-3 ${disabled ? 'pointer-events-none opacity-50' : ''}`}>
-                <div className="flex-1">
-                    <LemonSlider value={rolloutPercentage} onChange={onChange} min={0} max={100} step={1} />
+        <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
+                    <h4 className="m-0">Rollout percent</h4>
+                    <Tooltip title="Percentage of users who this experiment will be released to.">
+                        <IconInfo className="text-secondary text-base" />
+                    </Tooltip>
                 </div>
                 <LemonInput
                     type="number"
@@ -61,7 +66,116 @@ const RolloutPercentageControl = ({
                     className="w-20"
                 />
             </div>
-            <p className="text-xs text-secondary m-0">Percentage of users who this experiment will be released to.</p>
+            <div className={disabled ? 'pointer-events-none opacity-50' : ''}>
+                <LemonSlider value={rolloutPercentage} onChange={onChange} min={0} max={100} step={1} />
+            </div>
+        </div>
+    )
+}
+
+interface TrafficPreviewProps {
+    variants: MultivariateFlagVariant[]
+    rolloutPercentage: number
+    areVariantRolloutsValid: boolean
+}
+
+// Visualizes the bucketing logic performed by the backend
+const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }: TrafficPreviewProps): JSX.Element => {
+    const excludedPercentage = Math.max(0, 100 - rolloutPercentage)
+
+    let cumulativeStart = 0
+    const previewVariants = variants.map((variant, index) => {
+        const slotSize = variant.rollout_percentage
+        const slotStart = cumulativeStart
+        cumulativeStart += slotSize
+        return {
+            ...variant,
+            index,
+            letter: alphabet[index] ?? `${index + 1}`,
+            slotSize,
+            slotStart,
+            previewPercentage: Math.max(0, (variant.rollout_percentage / 100) * rolloutPercentage),
+            color: getSeriesColor(index),
+        }
+    })
+
+    return (
+        <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+                <h4 className="m-0">Traffic preview</h4>
+                <div className="flex items-center gap-2 text-sm text-secondary">
+                    <span
+                        className="inline-block h-3 w-3 rounded-sm border border-primary"
+                        style={{
+                            backgroundImage:
+                                'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
+                        }}
+                    />
+                    <span>
+                        Not released to {formatPercentage(excludedPercentage, { precise: true, compact: true })}
+                    </span>
+                </div>
+            </div>
+            <div className="h-10 rounded bg-fill-secondary border border-primary overflow-hidden flex relative">
+                {rolloutPercentage > 0 ? (
+                    previewVariants.map((variant) => (
+                        <div key={variant.key} className="h-full flex" style={{ width: `${variant.slotSize}%` }}>
+                            <div
+                                className="h-full"
+                                style={{
+                                    width: `${rolloutPercentage}%`,
+                                    backgroundColor: variant.color,
+                                }}
+                            />
+                            {rolloutPercentage < 100 && (
+                                <div
+                                    className="h-full flex-1"
+                                    style={{
+                                        backgroundImage:
+                                            'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
+                                    }}
+                                />
+                            )}
+                        </div>
+                    ))
+                ) : (
+                    <div
+                        className="h-full w-full"
+                        style={{
+                            backgroundImage:
+                                'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
+                        }}
+                    />
+                )}
+                {rolloutPercentage > 0 &&
+                    previewVariants.map((variant) => (
+                        <div
+                            key={`${variant.key}-letter`}
+                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 text-[10px] font-semibold text-white pointer-events-none"
+                            style={{
+                                left: `${variant.slotStart + (variant.slotSize * rolloutPercentage) / 100 / 2}%`,
+                                textShadow: '0 1px 2px rgba(0, 0, 0, 0.35)',
+                            }}
+                        >
+                            {variant.letter}
+                        </div>
+                    ))}
+            </div>
+            <div className="flex" style={{ visibility: rolloutPercentage > 0 ? 'visible' : 'hidden' }}>
+                {previewVariants.map((variant) => (
+                    <div key={`${variant.key}-label`} className="flex" style={{ width: `${variant.slotSize}%` }}>
+                        <div
+                            className="text-xs text-secondary text-center whitespace-nowrap"
+                            style={{ width: `${rolloutPercentage}%` }}
+                        >
+                            {formatPercentage(variant.previewPercentage, { precise: true, compact: true })}
+                        </div>
+                    </div>
+                ))}
+            </div>
+            {!areVariantRolloutsValid && (
+                <p className="text-danger m-0">Preview is based on the current split and rollout percentage.</p>
+            )}
         </div>
     )
 }
@@ -259,7 +373,9 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                         />
                                                     ) : (
                                                         <div className="flex items-center h-10 px-2">
-                                                            {variant.rollout_percentage}%
+                                                            {formatPercentage(variant.rollout_percentage, {
+                                                                compact: true,
+                                                            })}
                                                         </div>
                                                     )}
                                                     {!disabled && variants.length > 2 && index > 0 && (
@@ -298,12 +414,19 @@ export const VariantsPanelCreateFeatureFlag = ({
                 </div>
 
                 <div className="flex-1">
-                    <LemonField.Pure label="Rollout percentage">
-                        <RolloutPercentageControl
-                            rolloutPercentage={rolloutPercentage}
-                            disabled={disabled}
-                            onChange={updateRolloutPercentage}
-                        />
+                    <LemonField.Pure label="Rollout">
+                        <div className="border border-primary rounded p-4 flex flex-col gap-5">
+                            <RolloutPercentageControl
+                                rolloutPercentage={rolloutPercentage}
+                                disabled={disabled}
+                                onChange={updateRolloutPercentage}
+                            />
+                            <TrafficPreview
+                                variants={variants}
+                                rolloutPercentage={rolloutPercentage}
+                                areVariantRolloutsValid={areVariantRolloutsValid}
+                            />
+                        </div>
                     </LemonField.Pure>
                 </div>
             </div>

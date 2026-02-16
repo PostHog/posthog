@@ -33,7 +33,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             projectLogic,
             ['currentProjectId'],
             featureFlagsLogic({}),
-            ['featureFlags', 'count', 'paramsFromFilters'],
+            ['featureFlags', 'count', 'paramsFromFilters', 'displayedFlags'],
         ],
         actions: [featureFlagsLogic({}), ['loadFeatureFlags']],
     })),

@@ -133,6 +133,7 @@ jobs:
                     - kafka-deduplicator
                     - limiters
                     - personhog-replica
+                    - personhog-router
                     - posthog-symbol-data
                     - property-defs-rs
                     - serve-metrics
@@ -162,7 +163,7 @@ jobs:
 
                   # Retry docker compose up with exponential backoff to handle transient registry errors
                   for i in 1 2 3; do
-                    if docker compose -f ../docker-compose.dev.yml up -d --wait; then
+                    if docker compose -f ../docker-compose.dev.yml up -d; then
                       echo "Docker compose up succeeded"
                       break
                     else
@@ -175,6 +176,8 @@ jobs:
                       fi
                     fi
                   done
+
+                  COMPOSE_FILE=../docker-compose.dev.yml ../bin/wait-for-docker
 
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
