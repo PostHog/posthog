@@ -26,10 +26,6 @@ _default_retry_policy: dagster.RetryPolicy = dagster.RetryPolicy(
 
 
 def get_registered_kinds() -> Mapping[str, str]:
-    """Return an immutable view of registered health check kinds.
-
-    Returns a mapping of kind -> name for all health checks registered in this process.
-    """
     return MappingProxyType(_REGISTERED_KINDS)
 
 
