@@ -819,9 +819,6 @@ def toolbar_oauth_start(request):
 
     Returns the `/oauth/authorize` URL with PKCE params and signed state.
     """
-    if not settings.TOOLBAR_OAUTH_ENABLED:
-        return HttpResponse(status=404)
-
     try:
         body = json.loads(request.body or "{}")
     except json.JSONDecodeError:
@@ -878,9 +875,6 @@ def toolbar_oauth_exchange(request):
 
     State is validated and consumed before exchanging the authorization code.
     """
-    if not settings.TOOLBAR_OAUTH_ENABLED:
-        return HttpResponse(status=404)
-
     try:
         body = json.loads(request.body or "{}")
     except json.JSONDecodeError:
@@ -936,9 +930,6 @@ def toolbar_oauth_callback(request):
     This page only relays `code/state` (or OAuth error) to the opener window
     via `postMessage`; token exchange stays server-side in toolbar_oauth_exchange.
     """
-    if not settings.TOOLBAR_OAUTH_ENABLED:
-        return HttpResponse(status=404)
-
     payload = {
         "type": "toolbar_oauth_result",
         "code": request.GET.get("code"),
