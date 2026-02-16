@@ -119,8 +119,6 @@ export function DashboardHeader(): JSX.Element | null {
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
 
     const [terraformModalOpen, setTerraformModalOpen] = useState(false)
-    const terraformFeatureEnabled = useFeatureFlag('MANAGE_INSIGHTS_THROUGH_TERRAFORM')
-
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
             return false
@@ -202,13 +200,11 @@ export function DashboardHeader(): JSX.Element | null {
                     <InterProjectDuplicationModal />
                     {canEditDashboard && <DashboardInsightColorsModal />}
                     {user?.is_staff && <DashboardTemplateEditor />}
-                    {terraformFeatureEnabled && (
-                        <TerraformExportModal
-                            isOpen={terraformModalOpen}
-                            onClose={() => setTerraformModalOpen(false)}
-                            resource={{ type: 'dashboard', data: dashboard }}
-                        />
-                    )}
+                    <TerraformExportModal
+                        isOpen={terraformModalOpen}
+                        onClose={() => setTerraformModalOpen(false)}
+                        resource={{ type: 'dashboard', data: dashboard }}
+                    />
                 </>
             )}
 
@@ -368,7 +364,7 @@ export function DashboardHeader(): JSX.Element | null {
                         />
                     )}
 
-                    {dashboard && terraformFeatureEnabled && (
+                    {dashboard && (
                         <ButtonPrimitive
                             onClick={() => setTerraformModalOpen(true)}
                             menuItem
