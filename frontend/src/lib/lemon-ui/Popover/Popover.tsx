@@ -172,6 +172,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     })
 
     const [floatingElement, setFloatingElement] = useState<HTMLElement | null>(null)
+    const mergedFloatingRef = useMergeRefs([setFloatingElement, floatingRef, extraFloatingRef || null])
     // Track whether the portal should be rendered (visible or animating out)
     const [shouldRenderPortal, setShouldRenderPortal] = useState(false)
 
@@ -292,13 +293,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                         className
                                     )}
                                     data-placement={effectivePlacement}
-                                    ref={(el) => {
-                                        setFloatingElement(el)
-                                        floatingRef.current = el
-                                        if (extraFloatingRef) {
-                                            extraFloatingRef.current = el
-                                        }
-                                    }}
+                                    ref={mergedFloatingRef}
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{
                                         display: middlewareData.hide?.referenceHidden ? 'none' : undefined,
