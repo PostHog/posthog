@@ -13,7 +13,7 @@ LINEAR_DEFAULT_PAGE_SIZE = 250
 
 INCREMENTAL_DATETIME_FIELDS: list[IncrementalField] = [
     {
-        "label": "updatedAt",
+        "label": UPDATED_AT,
         "type": IncrementalFieldType.DateTime,
         "field": UPDATED_AT,
         "field_type": IncrementalFieldType.DateTime,
