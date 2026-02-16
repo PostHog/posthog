@@ -6,7 +6,7 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
-import products.visual_review.backend.domain_types
+import products.visual_review.backend.facade.enums
 
 
 class Migration(migrations.Migration):
@@ -86,7 +86,7 @@ class Migration(migrations.Migration):
                             ("completed", "completed"),
                             ("failed", "failed"),
                         ],
-                        default=products.visual_review.backend.domain_types.RunStatus["PENDING"],
+                        default=products.visual_review.backend.facade.enums.RunStatus["PENDING"],
                         max_length=20,
                     ),
                 ),
@@ -99,7 +99,7 @@ class Migration(migrations.Migration):
                             ("cypress", "cypress"),
                             ("other", "other"),
                         ],
-                        default=products.visual_review.backend.domain_types.RunType["OTHER"],
+                        default=products.visual_review.backend.facade.enums.RunType["OTHER"],
                         max_length=20,
                     ),
                 ),
@@ -165,7 +165,7 @@ class Migration(migrations.Migration):
                             ("new", "new"),
                             ("removed", "removed"),
                         ],
-                        default=products.visual_review.backend.domain_types.SnapshotResult["UNCHANGED"],
+                        default=products.visual_review.backend.facade.enums.SnapshotResult["UNCHANGED"],
                         max_length=20,
                     ),
                 ),
@@ -178,7 +178,7 @@ class Migration(migrations.Migration):
                     "review_state",
                     models.CharField(
                         choices=[("pending", "pending"), ("approved", "approved")],
-                        default=products.visual_review.backend.domain_types.ReviewState["PENDING"],
+                        default=products.visual_review.backend.facade.enums.ReviewState["PENDING"],
                         max_length=20,
                     ),
                 ),

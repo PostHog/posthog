@@ -140,6 +140,7 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |Repo
                               |SandboxEnvironment
                               |SavedHeatmap
                               |ScheduledChange
@@ -299,6 +300,7 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |Repo
                         |SandboxEnvironment
                         |SavedHeatmap
                         |ScheduledChange
