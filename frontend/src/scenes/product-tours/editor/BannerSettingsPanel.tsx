@@ -1,24 +1,28 @@
+import { useActions, useValues } from 'kea'
+
 import { LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
-import { ProductTourBannerConfig, ProductTourStep } from '~/types'
+import { ProductTourBannerConfig } from '~/types'
 
 import { TourSelector } from '../components/TourSelector'
+import { productTourLogic } from '../productTourLogic'
 
 export interface BannerSettingsPanelProps {
-    step: ProductTourStep
-    onChange: (step: ProductTourStep) => void
+    tourId: string
 }
 
-export function BannerSettingsPanel({ step, onChange }: BannerSettingsPanelProps): JSX.Element {
+export function BannerSettingsPanel({ tourId }: BannerSettingsPanelProps): JSX.Element {
+    const { productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
+    const { updateSelectedStep } = useActions(productTourLogic({ id: tourId }))
+
+    const steps = productTourForm.content?.steps ?? []
+    const step = steps[selectedStepIndex]
+
     const behavior = step.bannerConfig?.behavior ?? 'sticky'
     const actionType = step.bannerConfig?.action?.type ?? 'none'
 
-    const updateStep = (updates: Partial<ProductTourStep>): void => {
-        onChange({ ...step, ...updates })
-    }
-
     const updateBannerConfig = (updates: Partial<ProductTourBannerConfig>): void => {
-        updateStep({
+        updateSelectedStep({
             bannerConfig: {
                 ...step.bannerConfig,
                 behavior,

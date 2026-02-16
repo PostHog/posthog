@@ -60,6 +60,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
     """
     instance: Optional[UploadedMedia] = None
     try:
+        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (intentionally public endpoint)
         instance = UploadedMedia.objects.get(pk=kwargs["image_uuid"])
     except UploadedMedia.DoesNotExist:
         return HttpResponse(status=404)

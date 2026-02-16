@@ -92,6 +92,7 @@ class ExperimentQueryBuilder:
         self.multiple_variant_handling = multiple_variant_handling
         self.breakdowns = breakdowns or []
         self.breakdown_injector = BreakdownInjector(self.breakdowns, metric) if metric else None
+        self.preaggregation_job_ids: list[str] | None = None
 
     def build_query(self) -> ast.SelectQuery:
         """
@@ -256,7 +257,7 @@ class ExperimentQueryBuilder:
         }
 
         if is_unordered_funnel:
-            placeholders["exposure_select_query"] = self._build_exposure_select_query()
+            placeholders["exposure_select_query"] = self._get_exposure_query()
 
         query = parse_select(
             f"""
@@ -459,7 +460,7 @@ class ExperimentQueryBuilder:
         is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
 
         # Build exposure query with exposure_identifier for data warehouse
-        exposure_query = self._build_exposure_select_query()
+        exposure_query = self._get_exposure_query()
         if is_dw:
             assert isinstance(self.metric.source, ExperimentDataWarehouseNode)
             events_join_key_parts = cast(list[str | int], self.metric.source.events_join_key.split("."))
@@ -504,7 +505,7 @@ class ExperimentQueryBuilder:
         """
         assert isinstance(self.metric, ExperimentMeanMetric)
 
-        exposure_query = self._build_exposure_select_query()
+        exposure_query = self._get_exposure_query()
 
         return {
             "exposure_select_query": exposure_query,
@@ -683,7 +684,7 @@ class ExperimentQueryBuilder:
             denom_timestamp_field = f"{denom_table}.timestamp"
 
         # Build exposure query with conditional exposure_identifier(s)
-        exposure_query = self._build_exposure_select_query()
+        exposure_query = self._get_exposure_query()
         if num_is_dw or denom_is_dw:
             # Add exposure_identifier fields for data warehouse joins
             # Support different join keys for numerator and denominator
@@ -1125,6 +1126,11 @@ class ExperimentQueryBuilder:
             )
         )
 
+    def _get_exposure_query(self) -> ast.SelectQuery:
+        if self.preaggregation_job_ids and not self.breakdowns:
+            return self._build_exposure_from_preaggregated(self.preaggregation_job_ids)
+        return self._build_exposure_select_query()
+
     def _build_exposure_select_query(self) -> ast.SelectQuery:
         exposure_query = parse_select(
             """
@@ -1164,6 +1170,51 @@ class ExperimentQueryBuilder:
                 exposure_query.select.append(ast.Alias(alias=alias, expr=breakdown_attributed))
 
         return exposure_query
+
+    def _build_exposure_from_preaggregated(self, job_ids: list[str]) -> ast.SelectQuery:
+        """
+        Builds the exposure CTE by reading from the preaggregated table instead of scanning events.
+
+        Re-aggregates across jobs since the same user can appear in multiple time-window jobs.
+        Returns the same column shape as _build_exposure_select_query().
+        """
+        # The preaggregated table stores entity_id as String, but person_id is UUID in events.
+        # Cast back to match the type expected by downstream JOINs.
+        entity_id_expr = (
+            parse_expr("toUUID(t.entity_id)") if self.entity_key == "person_id" else parse_expr("t.entity_id")
+        )
+
+        if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
+            variant_expr = parse_expr("argMin(t.variant, t.first_exposure_time)")
+        else:
+            variant_expr = parse_expr(
+                "if(uniqExact(t.variant) > 1, {multiple_key}, argMin(t.variant, t.first_exposure_time))",
+                placeholders={"multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY)},
+            )
+
+        query = parse_select(
+            """
+                SELECT
+                    {entity_id_expr} AS entity_id,
+                    {variant_expr} AS variant,
+                    min(t.first_exposure_time) AS first_exposure_time,
+                    max(t.last_exposure_time) AS last_exposure_time,
+                    argMin(t.exposure_event_uuid, t.first_exposure_time) AS exposure_event_uuid,
+                    argMin(t.exposure_session_id, t.first_exposure_time) AS exposure_session_id
+                FROM experiment_exposures_preaggregated AS t
+                WHERE t.job_id IN {job_ids}
+                    AND t.team_id = {team_id}
+                GROUP BY entity_id
+            """,
+            placeholders={
+                "entity_id_expr": entity_id_expr,
+                "variant_expr": variant_expr,
+                "job_ids": ast.Constant(value=job_ids),
+                "team_id": ast.Constant(value=self.team.id),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
 
     def get_exposure_query_for_preaggregation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
@@ -1390,7 +1441,7 @@ class ExperimentQueryBuilder:
         """
 
         placeholders = {
-            "exposure_select_query": self._build_exposure_select_query(),
+            "exposure_select_query": self._get_exposure_query(),
             "entity_key": parse_expr(self.entity_key),
             "start_timestamp_expr": self._build_start_event_timestamp_expr(),
             "start_event_predicate": self._build_start_event_predicate(),

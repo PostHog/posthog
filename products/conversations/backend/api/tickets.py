@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.person.person import READ_DB_FOR_PERSONS, Person, PersonDistinctId
@@ -23,6 +24,11 @@ from products.conversations.backend.cache import (
     get_cached_unread_count,
     invalidate_unread_count_cache,
     set_cached_unread_count,
+)
+from products.conversations.backend.events import (
+    capture_ticket_assigned,
+    capture_ticket_priority_changed,
+    capture_ticket_status_changed,
 )
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, Priority, Status
@@ -77,6 +83,7 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_at",
             "last_message_text",
             "unread_team_count",
+            "unread_customer_count",
             "session_id",
             "session_context",
             "person",
@@ -91,6 +98,7 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_at",
             "last_message_text",
             "unread_team_count",
+            "unread_customer_count",
             "assignee",
             "session_id",
             "session_context",
@@ -256,6 +264,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
         old_status = instance.status
+        old_priority = instance.priority
 
         # Handle assignee separately since it's not a direct model field
         assignee = request.data.pop("assignee", None) if "assignee" in request.data else ...
@@ -279,9 +288,20 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.refresh_from_db()
 
         # Invalidate unread count cache if status changed to/from resolved
-        new_status = request.data.get("status", old_status)
+        new_status = instance.status
         if old_status != new_status and (old_status == "resolved" or new_status == "resolved"):
             invalidate_unread_count_cache(self.team_id)
+
+        # Emit analytics events for workflow triggers
+        try:
+            if old_status != new_status:
+                capture_ticket_status_changed(instance, old_status, new_status)
+
+            new_priority = instance.priority
+            if old_priority != new_priority:
+                capture_ticket_priority_changed(instance, old_priority, new_priority)
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
 
         # Re-serialize to include updated assignee
         serializer = self.get_serializer(instance)
@@ -402,3 +422,15 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
                 ],
             ),
         )
+
+        # Emit analytics event for workflow triggers
+        try:
+            if assignee:
+                assignee_type = assignee["type"]
+                assignee_id = str(assignee["id"])
+            else:
+                assignee_type = None
+                assignee_id = None
+            capture_ticket_assigned(ticket, assignee_type, assignee_id)
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
