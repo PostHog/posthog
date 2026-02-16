@@ -794,7 +794,9 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
-        const showClustersTab = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
+        const showClustersTab =
+            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ||
+            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
         const showFeedbackTab = true
 
