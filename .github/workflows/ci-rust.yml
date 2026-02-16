@@ -133,6 +133,7 @@ jobs:
                     - kafka-deduplicator
                     - limiters
                     - personhog-replica
+                    - personhog-router
                     - posthog-symbol-data
                     - property-defs-rs
                     - serve-metrics

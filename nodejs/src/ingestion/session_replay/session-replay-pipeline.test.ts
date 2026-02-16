@@ -4,7 +4,7 @@ import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
 import { drop, ok, redirect } from '../pipelines/results'
-import { applyRestrictions, createRestrictionPipeline } from './restriction-pipeline'
+import { createSessionReplayPipeline, runSessionReplayPipeline } from './session-replay-pipeline'
 
 jest.mock('../event-preprocessing', () => ({
     createParseHeadersStep: jest.fn(),
@@ -14,7 +14,7 @@ jest.mock('../event-preprocessing', () => ({
 const mockCreateParseHeadersStep = createParseHeadersStep as jest.Mock
 const mockCreateApplyEventRestrictionsStep = createApplyEventRestrictionsStep as jest.Mock
 
-describe('restriction-pipeline', () => {
+describe('session-replay-pipeline', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
     let mockRestrictionManager: any
     let promiseScheduler: PromiseScheduler
@@ -33,8 +33,15 @@ describe('restriction-pipeline', () => {
         promiseScheduler = new PromiseScheduler()
 
         // Default: parse headers step passes through with parsed headers
+        // Kafka headers are an array of { [key]: Buffer } objects
         mockCreateParseHeadersStep.mockReturnValue((input: any) => {
-            return Promise.resolve(ok({ ...input, headers: { token: input.message.headers?.[0]?.token?.toString() } }))
+            const headers: Record<string, string> = {}
+            for (const header of input.message.headers || []) {
+                for (const [key, value] of Object.entries(header)) {
+                    headers[key] = (value as Buffer).toString()
+                }
+            }
+            return Promise.resolve(ok({ ...input, headers }))
         })
 
         // Default: restrictions step passes through
@@ -60,9 +67,9 @@ describe('restriction-pipeline', () => {
         }
     }
 
-    describe('applyRestrictions', () => {
+    describe('runSessionReplayPipeline', () => {
         it('passes through messages when no restrictions apply', async () => {
-            const pipeline = createRestrictionPipeline({
+            const pipeline = createSessionReplayPipeline({
                 kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
@@ -72,7 +79,7 @@ describe('restriction-pipeline', () => {
 
             const messages = [createMessage(0, 1), createMessage(0, 2)]
 
-            const result = await applyRestrictions(pipeline, messages)
+            const result = await runSessionReplayPipeline(pipeline, messages)
 
             expect(result).toHaveLength(2)
             expect(result[0].offset).toBe(1)
@@ -87,7 +94,7 @@ describe('restriction-pipeline', () => {
                 return Promise.resolve(ok(input))
             })
 
-            const pipeline = createRestrictionPipeline({
+            const pipeline = createSessionReplayPipeline({
                 kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
@@ -97,7 +104,7 @@ describe('restriction-pipeline', () => {
 
             const messages = [createMessage(0, 1), createMessage(0, 2), createMessage(0, 3)]
 
-            const result = await applyRestrictions(pipeline, messages)
+            const result = await runSessionReplayPipeline(pipeline, messages)
 
             expect(result).toHaveLength(2)
             expect(result[0].offset).toBe(1)
@@ -112,7 +119,7 @@ describe('restriction-pipeline', () => {
                 return Promise.resolve(ok(input))
             })
 
-            const pipeline = createRestrictionPipeline({
+            const pipeline = createSessionReplayPipeline({
                 kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
@@ -122,7 +129,7 @@ describe('restriction-pipeline', () => {
 
             const messages = [createMessage(0, 1), createMessage(0, 2), createMessage(0, 3)]
 
-            const result = await applyRestrictions(pipeline, messages)
+            const result = await runSessionReplayPipeline(pipeline, messages)
 
             // Wait for side effects to complete
             await promiseScheduler.waitForAll()
@@ -140,7 +147,7 @@ describe('restriction-pipeline', () => {
         })
 
         it('returns empty array for empty input', async () => {
-            const pipeline = createRestrictionPipeline({
+            const pipeline = createSessionReplayPipeline({
                 kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
@@ -148,7 +155,7 @@ describe('restriction-pipeline', () => {
                 promiseScheduler,
             })
 
-            const result = await applyRestrictions(pipeline, [])
+            const result = await runSessionReplayPipeline(pipeline, [])
 
             expect(result).toHaveLength(0)
         })
@@ -162,7 +169,7 @@ describe('restriction-pipeline', () => {
                 return Promise.resolve(ok(input))
             })
 
-            const pipeline = createRestrictionPipeline({
+            const pipeline = createSessionReplayPipeline({
                 kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
@@ -176,7 +183,7 @@ describe('restriction-pipeline', () => {
                 messages.push(createMessage(0, i))
             }
 
-            const result = await applyRestrictions(pipeline, messages)
+            const result = await runSessionReplayPipeline(pipeline, messages)
 
             // 100 messages should be dropped (10, 20, 30, ..., 1000)
             // 900 messages should pass through
@@ -194,7 +201,7 @@ describe('restriction-pipeline', () => {
         })
 
         it('processes large batch with all messages passing through', async () => {
-            const pipeline = createRestrictionPipeline({
+            const pipeline = createSessionReplayPipeline({
                 kafkaProducer: mockKafkaProducer,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
@@ -208,7 +215,7 @@ describe('restriction-pipeline', () => {
                 messages.push(createMessage(0, i))
             }
 
-            const result = await applyRestrictions(pipeline, messages)
+            const result = await runSessionReplayPipeline(pipeline, messages)
 
             expect(result).toHaveLength(500)
 
@@ -216,6 +223,60 @@ describe('restriction-pipeline', () => {
             for (let i = 0; i < 500; i++) {
                 expect(result[i].offset).toBe(i + 1)
             }
+        })
+
+        it('correctly parses and passes headers to the restrictions step', async () => {
+            // Track what headers are passed to the restrictions step
+            const capturedHeaders: Record<string, string>[] = []
+            mockCreateApplyEventRestrictionsStep.mockReturnValue((input: any) => {
+                capturedHeaders.push(input.headers)
+                return Promise.resolve(ok(input))
+            })
+
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                promiseScheduler,
+            })
+
+            const messages = [
+                createMessage(0, 1, { token: 'team-token-123', distinctId: 'user-456' }),
+                createMessage(0, 2, { token: 'team-token-789' }),
+            ]
+
+            const result = await runSessionReplayPipeline(pipeline, messages)
+
+            expect(result).toHaveLength(2)
+            // Verify headers were correctly parsed and passed through
+            expect(capturedHeaders).toHaveLength(2)
+            expect(capturedHeaders[0]).toEqual({ token: 'team-token-123', distinctId: 'user-456' })
+            expect(capturedHeaders[1]).toEqual({ token: 'team-token-789' })
+        })
+
+        it('handles messages with no headers', async () => {
+            const capturedHeaders: Record<string, string>[] = []
+            mockCreateApplyEventRestrictionsStep.mockReturnValue((input: any) => {
+                capturedHeaders.push(input.headers)
+                return Promise.resolve(ok(input))
+            })
+
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                promiseScheduler,
+            })
+
+            const messages = [createMessage(0, 1)] // No headers
+
+            const result = await runSessionReplayPipeline(pipeline, messages)
+
+            expect(result).toHaveLength(1)
+            expect(capturedHeaders).toHaveLength(1)
+            expect(capturedHeaders[0]).toEqual({})
         })
     })
 })

@@ -7,10 +7,12 @@ from typing import Any
 from django.db import close_old_connections
 
 import structlog
+import posthoganalytics
 from temporalio import activity
 
 from posthog.schema import ReplayInactivityPeriod
 
+from posthog.event_usage import groups
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content_from_file
 from posthog.tasks.exports.video_exporter import RecordReplayToFileOptions
 from posthog.utils import absolute_uri
@@ -107,6 +109,55 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     }
 
 
+def _track_video_export_started(asset: ExportedAsset, build: dict[str, Any]) -> None:
+    try:
+        posthoganalytics.capture(
+            distinct_id=asset.created_by.distinct_id if asset.created_by else str(asset.team.uuid),
+            event="video export started",
+            properties={
+                **asset.get_analytics_metadata(),
+                "recording_duration_s": build["duration"],
+                "playback_speed": build.get("playback_speed", 1),
+                # Crucial to separate summaries from regular exports
+                "use_puppeteer": build.get("use_puppeteer", False),
+            },
+            groups=groups(asset.team.organization, asset.team),
+        )
+    except Exception:
+        logger.exception("Failed to capture video export started event")
+        # Not failing, as failed tracking should not block the export
+
+
+def _track_video_export_completed(asset: ExportedAsset, build: dict[str, Any], video_path: str, file_size: int) -> None:
+    try:
+        from ee.hogai.videos.utils import get_video_duration_from_path_s
+
+        video_duration_s = get_video_duration_from_path_s(video_path)
+        recording_duration_s = build["duration"]
+        # How much of the session was skipped in the video as inactivity
+        inactivity_skip_ratio = (
+            round(1 - (video_duration_s / recording_duration_s), 2) if recording_duration_s > 0 else 0
+        )
+        posthoganalytics.capture(
+            distinct_id=asset.created_by.distinct_id if asset.created_by else str(asset.team.uuid),
+            event="video export completed",
+            properties={
+                **asset.get_analytics_metadata(),
+                "recording_duration_s": recording_duration_s,
+                "video_duration_s": video_duration_s,
+                "inactivity_skip_ratio": inactivity_skip_ratio,
+                "playback_speed": build.get("playback_speed", 1),
+                "file_size_bytes": file_size,
+                # Crucial to separate summaries from regular exports
+                "use_puppeteer": build.get("use_puppeteer", False),
+            },
+            groups=groups(asset.team.organization, asset.team),
+        )
+    except Exception:
+        logger.exception("Failed to capture video export completed event")
+        # Not failing, as failed tracking should not block the export
+
+
 @activity.defn
 def record_and_persist_video_activity(build: dict[str, Any]) -> None:
     """Record replay to file and persist in a single activity. Must run on same worker
@@ -115,8 +166,10 @@ def record_and_persist_video_activity(build: dict[str, Any]) -> None:
     from posthog.tasks.exports.video_exporter import record_replay_to_file
 
     close_old_connections()
-    asset = ExportedAsset.objects.select_related("team").get(pk=build["exported_asset_id"])
-
+    asset = ExportedAsset.objects.select_related("team", "team__organization", "created_by").get(
+        pk=build["exported_asset_id"]
+    )
+    _track_video_export_started(asset, build)
     with tempfile.TemporaryDirectory(prefix="ph-video-export-") as tmp_dir:
         tmp_path = os.path.join(tmp_dir, f"{uuid.uuid4()}.{build['tmp_ext']}")
         inactivity_periods = record_replay_to_file(
@@ -149,4 +202,5 @@ def record_and_persist_video_activity(build: dict[str, Any]) -> None:
             raise RuntimeError(
                 f"Video file too large: {file_size / (1024 * 1024):.1f}MB exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB limit"
             )
+        _track_video_export_completed(asset, build, tmp_path, file_size)
         save_content_from_file(asset, tmp_path)

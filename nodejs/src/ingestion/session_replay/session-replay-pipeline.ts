@@ -10,16 +10,16 @@ import { newBatchPipelineBuilder } from '../pipelines/builders'
 import { createBatch, createUnwrapper } from '../pipelines/helpers'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 
-export interface RestrictionPipelineInput {
+export interface SessionReplayPipelineInput {
     message: Message
 }
 
-export interface RestrictionPipelineOutput {
+export interface SessionReplayPipelineOutput {
     message: Message
     headers: EventHeaders
 }
 
-export interface RestrictionPipelineConfig {
+export interface SessionReplayPipelineConfig {
     kafkaProducer: KafkaProducerWrapper
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
@@ -27,9 +27,16 @@ export interface RestrictionPipelineConfig {
     promiseScheduler: PromiseScheduler
 }
 
-export function createRestrictionPipeline(
-    config: RestrictionPipelineConfig
-): BatchPipelineUnwrapper<RestrictionPipelineInput, RestrictionPipelineOutput, { message: Message }> {
+/**
+ * Creates the session replay preprocessing pipeline.
+ *
+ * Currently handles restrictions (parsing headers and applying event ingestion
+ * restrictions like drop/overflow). The pipeline will be extended in future
+ * commits to include additional processing steps.
+ */
+export function createSessionReplayPipeline(
+    config: SessionReplayPipelineConfig
+): BatchPipelineUnwrapper<SessionReplayPipelineInput, SessionReplayPipelineOutput, { message: Message }> {
     const { kafkaProducer, eventIngestionRestrictionManager, overflowEnabled, overflowTopic, promiseScheduler } = config
 
     const pipelineConfig: PipelineConfig = {
@@ -38,7 +45,7 @@ export function createRestrictionPipeline(
         promiseScheduler,
     }
 
-    const pipeline = newBatchPipelineBuilder<RestrictionPipelineInput, { message: Message }>()
+    const pipeline = newBatchPipelineBuilder<SessionReplayPipelineInput, { message: Message }>()
         .messageAware((b) =>
             b.sequentially((b) =>
                 b.pipe(createParseHeadersStep()).pipe(
@@ -59,11 +66,11 @@ export function createRestrictionPipeline(
 }
 
 /**
- * Apply restrictions to a batch of messages using the pipeline.
- * Returns only the messages that passed restriction checks.
+ * Runs a batch of messages through the session replay pipeline.
+ * Returns only the messages that passed all pipeline checks.
  */
-export async function applyRestrictions(
-    pipeline: BatchPipelineUnwrapper<RestrictionPipelineInput, RestrictionPipelineOutput, { message: Message }>,
+export async function runSessionReplayPipeline(
+    pipeline: BatchPipelineUnwrapper<SessionReplayPipelineInput, SessionReplayPipelineOutput, { message: Message }>,
     messages: Message[]
 ): Promise<Message[]> {
     if (messages.length === 0) {
@@ -73,7 +80,7 @@ export async function applyRestrictions(
     const batch = createBatch(messages.map((message) => ({ message })))
     pipeline.feed(batch)
 
-    const allResults: RestrictionPipelineOutput[] = []
+    const allResults: SessionReplayPipelineOutput[] = []
     let results = await pipeline.next()
     while (results !== null) {
         allResults.push(...results)
