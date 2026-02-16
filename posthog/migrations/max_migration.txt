@@ -1,1 +1,1 @@
-1004_resource_transfer
+1006_resource_transfer_duplicated_resource_id
