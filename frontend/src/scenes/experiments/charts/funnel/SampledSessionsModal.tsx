@@ -4,16 +4,28 @@ import { combineUrl } from 'kea-router'
 import { LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { Dayjs, dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SessionData } from '~/queries/schema/schema-general'
 import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
+
+/** Parse a timestamp string, converting from project timezone if needed.
+ *  If the string already has timezone info (Z or +/-offset), parse it directly.
+ *  Otherwise, treat it as a local time in the project timezone. */
+export const parseTimestamp = (timestamp: string, timezone: string): Dayjs => {
+    if (/([Zz]|[+-]\d{2}:?\d{2})\s*$/.test(timestamp)) {
+        return dayjs(timestamp)
+    }
+    return dayjsLocalToTimezone(timestamp, timezone)
+}
 
 const getEventsUrl = (key: string, value: string): string => {
     const eventsQuery = getDefaultEventsSceneQuery([
@@ -53,6 +65,7 @@ export function SampledSessionsModal(): JSX.Element {
     const { isOpen, modalData, recordingAvailability, recordingAvailabilityLoading } =
         useValues(sampledSessionsModalLogic)
     const { closeModal } = useActions(sampledSessionsModalLogic)
+    const { timezone } = useValues(teamLogic)
 
     if (!modalData) {
         return <></>
@@ -95,7 +108,7 @@ export function SampledSessionsModal(): JSX.Element {
                 return (
                     <ViewRecordingButton
                         sessionId={session.session_id}
-                        timestamp={session.timestamp}
+                        timestamp={parseTimestamp(session.timestamp, timezone)}
                         matchingEvents={[
                             {
                                 session_id: session.session_id,

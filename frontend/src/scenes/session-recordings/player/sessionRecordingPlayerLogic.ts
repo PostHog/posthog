@@ -211,6 +211,39 @@ export function findNewEvents(allSnapshots: eventWithTime[], currentEvents: even
     return newEvents
 }
 
+/** Find the segment that contains the given timestamp, with fallback for out-of-range timestamps. */
+export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?: number): RecordingSegment | null {
+    if (timestamp === undefined) {
+        return null
+    }
+    if (segments.length) {
+        for (const segment of segments) {
+            if (segment.startTimestamp <= timestamp && timestamp <= segment.endTimestamp) {
+                return segment
+            }
+        }
+        // Timestamp is outside all segments (e.g. due to timezone mismatch).
+        // Fall back to the nearest segment with a windowId so the player can
+        // still initialize instead of getting stuck buffering forever.
+        const nearest =
+            timestamp < segments[0].startTimestamp
+                ? segments.find((s) => s.windowId !== undefined)
+                : [...segments].reverse().find((s) => s.windowId !== undefined)
+
+        if (nearest) {
+            return nearest
+        }
+
+        return {
+            kind: 'buffer',
+            startTimestamp: timestamp,
+            endTimestamp: segments[0].startTimestamp - 1,
+            isActive: false,
+        } as RecordingSegment
+    }
+    return null
+}
+
 function isUserActivity(snapshot: eventWithTime): boolean {
     return (
         snapshot.type === INCREMENTAL_SNAPSHOT_EVENT_TYPE &&
@@ -934,23 +967,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (s) => [s.sessionPlayerData],
             (sessionPlayerData: SessionPlayerData) => {
                 return (timestamp?: number): RecordingSegment | null => {
-                    if (timestamp === undefined) {
-                        return null
-                    }
-                    if (sessionPlayerData.segments.length) {
-                        for (const segment of sessionPlayerData.segments) {
-                            if (segment.startTimestamp <= timestamp && timestamp <= segment.endTimestamp) {
-                                return segment
-                            }
-                        }
-                        return {
-                            kind: 'buffer',
-                            startTimestamp: timestamp,
-                            endTimestamp: sessionPlayerData.segments[0].startTimestamp - 1,
-                            isActive: false,
-                        } as RecordingSegment
-                    }
-                    return null
+                    return findSegmentForTimestamp(sessionPlayerData.segments, timestamp)
                 }
             },
         ],
