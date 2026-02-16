@@ -133,7 +133,6 @@ class TestSlackImageOutbound(SimpleTestCase):
             content="Hello\n\n![a.png](https://app.posthog.com/uploaded_media/a)",
             rich_content=rich_content,
             author_name="Support",
-            author_email=None,
             slack_channel_id="C123",
             slack_thread_ts="1700000000.000100",
         )
@@ -176,7 +175,6 @@ class TestSlackImageOutbound(SimpleTestCase):
             content="",
             rich_content=rich_content,
             author_name="Support",
-            author_email=None,
             slack_channel_id="C123",
             slack_thread_ts="1700000000.000100",
         )

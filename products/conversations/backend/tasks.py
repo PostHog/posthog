@@ -1,5 +1,6 @@
 """Celery tasks for the conversations product."""
 
+from typing import Any, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -10,6 +11,9 @@ from celery import shared_task
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.storage import object_storage
+
+from products.conversations.backend.formatting import extract_images_from_rich_content, rich_content_to_slack_payload
+from products.conversations.backend.slack import get_slack_client
 
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
 
@@ -23,16 +27,10 @@ def post_reply_to_slack(
     content: str,
     rich_content: dict | None,
     author_name: str,
-    author_email: str | None,
     slack_channel_id: str,
     slack_thread_ts: str,
 ) -> None:
     """Post a support agent's reply to the corresponding Slack thread."""
-    from products.conversations.backend.formatting import (
-        extract_images_from_rich_content,
-        rich_content_to_slack_payload,
-    )
-    from products.conversations.backend.slack import get_slack_client
 
     try:
         team = Team.objects.get(id=team_id)
@@ -158,7 +156,7 @@ def post_reply_to_slack(
             ticket_id=ticket_id,
             error=str(e),
         )
-        raise post_reply_to_slack.retry(exc=e)
+        raise cast(Any, post_reply_to_slack).retry(exc=e)
 
 
 def _filename_for_slack_image(alt: str | None, image_url: str | None) -> str:

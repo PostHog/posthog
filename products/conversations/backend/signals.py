@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from django.db import transaction
 from django.db.models import F, Q
 from django.db.models.functions import Greatest
@@ -12,6 +14,7 @@ from posthog.models.comment import Comment
 from .events import capture_message_received, capture_message_sent
 from .models import Ticket
 from .models.constants import Channel
+from .tasks import post_reply_to_slack
 
 logger = structlog.get_logger(__name__)
 
@@ -21,6 +24,11 @@ def _is_private_message(item_context: dict | None) -> bool:
     if not isinstance(item_context, dict):
         return False
     return item_context.get("is_private", False) is True
+
+
+def _get_comment_created_by_id(comment: Comment) -> int | None:
+    created_by_id = getattr(comment, "created_by_id", None)
+    return created_by_id if isinstance(created_by_id, int) else None
 
 
 @receiver(post_save, sender=Comment)
@@ -52,7 +60,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     created_at = instance.created_at
     content = instance.content
     item_context = instance.item_context
-    created_by_id = instance.created_by_id
+    created_by_id = _get_comment_created_by_id(instance)
 
     def do_update():
         # Private messages don't update denormalized stats (to avoid leaking to widget)
@@ -123,7 +131,7 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
         item_id = instance.item_id
         comment_pk = instance.pk
         item_context = instance.item_context
-        created_by_id = instance.created_by_id
+        created_by_id = _get_comment_created_by_id(instance)
 
         def do_soft_delete_update():
             is_private = _is_private_message(item_context)
@@ -196,7 +204,8 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
         return
 
     # Only team messages (has created_by, not customer-authored)
-    if not instance.created_by_id:
+    created_by_id = _get_comment_created_by_id(instance)
+    if not created_by_id:
         return
 
     author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
@@ -227,20 +236,15 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
                 return
 
             author_name = ""
-            author_email = None
             if created_by:
                 author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
-                author_email = created_by.email
 
-            from .tasks import post_reply_to_slack
-
-            post_reply_to_slack.delay(
+            cast(Any, post_reply_to_slack).delay(
                 ticket_id=str(ticket.id),
                 team_id=team_id,
                 content=content,
                 rich_content=rich_content,
                 author_name=author_name,
-                author_email=author_email,
                 slack_channel_id=ticket.slack_channel_id,
                 slack_thread_ts=ticket.slack_thread_ts,
             )

@@ -10,6 +10,7 @@ All three converge to create_or_update_slack_ticket().
 """
 
 from io import BytesIO
+from typing import Any
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -36,6 +37,35 @@ from .support_slack import (
 logger = structlog.get_logger(__name__)
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
 MAX_REDIRECTS = 5
+
+
+def _get_team_id(team: Team) -> int:
+    team_id = getattr(team, "id", None)
+    if not isinstance(team_id, int):
+        raise ValueError("Invalid team id")
+    return team_id
+
+
+def _build_content_with_images(
+    cleaned_text: str, rich_content: dict[str, Any] | None, images: list[dict[str, Any]]
+) -> tuple[str, dict[str, Any] | None]:
+    content = cleaned_text
+    if not images:
+        return content, rich_content
+
+    image_markdown = "\n".join(f"![{img['name']}]({img['url']})" for img in images)
+    content = f"{cleaned_text}\n\n{image_markdown}" if cleaned_text else image_markdown
+    if not isinstance(rich_content, dict):
+        rich_content = {"type": "doc", "content": []}
+    rich_nodes = rich_content.setdefault("content", [])
+    for img in images:
+        rich_nodes.append(
+            {
+                "type": "image",
+                "attrs": {"src": img["url"], "alt": img.get("name", "image")},
+            }
+        )
+    return content, rich_content
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -183,8 +213,9 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
 
 
 def _save_image_to_uploaded_media(team: Team, file_name: str, mimetype: str, content: bytes) -> str | None:
+    team_id = _get_team_id(team)
     if not settings.OBJECT_STORAGE_ENABLED:
-        logger.warning("🖼️ slack_file_copy_no_object_storage", team_id=team.id)
+        logger.warning("🖼️ slack_file_copy_no_object_storage", team_id=team_id)
         return None
 
     uploaded_media = UploadedMedia.objects.create(
@@ -201,7 +232,7 @@ def _save_image_to_uploaded_media(team: Team, file_name: str, mimetype: str, con
         return None
     logger.info(
         "🖼️ slack_file_copy_saved",
-        team_id=team.id,
+        team_id=team_id,
         uploaded_media_id=str(uploaded_media.id),
         file_name=file_name,
         content_type=mimetype,
@@ -217,8 +248,9 @@ def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient 
     if not files:
         return []
 
+    team_id = _get_team_id(team)
     bot_token = getattr(client, "token", None) if client else None
-    logger.info("🖼️ slack_file_extract_started", team_id=team.id, total_files=len(files), has_bot_token=bool(bot_token))
+    logger.info("🖼️ slack_file_extract_started", team_id=team_id, total_files=len(files), has_bot_token=bool(bot_token))
     images = []
     for f in files:
         mimetype = f.get("mimetype", "")
@@ -263,7 +295,7 @@ def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient 
             )
         else:
             logger.warning("🖼️ slack_file_copy_save_failed", file_id=file_id)
-    logger.info("🖼️ slack_file_extract_finished", team_id=team.id, image_count=len(images))
+    logger.info("🖼️ slack_file_extract_finished", team_id=team_id, image_count=len(images))
     return images
 
 
@@ -290,10 +322,11 @@ def create_or_update_slack_ticket(
       - Finds existing Ticket by slack_channel_id + slack_thread_ts
       - Creates a new Comment on that ticket
     """
+    team_id = _get_team_id(team)
     client = get_slack_client(team)
     logger.info(
         "🧵 slack_support_ticket_ingest_started",
-        team_id=team.id,
+        team_id=team_id,
         slack_channel_id=slack_channel_id,
         thread_ts=thread_ts,
         is_thread_reply=is_thread_reply,
@@ -303,6 +336,12 @@ def create_or_update_slack_ticket(
 
     # Extract images from Slack files, making them publicly accessible
     images = extract_slack_files(files, team, client)
+
+    # Resolve Slack user info for this message author
+    user_info = resolve_slack_user(client, slack_user_id)
+
+    # Convert Slack payload to markdown content and rich_content
+    cleaned_text, rich_content = slack_to_content_and_rich_content(text, blocks)
 
     if is_thread_reply:
         ticket = Ticket.objects.filter(
@@ -321,36 +360,18 @@ def create_or_update_slack_ticket(
         if slack_team_id and not ticket.slack_team_id:
             Ticket.objects.filter(id=ticket.id).update(slack_team_id=slack_team_id)
 
-        cleaned_text, rich_content = slack_to_content_and_rich_content(text, blocks)
         # Allow messages with only images (no text)
         if not cleaned_text and not images:
             logger.warning(
                 "🧵 slack_support_ticket_ingest_empty_after_processing",
-                team_id=team.id,
+                team_id=team_id,
                 slack_channel_id=slack_channel_id,
                 thread_ts=thread_ts,
                 is_thread_reply=is_thread_reply,
             )
             return ticket
 
-        # Resolve Slack user info for this message author
-        user_info = resolve_slack_user(client, slack_user_id)
-
-        # Build content with image markdown if present
-        content = cleaned_text
-        if images:
-            image_markdown = "\n".join(f"![{img['name']}]({img['url']})" for img in images)
-            content = f"{cleaned_text}\n\n{image_markdown}" if cleaned_text else image_markdown
-            if not isinstance(rich_content, dict):
-                rich_content = {"type": "doc", "content": []}
-            rich_nodes = rich_content.setdefault("content", [])
-            for img in images:
-                rich_nodes.append(
-                    {
-                        "type": "image",
-                        "attrs": {"src": img["url"], "alt": img.get("name", "image")},
-                    }
-                )
+        content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
 
         Comment.objects.create(
             team=team,
@@ -377,34 +398,18 @@ def create_or_update_slack_ticket(
         return ticket
 
     # New ticket from top-level message
-    user_info = resolve_slack_user(client, slack_user_id)
-    cleaned_text, rich_content = slack_to_content_and_rich_content(text, blocks)
     # Allow messages with only images (no text)
     if not cleaned_text and not images:
         logger.warning(
             "🧵 slack_support_ticket_ingest_empty_after_processing",
-            team_id=team.id,
+            team_id=team_id,
             slack_channel_id=slack_channel_id,
             thread_ts=thread_ts,
             is_thread_reply=is_thread_reply,
         )
         return None
 
-    # Build content with image markdown if present
-    content = cleaned_text
-    if images:
-        image_markdown = "\n".join(f"![{img['name']}]({img['url']})" for img in images)
-        content = f"{cleaned_text}\n\n{image_markdown}" if cleaned_text else image_markdown
-        if not isinstance(rich_content, dict):
-            rich_content = {"type": "doc", "content": []}
-        rich_nodes = rich_content.setdefault("content", [])
-        for img in images:
-            rich_nodes.append(
-                {
-                    "type": "image",
-                    "attrs": {"src": img["url"], "alt": img.get("name", "image")},
-                }
-            )
+    content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
 
     ticket = Ticket.objects.create_with_number(
         team=team,
@@ -440,7 +445,7 @@ def create_or_update_slack_ticket(
     )
 
     # Post a confirmation reply in the Slack thread
-    ticket_url = f"{settings.SITE_URL}/project/{team.id}/support/tickets/{ticket.id}"
+    ticket_url = f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket.id}"
     try:
         client.chat_postMessage(
             channel=slack_channel_id,
@@ -571,31 +576,17 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
         slack_thread_ts=thread_ts,
     ).first()
 
-    if existing:
-        # Add as a reply to the existing ticket
-        create_or_update_slack_ticket(
-            team=team,
-            slack_channel_id=channel,
-            thread_ts=thread_ts,
-            slack_user_id=slack_user_id,
-            text=text,
-            blocks=blocks,
-            files=files,
-            is_thread_reply=True,
-            slack_team_id=slack_team_id,
-        )
-    else:
-        create_or_update_slack_ticket(
-            team=team,
-            slack_channel_id=channel,
-            thread_ts=thread_ts,
-            slack_user_id=slack_user_id,
-            text=text,
-            blocks=blocks,
-            files=files,
-            is_thread_reply=False,
-            slack_team_id=slack_team_id,
-        )
+    create_or_update_slack_ticket(
+        team=team,
+        slack_channel_id=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        text=text,
+        blocks=blocks,
+        files=files,
+        is_thread_reply=bool(existing),
+        slack_team_id=slack_team_id,
+    )
 
 
 def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None:
