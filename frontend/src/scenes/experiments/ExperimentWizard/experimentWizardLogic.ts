@@ -68,10 +68,17 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         markStepDeparted: (step: ExperimentWizardStep) => ({ step }),
         resetWizard: true,
         openFullEditor: true,
+        toggleGuide: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
     }),
 
     reducers(() => ({
+        showGuide: [
+            true,
+            {
+                toggleGuide: (state) => !state,
+            },
+        ],
         currentStep: [
             'about' as ExperimentWizardStep,
             {
