@@ -119,6 +119,7 @@ from . import (
     proxy_record,
     query,
     quick_filters,
+    resource_transfer,
     scheduled_change,
     schema_property_group,
     search,
@@ -599,6 +600,12 @@ organizations_router.register(
     r"feature_flags",
     organization_feature_flag.OrganizationFeatureFlagView,
     "organization_feature_flags",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"resource_transfers",
+    resource_transfer.ResourceTransferViewSet,
+    "organization_resource_transfers",
     ["organization_id"],
 )
 
