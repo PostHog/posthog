@@ -339,7 +339,7 @@ const InfiniteListRow = ({
     if (item && itemGroup) {
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
         const isExactMatchItem =
-            listGroupType === TaxonomicFilterGroupType.QuickFilters && itemGroup.type !== listGroupType
+            listGroupType === TaxonomicFilterGroupType.SuggestedFilters && itemGroup.type !== listGroupType
 
         return (
             <div
@@ -356,7 +356,12 @@ const InfiniteListRow = ({
                     }
                     return (
                         canSelectItem(listGroupType, dataWarehousePopoverFields) &&
-                        selectItem(itemGroup, itemValue ?? null, item, items.originalQuery)
+                        selectItem(
+                            itemGroup,
+                            itemValue ?? null,
+                            item,
+                            isExactMatchItem ? trimmedSearchQuery : items.originalQuery
+                        )
                     )
                 }}
             >
@@ -467,8 +472,12 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     const showEmptyState =
         totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption
 
+    const rowCount = showNonCapturedEventOption
+        ? 1
+        : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)
+
     useEffect(() => {
-        if (index >= 0 && listRef.current) {
+        if (index >= 0 && index < rowCount && listRef.current) {
             listRef.current.scrollToRow({ index, align: 'smart' })
         }
     }, [index, listRef])
@@ -479,9 +488,12 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list', 'h-full')}>
             {showEmptyState ? (
                 <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
-                    {listGroupType === TaxonomicFilterGroupType.QuickFilters && !searchQuery ? (
+                    {listGroupType === TaxonomicFilterGroupType.SuggestedFilters && !searchQuery ? (
                         <>
                             <IconSearch className="text-5xl text-tertiary" />
+                            <span className="text-secondary text-center">
+                                Start searching and we'll suggest filters...
+                            </span>
                             <span className="text-secondary text-center">
                                 Try pasting an email, URL, screen name, or element text
                             </span>
@@ -512,11 +524,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                             <List<InfiniteListRowProps>
                                 listRef={listRef}
                                 style={{ width, height }}
-                                rowCount={
-                                    showNonCapturedEventOption
-                                        ? 1
-                                        : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)
-                                }
+                                rowCount={rowCount}
                                 overscanCount={100}
                                 rowHeight={36}
                                 rowComponent={InfiniteListRow}

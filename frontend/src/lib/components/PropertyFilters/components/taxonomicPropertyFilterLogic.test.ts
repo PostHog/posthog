@@ -195,9 +195,9 @@ describe('taxonomicPropertyFilterLogic', () => {
         quickLogic.mount()
 
         const quickFiltersGroup = {
-            type: TaxonomicFilterGroupType.QuickFilters,
-            name: 'Quick filters',
-            searchPlaceholder: 'quick filters',
+            type: TaxonomicFilterGroupType.SuggestedFilters,
+            name: 'Suggested filters',
+            searchPlaceholder: 'suggested filters',
         } as TaxonomicFilterGroup
 
         const quickFilterItem = {

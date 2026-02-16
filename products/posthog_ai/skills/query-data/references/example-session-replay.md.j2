@@ -1,0 +1,5 @@
+# Session replay (listing recordings with activity filters)
+
+```sql
+{{ render_hogql_example({"kind": "RecordingsQuery", "order": "start_time", "order_direction": "DESC", "date_from": "-3d", "properties": [], "events": [], "actions": [], "console_log_filters": [], "having_predicates": [{"type": "recording", "key": "active_seconds", "value": 5, "operator": "gt"}], "filter_test_accounts": false, "operand": "AND", "limit": 20}) }}
+```

@@ -69,9 +69,9 @@ function ExceptionCardContent({ timestamp, renderStackTraceActions, label }: Exc
     const { setCurrentTab } = useActions(exceptionCardLogic)
 
     return (
-        <LemonCard hoverEffect={false} className="p-0 relative overflow-y-auto w-full border-0 rounded-none">
-            <TabsPrimitive value={currentTab} onValueChange={setCurrentTab}>
-                <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b">
+        <LemonCard hoverEffect={false} className="p-0 relative w-full h-full border-0 rounded-none flex flex-col">
+            <TabsPrimitive value={currentTab} onValueChange={setCurrentTab} className="flex flex-col flex-1 min-h-0">
+                <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b shrink-0">
                     <TabsPrimitiveList className="flex justify-between w-full h-full items-center">
                         <div className="w-full h-full">
                             <div className="flex items-center gap-1 text-lg h-full">
@@ -96,9 +96,9 @@ function ExceptionCardContent({ timestamp, renderStackTraceActions, label }: Exc
                         </div>
                     </TabsPrimitiveList>
                 </div>
-                <StackTraceTab value="stack_trace" renderActions={renderStackTraceActions} />
-                <PropertiesTab value="properties" />
-                <SessionTab value="session" timestamp={timestamp} />
+                <StackTraceTab value="stack_trace" renderActions={renderStackTraceActions} className="flex-1 min-h-0" />
+                <PropertiesTab value="properties" className="flex-1 min-h-0" />
+                <SessionTab value="session" timestamp={timestamp} className="flex-1 min-h-0" />
             </TabsPrimitive>
         </LemonCard>
     )
