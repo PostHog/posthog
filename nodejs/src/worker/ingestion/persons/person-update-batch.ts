@@ -16,13 +16,14 @@ export interface PersonUpdate {
     version: number
     is_identified: boolean
     is_user_id: number | null
-    last_seen_at: string | null
+    last_seen_at: DateTime | null
     needs_write: boolean
     // Fine-grained property tracking
     properties_to_set: Properties // Properties to set/update
     properties_to_unset: string[] // Property keys to unset
     original_is_identified: boolean
     original_created_at: DateTime
+    original_last_seen_at: DateTime | null
     /** If true, bypass batch-level filtering for person property updates (set for $identify, $set, etc.) */
     force_update?: boolean
 }
@@ -53,6 +54,7 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         properties_to_unset: [],
         original_is_identified: person.is_identified,
         original_created_at: person.created_at,
+        original_last_seen_at: person.last_seen_at,
         force_update: false, // Default to false, can be set to true by $identify/$set events
     }
 }

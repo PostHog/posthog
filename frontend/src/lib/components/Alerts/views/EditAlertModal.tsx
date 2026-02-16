@@ -151,7 +151,7 @@ export function EditAlertModal({
     const can_check_ongoing_interval = canCheckOngoingInterval(alertForm)
 
     return (
-        <LemonModal onClose={onClose} isOpen={isOpen} width={600} simple title="">
+        <LemonModal onClose={onClose} isOpen={isOpen} width={750} simple title="">
             {alertLoading ? (
                 <SpinnerOverlay />
             ) : (
@@ -407,7 +407,10 @@ export function EditAlertModal({
                                 <div className="mt-2">
                                     {alertId ? (
                                         <div className="flex flex-col">
-                                            <AlertDestinationSelector alertId={alertId} />
+                                            <AlertDestinationSelector
+                                                alertId={alertId}
+                                                insightShortId={insightShortId}
+                                            />
                                         </div>
                                     ) : (
                                         <div className="text-muted-alt">

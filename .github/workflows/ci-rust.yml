@@ -132,6 +132,8 @@ jobs:
                     - hook-worker
                     - kafka-deduplicator
                     - limiters
+                    - personhog-replica
+                    - personhog-router
                     - posthog-symbol-data
                     - property-defs-rs
                     - serve-metrics
@@ -161,7 +163,7 @@ jobs:
 
                   # Retry docker compose up with exponential backoff to handle transient registry errors
                   for i in 1 2 3; do
-                    if docker compose -f ../docker-compose.dev.yml up -d; then
+                    if docker compose -f ../docker-compose.dev.yml up -d --wait; then
                       echo "Docker compose up succeeded"
                       break
                     else

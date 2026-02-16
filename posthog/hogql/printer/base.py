@@ -12,7 +12,13 @@ from posthog.schema import MaterializationMode, PersonsOnEventsMode, PropertyGro
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant, StringType
 from posthog.hogql.base import AST
-from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings, LimitContext, get_max_limit_for_context
+from posthog.hogql.constants import (
+    HogQLDialect,
+    HogQLGlobalSettings,
+    HogQLQuerySettings,
+    LimitContext,
+    get_max_limit_for_context,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable, Table
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
@@ -50,6 +56,8 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 
+MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH = 8
+
 
 def get_channel_definition_dict():
     """Get the channel definition dictionary name with the correct database.
@@ -82,6 +90,8 @@ class HogQLPrinter(Visitor[str]):
         self.pretty = pretty
         self._indent = -1
         self.tab_size = 4
+        self._table_top_level_settings: dict[str, Any] = {}
+        self._placeholder_macro_expansion_depth = 0
 
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
@@ -293,6 +303,8 @@ class HogQLPrinter(Visitor[str]):
 
             if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
+
+            self._collect_table_top_level_settings(table_type.table)
 
             # :IMPORTANT: Ensures team_id filtering on every table. For LEFT JOINs, we add it to the
             # ON clause (not WHERE) to preserve LEFT JOIN semantics - otherwise NULL rows get filtered out.
@@ -544,23 +556,13 @@ class HogQLPrinter(Visitor[str]):
                     )
 
             # Handle format strings in function names before checking function type
-            if func_meta.using_placeholder_arguments:
-                # Check if using positional arguments (e.g. {0}, {1})
-                if func_meta.using_positional_arguments:
-                    # For positional arguments, pass the args as a dictionary
-                    arg_arr = [self.visit(arg) for arg in node.args]
-                    try:
-                        return func_meta.clickhouse_name.format(*arg_arr)
-                    except (KeyError, IndexError) as e:
-                        raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
-                else:
-                    # Original sequential placeholder behavior
-                    placeholder_count = func_meta.clickhouse_name.count("{}")
-                    if len(node.args) != placeholder_count:
-                        raise QueryError(
-                            f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
-                        )
-                    return func_meta.clickhouse_name.format(*[self.visit(arg) for arg in node.args])
+            # For HogQL, don't expand the macro, just display it in its original shape.
+            if func_meta.using_placeholder_arguments and self.dialect != "hogql":
+                return self._render_placeholder_macro(
+                    node=node,
+                    clickhouse_name=func_meta.clickhouse_name,
+                    using_positional_arguments=func_meta.using_positional_arguments,
+                )
 
         if node.name in HOGQL_COMPARISON_MAPPING:
             op = HOGQL_COMPARISON_MAPPING[node.name]
@@ -830,6 +832,32 @@ class HogQLPrinter(Visitor[str]):
         if node.field is None:
             raise QueryError("You can not use placeholders here")
         raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
+
+    def _render_placeholder_macro(self, node: ast.Call, clickhouse_name: str, using_positional_arguments: bool) -> str:
+        self._placeholder_macro_expansion_depth += 1
+        try:
+            if self._placeholder_macro_expansion_depth > MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH:
+                raise QueryError(
+                    f"Function '{node.name}' exceeded maximum placeholder macro depth of {MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH}."
+                )
+
+            if using_positional_arguments:
+                arg_arr = [self.visit(arg) for arg in node.args]
+                try:
+                    rendered = clickhouse_name.format(*arg_arr)
+                except (KeyError, IndexError) as e:
+                    raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
+            else:
+                placeholder_count = clickhouse_name.count("{}")
+                if len(node.args) != placeholder_count:
+                    raise QueryError(
+                        f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
+                    )
+                rendered = clickhouse_name.format(*[self.visit(arg) for arg in node.args])
+
+            return rendered
+        finally:
+            self._placeholder_macro_expansion_depth -= 1
 
     def visit_alias(self, node: ast.Alias):
         # Skip hidden aliases completely.
@@ -1325,9 +1353,37 @@ class HogQLPrinter(Visitor[str]):
             return nullable
         return True
 
-    def _print_settings(self, settings):
+    def _collect_table_top_level_settings(self, table: Table) -> None:
+        if table.top_level_settings is None:
+            return
+        for key, value in table.top_level_settings.model_dump().items():
+            if value is None:
+                continue
+            existing = self._table_top_level_settings.get(key)
+            if existing is not None and existing != value:
+                raise QueryError(
+                    f"Conflicting top_level_settings for '{key}': "
+                    f"one table requires {existing!r} but another requires {value!r}"
+                )
+            self._table_top_level_settings[key] = value
+
+    def _merge_table_top_level_settings(self, settings: HogQLQuerySettings | None) -> dict[str, Any]:
+        merged = dict(settings.model_dump()) if settings else {}
+        if not self._table_top_level_settings:
+            return merged
+        for key, value in self._table_top_level_settings.items():
+            existing = merged.get(key)
+            if existing is not None and existing != value:
+                raise QueryError(
+                    f"Conflicting settings for '{key}': query has {existing!r} but table requires {value!r}"
+                )
+            merged[key] = value
+        return merged
+
+    def _print_settings(self, settings: HogQLQuerySettings | dict[str, Any]) -> str | None:
         pairs = []
-        for key, value in settings:
+        items = settings.items() if isinstance(settings, dict) else settings
+        for key, value in items:
             if value is None:
                 continue
             if not re.match(r"^[a-zA-Z0-9_]+$", key):

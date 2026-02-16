@@ -228,6 +228,7 @@ function UrlSelectionStep({ onBack }: { onBack: () => void }): JSX.Element {
                 type={AuthorizedUrlListType.TOOLBAR_URLS}
                 addText="Add authorized URL"
                 productTourId="new"
+                launchInSameTab={true}
             />
             <div>
                 <LemonButton type="secondary" onClick={onBack}>
