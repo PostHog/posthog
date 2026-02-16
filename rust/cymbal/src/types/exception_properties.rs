@@ -24,7 +24,7 @@ pub struct ExceptionProperties {
     pub exception_sources: Option<Vec<String>>,
     #[serde(rename = "$exception_types")]
     pub exception_types: Option<Vec<String>>,
-    #[serde(rename = "$exception_messages")]
+    #[serde(rename = "$exception_values")]
     pub exception_messages: Option<Vec<String>>,
     #[serde(rename = "$exception_functions")]
     pub exception_functions: Option<Vec<String>>,
