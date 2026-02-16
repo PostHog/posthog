@@ -11,6 +11,7 @@ import { IntegrationManagerService } from './cdp/services/managers/integration-m
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { InternalCaptureService } from './common/services/internal-capture'
+import { InternalFetchService } from './common/services/internal-fetch'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { PostgresRouter } from './utils/db/postgres'
@@ -554,6 +555,7 @@ export interface Hub extends PluginsServerConfig {
     integrationManager: IntegrationManagerService
     quotaLimiting: QuotaLimiting
     internalCaptureService: InternalCaptureService
+    internalFetchService: InternalFetchService
 }
 
 export interface PluginServerCapabilities {
