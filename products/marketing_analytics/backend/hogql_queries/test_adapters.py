@@ -1142,6 +1142,31 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         self._validate_query_structure(query, "GoogleAdsAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
+    def test_google_ads_query_generation_with_clp_currency(self):
+        campaign_table = self._create_mock_table("google_campaign", "GoogleAds")
+        stats_table = self._create_mock_table("google_stats", "GoogleAds")
+        stats_table.columns = {"customer_currency_code": True}
+
+        config = GoogleAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="GoogleAds",
+            source_id="google_ads",
+        )
+
+        context = QueryContext(
+            date_range=self.context.date_range,
+            team=self.team,
+            base_currency="CLP",
+        )
+
+        adapter = GoogleAdsAdapter(config=config, context=context)
+        query = adapter.build_query()
+
+        assert query is not None, "GoogleAdsAdapter should generate a query"
+        self._validate_query_structure(query, "GoogleAdsAdapter")
+        assert self._execute_and_snapshot(query) == self.snapshot
+
     def test_reddit_ads_query_generation(self):
         """Test Reddit Ads adapter query generation with JOIN."""
         campaign_table = self._create_mock_table("reddit_campaign", "RedditAds")

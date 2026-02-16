@@ -17,9 +17,12 @@ export type SettingLevelId = (typeof SettingLevelIds)[number]
 
 export type SettingSectionId =
     | 'environment-details'
+    | 'environment-customization'
     | 'environment-autocapture'
+    | 'environment-heatmaps'
     | 'environment-customer-analytics'
     | 'environment-product-analytics'
+    | 'environment-privacy'
     | 'environment-revenue-analytics'
     | 'environment-marketing-analytics'
     | 'environment-web-analytics'
@@ -47,6 +50,7 @@ export type SettingSectionId =
     | 'organization-details'
     | 'organization-integrations'
     | 'organization-members'
+    | 'organization-notifications'
     | 'organization-roles'
     | 'organization-authentication'
     | 'organization-proxy'
@@ -70,7 +74,6 @@ export type SettingId =
     | 'snippet'
     | 'authorized-urls'
     | 'web-analytics-authorized-urls'
-    | 'bookmarklet'
     | 'variables'
     | 'autocapture'
     | 'autocapture-data-attributes'
@@ -210,6 +213,12 @@ export type Setting = {
      * but will still appear when viewing its specific section directly
      */
     hideWhenNoSection?: boolean
+
+    /** Additional search terms that help users find this setting (e.g. ['ip', 'anonymize', 'gdpr']) */
+    keywords?: string[]
+
+    /** Plaintext description for search indexing when `description` is JSX */
+    searchDescription?: string
 }
 
 export interface SettingSection extends Pick<Setting, 'flag'> {

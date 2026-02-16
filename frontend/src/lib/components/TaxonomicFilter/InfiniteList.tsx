@@ -472,8 +472,12 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     const showEmptyState =
         totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption
 
+    const rowCount = showNonCapturedEventOption
+        ? 1
+        : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)
+
     useEffect(() => {
-        if (index >= 0 && listRef.current) {
+        if (index >= 0 && index < rowCount && listRef.current) {
             listRef.current.scrollToRow({ index, align: 'smart' })
         }
     }, [index, listRef])
@@ -520,11 +524,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                             <List<InfiniteListRowProps>
                                 listRef={listRef}
                                 style={{ width, height }}
-                                rowCount={
-                                    showNonCapturedEventOption
-                                        ? 1
-                                        : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)
-                                }
+                                rowCount={rowCount}
                                 overscanCount={100}
                                 rowHeight={36}
                                 rowComponent={InfiniteListRow}
