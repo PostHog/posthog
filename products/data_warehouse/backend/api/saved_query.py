@@ -402,8 +402,9 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
 
     def validate_query(self, query):
         team_id = self.context["team_id"]
+        user = self.context["request"].user
 
-        context = HogQLContext(team_id=team_id, enable_select_queries=True)
+        context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True)
         select_ast = parse_select(query["query"])
 
         find_placeholders = FindPlaceholders()

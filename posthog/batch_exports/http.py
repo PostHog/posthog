@@ -366,6 +366,7 @@ class HogQLSelectQueryField(serializers.Field):
                     parsed_query,
                     context=HogQLContext(
                         team_id=self.context["team_id"],
+                        user=self.context["request"].user,
                         enable_select_queries=True,
                         modifiers=HogQLQueryModifiers(
                             personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS

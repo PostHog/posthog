@@ -173,7 +173,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        context["database"] = Database.create_for(team_id=self.team_id, user=self.request.user)
         return context
 
     def safely_get_queryset(self, queryset):
@@ -232,7 +232,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             query_response = execute_hogql_query(
                 query=validation_query,
                 team=self.team,
-                context=HogQLContext(database=database),
+                context=HogQLContext(database=database, user=self.request.user),
             )
             response_data["hogql"] = query_response.hogql
             response_data["results"] = query_response.results
