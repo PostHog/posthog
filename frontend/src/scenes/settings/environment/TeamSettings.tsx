@@ -8,7 +8,6 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { JSSnippet, JSSnippetV2 } from 'lib/components/JSSnippet'
 import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -17,7 +16,7 @@ import { debounce, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -97,22 +96,6 @@ export function WebSnippet(): JSX.Element {
                     <JSSnippetV2 />
                 )}
             </FlaggedFeature>
-        </>
-    )
-}
-
-export function Bookmarklet(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-
-    return (
-        <>
-            <p>Need to test PostHog on a live site without changing any code?</p>
-            <p>
-                Just drag the bookmarklet below to your bookmarks bar, open the website you want to test PostHog on and
-                click it. This will enable our tracking, on the currently loaded page only. The data will show up in
-                this project.
-            </p>
-            <div>{isAuthenticatedTeam(currentTeam) && <JSBookmarklet team={currentTeam} />}</div>
         </>
     )
 }
