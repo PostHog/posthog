@@ -141,8 +141,7 @@ struct SuccessResponse(Vec<AnyEvent>);
 impl SuccessResponse {
     fn take_properties(self) -> ExceptionProperties {
         let event = self.0.first().expect("Should have at least one event");
-        serde_json::from_value(event.properties.clone())
-            .expect("Should deserialize properties")
+        serde_json::from_value(event.properties.clone()).expect("Should deserialize properties")
     }
 
     fn first_event(&self) -> &AnyEvent {
