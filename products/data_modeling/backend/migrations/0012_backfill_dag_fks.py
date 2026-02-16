@@ -24,7 +24,8 @@ def backfill_dag_fks(apps, _):
     if node_updates:
         Node.objects.bulk_update(node_updates, ["dag_id"], batch_size=batch_size)
 
-    # edges must use save() since bulk_update is disabled
+    # edges must use save() since bulk_update is disabled, but we skip validation
+    # to avoid cycle detection since we are only updating the dag id fk
     edges = Edge.objects.all()
     for edge in edges.iterator(chunk_size=batch_size):
         dag_id = dag_lookup.get((edge.team_id, edge.dag_id_text))
