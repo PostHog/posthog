@@ -135,7 +135,7 @@ async fn end_to_end_resolver_test() {
 
     let mut resolved_frames = Vec::new();
     for frame in test_stack {
-        resolved_frames.push(frame.resolve(exception.team_id, &catalog).await.unwrap());
+        resolved_frames.push(frame.resolve(exception.team_id, &catalog, &[]).await.unwrap());
     }
 
     // The use of the caching layer is tested here - we should only have hit the server once

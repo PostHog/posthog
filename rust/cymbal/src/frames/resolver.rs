@@ -73,6 +73,9 @@ impl Resolver {
         catalog: &Catalog,
         debug_images: &[AppleDebugImage],
     ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
+        return Ok(Frame::from(self));
+
+
         let loaded = ErrorTrackingStackFrame::load_all(pool, &raw_id, self.result_ttl).await?;
         if !loaded.is_empty() {
             metrics::counter!(FRAME_DB_HITS).increment(1);
@@ -303,7 +306,7 @@ mod test {
         let resolver = Resolver::new(&config);
         let frame = get_test_frame(&server);
 
-        let resolved_1 = resolver.resolve(&frame, 0, &pool, &catalog).await.unwrap();
+        let resolved_1 = resolver.resolve(&frame, 0, &pool, &catalog, &[]).await.unwrap();
 
         // Check there's only 1 symbol set row, and only one frame row
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM posthog_errortrackingsymbolset")
@@ -338,7 +341,7 @@ mod test {
 
         // Re-do the resolution, which will then hit the in-memory frame cache
         let frame = get_test_frame(&server);
-        let resolved_2 = resolver.resolve(&frame, 0, &pool, &catalog).await.unwrap();
+        let resolved_2 = resolver.resolve(&frame, 0, &pool, &catalog, &[]).await.unwrap();
 
         resolver.cache.invalidate_all();
         resolver.cache.run_pending_tasks().await;
@@ -346,7 +349,7 @@ mod test {
 
         // Now we should hit PG for the frame
         let frame = get_test_frame(&server);
-        let resolved_3 = resolver.resolve(&frame, 0, &pool, &catalog).await.unwrap();
+        let resolved_3 = resolver.resolve(&frame, 0, &pool, &catalog, &[]).await.unwrap();
 
         assert_eq!(resolved_1, resolved_2);
         assert_eq!(resolved_2, resolved_3);

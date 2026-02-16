@@ -311,7 +311,7 @@ mod test {
         let c = Catalog::new(smp, hmp, pgp, apple);
 
         for (raw_frame, expected_name) in get_frames(chunk_id) {
-            let res = raw_frame.resolve(team_id, &c).await.unwrap().pop().unwrap();
+            let res = raw_frame.resolve(team_id, &c, &[]).await.unwrap().pop().unwrap();
             assert!(res.resolved);
             assert_eq!(res.resolved_name, expected_name)
         }

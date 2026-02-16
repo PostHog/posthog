@@ -142,13 +142,10 @@ impl RawAppleFrame {
     ) -> Result<u64, AppleError> {
         let image_addr = parse_hex_address(&debug_image.image_addr)?;
 
-        let image_vmaddr = debug_image
-            .image_vmaddr
-            .as_ref()
-            .and_then(|v| parse_hex_address(v).ok())
-            .unwrap_or(0x100000000); // Default for arm64 Mach-O
-
-        Ok(instruction_addr - image_addr + image_vmaddr)
+        // Calculate the offset from the runtime load address
+        // The symcache already contains addresses relative to the binary's VM base,
+        // so we just need the offset from where it was loaded
+        Ok(instruction_addr - image_addr)
     }
 
     fn build_resolved_frame(
@@ -266,5 +263,323 @@ impl From<&RawAppleFrame> for Frame {
         // Store raw frame data in junk drawer for debugging/analysis
         add_raw_to_junk(&mut f, raw);
         f
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_parse_hex_address_with_0x_prefix() {
+        assert_eq!(parse_hex_address("0x100000000").unwrap(), 0x100000000);
+        assert_eq!(parse_hex_address("0X100000000").unwrap(), 0x100000000);
+    }
+
+    #[test]
+    fn test_parse_hex_address_without_prefix() {
+        assert_eq!(parse_hex_address("100000000").unwrap(), 0x100000000);
+        assert_eq!(parse_hex_address("deadbeef").unwrap(), 0xdeadbeef);
+    }
+
+    #[test]
+    fn test_parse_hex_address_with_whitespace() {
+        assert_eq!(parse_hex_address("  0x100000000  ").unwrap(), 0x100000000);
+    }
+
+    #[test]
+    fn test_parse_hex_address_invalid() {
+        assert!(parse_hex_address("not_hex").is_err());
+        assert!(parse_hex_address("0xGGGG").is_err());
+    }
+
+    #[test]
+    fn test_calculate_relative_addr_with_vmaddr() {
+        let frame = RawAppleFrame {
+            instruction_addr: Some("0x100004000".to_string()),
+            symbol_addr: None,
+            image_addr: Some("0x100000000".to_string()),
+            image_uuid: None,
+            module: None,
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let debug_image = AppleDebugImage {
+            debug_id: "test-uuid".to_string(),
+            image_addr: "0x100000000".to_string(),
+            image_vmaddr: Some("0x100000000".to_string()),
+            image_size: Some(0x10000),
+            code_file: None,
+            image_type: None,
+            arch: None,
+        };
+
+        let result = frame.calculate_relative_addr(0x100004000, &debug_image).unwrap();
+        assert_eq!(result, 0x4000);
+    }
+
+    #[test]
+    fn test_calculate_relative_addr_default_vmaddr() {
+        let frame = RawAppleFrame {
+            instruction_addr: Some("0x100004000".to_string()),
+            symbol_addr: None,
+            image_addr: Some("0x100000000".to_string()),
+            image_uuid: None,
+            module: None,
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let debug_image = AppleDebugImage {
+            debug_id: "test-uuid".to_string(),
+            image_addr: "0x100000000".to_string(),
+            image_vmaddr: None,
+            image_size: Some(0x10000),
+            code_file: None,
+            image_type: None,
+            arch: None,
+        };
+
+        let result = frame.calculate_relative_addr(0x100004000, &debug_image).unwrap();
+        assert_eq!(result, 0x4000);
+    }
+
+    #[test]
+    fn test_find_debug_image_by_image_addr() {
+        let frame = RawAppleFrame {
+            instruction_addr: Some("0x100004000".to_string()),
+            symbol_addr: None,
+            image_addr: Some("0x100000000".to_string()),
+            image_uuid: None,
+            module: None,
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let debug_images = vec![
+            AppleDebugImage {
+                debug_id: "other-uuid".to_string(),
+                image_addr: "0x200000000".to_string(),
+                image_vmaddr: None,
+                image_size: Some(0x10000),
+                code_file: None,
+                image_type: None,
+                arch: None,
+            },
+            AppleDebugImage {
+                debug_id: "matching-uuid".to_string(),
+                image_addr: "0x100000000".to_string(),
+                image_vmaddr: None,
+                image_size: Some(0x10000),
+                code_file: None,
+                image_type: None,
+                arch: None,
+            },
+        ];
+
+        let result = frame.find_debug_image(0x100004000, &debug_images).unwrap();
+        assert_eq!(result.debug_id, "matching-uuid");
+    }
+
+    #[test]
+    fn test_find_debug_image_by_address_range() {
+        let frame = RawAppleFrame {
+            instruction_addr: Some("0x100004000".to_string()),
+            symbol_addr: None,
+            image_addr: None, // No image_addr on frame
+            image_uuid: None,
+            module: None,
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let debug_images = vec![AppleDebugImage {
+            debug_id: "range-match".to_string(),
+            image_addr: "0x100000000".to_string(),
+            image_vmaddr: None,
+            image_size: Some(0x10000),
+            code_file: None,
+            image_type: None,
+            arch: None,
+        }];
+
+        let result = frame.find_debug_image(0x100004000, &debug_images).unwrap();
+        assert_eq!(result.debug_id, "range-match");
+    }
+
+    #[test]
+    fn test_find_debug_image_no_match() {
+        let frame = RawAppleFrame {
+            instruction_addr: Some("0x300000000".to_string()),
+            symbol_addr: None,
+            image_addr: None,
+            image_uuid: None,
+            module: None,
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let debug_images = vec![AppleDebugImage {
+            debug_id: "some-uuid".to_string(),
+            image_addr: "0x100000000".to_string(),
+            image_vmaddr: None,
+            image_size: Some(0x10000),
+            code_file: None,
+            image_type: None,
+            arch: None,
+        }];
+
+        let result = frame.find_debug_image(0x300000000, &debug_images);
+        assert!(matches!(result, Err(AppleError::NoMatchingDebugImage)));
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_apple_symbolication(db: sqlx::PgPool) {
+        use std::sync::Arc;
+        use chrono::Utc;
+        use mockall::predicate;
+        use uuid::Uuid;
+
+        use crate::{
+            config::Config,
+            frames::RawFrame,
+            symbol_store::{
+                apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
+                proguard::ProguardProvider, saving::SymbolSetRecord, sourcemap::SourcemapProvider,
+                Catalog, MockS3Client,
+            },
+        };
+
+        let team_id = 1;
+        let mut config = Config::init_with_defaults().unwrap();
+        config.object_storage_bucket = "test-bucket".to_string();
+
+        let chunk_id = Uuid::now_v7().to_string();
+
+        let mut record = SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id,
+            set_ref: chunk_id.clone(),
+            storage_ptr: Some(chunk_id.clone()),
+            failure_reason: None,
+            created_at: Utc::now(),
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
+        };
+
+        record.save(&db).await.unwrap();
+
+        let mut client = MockS3Client::default();
+
+        client
+            .expect_get()
+            .with(
+                predicate::eq(config.object_storage_bucket.clone()),
+                predicate::eq(chunk_id.clone()),
+            )
+            .returning(|_, _| Ok(Some(get_dsym_bytes())));
+
+        let client = Arc::new(client);
+
+        let smp = SourcemapProvider::new(&config);
+        let smp = ChunkIdFetcher::new(
+            smp,
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let hmp = HermesMapProvider {};
+        let hmp = ChunkIdFetcher::new(
+            hmp,
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let pgp = ChunkIdFetcher::new(
+            ProguardProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let apple = ChunkIdFetcher::new(
+            AppleProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let catalog = Catalog::new(smp, hmp, pgp, apple);
+
+        // Create a frame with instruction_addr pointing to inner_function
+        // From dwarfdump output: inner_function is at 0x0000000100000328
+        let raw_frame = RawAppleFrame {
+            instruction_addr: Some("0x100000328".to_string()),
+            symbol_addr: None,
+            image_addr: Some("0x100000000".to_string()),
+            image_uuid: Some(chunk_id.clone()),
+            module: Some("test_binary".to_string()),
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let debug_images = vec![AppleDebugImage {
+            debug_id: chunk_id.clone(),
+            image_addr: "0x100000000".to_string(),
+            image_vmaddr: Some("0x100000000".to_string()),
+            image_size: Some(0x10000),
+            code_file: Some("test_binary".to_string()),
+            image_type: Some("macho".to_string()),
+            arch: Some("arm64".to_string()),
+        }];
+
+        let frame = RawFrame::Apple(raw_frame);
+        let resolved = frame
+            .resolve(team_id, &catalog, &debug_images)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert!(resolved.resolved);
+        assert_eq!(resolved.resolved_name, Some("inner_function".to_string()));
+        assert!(resolved.source.is_some());
+        assert!(resolved
+            .source
+            .as_ref()
+            .unwrap()
+            .contains("test_binary.c"));
+        assert!(resolved.line.is_some());
+    }
+
+    fn get_dsym_bytes() -> Vec<u8> {
+        use posthog_symbol_data::write_symbol_data;
+        
+        const DSYM_ZIP: &[u8] = include_bytes!("../../tests/static/apple/test_binary.dSYM.zip");
+        write_symbol_data(posthog_symbol_data::AppleDsym {
+            data: DSYM_ZIP.to_vec(),
+        })
+        .unwrap()
     }
 }
