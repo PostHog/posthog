@@ -20,6 +20,7 @@
 - Build:
   - Frontend: `pnpm --filter=@posthog/frontend build`
   - Start dev: `./bin/start`
+- LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
 
 ## Commits and Pull Requests
 
@@ -30,6 +31,7 @@ Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for a
 - `feat`: New feature or functionality (touches production code)
 - `fix`: Bug fix (touches production code)
 - `chore`: Non-production changes (docs, tests, config, CI, refactoring agents instructions, etc.)
+- Scope convention: use `llma` for LLM analytics changes (for example, `feat(llma): ...`)
 
 ### Format
 
@@ -125,6 +127,7 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 - Django serializers are the source of truth for frontend API types — `hogli build:openapi` generates TypeScript via drf-spectacular + Orval. Generated files (`api.schemas.ts`, `api.ts`) live in `frontend/src/generated/core/` and `products/{product}/frontend/generated/` — don't edit them manually, change serializers and rerun. See `docs/published/type-system.md` for the full pipeline
 - If possible, new features should live in `products/` as Django apps with `backend/` and `frontend/` subdirectories
 - Always filter querysets by `team_id` — in serializers, access the team via `self.context["get_team"]()`
+- **Do not add domain-specific fields to the `Team` model.** Use a Team Extension model instead — see `posthog/models/team/README.md` for the pattern and helpers
 
 ## Important rules for Code Style
 

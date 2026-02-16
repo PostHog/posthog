@@ -52,6 +52,7 @@ from products.error_tracking.backend.api import (
     GitProviderFileLinksViewSet,
 )
 from products.llm_analytics.backend.api import (
+    ClusteringConfigViewSet,
     DatasetItemViewSet,
     DatasetViewSet,
     EvaluationConfigViewSet,
@@ -98,6 +99,7 @@ from . import (
     exports,
     feature_flag,
     flag_value,
+    health_issue,
     hog,
     hog_function,
     hog_function_template,
@@ -107,6 +109,7 @@ from . import (
     instance_status,
     integration,
     materialized_column_slot,
+    object_media_preview,
     organization,
     organization_domain,
     organization_feature_flag,
@@ -119,6 +122,7 @@ from . import (
     proxy_record,
     query,
     quick_filters,
+    resource_transfer,
     scheduled_change,
     schema_property_group,
     search,
@@ -165,7 +169,7 @@ router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
 router.register(r"oauth_application/metadata", OAuthApplicationPublicMetadataViewSet, "oauth_application_metadata")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
-projects_router.register(r"environments", team.TeamViewSet, "project_environments", ["project_id"])
+projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
 environments_router = router.register(r"environments", team.RootTeamViewSet, "environments")
 
 
@@ -289,6 +293,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"health_issues",
+    health_issue.HealthIssueViewSet,
+    "environment_health_issues",
+    ["team_id"],
+)
+
+environments_router.register(
     r"llm_prompts",
     LLMPromptViewSet,
     "environment_llm_prompts",
@@ -312,6 +323,13 @@ environments_router.register(
     r"customer_profile_configs",
     customer_analytics.CustomerProfileConfigViewSet,
     "environment_customer_profile_configs",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"customer_journeys",
+    customer_analytics.CustomerJourneyViewSet,
+    "environment_customer_journeys",
     ["team_id"],
 )
 
@@ -446,6 +464,13 @@ projects_router.register(
 )
 
 projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["project_id"])
+
+projects_router.register(
+    r"object_media_previews",
+    object_media_preview.ObjectMediaPreviewViewSet,
+    "project_object_media_previews",
+    ["project_id"],
+)
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
 projects_router.register(
@@ -592,6 +617,12 @@ organizations_router.register(
     r"feature_flags",
     organization_feature_flag.OrganizationFeatureFlagView,
     "organization_feature_flags",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"resource_transfers",
+    resource_transfer.ResourceTransferViewSet,
+    "organization_resource_transfers",
     ["organization_id"],
 )
 
@@ -1187,6 +1218,13 @@ environments_router.register(
     r"llm_analytics/clustering_runs",
     LLMAnalyticsClusteringRunViewSet,
     "environment_llm_analytics_clustering_runs",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/clustering_config",
+    ClusteringConfigViewSet,
+    "environment_llm_analytics_clustering_config",
     ["team_id"],
 )
 

@@ -1,6 +1,6 @@
 [package]
 name = "posthog-cli"
-version = "0.5.28"
+version = "0.5.30"
 authors = [
     "David <david@posthog.com>",
     "Olly <oliver@posthog.com>",
@@ -55,6 +55,8 @@ urlencoding = "2.1.3"
 rayon = "1.11.0"
 similar = "2.7"
 open = "5"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+plist = "1"
 
 [dev-dependencies]
 test-log = "0.2.17"

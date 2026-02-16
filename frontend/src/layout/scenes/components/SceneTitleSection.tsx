@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
+import { IconBrackets, IconEllipsis, IconPencil, IconSidePanel, IconSparkles, IconWrench, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -14,6 +14,8 @@ import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPr
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
+import { UseMaxToolOptions, useMaxTool } from 'scenes/max/useMaxTool'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -27,48 +29,94 @@ import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDivider } from './SceneDivider'
 
-export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }): JSX.Element | null {
+export function SceneTitlePanelButton({
+    inPanel = false,
+    maxToolProps,
+    buttonClassName = 'size-[33px]',
+}: {
+    inPanel?: boolean
+    maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+    buttonClassName?: string
+}): JSX.Element | null {
     const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
+    const inactiveMaxToolProps: UseMaxToolOptions = { identifier: 'read_data', active: false }
+    const { openMax, definition } = useMaxTool(
+        maxToolProps && isRemovingSidePanelFlag ? { ...maxToolProps, active: true } : inactiveMaxToolProps
+    )
+
     if (isRemovingSidePanelFlag) {
-        // Open Info tab if scene has panel content, otherwise default to Discussion
-        const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Discussion
+        // Open Info tab if scene has panel content, otherwise default to PostHog AI
+        const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
+
+        if (sidePanelOpen) {
+            return null
+        }
+
         return (
-            <AppShortcut
-                name="OpenSidePanel"
-                keybind={[keyBinds.toggleRightNav]}
-                intent="Open side panel"
-                interaction="click"
-            >
-                {/* Size to mimic lemon button small */}
+            <>
                 <ButtonPrimitive
-                    className="size-[33px] group -mr-[2px]"
+                    className={buttonClassName}
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
-                        if (sidePanelOpen) {
-                            closeSidePanel()
+                        if (openMax) {
+                            openMax()
                         } else {
-                            openSidePanel(defaultTab)
+                            openSidePanel(SidePanelTab.Max)
                         }
                     }}
-                    tooltip={sidePanelOpen ? 'Close side panel' : 'Open side panel'}
+                    tooltip={
+                        definition ? (
+                            <>
+                                Open PostHog AI
+                                <br />
+                                <div className="flex items-center">
+                                    {definition.icon || <IconWrench />}
+                                    <i className="ml-1.5">{definition.name}</i>
+                                </div>
+                            </>
+                        ) : (
+                            'Open PostHog AI'
+                        )
+                    }
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
                     iconOnly
-                    active={sidePanelOpen}
                 >
-                    {sidePanelOpen ? (
-                        <IconX className="text-primary size-3 group-hover:text-primary z-10" />
-                    ) : (
-                        <IconEllipsis className="text-primary group-hover:text-primary z-10" />
-                    )}
+                    <div className="relative">
+                        <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
+                        {maxToolProps && (
+                            <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
+                        )}
+                    </div>
                 </ButtonPrimitive>
-            </AppShortcut>
+
+                {/* Size to mimic lemon button small */}
+                <ButtonPrimitive
+                    className={cn(buttonClassName, 'group -mr-[2px]')}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        openSidePanel(defaultTab)
+                    }}
+                    tooltip={
+                        <>
+                            {sidePanelOpen ? 'Close scene panel' : 'Open scene panel'}{' '}
+                            <RenderKeybind className="relative -top-px" keybind={[keyBinds.toggleRightNav]} />
+                        </>
+                    }
+                    tooltipPlacement="bottom-end"
+                    tooltipCloseDelayMs={0}
+                    iconOnly
+                >
+                    <IconSidePanel className="text-primary group-hover:text-primary z-10" />
+                </ButtonPrimitive>
+            </>
         )
     }
 
@@ -159,6 +207,20 @@ type SceneMainTitleProps = {
      * Additional class name for the title section
      */
     className?: string
+
+    /**
+     * Optional callback to generate a name using AI
+     */
+    onGenerateName?: () => void
+    /**
+     * Whether name generation is currently in progress
+     */
+    isGeneratingName?: boolean
+    /**
+     * Props for MaxTool registration - when provided behind UX_REMOVE_SIDEPANEL flag,
+     * the AI button in the title section registers the tool with Max
+     */
+    maxToolProps?: Omit<UseMaxToolOptions, 'active'>
 }
 
 export function SceneTitleSection({
@@ -177,6 +239,9 @@ export function SceneTitleSection({
     actions,
     forceBackTo,
     className,
+    onGenerateName,
+    isGeneratingName,
+    maxToolProps,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { zenMode } = useValues(navigation3000Logic)
@@ -272,6 +337,8 @@ export function SceneTitleSection({
                                     forceEdit={forceEdit}
                                     renameDebounceMs={renameDebounceMs}
                                     saveOnBlur={saveOnBlur}
+                                    onGenerateName={onGenerateName}
+                                    isGeneratingName={isGeneratingName}
                                 />
                             </>
                         )}
@@ -284,7 +351,7 @@ export function SceneTitleSection({
                             )}
                         >
                             {effectiveActions}
-                            <SceneTitlePanelButton />
+                            <SceneTitlePanelButton maxToolProps={maxToolProps} />
                         </div>
                     )}
                 </div>
@@ -317,6 +384,8 @@ type SceneNameProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    onGenerateName?: () => void
+    isGeneratingName?: boolean
 }
 
 function SceneName({
@@ -327,9 +396,12 @@ function SceneName({
     forceEdit = false,
     renameDebounceMs = 100,
     saveOnBlur = false,
+    onGenerateName,
+    isGeneratingName = false,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
     const [isEditing, setIsEditing] = useState(forceEdit)
+    const containerRef = useRef<HTMLDivElement>(null)
 
     const textClasses =
         'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
@@ -360,49 +432,77 @@ function SceneName({
         }
     }, renameDebounceMs)
 
+    const handleBlur = (e: React.FocusEvent): void => {
+        // Check if focus is moving to an element within our container (like the generate button)
+        const relatedTarget = e.relatedTarget as HTMLElement | null
+        if (relatedTarget && containerRef.current && containerRef.current.contains(relatedTarget)) {
+            return
+        }
+        if (saveOnBlur && name !== initialName) {
+            debouncedOnBlurSave(name || '')
+        }
+        if (!forceEdit) {
+            setIsEditing(false)
+        }
+    }
+
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
     const Element =
         onChange && canEdit ? (
             <>
                 {isEditing ? (
-                    <TextareaPrimitive
-                        variant="default"
-                        name="name"
-                        value={name || ''}
-                        onChange={(e) => {
-                            setName(e.target.value)
-                            if (!saveOnBlur) {
-                                debouncedOnChange(e.target.value)
-                            }
-                        }}
-                        data-attr="scene-title-textarea"
-                        className={cn(
-                            buttonPrimitiveVariants({
-                                inert: true,
-                                className: `${textClasses} w-full hover:bg-fill-input py-0`,
-                                autoHeight: true,
-                            }),
-                            '[&_.LemonIcon]:size-4 input-like'
+                    <div ref={containerRef} className="flex items-center gap-1 w-full">
+                        <TextareaPrimitive
+                            variant="default"
+                            name="name"
+                            value={name || ''}
+                            onChange={(e) => {
+                                setName(e.target.value)
+                                if (!saveOnBlur || forceEdit) {
+                                    // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
+                                    debouncedOnChange(e.target.value)
+                                }
+                            }}
+                            data-attr="scene-title-textarea"
+                            className={cn(
+                                buttonPrimitiveVariants({
+                                    inert: true,
+                                    className: `${textClasses} w-full hover:bg-fill-input py-0`,
+                                    autoHeight: true,
+                                }),
+                                '[&_.LemonIcon]:size-4 input-like'
+                            )}
+                            wrapperClassName="flex-1 min-w-0"
+                            placeholder="Enter name"
+                            onBlur={handleBlur}
+                            autoFocus={!forceEdit}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                }
+                            }}
+                        />
+                        {onGenerateName && (
+                            <Tooltip title={isGeneratingName ? 'Thinking...' : 'Name this insight'}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (!isGeneratingName) {
+                                            onGenerateName()
+                                        }
+                                    }}
+                                    disabled={isGeneratingName}
+                                    className="shrink-0 transition duration-50 cursor-pointer hover:scale-110 rounded-md border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)] disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <AnimatedSparkles
+                                        triggerAnimation={isGeneratingName}
+                                        className="relative size-full pl-0.5 pb-0.5"
+                                    />
+                                </button>
+                            </Tooltip>
                         )}
-                        placeholder="Enter name"
-                        onBlur={() => {
-                            // Save changes when leaving the field (only if saveOnBlur is true)
-                            if (saveOnBlur && name !== initialName) {
-                                debouncedOnBlurSave(name || '')
-                            }
-                            // Exit edit mode if not forced
-                            if (!forceEdit) {
-                                setIsEditing(false)
-                            }
-                        }}
-                        autoFocus={!forceEdit}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                e.preventDefault()
-                            }
-                        }}
-                    />
+                    </div>
                 ) : (
                     <Tooltip
                         title={canEdit && !forceEdit ? 'Edit name' : undefined}
@@ -495,6 +595,15 @@ function SceneDescription({
         }
     }, renameDebounceMs)
 
+    const handleBlur = (): void => {
+        if (saveOnBlur && description !== initialDescription) {
+            debouncedOnBlurSaveDescription(description || '')
+        }
+        if (!forceEdit) {
+            setIsEditing(false)
+        }
+    }
+
     const Element =
         onChange && canEdit ? (
             <>
@@ -505,7 +614,8 @@ function SceneDescription({
                         value={description || ''}
                         onChange={(e) => {
                             setDescription(e.target.value)
-                            if (!saveOnBlur) {
+                            if (!saveOnBlur || forceEdit) {
+                                // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
                                 debouncedOnDescriptionChange(e.target.value)
                             }
                         }}
@@ -521,16 +631,7 @@ function SceneDescription({
                         wrapperClassName="w-full"
                         markdown={markdown}
                         placeholder={emptyText}
-                        onBlur={() => {
-                            // Save changes when leaving the field (only if saveOnBlur is true)
-                            if (saveOnBlur && description !== initialDescription) {
-                                debouncedOnBlurSaveDescription(description || '')
-                            }
-                            // Exit edit mode if not forced
-                            if (!forceEdit) {
-                                setIsEditing(false)
-                            }
-                        }}
+                        onBlur={handleBlur}
                         autoFocus={!forceEdit}
                     />
                 ) : (

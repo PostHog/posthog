@@ -93,6 +93,11 @@ export interface RecordingViewedSummaryAnalytics {
     rrweb_warning_count: number
     error_count_during_recording_playback: number
     engagement_score: number
+    // frame rate stats measured during playback via requestAnimationFrame
+    avg_fps?: number
+    dropped_frames?: number
+    max_frame_time_ms?: number
+    total_frames?: number
 }
 
 export interface Player {
@@ -1173,17 +1178,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     ? makeLogger(actions.incrementWarningCount)
                     : makeNoOpLogger()
 
-            cache.disposables.add(() => {
-                return () => {
-                    Object.values(logging.timers as BuiltLogging['timers']).forEach((timer) => {
-                        if (timer) {
-                            clearTimeout(timer)
-                        }
-                    })
-                    ;(window as any)[`__posthog_player_logs`] = undefined
-                    ;(window as any)[`__posthog_player_warnings`] = undefined
-                }
-            }, 'consoleTimers')
+            cache.disposables.add(
+                () => {
+                    return () => {
+                        Object.values(logging.timers as BuiltLogging['timers']).forEach((timer) => {
+                            if (timer) {
+                                clearTimeout(timer)
+                            }
+                        })
+                        ;(window as any)[`__posthog_player_logs`] = undefined
+                        ;(window as any)[`__posthog_player_warnings`] = undefined
+                    }
+                },
+                'consoleTimers',
+                { pauseOnPageHidden: false }
+            )
 
             const config: Partial<playerConfig> & { onError: (error: any) => void } = {
                 root: values.rootFrame,
@@ -1199,108 +1208,141 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 logger: logging.logger,
             }
 
-            cache.disposables.add(() => {
-                const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
-                const iframeCleanups: (() => void)[] = []
+            cache.disposables.add(
+                () => {
+                    const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
+                    const iframeCleanups: (() => void)[] = []
 
-                replayer.on('fullsnapshot-rebuilded', () => {
-                    const iframeContentWindow = replayer.iframe.contentWindow
-                    const iframeDocument = iframeContentWindow?.document
-                    const iframeFetch = iframeContentWindow?.fetch
+                    replayer.on('fullsnapshot-rebuilded', () => {
+                        const iframeContentWindow = replayer.iframe.contentWindow
+                        const iframeDocument = iframeContentWindow?.document
+                        const iframeFetch = iframeContentWindow?.fetch
 
-                    const setupErrorHandlers = (): void => {
-                        if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting && iframeContentWindow) {
-                            const originalFetch = iframeFetch
-                            const windowRef = new WeakRef(iframeContentWindow)
+                        const setupErrorHandlers = (): void => {
+                            if (
+                                iframeFetch &&
+                                !(iframeFetch as any).__isWrappedForErrorReporting &&
+                                iframeContentWindow
+                            ) {
+                                const originalFetch = iframeFetch
+                                const windowRef = new WeakRef(iframeContentWindow)
 
-                            iframeContentWindow.fetch = wrapFetchAndReport({
-                                fetch: iframeFetch,
-                                onError: (errorDetails: ResourceErrorDetails) => {
-                                    actions.caughtAssetErrorFromIframe(errorDetails)
-                                },
-                            })
-                            ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+                                iframeContentWindow.fetch = wrapFetchAndReport({
+                                    fetch: iframeFetch,
+                                    onError: (errorDetails: ResourceErrorDetails) => {
+                                        actions.caughtAssetErrorFromIframe(errorDetails)
+                                    },
+                                })
+                                ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+
+                                iframeCleanups.push(() => {
+                                    const window = windowRef.deref()
+                                    if (window && window.fetch) {
+                                        window.fetch = originalFetch
+                                        delete (window.fetch as any).__isWrappedForErrorReporting
+                                    }
+                                })
+                            }
+
+                            if (iframeContentWindow) {
+                                iframeCleanups.push(
+                                    registerErrorListeners({
+                                        iframeWindow: iframeContentWindow,
+                                        onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                                    })
+                                )
+                            }
+                        }
+
+                        if (
+                            values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_IFRAME_READY] &&
+                            iframeDocument &&
+                            iframeDocument.readyState === 'loading'
+                        ) {
+                            let pauseTimeoutId: ReturnType<typeof setTimeout> | null = null
+
+                            const onReady = (): void => {
+                                setupErrorHandlers()
+
+                                if (
+                                    replayer &&
+                                    values.currentTimestamp !== undefined &&
+                                    values.sessionPlayerData.start
+                                ) {
+                                    const currentTime =
+                                        values.currentTimestamp - values.sessionPlayerData.start.valueOf()
+                                    replayer.pause(currentTime)
+                                    pauseTimeoutId = setTimeout(() => {
+                                        if (replayer) {
+                                            replayer.pause(currentTime)
+                                        }
+                                    }, 0)
+                                }
+
+                                iframeDocument.removeEventListener('DOMContentLoaded', onReady)
+                            }
+                            iframeDocument.addEventListener('DOMContentLoaded', onReady)
 
                             iframeCleanups.push(() => {
-                                const window = windowRef.deref()
-                                if (window && window.fetch) {
-                                    window.fetch = originalFetch
-                                    delete (window.fetch as any).__isWrappedForErrorReporting
+                                iframeDocument.removeEventListener('DOMContentLoaded', onReady)
+                                if (pauseTimeoutId !== null) {
+                                    clearTimeout(pauseTimeoutId)
                                 }
                             })
-                        }
-
-                        if (iframeContentWindow) {
-                            iframeCleanups.push(
-                                registerErrorListeners({
-                                    iframeWindow: iframeContentWindow,
-                                    onError: (error) => actions.caughtAssetErrorFromIframe(error),
-                                })
-                            )
-                        }
-                    }
-
-                    if (
-                        values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_IFRAME_READY] &&
-                        iframeDocument &&
-                        iframeDocument.readyState === 'loading'
-                    ) {
-                        let pauseTimeoutId: ReturnType<typeof setTimeout> | null = null
-
-                        const onReady = (): void => {
+                        } else {
                             setupErrorHandlers()
+                        }
+                    })
 
-                            if (replayer && values.currentTimestamp !== undefined && values.sessionPlayerData.start) {
-                                const currentTime = values.currentTimestamp - values.sessionPlayerData.start.valueOf()
-                                replayer.pause(currentTime)
-                                pauseTimeoutId = setTimeout(() => {
-                                    if (replayer) {
-                                        replayer.pause(currentTime)
-                                    }
-                                }, 0)
+                    actions.setPlayer({ replayer, windowId })
+
+                    return () => {
+                        if (replayer) {
+                            for (const cleanup of iframeCleanups) {
+                                cleanup()
                             }
+                            iframeCleanups.length = 0
 
-                            iframeDocument.removeEventListener('DOMContentLoaded', onReady)
-                        }
-                        iframeDocument.addEventListener('DOMContentLoaded', onReady)
+                            const iframe = replayer.iframe
+                            replayer.destroy()
 
-                        iframeCleanups.push(() => {
-                            iframeDocument.removeEventListener('DOMContentLoaded', onReady)
-                            if (pauseTimeoutId !== null) {
-                                clearTimeout(pauseTimeoutId)
+                            if (iframe?.contentDocument?.body) {
+                                iframe.contentDocument.body.innerHTML = ''
                             }
-                        })
-                    } else {
-                        setupErrorHandlers()
-                    }
-                })
-
-                actions.setPlayer({ replayer, windowId })
-
-                return () => {
-                    if (replayer) {
-                        for (const cleanup of iframeCleanups) {
-                            cleanup()
-                        }
-                        iframeCleanups.length = 0
-
-                        const iframe = replayer.iframe
-                        replayer.destroy()
-
-                        if (iframe?.contentDocument?.body) {
-                            iframe.contentDocument.body.innerHTML = ''
-                        }
-                        if (iframe?.contentDocument?.head) {
-                            iframe.contentDocument.head.innerHTML = ''
+                            if (iframe?.contentDocument?.head) {
+                                iframe.contentDocument.head.innerHTML = ''
+                            }
                         }
                     }
-                }
-            }, `replayer-${props.mode}`)
+                },
+                `replayer-${props.mode}`,
+                { pauseOnPageHidden: false }
+            )
+
+            // Manually handle visibility: dispose replayer on hide (frees memory),
+            // call tryInitReplayer on visible (uses fresh state, no stale closures)
+            cache.disposables.add(
+                () => {
+                    const handleVisibilityChange = (): void => {
+                        if (document.hidden) {
+                            cache.disposables.dispose(`replayer-${props.mode}`)
+                            cache.disposables.dispose('consoleTimers')
+                            actions.setPlayer(null)
+                        } else {
+                            actions.tryInitReplayer()
+                        }
+                    }
+                    document.addEventListener('visibilitychange', handleVisibilityChange)
+                    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+                },
+                'replayerVisibilityHandler',
+                { pauseOnPageHidden: false }
+            )
         },
         setPlayer: ({ player }) => {
             if (player) {
                 if (values.currentTimestamp !== undefined) {
-                    actions.seekToTimestamp(values.currentTimestamp)
+                    actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
                 }
                 actions.syncPlayerSpeed()
                 // Ensure we respect the persisted playing state when the player is reinitialized
@@ -1343,7 +1385,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Otherwise keep existing player visible (last valid frame)
             }
             if (values.currentTimestamp !== undefined) {
-                actions.seekToTimestamp(values.currentTimestamp)
+                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
             }
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
@@ -1370,7 +1412,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
                 actions.endBuffer()
-                actions.seekToTimestamp(values.currentTimestamp)
+                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
             }
         },
         initializePlayerFromStart: () => {
@@ -1426,10 +1468,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
 
-            // If replayer isn't initialized, it will be initialized with the already loaded snapshots
+            // If replayer isn't initialized, it will be initialized with the already loaded snapshots.
+            // Add events in batches, yielding between batches to keep the UI responsive
+            // during large snapshot loads.
             if (values.player?.replayer) {
-                for (const event of eventsToAdd) {
-                    values.player?.replayer?.addEvent(event)
+                const YIELD_AFTER_MS = 50
+                let lastYield = performance.now()
+                for (let i = 0; i < eventsToAdd.length; i++) {
+                    values.player?.replayer?.addEvent(eventsToAdd[i])
+                    if (performance.now() - lastYield > YIELD_AFTER_MS) {
+                        await new Promise<void>((r) => setTimeout(r, 0))
+                        lastYield = performance.now()
+                    }
                 }
             }
 
@@ -1437,6 +1487,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.initializePlayerFromStart()
             }
             actions.checkBufferingCompleted()
+
+            // If snapshot data arrived but the replayer hasn't been created yet,
+            // try initializing it now. This handles the race condition where
+            // setRootFrame fired before data was available (e.g. in modals where
+            // the DOM is ready before network requests complete).
+            if (!values.player && values.rootFrame) {
+                actions.tryInitReplayer()
+            }
+
             breakpoint()
         },
         loadRecordingMetaSuccess: () => {
@@ -1688,6 +1747,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         updateAnimation: () => {
+            // Track frame timing for playback performance monitoring
+            const frameNow = performance.now()
+            if (cache.lastFrameTime !== undefined) {
+                const delta = frameNow - cache.lastFrameTime
+                cache.frameCount = (cache.frameCount || 0) + 1
+                if (delta > 50) {
+                    cache.droppedFrames = (cache.droppedFrames || 0) + 1
+                }
+                if (delta > (cache.maxFrameTime || 0)) {
+                    cache.maxFrameTime = delta
+                }
+            }
+            cache.lastFrameTime = frameNow
+
             // The main loop of the player. Called on each frame
             const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
             let newTimestamp = values.fromRRWebPlayerTime(rrwebPlayerTime)
@@ -1760,6 +1833,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         stopAnimation: () => {
             cache.disposables.dispose('animationTimer')
+            cache.lastFrameTime = undefined
         },
         pauseIframePlayback: () => {
             const iframe = values.rootFrame?.querySelector('iframe')
@@ -2079,6 +2153,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             rrweb_warning_count: values.warningCount,
             error_count_during_recording_playback: values.errorCount,
             engagement_score: values.clickCount,
+            avg_fps:
+                cache.frameCount && playTimeMs > 0
+                    ? Math.round((cache.frameCount / (playTimeMs / 1000)) * 10) / 10
+                    : undefined,
+            dropped_frames: cache.droppedFrames || undefined,
+            max_frame_time_ms: cache.maxFrameTime ? Math.round(cache.maxFrameTime) : undefined,
+            total_frames: cache.frameCount || undefined,
         }
 
         posthog.capture(

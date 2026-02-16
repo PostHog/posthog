@@ -31,6 +31,10 @@ export function GithubIntegration(): JSX.Element {
     return <OAuthIntegration kind="github" connectText="Connect organization" />
 }
 
+export function JiraIntegration(): JSX.Element {
+    return <OAuthIntegration kind="jira" connectText="Connect site" />
+}
+
 const OAuthIntegration = ({ kind, connectText }: { kind: IntegrationKind; connectText: string }): JSX.Element => {
     const authorizationUrl = api.integrations.authorizeUrl({
         next: urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' }),

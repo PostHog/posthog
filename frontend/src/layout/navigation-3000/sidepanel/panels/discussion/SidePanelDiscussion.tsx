@@ -88,7 +88,7 @@ export const SidePanelDiscussion = (): JSX.Element => {
                         ) : null}
                     </DiscussionContent>
                 ) : (
-                    <div className="mx-auto p-8 max-w-160 mt-8 deprecated-space-y-4">
+                    <div className="mx-auto p-8 max-w-160 mt-8 ">
                         <div className={cn('max-w-80 mx-auto', isRemovingSidePanelFlag && 'max-w-24')}>
                             <WarningHog className="w-full h-full" />
                         </div>
@@ -123,9 +123,9 @@ const DiscussionContent = ({
     }, [selectedTabOptions]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <>
             <div
-                className={cn('flex-1 overflow-y-auto p-2', isRemovingSidePanelFlag && 'p-0')}
+                className={cn('flex-1 overflow-y-auto p-2', isRemovingSidePanelFlag && 'contents')}
                 ref={setCommentsListRef}
             >
                 {children}
@@ -135,6 +135,6 @@ const DiscussionContent = ({
             <div className="border-t px-3 pb-3">
                 <CommentComposer {...logicProps} />
             </div>
-        </div>
+        </>
     )
 }

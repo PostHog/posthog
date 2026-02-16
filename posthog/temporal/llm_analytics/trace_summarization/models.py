@@ -1,6 +1,6 @@
 """Data models for batch trace summarization."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -47,6 +47,9 @@ class BatchSummarizationInputs:
     # Optional explicit window (if not provided, uses window_minutes from now)
     window_start: str | None = None  # RFC3339 format
     window_end: str | None = None  # RFC3339 format
+    # Optional property filters to scope which traces/generations are sampled.
+    # Uses PostHog's standard property filter format (same as clustering event_filters).
+    event_filters: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

@@ -57,6 +57,35 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
 
+// Component for selection checkbox that uses hooks directly to avoid stale closure issues
+function FeatureFlagSelectionCheckbox({
+    featureFlag,
+    index,
+    displayedFlags,
+}: {
+    featureFlag: FeatureFlagType
+    index: number
+    displayedFlags: FeatureFlagType[]
+}): JSX.Element | null {
+    const { selectedFlagIds } = useValues(flagSelectionLogic)
+    const { toggleFlagSelection } = useActions(flagSelectionLogic)
+
+    const flagId = featureFlag.id
+    if (flagId === null) {
+        return null
+    }
+
+    return (
+        <LemonCheckbox
+            checked={selectedFlagIds.includes(flagId)}
+            onChange={() => toggleFlagSelection(flagId, index, displayedFlags)}
+            disabled={!featureFlag.can_edit}
+            disabledReason={!featureFlag.can_edit ? "You don't have permission to edit this feature flag." : undefined}
+            aria-label={`Select feature flag ${featureFlag.key}`}
+        />
+    )
+}
+
 // Component for feature flag row actions that needs to use hooks
 function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
@@ -276,9 +305,17 @@ export function OverViewTab({
     const { setFeatureFlagsFilters } = useActions(flagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
 
-    const { selectedFlagIds, selectedCount, isAllSelected, isSomeSelected, bulkDeleteResponseLoading } =
-        useValues(flagSelectionLogic)
-    const { toggleFlagSelection, selectAll, clearSelection, bulkDeleteFlags } = useActions(flagSelectionLogic)
+    const {
+        selectedCount,
+        isAllSelected,
+        isSomeSelected,
+        bulkDeleteResponseLoading,
+        showSelectAllMatchingBanner,
+        totalMatchingCount,
+        allMatchingSelected,
+        matchingFlagIdsLoading,
+    } = useValues(flagSelectionLogic)
+    const { selectAllOnPage, selectAllMatching, clearSelection, bulkDeleteFlags } = useActions(flagSelectionLogic)
 
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
@@ -293,30 +330,16 @@ export function OverViewTab({
             title: (
                 <LemonCheckbox
                     checked={isSomeSelected ? 'indeterminate' : isAllSelected}
-                    onChange={(checked: boolean) => {
-                        if (checked) {
-                            selectAll()
-                        } else {
-                            clearSelection()
-                        }
-                    }}
-                    aria-label="Select all feature flags"
+                    onChange={() => selectAllOnPage(displayedFlags)}
+                    aria-label="Select all feature flags on this page"
                 />
             ),
             render: function Render(_: unknown, featureFlag: FeatureFlagType, index: number) {
-                const flagId = featureFlag.id
-                if (flagId === null) {
-                    return null
-                }
                 return (
-                    <LemonCheckbox
-                        checked={selectedFlagIds.includes(flagId)}
-                        onChange={() => toggleFlagSelection(flagId, index)}
-                        disabled={!featureFlag.can_edit}
-                        disabledReason={
-                            !featureFlag.can_edit ? "You don't have permission to edit this feature flag." : undefined
-                        }
-                        aria-label={`Select feature flag ${featureFlag.key}`}
+                    <FeatureFlagSelectionCheckbox
+                        featureFlag={featureFlag}
+                        index={index}
+                        displayedFlags={displayedFlags}
                     />
                 )
             },
@@ -526,8 +549,20 @@ export function OverViewTab({
                 {selectedCount > 0 && (
                     <div className="flex items-center gap-2">
                         <span className="text-muted text-sm">
-                            {selectedCount} flag{selectedCount !== 1 ? 's' : ''} selected
+                            {allMatchingSelected
+                                ? `All ${selectedCount} matching flags selected`
+                                : `${selectedCount} flag${selectedCount !== 1 ? 's' : ''} selected`}
                         </span>
+                        {showSelectAllMatchingBanner && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={selectAllMatching}
+                                loading={matchingFlagIdsLoading}
+                            >
+                                Select all {totalMatchingCount} matching flags
+                            </LemonButton>
+                        )}
                         <LemonButton type="secondary" size="small" onClick={clearSelection}>
                             Clear
                         </LemonButton>
@@ -538,9 +573,10 @@ export function OverViewTab({
                             icon={<IconTrash />}
                             loading={bulkDeleteResponseLoading}
                             onClick={() => {
+                                const description = `Are you sure you want to delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}? This action cannot be undone.`
                                 LemonDialog.open({
                                     title: `Delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}?`,
-                                    description: `Are you sure you want to delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}? This action cannot be undone.`,
+                                    description,
                                     primaryButton: {
                                         children: 'Delete',
                                         status: 'danger',
@@ -555,7 +591,7 @@ export function OverViewTab({
                                 })
                             }}
                         >
-                            Delete selected
+                            {bulkDeleteResponseLoading ? 'Deleting…' : 'Delete selected'}
                         </LemonButton>
                     </div>
                 )}

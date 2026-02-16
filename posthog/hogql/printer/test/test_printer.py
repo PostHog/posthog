@@ -79,7 +79,7 @@ class TestPrinter(BaseTest):
         context: Optional[HogQLContext] = None,
         dialect: HogQLDialect = "clickhouse",
         settings: Optional[HogQLQuerySettings] = None,
-        backend: HogQLParserBackend = "cpp",
+        backend: HogQLParserBackend = "cpp-json",
     ) -> str:
         node = parse_expr(query, backend=backend)
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -3007,6 +3007,26 @@ class TestPrinter(BaseTest):
                 dialect="clickhouse",
             )
 
+    def test_fails_on_placeholder_macro_expansion_depth_limit(self):
+        query = parse_select(
+            """
+            SELECT date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', now())))))))))
+            """
+        )
+        with pytest.raises(QueryError, match="exceeded maximum placeholder macro depth"):
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+    def test_date_part_macro_does_not_expand_exponentially(self):
+        sql = self._select("SELECT date_part('year', date_part('year', date_part('year', now())))")
+
+        assert "arrayMap((part, dt) -> multiIf" in sql
+        assert sql.count("now()") == 1
+        assert len(sql) < 3_000
+
     def test_team_id_guarding_events(self):
         sql = self._select(
             "SELECT event FROM events",
@@ -4060,7 +4080,7 @@ class TestPostgresPrinter(BaseTest):
         query: ast.Expr | str,
         context: Optional[HogQLContext] = None,
         settings: Optional[HogQLQuerySettings] = None,
-        backend: HogQLParserBackend = "cpp",
+        backend: HogQLParserBackend = "cpp-json",
     ) -> str:
         node = parse_expr(query, backend=backend) if isinstance(query, str) else query
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)

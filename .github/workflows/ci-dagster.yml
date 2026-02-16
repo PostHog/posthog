@@ -67,8 +67,6 @@ jobs:
                         # version changes
                         - docker-compose.dev.yml
                         - frontend/public/email/*
-                        # These scripts are used in the CI
-                        - bin/check_kafka_clickhouse_up
 
     get_clickhouse_versions:
         name: Get ClickHouse versions
@@ -119,6 +117,9 @@ jobs:
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d
 
+            - name: Wait for Docker services
+              run: bin/wait-for-docker
+
             - name: Set up Python
               uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
@@ -162,9 +163,6 @@ jobs:
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
-
-            - name: Wait for Clickhouse & Kafka
-              run: bin/check_kafka_clickhouse_up
 
             - name: Run migrations
               run: |

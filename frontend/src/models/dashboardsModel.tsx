@@ -348,6 +348,11 @@ export const dashboardsModel = kea<dashboardsModelType>([
         },
 
         deleteDashboardSuccess: async ({ dashboard }) => {
+            const currentTeam = teamLogic.values.currentTeam
+            if (currentTeam && 'primary_dashboard' in currentTeam && currentTeam.primary_dashboard === dashboard.id) {
+                teamLogic.actions.loadCurrentTeamSuccess({ ...currentTeam, primary_dashboard: null })
+            }
+
             lemonToast.success(
                 <>
                     Dashboard <b>{dashboard.name}</b> deleted
