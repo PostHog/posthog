@@ -132,6 +132,7 @@ rules:
                               |MessageTemplate
                               |Node
                               |Notebook
+                              |ObjectMediaPreview
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
@@ -289,6 +290,7 @@ rules:
                         |MessageTemplate
                         |Node
                         |Notebook
+                        |ObjectMediaPreview
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey
