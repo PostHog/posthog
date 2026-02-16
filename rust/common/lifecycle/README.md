@@ -104,6 +104,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Struct-held handle and process scope
+
+If your component is a **struct that owns a `Handle`** and has a `process()` method that runs the main loop, use `process_scope()` at the start of `process()` so the manager is notified when `process()` returns — regardless of whether the struct (and its handle) are dropped later.
+
+```rust
+struct MyConsumer {
+    handle: lifecycle::Handle,
+}
+
+impl MyConsumer {
+    async fn process(&self) {
+        let _guard = self.handle.process_scope();
+        loop {
+            tokio::select! {
+                _ = self.handle.shutdown_recv() => {
+                    self.drain().await;
+                    return; // guard dropped → manager notified (WorkCompleted)
+                }
+                msg = self.recv() => {
+                    self.do_work(&self.handle, msg).await;
+                    self.handle.report_healthy();
+                }
+            }
+        }
+    }
+    // do_work can take &Handle or a clone — doesn't affect the guard
+    async fn do_work(&self, _handle: &lifecycle::Handle, _msg: ()) { /* ... */ }
+    async fn drain(&self) { /* ... */ }
+    async fn recv(&self) -> () { /* ... */ }
+}
+```
+
+The pattern: `process()` creates the guard, the guard is dropped when `process()` returns, and that's the one event sent to the manager. Passing the handle by reference or clone into helper methods does not interfere. The struct can be dropped later without sending a duplicate event.
+
 ### Handle API summary
 
 | Method | Use when |
@@ -114,6 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `signal_failure(reason)` | Fatal error; triggers global shutdown. Call `work_completed()` after so the manager gets a clear "done" before drop. |
 | `request_shutdown()` | Request clean shutdown (non-fatal). Then finish work and return (drop is enough). |
 | `work_completed()` | Required for one-shot/finite work or when signaling done without dropping. Optional for long-running components that exit on shutdown — drop is treated as completion. |
+| `process_scope()` | Returns a `ProcessScopeGuard`. When the guard is dropped, the manager is notified once. Use when your struct owns the handle and `process()` is the logical "run." |
 | `report_healthy()` | Liveness heartbeat (call more often than `liveness_deadline`). |
 | `report_unhealthy()` | Mark component unhealthy for liveness. |
 | `report_healthy_blocking()` | Same as `report_healthy()`; use from sync/blocking contexts (e.g. rdkafka callbacks). |
@@ -123,6 +158,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 1. **Drop during normal operation** — Only when the last handle is dropped **while shutdown is not in progress** (e.g. panic, early return) does the drop guard signal "component died" and trigger shutdown. Exiting after you see shutdown (e.g. `shutdown_recv()`) is fine; drop is treated as normal completion.
 2. **Register order** — Register all components before calling `monitor()` or `monitor_background()`; the manager is consumed by those calls, so you cannot register afterward.
 3. **Liveness** — If you use `with_liveness_deadline`, the component must call `report_healthy()` (or `report_healthy_blocking()`) more frequently than that interval, or the liveness probe will report the component as stalled/unhealthy. With `HealthStrategy::All`, one stalled component makes the app unhealthy.
+4. **Struct-held handles without `process_scope()`** — If your struct owns the handle and `process()` is the logical "process run," use `process_scope()` at the start of `process()`. Otherwise the manager is only notified when the **struct** is dropped, not when `process()` returns.
 
 ## Metrics
 

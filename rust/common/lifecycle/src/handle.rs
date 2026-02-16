@@ -23,7 +23,13 @@ pub(crate) enum ComponentEvent {
 /// If shutdown is not in progress, the drop signals "component died" and triggers shutdown.
 /// So for long-running components that exit when they see shutdown, just return (drop the
 /// handle); no need to call `work_completed()`. Call `work_completed()` for one-shot/finite
-/// work or when signaling done without dropping. See the crate README for usage.
+/// work or when signaling done without dropping.
+///
+/// **Struct-held handles:** If your component struct owns the handle and has a `process()`
+/// method that is the logical "process run," use [`process_scope`](Handle::process_scope) at
+/// the start of `process()`. When the guard is dropped (process returns), the manager is
+/// notified once. Passing the handle by ref or clone into other methods does not affect this.
+/// See the crate README section "Struct-held handle and process scope" for details.
 #[derive(Clone)]
 pub struct Handle {
     pub(crate) inner: Arc<HandleInner>,
@@ -36,6 +42,7 @@ pub struct HandleInner {
     pub(crate) healthy_until_ms: Arc<AtomicI64>,
     pub(crate) liveness_deadline: Option<Duration>,
     pub(crate) completed: AtomicBool,
+    pub(crate) process_scope_signalled: AtomicBool,
 }
 
 impl Handle {
@@ -104,10 +111,49 @@ impl Handle {
     pub fn report_healthy_blocking(&self) {
         self.report_healthy();
     }
+
+    /// Create a one-time drop guard for this component's process run. When the guard is dropped
+    /// (i.e. when your `process()` method returns), the manager is notified once: `WorkCompleted`
+    /// if shutdown is in progress, `Died` if not. The handle itself can remain on the struct and
+    /// be passed by ref or clone into other methods (e.g. `do_work(&self.handle)`) without
+    /// affecting the shutdown trigger. Typically create one guard per `process()` invocation.
+    pub fn process_scope(&self) -> ProcessScopeGuard {
+        ProcessScopeGuard {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+/// Drop guard returned by [`Handle::process_scope`]. When dropped, notifies the manager once
+/// (WorkCompleted if shutdown, Died if not). Subsequent drops of additional guards or the
+/// handle itself will not send duplicate events.
+pub struct ProcessScopeGuard {
+    inner: Arc<HandleInner>,
+}
+
+impl Drop for ProcessScopeGuard {
+    fn drop(&mut self) {
+        if self.inner.process_scope_signalled.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let event = if self.inner.shutdown_token.is_cancelled() {
+            ComponentEvent::WorkCompleted {
+                tag: self.inner.tag.clone(),
+            }
+        } else {
+            ComponentEvent::Died {
+                tag: self.inner.tag.clone(),
+            }
+        };
+        drop(self.inner.event_tx.try_send(event));
+    }
 }
 
 impl Drop for HandleInner {
     fn drop(&mut self) {
+        if self.process_scope_signalled.load(Ordering::SeqCst) {
+            return;
+        }
         if self.completed.load(Ordering::SeqCst) {
             return;
         }

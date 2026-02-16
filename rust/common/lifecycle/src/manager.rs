@@ -160,6 +160,7 @@ impl Manager {
             healthy_until_ms,
             liveness_deadline: options.liveness_deadline,
             completed: std::sync::atomic::AtomicBool::new(false),
+            process_scope_signalled: std::sync::atomic::AtomicBool::new(false),
         });
 
         Handle { inner }

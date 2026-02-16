@@ -359,3 +359,132 @@ async fn component_timeout_then_late_drop_stays_timed_out() {
         .expect("component_timeout_then_late_drop_stays_timed_out timed out");
     assert!(result.is_ok());
 }
+
+// --- ProcessScopeGuard tests ---
+
+/// Guard dropped during shutdown sends WorkCompleted, monitor returns Ok.
+#[tokio::test]
+async fn process_scope_guard_drop_during_shutdown_sends_work_completed() {
+    let mut manager = Manager::new(ManagerOptions {
+        name: "test".into(),
+        global_shutdown_timeout: Duration::from_secs(5),
+        trap_signals: false,
+        enable_prestop_check: false,
+        liveness_strategy: HealthStrategy::All,
+    });
+    let handle = manager.register("worker", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    // Simulate struct-held handle: task clones handle, creates process scope, then exits on shutdown.
+    let h = handle.clone();
+    tokio::spawn(async move {
+        let _scope = h.process_scope();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        h.request_shutdown();
+        h.shutdown_recv().await;
+        // _scope dropped here → WorkCompleted (shutdown in progress)
+    });
+    // Drop "struct" clone after task finishes
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    drop(handle);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("process_scope_guard_drop_during_shutdown_sends_work_completed timed out");
+    assert!(result.is_ok());
+}
+
+/// Guard dropped without shutdown sends Died, monitor returns ComponentDied.
+#[tokio::test]
+async fn process_scope_guard_drop_without_shutdown_sends_died() {
+    let mut manager = Manager::new(ManagerOptions {
+        name: "test".into(),
+        global_shutdown_timeout: Duration::from_secs(5),
+        trap_signals: false,
+        enable_prestop_check: false,
+        liveness_strategy: HealthStrategy::All,
+    });
+    let handle = manager.register("worker", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    let h = handle.clone();
+    tokio::spawn(async move {
+        let _scope = h.process_scope();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        // _scope dropped here → Died (shutdown not in progress)
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    drop(handle);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("process_scope_guard_drop_without_shutdown_sends_died timed out");
+    assert!(matches!(
+        result,
+        Err(LifecycleError::ComponentDied { tag }) if tag == "worker"
+    ));
+}
+
+/// Struct keeps handle after guard is dropped; HandleInner::drop skips sending because
+/// process_scope_signalled is already set. Manager gets exactly one event.
+#[tokio::test]
+async fn process_scope_guard_struct_keeps_handle_no_double_signal() {
+    let mut manager = Manager::new(ManagerOptions {
+        name: "test".into(),
+        global_shutdown_timeout: Duration::from_secs(5),
+        trap_signals: false,
+        enable_prestop_check: false,
+        liveness_strategy: HealthStrategy::All,
+    });
+    let handle = manager.register("worker", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    // "struct" holds handle; task uses process_scope then exits
+    let h = handle.clone();
+    tokio::spawn(async move {
+        let _scope = h.process_scope();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        h.request_shutdown();
+        h.shutdown_recv().await;
+        // _scope dropped → WorkCompleted (first and only event)
+    });
+
+    // "struct" clone dropped later — HandleInner::drop sees process_scope_signalled=true, skips
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    drop(handle);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("process_scope_guard_struct_keeps_handle_no_double_signal timed out");
+    assert!(result.is_ok());
+}
+
+/// Creating two guards from the same handle: only the first dropped sends an event.
+#[tokio::test]
+async fn process_scope_guard_multiple_guards_only_first_sends() {
+    let mut manager = Manager::new(ManagerOptions {
+        name: "test".into(),
+        global_shutdown_timeout: Duration::from_secs(5),
+        trap_signals: false,
+        enable_prestop_check: false,
+        liveness_strategy: HealthStrategy::All,
+    });
+    let handle = manager.register("worker", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    tokio::spawn(async move {
+        let scope1 = handle.process_scope();
+        let scope2 = handle.process_scope();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        handle.request_shutdown();
+        handle.shutdown_recv().await;
+        drop(scope1); // sends WorkCompleted
+        drop(scope2); // sees process_scope_signalled=true, skips
+        // handle dropped last — HandleInner::drop sees process_scope_signalled=true, skips
+    });
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("process_scope_guard_multiple_guards_only_first_sends timed out");
+    assert!(result.is_ok());
+}
