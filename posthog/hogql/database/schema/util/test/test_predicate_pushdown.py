@@ -10,7 +10,6 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
     references_joined_table,
 )
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import clone_expr
 
 
 def make_field(chain: list[str | int], table_type: Optional[ast.TableType] = None) -> ast.Field:
@@ -107,27 +106,18 @@ class TestJoinedTableReferenceFinder:
 
 
 class TestReferencesJoinedTable:
-    def test_simple_comparison_with_joined_field(self):
-        expr = parse_expr("session.duration > 0")
-        # Clone to clear types since parse_expr doesn't resolve types
-        expr = clone_expr(expr, clear_types=True)
-        # Manually set the field chain for testing
-        assert references_joined_table(expr, {"session"}) is True
-
-    def test_simple_comparison_without_joined_field(self):
-        expr = parse_expr("timestamp > '2024-01-01'")
-        expr = clone_expr(expr, clear_types=True)
-        assert references_joined_table(expr, {"session"}) is False
-
-    def test_and_expression_with_joined_field(self):
-        expr = parse_expr("timestamp > '2024-01-01' AND session.duration > 0")
-        expr = clone_expr(expr, clear_types=True)
-        assert references_joined_table(expr, {"session"}) is True
-
-    def test_nested_function_with_joined_field(self):
-        expr = parse_expr("ifNull(session.duration, 0) > 0")
-        expr = clone_expr(expr, clear_types=True)
-        assert references_joined_table(expr, {"session"}) is True
+    @parameterized.expand(
+        [
+            # (test_name, expr_str, joined_aliases, expected)
+            ("comparison_with_joined_field", "session.duration > 0", {"session"}, True),
+            ("comparison_without_joined_field", "timestamp > '2024-01-01'", {"session"}, False),
+            ("and_with_joined_field", "timestamp > '2024-01-01' AND session.duration > 0", {"session"}, True),
+            ("nested_function_with_joined_field", "ifNull(session.duration, 0) > 0", {"session"}, True),
+        ]
+    )
+    def test_references_joined_table(self, _name, expr_str, joined_aliases, expected):
+        expr = parse_expr(expr_str)
+        assert references_joined_table(expr, joined_aliases) is expected
 
 
 def print_expr(expr: Optional[ast.Expr]) -> Optional[str]:
@@ -205,7 +195,6 @@ class TestEventsPredicatePushdownExtractor:
     )
     def test_predicate_splitting(self, _name, expr_str, joined_aliases, expected_inner, expected_outer):
         expr = parse_expr(expr_str)
-        expr = clone_expr(expr, clear_types=True)
 
         extractor = EventsPredicatePushdownExtractor(joined_aliases)
         inner_where, outer_where = extractor.get_pushdown_predicates(expr)

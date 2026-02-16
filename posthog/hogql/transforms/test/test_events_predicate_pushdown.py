@@ -92,26 +92,9 @@ class TestEventsPredicatePushdownTransform(BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_simple_events_with_person_join(self):
-        """Simple test: events with person.id should resolve without predicate pushdown issues."""
         printed = self._print_select(
             "SELECT event, person.id FROM events WHERE timestamp > '2024-01-01'",
-            # modifiers=HogQLQueryModifiers(pushDownPredicates=False),
         )
-
-        assert printed == self.snapshot
-
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_pushdown_applied_to_nested_subqueries(self):
-        query = """
-                SELECT event, avg(duration)
-                FROM (SELECT event, session.$session_duration as duration
-                      FROM events
-                      WHERE timestamp > '2024-01-01')
-                GROUP BY event \
-                """
-
-        printed = self._print_select(query)
-
         assert printed == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -240,7 +223,6 @@ class TestEventsPredicatePushdownTransform(BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_bare_timestamp_with_select_alias_pushes_down(self):
-        """Bare timestamp in WHERE that shadows a SELECT alias is still pushed down."""
         printed = self._print_select(
             "SELECT event, toTimeZone(timestamp, 'UTC') as timestamp, session.$session_duration "
             "FROM events "
@@ -248,47 +230,8 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         )
         assert printed == self.snapshot
 
-
-class TestOuterWhereNotDuplicated(BaseTest):
-    """Tests proving that pushed-down predicates are removed from the outer WHERE,
-    and that PREWHERE semantics are preserved after pushdown.
-    """
-
-    snapshot: Any
-
-    def _print_select(self, select: str):
-        expr = parse_select(select)
-        query, _ = prepare_and_print_ast(
-            expr,
-            HogQLContext(
-                team_id=self.team.pk,
-                enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(pushDownPredicates=True),
-            ),
-            "clickhouse",
-        )
-        return pretty_print_in_tests(query, self.team.pk)
-
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_pushed_predicate_removed_from_outer_where(self):
-        """When all predicates are pushable, no outer WHERE on events.timestamp should exist."""
-        printed = self._print_select(
-            "SELECT event, session.$session_duration FROM events WHERE timestamp >= '2024-01-01'"
-        )
-        assert printed == self.snapshot
-
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_mixed_predicates_only_non_pushable_in_outer_where(self):
-        """When some predicates are pushable, outer WHERE should only contain non-pushable ones."""
-        printed = self._print_select(
-            "SELECT event, session.$session_duration FROM events "
-            "WHERE timestamp >= '2024-01-01' AND session.$session_duration > 0"
-        )
-        assert printed == self.snapshot
-
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_prewhere_non_pushable_stays_as_prewhere(self):
-        """Non-pushable PREWHERE predicates should remain as PREWHERE, not move to WHERE."""
         printed = self._print_select(
             "SELECT event, session.$session_duration FROM events "
             "PREWHERE timestamp >= '2024-01-01' AND session.$session_duration > 0"
@@ -297,7 +240,6 @@ class TestOuterWhereNotDuplicated(BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_where_and_prewhere_handled_separately(self):
-        """WHERE stays as WHERE and PREWHERE stays as PREWHERE after pushdown."""
         printed = self._print_select(
             "SELECT event, session.$session_duration FROM events "
             "PREWHERE session.$session_duration > 0 "

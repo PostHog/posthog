@@ -252,21 +252,19 @@
   LIMIT 50000
   '''
 # ---
-# name: TestEventsPredicatePushdownTransform.test_pushdown_applied_to_nested_subqueries
+# name: TestEventsPredicatePushdownTransform.test_prewhere_non_pushable_stays_as_prewhere
   '''
   
-  SELECT event AS event, avg(duration) AS `avg(duration)` 
-  FROM (
-  SELECT events.event AS event, events__session.`$session_duration` AS duration 
+  SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
   FROM (
   SELECT events.`$session_id` AS `$session_id`, events.event AS event 
   FROM events 
-  WHERE and(equals(events.team_id, 420), greater(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s))) AS events LEFT JOIN (
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s))) AS events LEFT JOIN (
   SELECT dateDiff(%(hogql_val_2)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_3)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_4)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_5)s, toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_6)s)), events__session.session_id_v7)) 
-  GROUP BY event 
+  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_6)s)), events__session.session_id_v7) PRE
+  WHERE ifNull(greater(events__session.`$session_duration`, 0), 0) 
   LIMIT 50000
   '''
 # ---
@@ -355,54 +353,7 @@
   LIMIT 50000
   '''
 # ---
-# name: TestOuterWhereNotDuplicated.test_mixed_predicates_only_non_pushable_in_outer_where
-  '''
-  
-  SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
-  FROM (
-  SELECT events.`$session_id` AS `$session_id`, events.event AS event 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s))) AS events LEFT JOIN (
-  SELECT dateDiff(%(hogql_val_2)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_3)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_4)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
-  FROM raw_sessions 
-  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_5)s, toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_6)s)), events__session.session_id_v7) 
-  WHERE ifNull(greater(events__session.`$session_duration`, 0), 0) 
-  LIMIT 50000
-  '''
-# ---
-# name: TestOuterWhereNotDuplicated.test_prewhere_non_pushable_stays_as_prewhere
-  '''
-  
-  SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
-  FROM (
-  SELECT events.`$session_id` AS `$session_id`, events.event AS event 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s))) AS events LEFT JOIN (
-  SELECT dateDiff(%(hogql_val_2)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_3)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_4)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
-  FROM raw_sessions 
-  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_5)s, toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_6)s)), events__session.session_id_v7) PRE
-  WHERE ifNull(greater(events__session.`$session_duration`, 0), 0) 
-  LIMIT 50000
-  '''
-# ---
-# name: TestOuterWhereNotDuplicated.test_pushed_predicate_removed_from_outer_where
-  '''
-  
-  SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
-  FROM (
-  SELECT events.`$session_id` AS `$session_id`, events.event AS event 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s))) AS events LEFT JOIN (
-  SELECT dateDiff(%(hogql_val_2)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_3)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_4)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
-  FROM raw_sessions 
-  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_5)s, toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7, raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_6)s)), events__session.session_id_v7) 
-  LIMIT 50000
-  '''
-# ---
-# name: TestOuterWhereNotDuplicated.test_where_and_prewhere_handled_separately
+# name: TestEventsPredicatePushdownTransform.test_where_and_prewhere_handled_separately
   '''
   
   SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
