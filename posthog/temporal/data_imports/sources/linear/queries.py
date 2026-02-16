@@ -148,6 +148,24 @@ query PaginatedCycles($pageSize: Int!, $cursor: String, $filter: CycleFilter) {
     }
 }"""
 
+RESOURCES_QUERY = """
+query PaginatedAttachments($pageSize: Int!, $cursor: String, $filter: AttachmentFilter) {
+    attachments(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+        nodes {
+            id
+            title
+            url
+            subtitle
+            sourceType
+            createdAt
+            updatedAt
+            issue { id identifier }
+            creator { id name email }
+        }
+        pageInfo { hasNextPage endCursor }
+    }
+}"""
+
 VIEWER_QUERY = "{ viewer { id } }"
 
 QUERIES: dict[str, str] = {
@@ -158,4 +176,5 @@ QUERIES: dict[str, str] = {
     "comments": COMMENTS_QUERY,
     "labels": LABELS_QUERY,
     "cycles": CYCLES_QUERY,
+    "resources": RESOURCES_QUERY,
 }

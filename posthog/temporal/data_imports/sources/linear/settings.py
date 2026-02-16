@@ -65,6 +65,10 @@ LINEAR_ENDPOINTS: dict[str, LinearEndpointConfig] = {
     "cycles": LinearEndpointConfig(
         incremental_fields=INCREMENTAL_DATETIME_FIELDS,
     ),
+    "resources": LinearEndpointConfig(
+        graphql_query_name="attachments",
+        incremental_fields=INCREMENTAL_DATETIME_FIELDS,
+    ),
 }
 
 ENDPOINTS = tuple(LINEAR_ENDPOINTS.keys())
