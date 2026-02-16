@@ -34,6 +34,12 @@
                 document.getElementById("send_2fa_reset").submit();
         });
 
+        document.getElementById("toggle_radar_bypass_button")?.addEventListener("click", (event) => {
+            event.preventDefault();
+            if (window.confirm("Toggle suspicious signup checks for this user?"))
+                document.getElementById("toggle_radar_bypass").submit();
+        });
+
         // Add read-only toggle to loginas modal
         const reasonField = document.getElementById("loginas-reason");
         if (reasonField) {
@@ -86,6 +92,11 @@
     <form method="POST" id="send_2fa_reset">
         {% csrf_token %}
         <input type="hidden" name="send_2fa_reset" value="1" />
+    </form>
+
+    <form method="POST" id="toggle_radar_bypass">
+        {% csrf_token %}
+        <input type="hidden" name="toggle_radar_bypass" value="1" />
     </form>
 {% endblock %}
 
