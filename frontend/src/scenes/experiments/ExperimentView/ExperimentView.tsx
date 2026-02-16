@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconSparkles } from '@posthog/icons'
 import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -101,8 +102,14 @@ const MetricsTab = (): JSX.Element => {
             {usesNewQueryRunner && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <SceneSection
-                        title="Summarize experiment"
+                        title={
+                            <span className="flex items-center gap-2">
+                                Summarize experiment
+                                <IconSparkles className="text-ai" />
+                            </span>
+                        }
                         description="Use AI to summarize the experiment results."
+                        className="justify-between"
                     >
                         <div className="inline-block">
                             <SummarizeExperimentButton
@@ -115,8 +122,14 @@ const MetricsTab = (): JSX.Element => {
                         </div>
                     </SceneSection>
                     <SceneSection
-                        title="Summarize session replays"
+                        title={
+                            <span className="flex items-center gap-2">
+                                Summarize session replays
+                                <IconSparkles className="text-ai" />
+                            </span>
+                        }
                         description="Use AI to summarize session replays for this experiment. This will help you understand how users are interacting with your experiment."
+                        className="justify-between"
                     >
                         <div className="inline-block">
                             <SummarizeSessionReplaysButton experiment={experiment} />
