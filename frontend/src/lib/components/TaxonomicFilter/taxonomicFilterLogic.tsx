@@ -1220,23 +1220,29 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         })
                     }
                     const isOnSuggestedFiltersTab = values.activeTab === TaxonomicFilterGroupType.SuggestedFilters
-                    if (isQuickFilterItem(item)) {
+                    if (isOnSuggestedFiltersTab) {
+                        const source = isQuickFilterItem(item) ? 'suggested_filter' : 'top_match'
                         posthog.capture('taxonomic suggested filter selected', {
                             query: originalQuery,
-                            filterName: item.name,
-                            propertyKey: item.propertyKey,
-                            operator: item.operator,
-                            filterValue: item.filterValue,
-                            propertyFilterType: item.propertyFilterType,
-                            eventName: item.eventName,
-                            source: 'suggested_filter',
+                            source,
+                            group: group.type,
+                            value,
+                            ...(isQuickFilterItem(item)
+                                ? {
+                                      filterName: item.name,
+                                      propertyKey: item.propertyKey,
+                                      operator: item.operator,
+                                      filterValue: item.filterValue,
+                                      propertyFilterType: item.propertyFilterType,
+                                      eventName: item.eventName,
+                                  }
+                                : {}),
                         })
                     } else {
                         posthog.capture('taxonomic non-suggested filter selected', {
                             group: group.type,
                             value,
                             activeTab: values.activeTab,
-                            source: isOnSuggestedFiltersTab ? 'top_match' : 'direct',
                         })
                     }
                 } catch (e) {
