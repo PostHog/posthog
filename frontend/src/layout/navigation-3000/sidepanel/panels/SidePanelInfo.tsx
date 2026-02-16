@@ -3,9 +3,10 @@ import { useEffect, useRef } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+
+import { SidePanelContentContainer } from '../SidePanelContentContainer'
+import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 
 export const SidePanelInfoIcon = IconInfo
 
@@ -23,8 +24,9 @@ export function SidePanelInfo(): JSX.Element {
     }, [registerScenePanelElement])
 
     return (
-        <ScrollableShadows direction="vertical" className="grow flex-1" innerClassName="px-2 py-2" styledScrollbars>
+        <SidePanelContentContainer>
+            <SidePanelPaneHeader title="Actions" />
             <div ref={ref} className="flex flex-col gap-2" />
-        </ScrollableShadows>
+        </SidePanelContentContainer>
     )
 }

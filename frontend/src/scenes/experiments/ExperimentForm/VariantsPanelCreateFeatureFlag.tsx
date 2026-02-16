@@ -80,22 +80,25 @@ interface TrafficPreviewProps {
     areVariantRolloutsValid: boolean
 }
 
+// Visualizes the bucketing logic performed by the backend
 const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }: TrafficPreviewProps): JSX.Element => {
-    let cumulativePercentage = 0
+    const excludedPercentage = Math.max(0, 100 - rolloutPercentage)
+
+    let cumulativeStart = 0
     const previewVariants = variants.map((variant, index) => {
-        const percent = Math.max(0, (variant.rollout_percentage / 100) * rolloutPercentage)
-        const startPercentage = cumulativePercentage
-        cumulativePercentage += percent
+        const slotSize = variant.rollout_percentage
+        const slotStart = cumulativeStart
+        cumulativeStart += slotSize
         return {
             ...variant,
             index,
             letter: alphabet[index] ?? `${index + 1}`,
-            previewPercentage: percent,
-            startPercentage,
+            slotSize,
+            slotStart,
+            previewPercentage: Math.max(0, (variant.rollout_percentage / 100) * rolloutPercentage),
             color: getSeriesColor(index),
         }
     })
-    const excludedPercentage = Math.max(0, 100 - rolloutPercentage)
 
     return (
         <div className="flex flex-col gap-3">
@@ -115,48 +118,59 @@ const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }
                 </div>
             </div>
             <div className="h-10 rounded bg-fill-secondary border border-primary overflow-hidden flex relative">
-                {previewVariants.map((variant) => (
+                {rolloutPercentage > 0 ? (
+                    previewVariants.map((variant) => (
+                        <div key={variant.key} className="h-full flex" style={{ width: `${variant.slotSize}%` }}>
+                            <div
+                                className="h-full"
+                                style={{
+                                    width: `${rolloutPercentage}%`,
+                                    backgroundColor: variant.color,
+                                }}
+                            />
+                            {rolloutPercentage < 100 && (
+                                <div
+                                    className="h-full flex-1"
+                                    style={{
+                                        backgroundImage:
+                                            'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
+                                    }}
+                                />
+                            )}
+                        </div>
+                    ))
+                ) : (
                     <div
-                        key={variant.key}
-                        className="h-full"
+                        className="h-full w-full"
                         style={{
-                            width: `${variant.previewPercentage}%`,
-                            backgroundColor: variant.color,
-                        }}
-                    />
-                ))}
-                {excludedPercentage > 0 && (
-                    <div
-                        className="h-full"
-                        style={{
-                            width: `${excludedPercentage}%`,
                             backgroundImage:
                                 'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
                         }}
                     />
                 )}
-                {previewVariants.map((variant) => (
-                    <div
-                        key={`${variant.key}-letter`}
-                        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 text-[10px] font-semibold text-white pointer-events-none"
-                        style={{
-                            left: `${variant.startPercentage + variant.previewPercentage / 2}%`,
-                            textShadow: '0 1px 2px rgba(0, 0, 0, 0.35)',
-                        }}
-                    >
-                        {variant.letter}
-                    </div>
-                ))}
+                {rolloutPercentage > 0 &&
+                    previewVariants.map((variant) => (
+                        <div
+                            key={`${variant.key}-letter`}
+                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 text-[10px] font-semibold text-white pointer-events-none"
+                            style={{
+                                left: `${variant.slotStart + (variant.slotSize * rolloutPercentage) / 100 / 2}%`,
+                                textShadow: '0 1px 2px rgba(0, 0, 0, 0.35)',
+                            }}
+                        >
+                            {variant.letter}
+                        </div>
+                    ))}
             </div>
-            <div className="flex">
+            <div className="flex" style={{ visibility: rolloutPercentage > 0 ? 'visible' : 'hidden' }}>
                 {previewVariants.map((variant) => (
-                    <div
-                        key={`${variant.key}-label`}
-                        className="text-xs text-secondary text-center truncate"
-                        style={{ width: `${variant.previewPercentage}%` }}
-                        title={`${variant.key} (${formatPercentage(variant.previewPercentage, { precise: true, compact: true })})`}
-                    >
-                        {formatPercentage(variant.previewPercentage, { precise: true, compact: true })}
+                    <div key={`${variant.key}-label`} className="flex" style={{ width: `${variant.slotSize}%` }}>
+                        <div
+                            className="text-xs text-secondary text-center whitespace-nowrap"
+                            style={{ width: `${rolloutPercentage}%` }}
+                        >
+                            {formatPercentage(variant.previewPercentage, { precise: true, compact: true })}
+                        </div>
                     </div>
                 ))}
             </div>

@@ -120,7 +120,13 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                 updateCurrentOrganization(item.org.id)
             }
         },
-        [closeOrgSwitcher, updateCurrentOrganization, guardAvailableFeature, showCreateOrganizationModal]
+        [
+            closeOrgSwitcher,
+            updateCurrentOrganization,
+            guardAvailableFeature,
+            showCreateOrganizationModal,
+            setAccountMenuOpen,
+        ]
     )
 
     const getItemString = useCallback((item: ListItem | null): string => {

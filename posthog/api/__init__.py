@@ -119,6 +119,7 @@ from . import (
     proxy_record,
     query,
     quick_filters,
+    resource_transfer,
     scheduled_change,
     schema_property_group,
     search,
@@ -165,7 +166,7 @@ router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
 router.register(r"oauth_application/metadata", OAuthApplicationPublicMetadataViewSet, "oauth_application_metadata")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
-projects_router.register(r"environments", team.TeamViewSet, "project_environments", ["project_id"])
+projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
 environments_router = router.register(r"environments", team.RootTeamViewSet, "environments")
 
 
@@ -312,6 +313,13 @@ environments_router.register(
     r"customer_profile_configs",
     customer_analytics.CustomerProfileConfigViewSet,
     "environment_customer_profile_configs",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"customer_journeys",
+    customer_analytics.CustomerJourneyViewSet,
+    "environment_customer_journeys",
     ["team_id"],
 )
 
@@ -592,6 +600,12 @@ organizations_router.register(
     r"feature_flags",
     organization_feature_flag.OrganizationFeatureFlagView,
     "organization_feature_flags",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"resource_transfers",
+    resource_transfer.ResourceTransferViewSet,
+    "organization_resource_transfers",
     ["organization_id"],
 )
 

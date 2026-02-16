@@ -330,6 +330,7 @@ export interface TicketApi {
     /** @nullable */
     readonly last_message_text: string | null
     readonly unread_team_count: number
+    readonly unread_customer_count: number
     /** @nullable */
     readonly session_id: string | null
     readonly session_context: unknown
@@ -365,6 +366,7 @@ export interface PatchedTicketApi {
     /** @nullable */
     readonly last_message_text?: string | null
     readonly unread_team_count?: number
+    readonly unread_customer_count?: number
     /** @nullable */
     readonly session_id?: string | null
     readonly session_context?: unknown

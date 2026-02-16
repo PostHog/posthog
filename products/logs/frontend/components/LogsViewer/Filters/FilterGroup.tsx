@@ -31,7 +31,7 @@ export const taxonomicGroupTypes = [
 ]
 
 export const LogsFilterGroup = (): JSX.Element => {
-    const { filters, tabId, utcDateRange } = useValues(logsViewerFiltersLogic)
+    const { filters, id, utcDateRange } = useValues(logsViewerFiltersLogic)
     const { filterGroup, serviceNames } = filters
     const { setFilterGroup } = useActions(logsViewerFiltersLogic)
 
@@ -43,7 +43,7 @@ export const LogsFilterGroup = (): JSX.Element => {
 
     return (
         <UniversalFilters
-            rootKey={`${taxonomicFilterLogicKey}-${tabId}`}
+            rootKey={`${taxonomicFilterLogicKey}-${id}`}
             group={filterGroup.values[0] as UniversalFiltersGroup}
             taxonomicGroupTypes={taxonomicGroupTypes}
             endpointFilters={endpointFilters}

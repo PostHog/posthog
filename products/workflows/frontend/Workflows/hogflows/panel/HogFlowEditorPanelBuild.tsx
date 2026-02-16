@@ -236,7 +236,7 @@ function HogFunctionTemplatesChooser(): JSX.Element {
                             <SpinnerOverlay />
                         ) : (
                             <ul className="overflow-y-auto flex-1">
-                                {filteredTemplates.map((template) => (
+                                {filteredTemplates.map((template: HogFunctionTemplateType) => (
                                     <li key={template.type}>
                                         <HogFlowEditorToolbarNode
                                             action={{

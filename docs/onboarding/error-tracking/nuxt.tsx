@@ -11,9 +11,7 @@ export const getNuxt37Steps = (ctx: OnboardingComponentsContext): StepDefinition
             badge: 'required',
             content: (
                 <>
-                    <Markdown>
-                        Install the PostHog Nuxt module using your package manager:
-                    </Markdown>
+                    <Markdown>Install the PostHog Nuxt module using your package manager:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -46,9 +44,7 @@ export const getNuxt37Steps = (ctx: OnboardingComponentsContext): StepDefinition
                             },
                         ]}
                     />
-                    <Markdown>
-                        Add the module to your `nuxt.config.ts` file:
-                    </Markdown>
+                    <Markdown>Add the module to your `nuxt.config.ts` file:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -79,10 +75,10 @@ export const getNuxt37Steps = (ctx: OnboardingComponentsContext): StepDefinition
                                       },
                                       sourcemaps: {
                                         enabled: true,
-                                        envId: '<ph_environment_id>', // Your project ID from PostHog settings https://app.posthog.com/settings/environment#variables
+                                        project: '<ph_project_id>', // Your project ID from PostHog settings https://app.posthog.com/settings/environment#variables
                                         personalApiKey: '<ph_personal_api_key>', // Your personal API key from PostHog settings https://app.posthog.com/settings/user-api-keys (requires organization:read and error_tracking:write scopes)
-                                        project: 'my-application', // Optional: defaults to git repository name
-                                        version: '1.0.0', // Optional: defaults to current git commit
+                                        releaseName: 'my-application', // Optional: defaults to git repository name
+                                        releaseVersion: '1.0.0', // Optional: defaults to current git commit
                                       },
                                     },
                                   })
@@ -96,7 +92,7 @@ export const getNuxt37Steps = (ctx: OnboardingComponentsContext): StepDefinition
                         </Markdown>
                     </CalloutBox>
                     <Markdown>
-                      {dedent`
+                        {dedent`
                         The module will automatically:
                         - Initialize PostHog on both Vue (client side) and Nitro (server side)
                         - Capture exceptions on both client and server
@@ -135,9 +131,7 @@ export const getNuxt37Steps = (ctx: OnboardingComponentsContext): StepDefinition
                             },
                         ]}
                     />
-                    <Markdown>
-                        On the server side instantiate PostHog using:
-                    </Markdown>
+                    <Markdown>On the server side instantiate PostHog using:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -169,9 +163,7 @@ export const getNuxt37Steps = (ctx: OnboardingComponentsContext): StepDefinition
             badge: 'required',
             content: (
                 <>
-                    <Markdown>
-                        Build your project for production by running the following command:
-                    </Markdown>
+                    <Markdown>Build your project for production by running the following command:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -184,7 +176,8 @@ export const getNuxt37Steps = (ctx: OnboardingComponentsContext): StepDefinition
                         ]}
                     />
                     <Markdown>
-                        The PostHog module will automatically **generate and upload source maps** to PostHog during the build process.
+                        The PostHog module will automatically **generate and upload source maps** to PostHog during the
+                        build process.
                     </Markdown>
                 </>
             ),
