@@ -1,4 +1,6 @@
+import { readdirSync } from 'fs'
 import { DateTime } from 'luxon'
+import { join } from 'path'
 
 import { ModifiedRequest } from '~/api/router'
 import { instrumented } from '~/common/tracing/tracing-utils'
@@ -17,6 +19,7 @@ import {
     CyclotronJobInvocationResult,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
+    HogFunctionTemplateCompiled,
     HogFunctionType,
     LogEntryLevel,
     MinimalAppMetric,
@@ -24,6 +27,17 @@ import {
 import { logEntry } from '../utils'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
+
+const WAREHOUSE_TEMPLATES_DIR = join(__dirname, '../templates/_sources/warehouse_source')
+const WAREHOUSE_SOURCE_TEMPLATES: Record<string, HogFunctionTemplateCompiled> = Object.fromEntries(
+    readdirSync(WAREHOUSE_TEMPLATES_DIR)
+        .filter((f) => f.endsWith('.template.ts') || f.endsWith('.template.js'))
+        .map((f) => {
+            const mod = require(join(WAREHOUSE_TEMPLATES_DIR, f))
+            const name = f.replace(/\.template\.(ts|js)$/, '')
+            return [name, mod.template as HogFunctionTemplateCompiled]
+        })
+)
 
 const DISALLOWED_HEADERS = [
     'x-forwarded-for',
@@ -101,6 +115,17 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<CdpSourceWebhooks
         const hogFunction = await this.hogFunctionManager.getHogFunction(webhookId)
         if (hogFunction?.type === 'source_webhook' && hogFunction?.enabled) {
             return { hogFunction }
+        }
+
+        if (hogFunction?.type === 'warehouse_source_webhook' && hogFunction?.enabled) {
+            const sourceType = hogFunction.inputs?.source_type?.value as string | undefined
+            const template =
+                (sourceType ? WAREHOUSE_SOURCE_TEMPLATES[sourceType.toLowerCase()] : undefined) ??
+                WAREHOUSE_SOURCE_TEMPLATES['_default']
+            if (template) {
+                hogFunction.bytecode = template.bytecode
+                return { hogFunction }
+            }
         }
 
         // Otherwise check for hog flows

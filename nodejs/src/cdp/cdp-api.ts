@@ -5,7 +5,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ModifiedRequest } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
+import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS, KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
@@ -172,6 +172,11 @@ export class CdpApi {
         }
 
         // Public routes (excluded from authentication by middleware)
+        router.post(
+            '/public/webhooks/dwh/:webhook_id',
+            publicBodySizeLimit,
+            asyncHandler(this.handleWarehouseSourceWebhook())
+        )
         router.post('/public/webhooks/:webhook_id', publicBodySizeLimit, asyncHandler(this.handleWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
@@ -608,6 +613,63 @@ export class CdpApi {
                 if (error instanceof SourceWebhookError) {
                     return res.status(error.status).json({ error: error.message })
                 }
+                return res.status(500).json({ error: 'Internal error' })
+            }
+        }
+
+    private handleWarehouseSourceWebhook =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            const { webhook_id } = req.params
+
+            try {
+                const result = await this.cdpSourceWebhooksConsumer.processWebhook(webhook_id, req)
+
+                // If the template returned an error response (e.g. bad signature), forward it
+                if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
+                    const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
+                    if (typeof httpResponse.body === 'string') {
+                        return res
+                            .status(httpResponse.status)
+                            .set('Content-Type', httpResponse.contentType ?? 'text/plain')
+                            .send(httpResponse.body)
+                    } else if (typeof httpResponse.body === 'object') {
+                        return res.status(httpResponse.status).json(httpResponse.body)
+                    }
+                    return res.status(httpResponse.status).send('')
+                }
+
+                if (result.error) {
+                    return res.status(500).json({ error: 'Internal error' })
+                }
+
+                if (!result.execResult || typeof result.execResult !== 'object') {
+                    return res.status(500).json({ error: 'Template did not return a payload' })
+                }
+
+                const hogFunction = result.invocation.hogFunction
+                const schemaId = hogFunction.inputs?.schema_id?.value
+                if (!schemaId) {
+                    return res.status(500).json({ error: 'Missing schema_id on hog function' })
+                }
+
+                const kafkaProducer = this.hub.kafkaProducer
+                if (!kafkaProducer) {
+                    return res.status(500).json({ error: 'Kafka producer not available' })
+                }
+
+                await kafkaProducer.produce({
+                    topic: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
+                    key: `${hogFunction.team_id}:${schemaId}`,
+                    value: Buffer.from(JSON.stringify(result.execResult)),
+                })
+
+                return res.status(200).json({ status: 'ok' })
+            } catch (error) {
+                if (error instanceof SourceWebhookError) {
+                    return res.status(error.status).json({ error: error.message })
+                }
+                logger.error('[CdpApi] Error handling warehouse source webhook', { error })
                 return res.status(500).json({ error: 'Internal error' })
             }
         }

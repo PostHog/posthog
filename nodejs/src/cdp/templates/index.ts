@@ -28,6 +28,7 @@ import { template as twilioTemplate } from './_destinations/twilio/twilio.templa
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
 import { template as pixelTemplate } from './_sources/pixel/pixel.template'
 import { template as stripeWebhookTemplate } from './_sources/stripe/stripe_webhook.template'
+import { template as warehouseSourceStripeTemplate } from './_sources/warehouse_source/stripe.template'
 import { template as incomingWebhookTemplate } from './_sources/webhook/incoming_webhook.template'
 import { template as botDetectionTemplate } from './_transformations/bot-detection/bot-detection.template'
 import { template as defaultTransformationTemplate } from './_transformations/default/default.template'
@@ -103,6 +104,7 @@ export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [
     incomingWebhookTemplate,
     stripeWebhookTemplate,
     pixelTemplate,
+    warehouseSourceStripeTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED: HogFunctionTemplate[] = DESTINATION_PLUGINS.map(

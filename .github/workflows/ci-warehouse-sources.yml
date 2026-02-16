@@ -1,0 +1,102 @@
+name: Warehouse source bytecode
+
+on:
+    pull_request:
+        paths:
+            - 'nodejs/src/cdp/templates/_sources/warehouse_source/*.template.ts'
+            - '.github/workflows/ci-warehouse-sources.yml'
+            - 'nodejs/src/cdp/templates/_sources/warehouse_source/compile-bytecode.ts'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+
+permissions:
+    contents: write
+    pull-requests: write
+
+jobs:
+    update-bytecode:
+        name: Update warehouse source bytecode
+        runs-on: ubuntu-24.04
+        if: github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+        timeout-minutes: 10
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - uses: actions/checkout@v6
+              with:
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - name: Set up Python
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  version: 0.9.9
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Install Python dependencies
+              run: |
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Set up Node.js
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              with:
+                  node-version-file: '.nvmrc'
+                  cache: 'pnpm'
+
+            - name: Install Node.js dependencies
+              run: pnpm --filter=@posthog/nodejs install --frozen-lockfile
+
+            - name: Compile bytecode
+              run: |
+                  cd nodejs && npx tsx src/cdp/templates/_sources/warehouse_source/compile-bytecode.ts
+
+            - name: Lint updated files
+              run: |
+                  cd nodejs && npx prettier --write src/cdp/templates/_sources/warehouse_source/*.template.ts
+
+            - name: Check for changes
+              id: check-changes
+              run: |
+                  if git diff --quiet nodejs/src/cdp/templates/_sources/warehouse_source/; then
+                      echo "No bytecode changes"
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  else
+                      echo "Bytecode updated"
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                      git diff --stat nodejs/src/cdp/templates/_sources/warehouse_source/
+                  fi
+
+            - name: Commit to PR branch
+              if: steps.check-changes.outputs.changed == 'true'
+              env:
+                  BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git add nodejs/src/cdp/templates/_sources/warehouse_source/*.template.ts
+                  git commit -m "chore(data-warehouse): update warehouse source bytecode"
+                  git push origin HEAD:"$BRANCH_NAME"
+                  echo "::notice::Committed updated bytecode to $BRANCH_NAME"
