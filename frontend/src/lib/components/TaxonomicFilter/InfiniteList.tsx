@@ -423,7 +423,6 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         activeTab,
         searchQuery,
         eventNames,
-        allowNonCapturedEvents,
         groupType,
         value,
         taxonomicGroups,
@@ -445,7 +444,9 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         expandedCount,
         showPopover,
         items,
-        hasRemoteDataSource,
+        showNonCapturedEventOption,
+        rowCount,
+        showEmptyState,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
@@ -453,28 +454,6 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     const listRef = useListRef(null)
 
     const trimmedSearchQuery = searchQuery.trim()
-
-    // Show "Add non-captured event" option for CustomEvents group when searching
-    const showNonCapturedEventOption =
-        allowNonCapturedEvents &&
-        (listGroupType === TaxonomicFilterGroupType.CustomEvents ||
-            listGroupType === TaxonomicFilterGroupType.Events) &&
-        trimmedSearchQuery.length > 0 &&
-        !isLoading &&
-        // Only show if no results found at all
-        results.length === 0
-
-    // Only show empty state if:
-    // 1. There are no results
-    // 2. We're not currently loading
-    // 3. We have a search query (otherwise if hasRemoteDataSource=true, we're just waiting for data)
-    // 4. We're not showing the non-captured event option
-    const showEmptyState =
-        totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption
-
-    const rowCount = showNonCapturedEventOption
-        ? 1
-        : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)
 
     useEffect(() => {
         if (index >= 0 && index < rowCount && listRef.current) {

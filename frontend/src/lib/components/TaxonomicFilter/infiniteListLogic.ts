@@ -463,6 +463,29 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (s) => [s.index, s.startIndex, s.stopIndex],
             (index, startIndex, stopIndex) => typeof index === 'number' && index >= startIndex && index <= stopIndex,
         ],
+        showNonCapturedEventOption: [
+            (s) => [s.allowNonCapturedEvents, s.listGroupType, s.searchQuery, s.isLoading, s.results],
+            (allowNonCapturedEvents, listGroupType, searchQuery, isLoading, results): boolean =>
+                allowNonCapturedEvents &&
+                (listGroupType === TaxonomicFilterGroupType.CustomEvents ||
+                    listGroupType === TaxonomicFilterGroupType.Events) &&
+                searchQuery.trim().length > 0 &&
+                !isLoading &&
+                results.length === 0,
+        ],
+        rowCount: [
+            (s) => [s.showNonCapturedEventOption, s.results, s.isLoading, s.totalListCount],
+            (showNonCapturedEventOption, results, isLoading, totalListCount): number =>
+                showNonCapturedEventOption ? 1 : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0),
+        ],
+        showEmptyState: [
+            (s) => [s.totalListCount, s.isLoading, s.searchQuery, s.hasRemoteDataSource, s.showNonCapturedEventOption],
+            (totalListCount, isLoading, searchQuery, hasRemoteDataSource, showNonCapturedEventOption): boolean =>
+                totalListCount === 0 &&
+                !isLoading &&
+                (!!searchQuery || !hasRemoteDataSource) &&
+                !showNonCapturedEventOption,
+        ],
     }),
     listeners(({ values, actions, props, cache }) => ({
         onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
