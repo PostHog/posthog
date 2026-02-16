@@ -746,6 +746,62 @@ describe('funnelDataLogic', () => {
         })
     })
 
+    describe('breakdownSorting', () => {
+        const insight: Partial<InsightModel> = {
+            filters: { insight: InsightType.FUNNELS },
+            result: funnelResultWithBreakdown.result,
+        }
+
+        const getBreakdownOrder = (breakdowns: { breakdown?: unknown }[]): unknown[] =>
+            breakdowns.map((b) => (b as any).breakdown?.[0] ?? 'baseline')
+
+        it.each([
+            ['breakdown_value', ['baseline', 'Chrome', 'Firefox', 'Safari']],
+            ['-breakdown_value', ['Safari', 'Firefox', 'Chrome', 'baseline']],
+            ['step_0_conversion', ['Safari', 'Firefox', 'Chrome', 'baseline']],
+            ['-step_0_conversion', ['baseline', 'Chrome', 'Firefox', 'Safari']],
+            ['step_1_conversion', ['Safari', 'Firefox', 'Chrome', 'baseline']],
+            ['-step_1_conversion', ['baseline', 'Chrome', 'Firefox', 'Safari']],
+        ])('flattenedBreakdowns sorts by %s', async (breakdownSorting: string, expectedOrder: string[]) => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { breakdownSorting },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            const order = getBreakdownOrder(logic.values.flattenedBreakdowns)
+            expect(order).toEqual(expectedOrder)
+        })
+
+        it('visibleStepsWithConversionMetrics matches flattenedBreakdowns order', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { breakdownSorting: '-step_1_conversion' },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            const { flattenedBreakdowns, visibleStepsWithConversionMetrics } = logic.values
+            const expectedOrder = flattenedBreakdowns.map((b) => b.breakdown_value?.[0] ?? 'Baseline')
+
+            for (const step of visibleStepsWithConversionMetrics) {
+                const nestedOrder = (step.nested_breakdown ?? []).map((b) =>
+                    Array.isArray(b.breakdown_value) ? b.breakdown_value[0] : b.breakdown_value
+                )
+                expect(nestedOrder).toEqual(expectedOrder)
+            }
+        })
+    })
+
     describe('time to convert funnel', () => {
         describe('timeConversionResults', () => {
             it('with time-to-convert funnel', async () => {
