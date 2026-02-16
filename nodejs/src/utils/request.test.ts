@@ -61,8 +61,8 @@ describe('fetch', () => {
         })
 
         it('should successfully fetch from safe URLs', async () => {
-            // This will make a real HTTP request
-            const response = await fetch('https://example.com')
+            // This will make a real HTTP request (using HTTP to avoid SSL cert issues in CI)
+            const response = await fetch('http://example.com')
             expect(response.status).toBe(200)
         })
     })
@@ -138,8 +138,8 @@ describe('legacyFetch', () => {
         })
 
         it('should successfully fetch from safe URLs', async () => {
-            // This will make a real HTTP request
-            const response = await legacyFetch('https://example.com')
+            // This will make a real HTTP request (using HTTP to avoid SSL cert issues in CI)
+            const response = await legacyFetch('http://example.com')
             expect(response.ok).toBe(true)
         })
     })
