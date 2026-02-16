@@ -49,27 +49,29 @@ def _make_paginated_request(
         reraise=True,
     )
     def execute(variables: dict[str, Any]) -> dict:
-        response = sess.post(LINEAR_API_URL, json={"query": query, "variables": variables})
+        response = sess.post(LINEAR_API_URL, json={"query": query, "variables": variables}, timeout=60)
 
-        if response.status_code == 429:
-            raise LinearRetryableError("Linear: rate limit exceeded")
         if response.status_code >= 500:
             raise LinearRetryableError(f"Linear: server error {response.status_code}")
 
-        if not response.ok:
-            try:
-                body = response.json()
-            except Exception:
-                body = response.text
-            raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {body})")
-        payload = response.json()
+        try:
+            payload = response.json()
+        except Exception:
+            if not response.ok:
+                raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {response.text})")
+            raise Exception(f"Unexpected Linear response: {response.text}")
 
         if "errors" in payload:
             error_messages = [e.get("message", "") for e in payload["errors"]]
             joined = "; ".join(error_messages)
-            if "ratelimit" in joined.lower() or "rate limit" in joined.lower():
+            if any(e.get("extensions", {}).get("code") == "RATELIMITED" for e in payload["errors"]):
                 raise LinearRetryableError(f"Linear: rate limited - {joined}")
+            if not response.ok:
+                raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {joined})")
             raise Exception(f"Linear GraphQL error: {joined}")
+
+        if not response.ok:
+            raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {payload})")
 
         if "data" not in payload:
             raise Exception(f"Unexpected Linear response format. Keys: {list(payload.keys())}")
