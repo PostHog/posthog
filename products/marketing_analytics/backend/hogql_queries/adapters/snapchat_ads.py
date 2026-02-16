@@ -142,16 +142,8 @@ class SnapchatAdsAdapter(MarketingSourceAdapter[SnapchatAdsConfig]):
         except (TypeError, AttributeError, KeyError):
             pass
 
-        # If no conversion columns found, fallback to conversion_purchases
         if not conversion_exprs:
-            field_as_float = ast.Call(
-                name="ifNull",
-                args=[
-                    ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "conversion_purchases"])]),
-                    ast.Constant(value=0),
-                ],
-            )
-            conversion_exprs.append(field_as_float)
+            return ast.Constant(value=0)
 
         # Sum all conversion fields
         if len(conversion_exprs) == 1:
