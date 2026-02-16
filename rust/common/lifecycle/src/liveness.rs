@@ -75,7 +75,10 @@ impl LivenessHandler {
 
         for comp in self.components.iter() {
             let until = comp.healthy_until_ms.load(Ordering::Relaxed);
-            let status = if until == 0 {
+            let status = if until == -1 {
+                all_healthy = false;
+                ComponentLiveness::Unhealthy
+            } else if until == 0 {
                 all_healthy = false;
                 ComponentLiveness::Starting
             } else if until > now_ms {

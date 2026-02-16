@@ -15,8 +15,13 @@ pub(crate) enum ComponentEvent {
     Died { tag: String },
 }
 
-/// RAII handle for a registered component. Clone and pass to tasks; drop without
-/// [`work_completed`](Handle::work_completed) signals "died" to the manager.
+/// RAII handle for a registered component. Clone and pass to tasks.
+///
+/// **Drop guard:** When the last clone of a handle is dropped (e.g. when your component task
+/// returns), the manager is notified. If you did not call [`work_completed`](Handle::work_completed)
+/// before returning, the manager treats the component as "died" and initiates shutdown. So on
+/// every exit path from your component (shutdown, error, early return), call `work_completed()`
+/// before returning. See the crate README for usage and pitfalls.
 #[derive(Clone)]
 pub struct Handle {
     pub(crate) inner: Arc<HandleInner>,
@@ -86,9 +91,9 @@ impl Handle {
         }
     }
 
-    /// Report this component as unhealthy for liveness.
+    /// Report this component as unhealthy for liveness (stored as -1 so liveness shows Unhealthy, not Starting).
     pub fn report_unhealthy(&self) {
-        self.inner.healthy_until_ms.store(0, Ordering::Relaxed);
+        self.inner.healthy_until_ms.store(-1, Ordering::Relaxed);
     }
 
     /// Same as [`report_healthy`](Handle::report_healthy); safe to call from sync/blocking contexts (e.g. rdkafka callbacks).
