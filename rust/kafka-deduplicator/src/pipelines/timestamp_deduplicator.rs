@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use common_kafka::kafka_producer::KafkaContext;
+use common_types::EventWithLibraryInfo;
 use rdkafka::producer::FutureProducer;
 
 use crate::kafka::offset_tracker::OffsetTracker;
@@ -46,7 +47,9 @@ use crate::store_manager::StoreManager;
 ///
 /// This combines all the requirements for an event type to be used with
 /// `TimestampDeduplicator`.
-pub trait DeduplicatableEvent: DeduplicationKeyExtractor + Send + Sync + Sized {
+pub trait DeduplicatableEvent:
+    DeduplicationKeyExtractor + EventWithLibraryInfo + Send + Sync + Sized
+{
     /// The metadata type used to track duplicates for this event type.
     type Metadata: DeduplicationMetadata<Self> + Send + Sync;
 
@@ -144,13 +147,16 @@ impl<E: DeduplicatableEvent> TimestampDeduplicator<E> {
         // Run deduplication logic
         let results = self.deduplicate_events_internal(&store, &events)?;
 
-        // Emit metrics for each result
-        for result in &results {
+        // Emit metrics for each result with library info
+        for (event, result) in events.iter().zip(results.iter()) {
+            let lib_info = event.extract_library_info();
+            let lib = lib_info.as_ref().map(|info| info.name.as_str());
+
             emit_deduplication_result_metrics(
                 topic,
                 partition,
                 &self.config.pipeline_name,
-                get_result_labels(result),
+                get_result_labels(result, lib),
             );
         }
 
