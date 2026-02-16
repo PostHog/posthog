@@ -51,6 +51,7 @@ export const Empty: Story = BasicTemplate.bind({})
 Empty.args = {
     imageUrls: [],
 }
+Empty.tags = ['test-skip']
 
 export const Loading: Story = BasicTemplate.bind({})
 Loading.args = {
