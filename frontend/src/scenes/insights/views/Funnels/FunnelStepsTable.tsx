@@ -64,7 +64,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                     title: isOnlySeries ? (
                         'Breakdown'
                     ) : (
-                        <span className="inline-flex items-center gap-1">
+                        <span className="inline-flex items-center gap-2">
                             <LemonCheckbox
                                 checked={allChecked ? true : someChecked ? 'indeterminate' : false}
                                 onChange={() => {
