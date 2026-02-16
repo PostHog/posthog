@@ -21,7 +21,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import {
-    DataWarehouseSavedQueryOrigin,
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaEndpointTable,
     DatabaseSchemaField,
@@ -1265,19 +1264,23 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 return dataWarehouseTables.map((table) => [table, null])
             },
         ],
+        endpointTableNames: [
+            (s) => [s.endpointTables],
+            (endpointTables: DatabaseSchemaEndpointTable[]): Set<string> => new Set(endpointTables.map((t) => t.name)),
+        ],
         relevantSavedQueries: [
-            (s) => [s.dataWarehouseSavedQueries, s.searchTerm],
+            (s) => [s.dataWarehouseSavedQueries, s.searchTerm, s.endpointTableNames],
             (
                 dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-                searchTerm: string
+                searchTerm: string,
+                endpointTableNames: Set<string>
             ): [DataWarehouseSavedQuery, FuseSearchMatch[] | null][] => {
-                const nonEndpointQueries = dataWarehouseSavedQueries.filter(
-                    (query) => query.origin !== DataWarehouseSavedQueryOrigin.ENDPOINT
-                )
+                const isEndpoint = (query: DataWarehouseSavedQuery): boolean => endpointTableNames.has(query.name)
+                const nonEndpointQueries = dataWarehouseSavedQueries.filter((query) => !isEndpoint(query))
                 if (searchTerm) {
                     return savedQueriesFuse
                         .search(searchTerm)
-                        .filter((result) => result.item.origin !== DataWarehouseSavedQueryOrigin.ENDPOINT)
+                        .filter((result) => !isEndpoint(result.item))
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return nonEndpointQueries.map((query) => [query, null])
@@ -1640,9 +1643,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         })
                     }
                 } else {
-                    // Add saved queries (exclude endpoint-origin ones — they show in the Endpoints section)
+                    // Add saved queries (exclude endpoint ones — they show in the Endpoints section)
+                    const endpointTableNameSet = new Set(endpointTables.map((t) => t.name))
                     dataWarehouseSavedQueries
-                        .filter((view) => view.origin !== DataWarehouseSavedQueryOrigin.ENDPOINT)
+                        .filter((view) => !endpointTableNameSet.has(view.name))
                         .forEach((view) => {
                             const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
                             viewsChildren.push(
