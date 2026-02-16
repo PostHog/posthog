@@ -3,6 +3,7 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 import { Meta, StoryObj } from '@storybook/react'
 import { userEvent, waitFor } from '@storybook/testing-library'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
@@ -129,16 +130,20 @@ export const FunnelWithInlineEventsEdit: Story = createInsightStory(
     'edit'
 )
 FunnelWithInlineEventsEdit.parameters = {
+    featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_EVENTS_COMBINATION_IN_FUNNELS],
     testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
 }
 FunnelWithInlineEventsEdit.play = async ({ canvasElement }) => {
-    const expandFiltersButton = await waitFor(() => {
-        const filtersButton = canvasElement.querySelector<HTMLElement>('[data-attr="show-prop-filter-0"]')
-        if (!filtersButton) {
-            throw new Error('Filters button not yet rendered')
-        }
-        return filtersButton
-    })
+    const expandFiltersButton = await waitFor(
+        () => {
+            const filtersButton = canvasElement.querySelector<HTMLElement>('[data-attr="show-prop-filter-0"]')
+            if (!filtersButton) {
+                throw new Error('Filters button not yet rendered')
+            }
+            return filtersButton
+        },
+        { timeout: 2000 }
+    )
     await userEvent.click(expandFiltersButton)
 }
 
