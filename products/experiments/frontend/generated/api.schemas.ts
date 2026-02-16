@@ -249,6 +249,7 @@ export interface ExperimentApi {
     conclusion_comment?: string | null
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
+    exposure_preaggregation_enabled?: boolean
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -312,6 +313,7 @@ export interface PatchedExperimentApi {
     conclusion_comment?: string | null
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
+    exposure_preaggregation_enabled?: boolean
     /**
      * The effective access level the user has for this object
      * @nullable

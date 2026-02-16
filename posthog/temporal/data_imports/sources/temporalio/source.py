@@ -8,14 +8,16 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import TemporalIOSourceConfig
 from posthog.temporal.data_imports.sources.temporalio.temporalio import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     TemporalIOResource,
+    TemporalIOResumeConfig,
     temporalio_source,
 )
 
@@ -23,7 +25,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class TemporalIOSource(SimpleSource[TemporalIOSourceConfig]):
+class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TEMPORALIO
@@ -41,14 +43,24 @@ class TemporalIOSource(SimpleSource[TemporalIOSourceConfig]):
             for endpoint in ENDPOINTS
         ]
 
-    def source_for_pipeline(self, config: TemporalIOSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TemporalIOResumeConfig]:
+        return ResumableSourceManager[TemporalIOResumeConfig](inputs, TemporalIOResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: TemporalIOSourceConfig,
+        resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return temporalio_source(
             config,
             TemporalIOResource(inputs.schema_name),
-            should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            resumable_source_manager=resumable_source_manager,
+            logger=inputs.logger,
+            should_use_incremental_field=inputs.should_use_incremental_field,
         )
 
     @property
