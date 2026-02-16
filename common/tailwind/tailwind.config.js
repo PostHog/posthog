@@ -638,8 +638,6 @@ const config = {
                 'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
                 // Fade out after a delay
                 'fade-out-delayed': 'fade-out-delayed 5s ease-out forwards',
-                // Quick horizontal shake
-                shake: 'shake 0.5s ease-in-out',
             },
             keyframes: {
                 'pulse-glow': {
@@ -653,13 +651,6 @@ const config = {
                 'fade-out-delayed': {
                     '0%, 30%': { opacity: '1' },
                     '100%': { opacity: '0' },
-                },
-                shake: {
-                    '0%, 100%': { transform: 'translateX(0)' },
-                    '20%': { transform: 'translateX(-3px)' },
-                    '40%': { transform: 'translateX(3px)' },
-                    '60%': { transform: 'translateX(-2px)' },
-                    '80%': { transform: 'translateX(2px)' },
                 },
             },
             colors: {
