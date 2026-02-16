@@ -59,13 +59,20 @@ pub async fn do_stack_processing(
                 // We need a cloned frame to move into the closure below
                 let frame = frame.clone();
                 let context = context.clone();
+                let debug_images = props.debug_images.clone();
                 // Spawn a concurrent task for resolving every frame
                 let handle = tokio::spawn(async move {
                     context.worker_liveness.report_healthy().await;
                     metrics::counter!(FRAME_RESOLUTION).increment(1);
                     let res = context
                         .resolver
-                        .resolve(&frame, team_id, &context.posthog_pool, &context.catalog)
+                        .resolve(
+                            &frame,
+                            team_id,
+                            &context.posthog_pool,
+                            &context.catalog,
+                            &debug_images,
+                        )
                         .await;
                     context.worker_liveness.report_healthy().await;
                     res

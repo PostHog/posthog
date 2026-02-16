@@ -7,6 +7,7 @@ use sqlx::PgPool;
 use crate::{
     config::Config,
     error::UnhandledError,
+    langs::apple::AppleDebugImage,
     metric_consts::{
         FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
         SUSPICIOUS_FRAMES_DETECTED,
@@ -38,6 +39,7 @@ impl Resolver {
         team_id: i32,
         pool: &PgPool,
         catalog: &Catalog,
+        debug_images: &[AppleDebugImage],
     ) -> Result<Vec<Frame>, Arc<UnhandledError>> {
         if frame.is_suspicious() {
             metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "raw").increment(1);
@@ -49,7 +51,7 @@ impl Resolver {
             .cache
             .try_get_with(raw_id.clone(), async {
                 cache_miss = true;
-                self.resolve_impl(frame, raw_id.clone(), pool, catalog)
+                self.resolve_impl(frame, raw_id.clone(), pool, catalog, debug_images)
                     .await
             })
             .await?;
@@ -69,6 +71,7 @@ impl Resolver {
         raw_id: RawFrameId,
         pool: &PgPool,
         catalog: &Catalog,
+        debug_images: &[AppleDebugImage],
     ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
         let loaded = ErrorTrackingStackFrame::load_all(pool, &raw_id, self.result_ttl).await?;
         if !loaded.is_empty() {
@@ -78,7 +81,7 @@ impl Resolver {
 
         metrics::counter!(FRAME_DB_MISSES).increment(1);
 
-        let resolved = frame.resolve(raw_id.team_id, catalog).await?;
+        let resolved = frame.resolve(raw_id.team_id, catalog, debug_images).await?;
 
         assert!(!resolved.is_empty()); // If this ever happens, we've got a data-dropping bug, and want to crash
 
