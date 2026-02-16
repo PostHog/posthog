@@ -287,7 +287,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.success('Ticket emoji saved')
             }
         },
-        disconnectSlack: () => {
+        disconnectSlack: async () => {
+            try {
+                await api.create('api/conversations/v1/slack/disconnect', {})
+            } catch {
+                lemonToast.error('Failed to disconnect Slack')
+                return
+            }
+
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,

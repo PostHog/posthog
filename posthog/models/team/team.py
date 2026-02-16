@@ -938,6 +938,40 @@ class Team(UUIDTClassicModel):
             ),
         )
 
+    def clear_supporthog_slack_token_and_save(self, *, user: "User", is_impersonated_session: bool) -> None:
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        settings = self.conversations_settings or {}
+        old_token = settings.get("slack_bot_token")
+        if old_token is None:
+            return
+
+        settings.pop("slack_bot_token", None)
+        self.conversations_settings = settings
+        self.save()
+
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.pk,
+            user=cast("User", user),
+            was_impersonated=is_impersonated_session,
+            scope="Team",
+            item_id=self.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(self.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="deleted",
+                        field="conversations_settings.slack_bot_token",
+                        before=mask_key_value(old_token),
+                        after=None,
+                    ),
+                ],
+            ),
+        )
+
     def delete_secret_token_backup_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
         from posthog.models.utils import mask_key_value

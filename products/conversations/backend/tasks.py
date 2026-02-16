@@ -4,6 +4,8 @@ from typing import Any, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
+from django.core.cache import cache
+
 import requests
 import structlog
 from celery import shared_task
@@ -18,6 +20,56 @@ from products.conversations.backend.slack import get_slack_client
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
 
 logger = structlog.get_logger(__name__)
+SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 15 * 60
+SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:slack:event:"
+
+
+def _is_duplicate_supporthog_event(event_id: str) -> bool:
+    key = f"{SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX}{event_id}"
+    return not cache.add(key, True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS)
+
+
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id: str | None = None) -> None:
+    from products.conversations.backend.slack import (
+        handle_support_mention,
+        handle_support_message,
+        handle_support_reaction,
+    )
+
+    if event_id and _is_duplicate_supporthog_event(event_id):
+        logger.info("supporthog_event_duplicate_skipped", event_id=event_id)
+        return
+
+    team = Team.objects.filter(conversations_settings__slack_team_id=slack_team_id).first()
+    if not team:
+        logger.warning("supporthog_no_team", slack_team_id=slack_team_id)
+        return
+
+    support_settings = team.conversations_settings or {}
+    if not support_settings.get("slack_enabled"):
+        logger.info(
+            "supporthog_support_not_configured",
+            team_id=team.id,
+            slack_team_id=slack_team_id,
+        )
+        return
+
+    event_type = event.get("type")
+    try:
+        if event_type == "message":
+            handle_support_message(event, team, slack_team_id)
+        elif event_type == "app_mention":
+            handle_support_mention(event, team, slack_team_id)
+        elif event_type == "reaction_added":
+            handle_support_reaction(event, team, slack_team_id)
+    except Exception as e:
+        logger.exception(
+            "supporthog_event_handler_failed",
+            event_type=event_type,
+            error=str(e),
+        )
+        raise cast(Any, process_supporthog_event).retry(exc=e)
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
