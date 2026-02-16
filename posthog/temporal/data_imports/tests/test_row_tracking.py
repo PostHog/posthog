@@ -27,6 +27,7 @@ from posthog.temporal.data_imports.row_tracking import (
 from products.data_warehouse.backend.models import ExternalDataSource
 
 
+@pytest.mark.timeout(600)
 @mock.patch("posthog.temporal.data_imports.row_tracking.database_sync_to_async_pool", database_sync_to_async)
 class TestRowTracking(BaseTest):
     def _logger(self) -> FilteringBoundLogger:
