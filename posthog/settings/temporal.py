@@ -21,8 +21,10 @@ MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES"
 TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, optional=True, type_cast=float)
 TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional=True, type_cast=float)
 
-TEMPORAL_HEALTH_PORT: int = get_from_env("TEMPORAL_HEALTH_PORT", 8011, type_cast=int)
-TEMPORAL_HEALTH_MAX_IDLE_SECONDS: float = get_from_env("TEMPORAL_HEALTH_MAX_IDLE_SECONDS", 300.0, type_cast=float)
+TEMPORAL_HEALTH_PORT: int | None = get_from_env("TEMPORAL_HEALTH_PORT", None, optional=True, type_cast=int)
+TEMPORAL_HEALTH_MAX_IDLE_SECONDS: float | None = get_from_env(
+    "TEMPORAL_HEALTH_MAX_IDLE_SECONDS", None, optional=True, type_cast=float
+)
 TEMPORAL_COMBINED_METRICS_SERVER_ENABLED: bool = get_from_env(
     "TEMPORAL_COMBINED_METRICS_SERVER_ENABLED", True, type_cast=str_to_bool
 )
