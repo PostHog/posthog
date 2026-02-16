@@ -8,7 +8,8 @@ class ResourceTransfer(UUIDModel):
     destination_team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="inbound_resource_transfers")
 
     resource_kind = models.CharField(max_length=100)
-    resource_id = models.CharField(max_length=100)
+    resource_id = models.CharField(max_length=100)  # from the source team
+    duplicated_resource_id = models.CharField(max_length=100)  # in the destination team
 
     created_at = models.DateTimeField(auto_now_add=True)
     last_transferred_at = models.DateTimeField(auto_now=True)
