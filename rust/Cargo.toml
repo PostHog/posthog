@@ -146,6 +146,8 @@ clickhouse = { version = "0.13.2", features = [
     "inserter",
     "rustls-tls",
 ] }
+crossterm = "0.29.0"
+ratatui = "0.30.0"
 
 # Used for decrypting django encrypted fields
 fernet = "0.2"

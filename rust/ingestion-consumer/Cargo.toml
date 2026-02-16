@@ -12,22 +12,29 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }
+chrono = { workspace = true }
+crossterm = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
 metrics = { workspace = true }
+ratatui = { workspace = true }
 rdkafka = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 siphasher = { workspace = true }
 thiserror = { workspace = true }
+time = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
 
 common-alloc = { path = "../common/alloc" }
 common-kafka = { path = "../common/kafka" }
 common-metrics = { path = "../common/metrics" }
+common-types = { path = "../common/types" }
+health = { path = "../common/health" }
 
 [dev-dependencies]
 httpmock = { workspace = true }
