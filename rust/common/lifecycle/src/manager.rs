@@ -20,14 +20,19 @@ use crate::signals;
 /// Options for creating a lifecycle manager.
 #[derive(Clone, Debug)]
 pub struct ManagerOptions {
+    /// Service name, emitted as the `service_name` label on all lifecycle metrics.
+    /// Use your K8s service name or logical app name for dashboard filtering.
     pub name: String,
-    /// Global ceiling on shutdown duration (caps sum of component timeouts).
+    /// Hard ceiling on total shutdown duration. If all components haven't finished
+    /// within this window, monitor returns [`LifecycleError::ShutdownTimeout`].
     pub global_shutdown_timeout: Duration,
-    /// Install SIGINT/SIGTERM handlers (default: true).
+    /// Install SIGINT/SIGTERM handlers (default: true). Set false in tests.
     pub trap_signals: bool,
-    /// Enable /tmp/shutdown file check for K8s pre-stop (default: true).
+    /// Poll for `/tmp/shutdown` file (K8s pre-stop hook pattern). Default: true.
     pub enable_prestop_check: bool,
-    /// Liveness strategy: All (every component must be healthy) or Any (at least one).
+    /// Liveness aggregation: `All` (every component must be healthy, default) or
+    /// `Any` (at least one). See tests `liveness_strategy_all_requires_all_healthy`,
+    /// `liveness_strategy_any_one_healthy_suffices`.
     pub liveness_strategy: HealthStrategy,
 }
 
@@ -43,7 +48,7 @@ impl Default for ManagerOptions {
     }
 }
 
-/// Options for a registered component; use builder methods with any duration type that implements `TryInto<Duration>`.
+/// Per-component options set at registration time.
 #[derive(Clone, Debug)]
 pub struct ComponentOptions {
     pub graceful_shutdown: Option<Duration>,
@@ -59,7 +64,9 @@ impl ComponentOptions {
         }
     }
 
-    /// Max time this component gets for cleanup after shutdown begins.
+    /// Max time this component gets for cleanup after shutdown begins. If exceeded,
+    /// the manager marks the component as timed out and moves on.
+    /// (see test `component_timeout_then_late_drop_preserves_timeout`)
     pub fn with_graceful_shutdown<D>(mut self, d: D) -> Self
     where
         D: TryInto<Duration>,
@@ -68,7 +75,9 @@ impl ComponentOptions {
         self
     }
 
-    /// Liveness heartbeat deadline; component must call [`Handle::report_healthy`](crate::Handle::report_healthy) within this interval.
+    /// Liveness heartbeat deadline. The component must call [`Handle::report_healthy`](crate::Handle::report_healthy)
+    /// within this interval or the liveness probe reports it as `Stalled`.
+    /// (see test `liveness_starts_as_starting_until_report_healthy`)
     pub fn with_liveness_deadline<D>(mut self, d: D) -> Self
     where
         D: TryInto<Duration>,
@@ -124,7 +133,10 @@ impl Manager {
         }
     }
 
-    /// Register a component; returns an RAII handle. Drop without [`Handle::work_completed`](crate::Handle::work_completed) signals "died".
+    /// Register a component and return a [`Handle`]. The handle's drop guard (or
+    /// [`process_scope`](crate::Handle::process_scope) guard) notifies the manager when
+    /// the component exits. Register all components before calling [`monitor`](Manager::monitor)
+    /// or [`monitor_background`](Manager::monitor_background).
     pub fn register(&mut self, tag: &str, options: ComponentOptions) -> Handle {
         let healthy_until_ms = Arc::new(AtomicI64::new(0));
         let tag_owned = tag.to_string();
@@ -166,12 +178,18 @@ impl Manager {
         Handle { inner }
     }
 
-    /// Axum-compatible handler for `/_readiness`; returns 200 if running, 503 if shutdown has begun.
+    /// Readiness probe handler (`/_readiness`). Returns 200 while running, 503 after shutdown
+    /// begins. K8s uses this to stop routing traffic to the pod.
+    /// (see test `readiness_200_until_shutdown_then_503`)
     pub fn readiness_handler(&self) -> ReadinessHandler {
         ReadinessHandler::new(self.shutdown_token.clone())
     }
 
-    /// Axum-compatible handler for `/_liveness`; returns 200 if healthy per strategy, 500 with per-component detail otherwise.
+    /// Liveness probe handler (`/_liveness`). Aggregates per-component heartbeats; returns
+    /// 200 if healthy per [`HealthStrategy`], 500 with per-component detail otherwise.
+    /// K8s restarts the pod after `failureThreshold` consecutive 500s.
+    /// (see tests `liveness_starts_as_starting_until_report_healthy`,
+    /// `liveness_with_process_scope_struct`)
     pub fn liveness_handler(&self) -> LivenessHandler {
         LivenessHandler::new(
             Arc::new(self.liveness_components.clone()),
@@ -179,7 +197,9 @@ impl Manager {
         )
     }
 
-    /// Future that resolves when shutdown begins; pass to `axum::serve(..., with_graceful_shutdown(shutdown_signal()))`.
+    /// Future that resolves when shutdown begins. Pass to
+    /// `axum::serve(...).with_graceful_shutdown(manager.shutdown_signal())`
+    /// so the HTTP server stops accepting connections on shutdown.
     pub fn shutdown_signal(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
         let token = self.shutdown_token.clone();
         async move {

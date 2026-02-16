@@ -8,7 +8,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-/// Liveness strategy: All components must be healthy, or any one suffices.
+/// Liveness aggregation strategy. `All`: every component with a liveness deadline must
+/// be healthy (one stalled component fails the probe). `Any`: at least one healthy suffices.
+/// (see tests `liveness_strategy_all_requires_all_healthy`,
+/// `liveness_strategy_any_one_healthy_suffices`)
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HealthStrategy {
     All,
@@ -27,7 +30,11 @@ impl std::str::FromStr for HealthStrategy {
     }
 }
 
-/// Per-component liveness state for the liveness probe response.
+/// Per-component liveness state returned in the probe response.
+/// - `Starting`: no heartbeat yet (component registered but hasn't called `report_healthy()`)
+/// - `Healthy`: heartbeat received within the deadline
+/// - `Unhealthy`: component explicitly called `report_unhealthy()`
+/// - `Stalled`: heartbeat deadline expired (component stopped calling `report_healthy()`)
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ComponentLiveness {
     Starting,
@@ -44,7 +51,12 @@ pub(crate) struct LivenessComponentRef {
     pub deadline: std::time::Duration,
 }
 
-/// Axum-compatible liveness probe handler; returns 200 if healthy per strategy, 500 with component detail otherwise.
+/// K8s liveness probe handler. Returns 200 if healthy per [`HealthStrategy`], 500 with
+/// per-component detail otherwise. K8s restarts the pod after `failureThreshold *
+/// periodSeconds` consecutive failures. Driven entirely by [`Handle::report_healthy`](crate::Handle::report_healthy) /
+/// [`Handle::report_unhealthy`](crate::Handle::report_unhealthy) — `signal_failure()` does NOT
+/// flip liveness (it triggers shutdown via readiness instead).
+/// (see test `liveness_with_process_scope_struct`)
 #[derive(Clone)]
 pub struct LivenessHandler {
     components: Arc<Vec<LivenessComponentRef>>,

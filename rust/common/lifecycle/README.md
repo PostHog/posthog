@@ -1,12 +1,10 @@
 # lifecycle
 
-Unified app lifecycle management: signal trapping (SIGINT/SIGTERM), component registration with RAII drop guards, coordinated graceful shutdown, heartbeat-based liveness, K8s readiness/liveness probes, and metrics. The monitor runs on a dedicated OS thread with an isolated tokio runtime so it stays responsive regardless of app workload.
+Unified app lifecycle management for K8s services: signal trapping, component registration with RAII drop guards, coordinated graceful shutdown, heartbeat-based liveness, readiness/liveness probes, and metrics.
 
-## Usage
+## Manager setup
 
-### Worker (no HTTP server)
-
-Register components **before** calling `monitor()` or `monitor_background()`. For long-running components that exit when they see shutdown, just return (dropping the handle is treated as normal completion). Call `work_completed()` only for one-shot/finite work or when signaling done without dropping; if you exit during normal operation without calling it, the drop guard signals "component died".
+Create a manager, register components, then run the monitor. Register all components **before** starting the monitor.
 
 ```rust
 use std::time::Duration;
@@ -15,98 +13,94 @@ use lifecycle::{ComponentOptions, Manager, ManagerOptions};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut manager = Manager::new(ManagerOptions {
-        name: "my-worker".into(),
-        global_shutdown_timeout: Duration::from_secs(30),
-        ..Default::default()
+        name: "my-service".into(),                      // emitted as service_name on all metrics
+        global_shutdown_timeout: Duration::from_secs(30), // hard ceiling on total shutdown
+        ..Default::default()                              // trap_signals: true, enable_prestop_check: true
     });
 
     let handle = manager.register(
         "consumer",
         ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(10))
-            .with_liveness_deadline(Duration::from_secs(30)),
+            .with_graceful_shutdown(Duration::from_secs(10))  // per-component shutdown budget
+            .with_liveness_deadline(Duration::from_secs(30)), // must call report_healthy() within this
     );
-    tokio::spawn(consumer_loop(handle));
 
+    // ... spawn component tasks, wire up HTTP routes ...
+
+    // Option A: blocking — monitor runs until all components finish or time out
     manager.monitor().await?;
-    Ok(())
-}
 
-async fn consumer_loop(handle: lifecycle::Handle) {
-    loop {
-        tokio::select! {
-            _ = handle.shutdown_recv() => {
-                drain().await;
-                return;
-            }
-            msg = recv_message() => {
-                if let Err(e) = process(msg).await {
-                    handle.signal_failure(e.to_string());
-                    handle.work_completed();
-                    return;
-                }
-                handle.report_healthy();
-            }
-        }
-    }
+    // Option B: background — returns a guard; await it after your HTTP server exits
+    // let guard = manager.monitor_background();
+    // axum::serve(...).with_graceful_shutdown(shutdown).await?;
+    // guard.wait().await?;
+
+    Ok(())
 }
 ```
 
-### With Axum (readiness / liveness / graceful shutdown)
+### ManagerOptions
 
-Use `monitor_background()` so the monitor runs while the server is up; after `axum::serve` returns (due to shutdown signal), await the guard to get the final result.
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | `String` | `"app"` | Emitted as `service_name` label on all lifecycle metrics. Use your K8s service name. |
+| `global_shutdown_timeout` | `Duration` | `60s` | Hard ceiling on total shutdown. Monitor returns `ShutdownTimeout` if exceeded. |
+| `trap_signals` | `bool` | `true` | Install SIGINT/SIGTERM handlers. Set `false` in tests. |
+| `enable_prestop_check` | `bool` | `true` | Poll for `/tmp/shutdown` file (K8s pre-stop hook pattern). |
+| `liveness_strategy` | `HealthStrategy` | `All` | `All`: every component must be healthy. `Any`: at least one suffices. (see tests `liveness_strategy_all_requires_all_healthy`, `liveness_strategy_any_one_healthy_suffices`) |
+
+### register() / ComponentOptions
+
+`register(tag, options)` — `tag` is a `&str` identifier for the component (used in metrics/logs). `options` is built with the `ComponentOptions` builder:
+
+| Method | Effect | Default |
+|--------|--------|---------|
+| `ComponentOptions::new()` | No shutdown timeout, no liveness deadline. | — |
+| `.with_graceful_shutdown(duration)` | Max time for this component to clean up after shutdown begins. Exceeded = marked timed out. (see test `component_timeout_then_late_drop_preserves_timeout`) | `None` (waits until `global_shutdown_timeout`) |
+| `.with_liveness_deadline(duration)` | Component must call `report_healthy()` within this interval or liveness reports it as `Stalled`. (see test `liveness_starts_as_starting_until_report_healthy`) | `None` (no liveness tracking) |
+
+## K8s readiness and liveness
+
+**Readiness** (`/_readiness`) returns 200 until shutdown begins, then 503. K8s uses this to stop routing traffic to the pod. No per-component logic — it's purely "is the app accepting work?" (see test `readiness_200_until_shutdown_then_503`)
+
+**Liveness** (`/_liveness`) aggregates per-component heartbeats. Each component with a `liveness_deadline` must call `report_healthy()` within that interval. If any component stalls (with `HealthStrategy::All`, the default), the probe returns 500. K8s will restart the pod after `failureThreshold * periodSeconds` consecutive failures. (see tests `liveness_starts_as_starting_until_report_healthy`, `liveness_report_unhealthy`, `liveness_strategy_all_requires_all_healthy`)
+
+`signal_failure()` does **not** flip liveness directly. It triggers graceful shutdown (readiness goes 503), but liveness stays healthy until heartbeat deadlines expire naturally. This gives the app time to shut down cleanly before K8s considers a liveness-based restart. (see test `direct_signal_failure_then_drop`)
+
+### Axum route setup
 
 ```rust
-use std::time::Duration;
-use axum::{Router, routing::get};
-use lifecycle::{ComponentOptions, Manager, ManagerOptions};
-use tokio::net::TcpListener;
+let readiness = manager.readiness_handler();
+let liveness = manager.liveness_handler();
+let shutdown = manager.shutdown_signal();
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut manager = Manager::new(ManagerOptions {
-        name: "my-api".into(),
-        global_shutdown_timeout: Duration::from_secs(30),
-        ..Default::default()
-    });
+let app = Router::new()
+    .route("/_readiness", get({
+        let r = readiness.clone();
+        move || async move { r.check().await }
+    }))
+    .route("/_liveness", get({
+        let l = liveness.clone();
+        move || async move { l.check().into_response() }
+    }));
 
-    let handle = manager.register(
-        "processor",
-        ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(10))
-            .with_liveness_deadline(Duration::from_secs(30)),
-    );
-    tokio::spawn(processor_loop(handle));
+let guard = manager.monitor_background();
 
-    let readiness = manager.readiness_handler();
-    let liveness = manager.liveness_handler();
-    let shutdown = manager.shutdown_signal();
+let listener = TcpListener::bind("0.0.0.0:8080").await?;
+axum::serve(listener, app)
+    .with_graceful_shutdown(shutdown)
+    .await?;
 
-    let app = Router::new()
-        .route("/_readiness", get({
-            let r = readiness.clone();
-            move || async move { r.check().await }
-        }))
-        .route("/_liveness", get({
-            let l = liveness.clone();
-            move || async move { l.check().into_response() }
-        }));
-
-    let guard = manager.monitor_background();
-
-    let listener = TcpListener::bind("0.0.0.0:8080").await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .await?;
-
-    guard.wait().await?;
-    Ok(())
-}
+guard.wait().await?;
 ```
 
-### Struct-held handle and process scope
+## Using the handle
 
-If your component is a **struct that owns a `Handle`** and has a `process()` method that runs the main loop, use `process_scope()` at the start of `process()` so the manager is notified when `process()` returns — regardless of whether the struct (and its handle) are dropped later.
+### With `process_scope()` (struct-held handle)
+
+Use when your component is a struct that owns a `Handle` and has a blocking/looping `process()` method. Call `process_scope()` at the top of `process()` — when the guard is dropped (process returns), the manager is notified once. (see tests `component_a_clean_shutdown`, `component_b_clean_shutdown_with_do_work`)
+
+The handle can be freely passed by reference or clone into child methods. Child methods can call `report_healthy()`, `report_unhealthy()`, `signal_failure()`, or return errors that cause `process()` to return (which drops the guard). None of this interferes with the guard. (see test `component_b_do_work_signals_failure` for error propagation from a child method)
 
 ```rust
 struct MyConsumer {
@@ -118,51 +112,83 @@ impl MyConsumer {
         let _guard = self.handle.process_scope();
         loop {
             tokio::select! {
-                _ = self.handle.shutdown_recv() => {
-                    self.drain().await;
-                    return; // guard dropped → manager notified (WorkCompleted)
-                }
-                msg = self.recv() => {
-                    self.do_work(&self.handle, msg).await;
-                    self.handle.report_healthy();
+                _ = self.handle.shutdown_recv() => return,
+                result = self.do_work() => {
+                    match result {
+                        Ok(()) => self.handle.report_healthy(),
+                        Err(reason) => {
+                            self.handle.signal_failure(reason);
+                            return; // guard dropped → manager notified
+                        }
+                    }
                 }
             }
         }
     }
-    // do_work can take &Handle or a clone — doesn't affect the guard
-    async fn do_work(&self, _handle: &lifecycle::Handle, _msg: ()) { /* ... */ }
-    async fn drain(&self) { /* ... */ }
-    async fn recv(&self) -> () { /* ... */ }
+
+    // Single select! — checks for cancellation alongside real work.
+    // Returning does NOT trigger the guard; only process() returning does.
+    async fn do_work(&self) -> Result<(), String> {
+        tokio::select! {
+            _ = self.handle.shutdown_recv() => Ok(()),
+            result = self.fetch_and_process() => result,
+        }
+    }
+
+    async fn fetch_and_process(&self) -> Result<(), String> { /* ... */ Ok(()) }
 }
 ```
 
-The pattern: `process()` creates the guard, the guard is dropped when `process()` returns, and that's the one event sent to the manager. Passing the handle by reference or clone into helper methods does not interfere. The struct can be dropped later without sending a duplicate event.
+After `process()` returns, the struct can be dropped later without sending a duplicate event — the guard already signalled once. (see test `process_scope_prevents_double_signal_from_struct`)
+
+### Without `process_scope()` (handle moved into task)
+
+Use when you `tokio::spawn` and move the handle into the async block. The task IS the scope — when it returns, the last handle clone is dropped, and the drop guard notifies the manager. (see test `direct_handle_drop_during_shutdown_is_completion`)
+
+```rust
+async fn consumer_loop(handle: lifecycle::Handle) {
+    loop {
+        tokio::select! {
+            _ = handle.shutdown_recv() => return, // drop during shutdown = completion
+            msg = recv_message() => {
+                if let Err(e) = process(msg).await {
+                    handle.signal_failure(e.to_string());
+                    return; // signal_failure triggers shutdown; drop is fine
+                }
+                handle.report_healthy();
+            }
+        }
+    }
+}
+```
+
+After `signal_failure()`, just return — the manager records the failure immediately and the subsequent handle drop is harmlessly ignored. For normal shutdown or `request_shutdown()`, just return too — drop during shutdown is treated as completion. For one-shot/finite work that completes during normal operation, call `work_completed()` to prevent the drop from signaling "died". (see test `direct_work_completed_prevents_died_on_drop`)
 
 ### Handle API summary
 
 | Method | Use when |
 |--------|----------|
-| `shutdown_recv()` | In `tokio::select!` to react to shutdown (e.g. stop consuming, drain, then return). |
+| `shutdown_recv()` | In `tokio::select!` to react to shutdown. |
 | `cancellation_token()` | Pass to sub-tasks or APIs that take a `CancellationToken`. |
 | `is_shutting_down()` | Sync check (e.g. in a hot loop) to bail out. |
-| `signal_failure(reason)` | Fatal error; triggers global shutdown. Call `work_completed()` after so the manager gets a clear "done" before drop. |
-| `request_shutdown()` | Request clean shutdown (non-fatal). Then finish work and return (drop is enough). |
-| `work_completed()` | Required for one-shot/finite work or when signaling done without dropping. Optional for long-running components that exit on shutdown — drop is treated as completion. |
-| `process_scope()` | Returns a `ProcessScopeGuard`. When the guard is dropped, the manager is notified once. Use when your struct owns the handle and `process()` is the logical "run." |
+| `signal_failure(reason)` | Fatal error; triggers global shutdown. Just return after calling it. |
+| `request_shutdown()` | Request clean shutdown (non-fatal). Then return (drop is enough). |
+| `work_completed()` | One-shot/finite work that completes during normal operation (prevents the handle drop from signaling "died"). Not needed for long-running components — drop during shutdown is treated as completion. |
+| `process_scope()` | Returns a `ProcessScopeGuard`. Ties lifecycle signaling to a method scope instead of handle drop. Use when your struct owns the handle. |
 | `report_healthy()` | Liveness heartbeat (call more often than `liveness_deadline`). |
-| `report_unhealthy()` | Mark component unhealthy for liveness. |
-| `report_healthy_blocking()` | Same as `report_healthy()`; use from sync/blocking contexts (e.g. rdkafka callbacks). |
+| `report_unhealthy()` | Mark this component unhealthy for liveness (K8s will eventually restart). |
+| `report_healthy_blocking()` | Same as `report_healthy()`; safe from sync/blocking contexts (e.g. rdkafka callbacks). |
 
 ### Common pitfalls
 
-1. **Drop during normal operation** — Only when the last handle is dropped **while shutdown is not in progress** (e.g. panic, early return) does the drop guard signal "component died" and trigger shutdown. Exiting after you see shutdown (e.g. `shutdown_recv()`) is fine; drop is treated as normal completion.
-2. **Register order** — Register all components before calling `monitor()` or `monitor_background()`; the manager is consumed by those calls, so you cannot register afterward.
-3. **Liveness** — If you use `with_liveness_deadline`, the component must call `report_healthy()` (or `report_healthy_blocking()`) more frequently than that interval, or the liveness probe will report the component as stalled/unhealthy. With `HealthStrategy::All`, one stalled component makes the app unhealthy.
-4. **Struct-held handles without `process_scope()`** — If your struct owns the handle and `process()` is the logical "process run," use `process_scope()` at the start of `process()`. Otherwise the manager is only notified when the **struct** is dropped, not when `process()` returns.
+1. **Drop during normal operation** — If the last handle (or process scope guard) is dropped while shutdown is **not** in progress, the manager treats it as "component died" and triggers shutdown. This catches panics and early returns. Dropping after shutdown begins is treated as normal completion.
+2. **Register order** — Register all components before calling `monitor()` or `monitor_background()`. The manager is consumed by those calls.
+3. **Liveness** — With `with_liveness_deadline`, you must call `report_healthy()` more frequently than that interval, or the probe reports the component as stalled. With `HealthStrategy::All`, one stalled component fails the whole probe.
+4. **Struct-held handles** — If your struct owns the handle and `process()` is the run method, use `process_scope()`. Otherwise the manager is only notified when the struct is dropped, not when `process()` returns.
 
 ## Metrics
 
-The crate emits metrics via the `metrics` facade (no recorder installed by this crate; the parent app does that). All metrics are segmented by **`service_name`**: set `ManagerOptions::name` to your app’s service name (e.g. K8s service name or logical app name) so dashboards and alerts can filter by service.
+The crate emits metrics via the `metrics` facade (no recorder installed by this crate; the parent app does that). All metrics are segmented by **`service_name`**: set `ManagerOptions::name` to your app's service name (e.g. K8s service name or logical app name) so dashboards and alerts can filter by service.
 
 | Metric | Type | Labels | When emitted |
 |--------|------|--------|--------------|

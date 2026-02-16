@@ -15,21 +15,25 @@ pub(crate) enum ComponentEvent {
     Died { tag: String },
 }
 
-/// RAII handle for a registered component. Clone and pass to tasks.
+/// RAII handle for a registered component. Clone-able and safe to pass by reference
+/// into child methods — child methods can freely call any handle API without
+/// interfering with the drop guard or process scope guard.
 ///
-/// **Drop guard:** When the last clone of a handle is dropped, the manager is notified. If
-/// shutdown is already in progress ([`is_shutting_down`](Handle::is_shutting_down)), the drop
-/// is treated as normal completion (equivalent to [`work_completed`](Handle::work_completed)).
-/// If shutdown is not in progress, the drop signals "component died" and triggers shutdown.
-/// So for long-running components that exit when they see shutdown, just return (drop the
-/// handle); no need to call `work_completed()`. Call `work_completed()` for one-shot/finite
-/// work or when signaling done without dropping.
+/// # Drop guard
 ///
-/// **Struct-held handles:** If your component struct owns the handle and has a `process()`
-/// method that is the logical "process run," use [`process_scope`](Handle::process_scope) at
-/// the start of `process()`. When the guard is dropped (process returns), the manager is
-/// notified once. Passing the handle by ref or clone into other methods does not affect this.
-/// See the crate README section "Struct-held handle and process scope" for details.
+/// When the last clone is dropped:
+/// - **During shutdown** → treated as normal completion. Just return.
+///   (see test `direct_handle_drop_during_shutdown_is_completion`)
+/// - **Not during shutdown** → signals "component died", triggers global shutdown.
+///   Catches panics and accidental early returns.
+///   (see test `handle_drop_during_normal_operation_signals_died`)
+///
+/// # Struct-held handles
+///
+/// If your struct owns the handle and has a `process()` method, use
+/// [`process_scope`](Handle::process_scope) so the manager is notified when
+/// `process()` returns — not when the struct is eventually dropped.
+/// (see tests `component_a_clean_shutdown`, `component_b_clean_shutdown_with_do_work`)
 #[derive(Clone)]
 pub struct Handle {
     pub(crate) inner: Arc<HandleInner>,
@@ -46,7 +50,9 @@ pub struct HandleInner {
 }
 
 impl Handle {
-    /// Future that resolves when shutdown begins. Use in `tokio::select!` to detect shutdown.
+    /// Future that resolves when global shutdown begins (any trigger: signal, pre-stop,
+    /// [`signal_failure`](Handle::signal_failure), or [`request_shutdown`](Handle::request_shutdown)).
+    /// Use in `tokio::select!` to break out of work loops.
     pub fn shutdown_recv(&self) -> tokio_util::sync::WaitForCancellationFuture<'_> {
         self.inner.shutdown_token.cancelled()
     }
@@ -61,7 +67,10 @@ impl Handle {
         self.inner.shutdown_token.is_cancelled()
     }
 
-    /// Signal a fatal error; triggers global shutdown.
+    /// Signal a fatal error; triggers global shutdown. Just return after calling this —
+    /// the manager records the failure immediately and the subsequent handle/guard drop
+    /// during shutdown is harmlessly ignored.
+    /// (see tests `direct_signal_failure_then_drop`, `component_b_do_work_signals_failure`)
     pub fn signal_failure(&self, reason: impl Into<String>) {
         drop(self.inner.event_tx.try_send(ComponentEvent::Failure {
             tag: self.inner.tag.clone(),
@@ -69,7 +78,10 @@ impl Handle {
         }));
     }
 
-    /// Request a clean shutdown (non-fatal).
+    /// Request a clean global shutdown (non-fatal). All components see it via
+    /// [`shutdown_recv`](Handle::shutdown_recv). Readiness flips to 503 so K8s
+    /// stops routing traffic; liveness is unaffected.
+    /// (see test `component_a_and_b_multi_component_shutdown`)
     pub fn request_shutdown(&self) {
         drop(
             self.inner
@@ -80,9 +92,11 @@ impl Handle {
         );
     }
 
-    /// Mark this component as finished. Required for one-shot/finite work (e.g. migration runner)
-    /// or when signaling done without dropping the handle. Optional for long-running components
-    /// that exit on shutdown — dropping the handle during shutdown is treated as completion.
+    /// Mark this component as finished during normal operation. Use for one-shot/finite
+    /// work (e.g. migration runner) — prevents the handle drop from signaling "died".
+    /// Not needed for long-running components (drop during shutdown is completion) or
+    /// after [`signal_failure`](Handle::signal_failure) (manager already recorded the failure).
+    /// (see test `direct_work_completed_prevents_died_on_drop`)
     pub fn work_completed(&self) {
         self.inner.completed.store(true, Ordering::SeqCst);
         drop(self.inner.event_tx.try_send(ComponentEvent::WorkCompleted {
@@ -90,7 +104,11 @@ impl Handle {
         }));
     }
 
-    /// Report healthy; must be called more often than the configured liveness deadline.
+    /// Liveness heartbeat. Must be called more often than the configured `liveness_deadline`.
+    /// If not called in time, the liveness probe reports the component as `Stalled` — K8s
+    /// will eventually restart the pod after `failureThreshold` consecutive probe failures.
+    /// (see tests `liveness_starts_as_starting_until_report_healthy`,
+    /// `component_b_reports_healthy_from_process`)
     pub fn report_healthy(&self) {
         if let Some(deadline) = self.inner.liveness_deadline {
             let now_ms = SystemTime::now()
@@ -102,7 +120,10 @@ impl Handle {
         }
     }
 
-    /// Report this component as unhealthy for liveness (stored as -1 so liveness shows Unhealthy, not Starting).
+    /// Mark this component as explicitly unhealthy for liveness. The liveness probe will
+    /// report `Unhealthy` (distinct from `Starting` or `Stalled`). Call [`report_healthy`](Handle::report_healthy)
+    /// to recover. K8s will restart the pod if liveness fails long enough.
+    /// (see test `liveness_report_unhealthy`)
     pub fn report_unhealthy(&self) {
         self.inner.healthy_until_ms.store(-1, Ordering::Relaxed);
     }
@@ -112,11 +133,12 @@ impl Handle {
         self.report_healthy();
     }
 
-    /// Create a one-time drop guard for this component's process run. When the guard is dropped
-    /// (i.e. when your `process()` method returns), the manager is notified once: `WorkCompleted`
-    /// if shutdown is in progress, `Died` if not. The handle itself can remain on the struct and
-    /// be passed by ref or clone into other methods (e.g. `do_work(&self.handle)`) without
-    /// affecting the shutdown trigger. Typically create one guard per `process()` invocation.
+    /// Create a drop guard tied to your `process()` method's scope. When the guard is
+    /// dropped (process returns), the manager is notified once. The handle itself stays
+    /// on the struct and can be passed by ref or clone into child methods — child calls
+    /// to `report_healthy()`, `signal_failure()`, etc. do not affect the guard.
+    /// (see tests `component_b_clean_shutdown_with_do_work`,
+    /// `process_scope_prevents_double_signal_from_struct`)
     pub fn process_scope(&self) -> ProcessScopeGuard {
         ProcessScopeGuard {
             inner: self.inner.clone(),
@@ -133,7 +155,11 @@ pub struct ProcessScopeGuard {
 
 impl Drop for ProcessScopeGuard {
     fn drop(&mut self) {
-        if self.inner.process_scope_signalled.swap(true, Ordering::SeqCst) {
+        if self
+            .inner
+            .process_scope_signalled
+            .swap(true, Ordering::SeqCst)
+        {
             return;
         }
         let event = if self.inner.shutdown_token.is_cancelled() {
