@@ -167,7 +167,16 @@ function AddKeyModal(): JSX.Element {
                 })
             }
         }
-    }, [pendingSubmit, preValidationResult, preValidationResultLoading, createProviderKey, name, apiKey, provider])
+    }, [
+        pendingSubmit,
+        preValidationResult,
+        preValidationResultLoading,
+        createProviderKey,
+        name,
+        apiKey,
+        provider,
+        evaluationConfig.active_provider_key,
+    ])
 
     const handleClose = (): void => {
         setNewKeyModalOpen(false)

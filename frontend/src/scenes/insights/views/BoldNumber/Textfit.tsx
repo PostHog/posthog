@@ -43,7 +43,7 @@ export const Textfit = ({ min, max, children }: TextfitProps): JSX.Element => {
 
     useLayoutEffect(() => {
         calculateFontSize()
-    }, [children, min, max])
+    }, [children, min, max, calculateFontSize])
 
     useResizeObserver<HTMLDivElement>({
         ref: parentRef,

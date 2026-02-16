@@ -78,7 +78,10 @@ export function InsightDisplayConfig(): JSX.Element {
     )
 
     const showCompare =
-        (isTrends && display !== ChartDisplayType.ActionsAreaGraph && display !== ChartDisplayType.CalendarHeatmap) ||
+        (isTrends &&
+            display !== ChartDisplayType.ActionsAreaGraph &&
+            display !== ChartDisplayType.CalendarHeatmap &&
+            display !== ChartDisplayType.BoxPlot) ||
         isStickiness ||
         isWebAnalyticsInsightQuery(querySource)
     const showInterval =
@@ -102,7 +105,7 @@ export function InsightDisplayConfig(): JSX.Element {
     )
 
     const advancedOptions: LemonMenuItems = [
-        ...((isTrends && display !== ChartDisplayType.CalendarHeatmap) ||
+        ...((isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot) ||
         isRetention ||
         isTrendsFunnel ||
         isStickiness ||
@@ -144,7 +147,10 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(!showPercentStackView && isTrends && display !== ChartDisplayType.CalendarHeatmap
+        ...(!showPercentStackView &&
+        isTrends &&
+        display !== ChartDisplayType.CalendarHeatmap &&
+        display !== ChartDisplayType.BoxPlot
             ? [
                   {
                       title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
@@ -152,7 +158,10 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(!isNonTimeSeriesDisplay && isTrends && display !== ChartDisplayType.CalendarHeatmap
+        ...(!isNonTimeSeriesDisplay &&
+        isTrends &&
+        display !== ChartDisplayType.CalendarHeatmap &&
+        display !== ChartDisplayType.BoxPlot
             ? [
                   {
                       title: 'Y-axis scale',
@@ -233,7 +242,10 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(mightContainFractionalNumbers && isTrends && display !== ChartDisplayType.CalendarHeatmap
+        ...(mightContainFractionalNumbers &&
+        isTrends &&
+        display !== ChartDisplayType.CalendarHeatmap &&
+        display !== ChartDisplayType.BoxPlot
             ? [
                   {
                       title: 'Decimal places',

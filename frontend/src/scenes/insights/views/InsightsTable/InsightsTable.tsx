@@ -111,9 +111,12 @@ export function InsightsTable({
     const hasCheckboxes =
         isLegend &&
         (!display ||
-            ![ChartDisplayType.BoldNumber, ChartDisplayType.WorldMap, ChartDisplayType.CalendarHeatmap].includes(
-                display
-            ))
+            ![
+                ChartDisplayType.BoldNumber,
+                ChartDisplayType.WorldMap,
+                ChartDisplayType.CalendarHeatmap,
+                ChartDisplayType.BoxPlot,
+            ].includes(display))
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
@@ -340,7 +343,11 @@ export function InsightsTable({
 
     const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = useMemo(() => {
         // Don't show value columns for non-time-series displays like WorldMap and Heatmap
-        if (display === ChartDisplayType.WorldMap || display === ChartDisplayType.CalendarHeatmap) {
+        if (
+            display === ChartDisplayType.WorldMap ||
+            display === ChartDisplayType.CalendarHeatmap ||
+            display === ChartDisplayType.BoxPlot
+        ) {
             return []
         }
 

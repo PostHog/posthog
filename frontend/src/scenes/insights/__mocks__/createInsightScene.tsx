@@ -75,6 +75,7 @@ export function createInsightStory(
                         is_cached: true,
                         query_status: null,
                         results: insight.result,
+                        boxplot_data: (insight as any).boxplot_data,
                     }),
                 ],
             },
