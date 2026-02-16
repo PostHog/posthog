@@ -4,6 +4,8 @@ from urllib.parse import parse_qs, urlparse
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.conf import settings
+
 from rest_framework import status
 
 from posthog.api.oauth.toolbar_service import (
@@ -43,9 +45,10 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
 
         parsed = urlparse(data["authorization_url"])
         qs = parse_qs(parsed.query)
-        self.assertEqual(parsed.scheme, "https")
-        self.assertEqual(parsed.netloc, "testserver")
-        self.assertEqual(qs["redirect_uri"][0], "https://testserver/toolbar_oauth/callback")
+        expected = urlparse(settings.SITE_URL)
+        self.assertEqual(parsed.scheme, expected.scheme)
+        self.assertEqual(parsed.netloc, expected.netloc)
+        self.assertEqual(qs["redirect_uri"][0], f"{settings.SITE_URL}{CALLBACK_PATH}")
         self.assertIn("state", qs)
         self.assertEqual(qs["code_challenge_method"][0], "S256")
 
@@ -120,9 +123,7 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         self.assertEqual(response.json()["code"], "invalid_request")
 
     def test_oauth_application_is_scoped_per_organization(self):
-        base_url = "https://us.posthog.example"
-
-        first_app = get_or_create_toolbar_oauth_application(base_url=base_url, user=self.user)
+        first_app = get_or_create_toolbar_oauth_application(user=self.user)
 
         other_org = Organization.objects.create(name="Another org")
         other_user = User.objects.create_user(
@@ -131,30 +132,15 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
             password="password",
         )
         other_org.members.add(other_user)
-        second_app = get_or_create_toolbar_oauth_application(base_url=base_url, user=other_user)
+        second_app = get_or_create_toolbar_oauth_application(user=other_user)
 
         self.assertNotEqual(first_app.id, second_app.id)
         self.assertEqual(first_app.organization, self.organization)
         self.assertEqual(second_app.organization, other_org)
 
-    def test_oauth_application_supports_multiple_redirect_uris_within_org(self):
-        first_base_url = "https://us.posthog.example"
-        second_base_url = "https://eu.posthog.example"
-
-        first_app = get_or_create_toolbar_oauth_application(base_url=first_base_url, user=self.user)
-        second_app = get_or_create_toolbar_oauth_application(base_url=second_base_url, user=self.user)
-
-        self.assertEqual(first_app.id, second_app.id)
-        second_app.refresh_from_db()
-
-        redirect_uris = {uri for uri in second_app.redirect_uris.split(" ") if uri}
-        self.assertSetEqual(
-            redirect_uris,
-            {
-                f"{first_base_url}{CALLBACK_PATH}",
-                f"{second_base_url}{CALLBACK_PATH}",
-            },
-        )
+    def test_oauth_application_uses_site_url_redirect_uri(self):
+        app = get_or_create_toolbar_oauth_application(user=self.user)
+        self.assertEqual(app.redirect_uris, f"{settings.SITE_URL}{CALLBACK_PATH}")
 
     def test_callback_renders_bridge_with_code_and_state(self):
         response = self.client.get("/toolbar_oauth/callback?code=test_code&state=test_state")
@@ -180,7 +166,6 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         state = parse_qs(urlparse(start_data["authorization_url"]).query)["state"][0]
 
         mock_post.return_value.status_code = 200
-        mock_post.return_value.content = b'{"access_token":"pha_abc","refresh_token":"phr_abc","token_type":"Bearer","expires_in":3600,"scope":"openid"}'
         mock_post.return_value.json.return_value = {
             "access_token": "pha_abc",
             "refresh_token": "phr_abc",
@@ -197,8 +182,7 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["access_token"], "pha_abc")
 
-    @patch("posthog.api.oauth.toolbar_service.requests.post")
-    def test_exchange_rejects_tampered_state(self, mock_post):
+    def test_exchange_rejects_tampered_state(self):
         start_data = self._start()
         state = parse_qs(urlparse(start_data["authorization_url"]).query)["state"][0]
         tampered_state = f"{state[:-1]}x"
@@ -210,10 +194,8 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "invalid_state")
-        mock_post.assert_not_called()
 
-    @patch("posthog.api.oauth.toolbar_service.requests.post")
-    def test_exchange_rejects_state_user_mismatch(self, mock_post):
+    def test_exchange_rejects_state_user_mismatch(self):
         start_data = self._start()
         state = parse_qs(urlparse(start_data["authorization_url"]).query)["state"][0]
 
@@ -234,10 +216,8 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "state_user_mismatch")
-        mock_post.assert_not_called()
 
-    @patch("posthog.api.oauth.toolbar_service.requests.post")
-    def test_exchange_rejects_state_team_mismatch(self, mock_post):
+    def test_exchange_rejects_state_team_mismatch(self):
         start_data = self._start()
         state = parse_qs(urlparse(start_data["authorization_url"]).query)["state"][0]
 
@@ -253,7 +233,6 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "state_team_mismatch")
-        mock_post.assert_not_called()
 
     def test_exchange_rejects_invalid_json_body(self):
         response = self.client.post(
@@ -265,13 +244,31 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         self.assertEqual(response.json()["code"], "invalid_json")
 
     @patch("posthog.api.oauth.toolbar_service.requests.post")
-    def test_exchange_returns_error_for_non_json_token_response(self, mock_post):
+    def test_exchange_surfaces_token_error(self, mock_post):
+        start_data = self._start()
+        state = parse_qs(urlparse(start_data["authorization_url"]).query)["state"][0]
+
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.json.return_value = {
+            "error": "invalid_grant",
+            "error_description": "Authorization code expired",
+        }
+
+        response = self.client.post(
+            "/api/user/toolbar_oauth_exchange/",
+            data=json.dumps({"code": "test_code", "state": state, "code_verifier": "test_verifier"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "invalid_grant")
+
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_exchange_handles_non_json_token_response(self, mock_post):
         start_data = self._start()
         state = parse_qs(urlparse(start_data["authorization_url"]).query)["state"][0]
 
         mock_post.return_value.status_code = 502
-        mock_post.return_value.content = b"bad gateway html"
-        mock_post.return_value.json.side_effect = ValueError("invalid json")
+        mock_post.return_value.json.side_effect = ValueError("No JSON")
 
         response = self.client.post(
             "/api/user/toolbar_oauth_exchange/",
@@ -279,7 +276,7 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 502)
-        self.assertEqual(response.json()["code"], "token_exchange_invalid_response")
+        self.assertEqual(response.json()["code"], "token_exchange_failed")
 
     @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_exchange_replay_fails(self, mock_post):
@@ -287,7 +284,6 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         state = parse_qs(urlparse(start_data["authorization_url"]).query)["state"][0]
 
         mock_post.return_value.status_code = 200
-        mock_post.return_value.content = b'{"access_token":"pha_abc","refresh_token":"phr_abc","token_type":"Bearer","expires_in":3600,"scope":"openid"}'
         mock_post.return_value.json.return_value = {
             "access_token": "pha_abc",
             "refresh_token": "phr_abc",

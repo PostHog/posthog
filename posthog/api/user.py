@@ -836,11 +836,8 @@ def toolbar_oauth_start(request):
 
     try:
         app_url = normalize_and_validate_app_url(team, serializer.validated_data["app_url"])
-        # Derive callbacks from the current PostHog origin so OAuth stays
-        # deployment-local (no extra per-tenant redirect config step).
-        base_url = request.build_absolute_uri("/").rstrip("/")
 
-        oauth_app = get_or_create_toolbar_oauth_application(base_url=base_url, user=request.user)
+        oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
 
         signed_state, expires_at = build_toolbar_oauth_state(
             ToolbarOAuthState(
@@ -856,7 +853,6 @@ def toolbar_oauth_start(request):
         )
 
         authorization_url = build_authorization_url(
-            base_url=base_url,
             application=oauth_app,
             state=signed_state,
             code_challenge=serializer.validated_data["code_challenge"],
@@ -897,12 +893,10 @@ def toolbar_oauth_exchange(request):
             request_user=request.user,
             request_team=team,
         )
-        base_url = request.build_absolute_uri("/").rstrip("/")
-        oauth_app = get_or_create_toolbar_oauth_application(base_url=base_url, user=request.user)
+        oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
 
         # Keep the code exchange on the backend so the popup never handles tokens.
         token_payload = exchange_code_for_tokens(
-            base_url=base_url,
             client_id=oauth_app.client_id,
             code=serializer.validated_data["code"],
             code_verifier=serializer.validated_data["code_verifier"],
@@ -941,7 +935,7 @@ def toolbar_oauth_callback(request):
     return render_template(
         "toolbar_oauth_callback.html",
         request=request,
-        context={"payload": payload, "target_origin": request.build_absolute_uri("/").rstrip("/")},
+        context={"payload": payload, "target_origin": settings.SITE_URL},
     )
 
 
