@@ -6,7 +6,7 @@ Unified app lifecycle management: signal trapping (SIGINT/SIGTERM), component re
 
 ### Worker (no HTTP server)
 
-Register components **before** calling `monitor()` or `monitor_background()`. In your component task, **always** call `handle.work_completed()` before returning (on both shutdown and error paths), or the handle's drop guard will signal "component died" and trigger shutdown.
+Register components **before** calling `monitor()` or `monitor_background()`. For long-running components that exit when they see shutdown, just return (dropping the handle is treated as normal completion). Call `work_completed()` only for one-shot/finite work or when signaling done without dropping; if you exit during normal operation without calling it, the drop guard signals "component died".
 
 ```rust
 use std::time::Duration;
@@ -36,9 +36,7 @@ async fn consumer_loop(handle: lifecycle::Handle) {
     loop {
         tokio::select! {
             _ = handle.shutdown_recv() => {
-                // Drain in-flight work, then signal done. Must call work_completed() before return.
                 drain().await;
-                handle.work_completed();
                 return;
             }
             msg = recv_message() => {
@@ -110,19 +108,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Method | Use when |
 |--------|----------|
-| `shutdown_recv()` | In `tokio::select!` to react to shutdown (e.g. stop consuming, drain, then `work_completed()`). |
+| `shutdown_recv()` | In `tokio::select!` to react to shutdown (e.g. stop consuming, drain, then return). |
 | `cancellation_token()` | Pass to sub-tasks or APIs that take a `CancellationToken`. |
 | `is_shutting_down()` | Sync check (e.g. in a hot loop) to bail out. |
-| `signal_failure(reason)` | Fatal error; triggers global shutdown. Call `work_completed()` after. |
-| `request_shutdown()` | Request clean shutdown (non-fatal). Then finish work and `work_completed()`. |
-| `work_completed()` | **Always** call before your component task returns (shutdown or error path). Otherwise the drop guard signals "died". |
+| `signal_failure(reason)` | Fatal error; triggers global shutdown. Call `work_completed()` after so the manager gets a clear "done" before drop. |
+| `request_shutdown()` | Request clean shutdown (non-fatal). Then finish work and return (drop is enough). |
+| `work_completed()` | Required for one-shot/finite work or when signaling done without dropping. Optional for long-running components that exit on shutdown — drop is treated as completion. |
 | `report_healthy()` | Liveness heartbeat (call more often than `liveness_deadline`). |
 | `report_unhealthy()` | Mark component unhealthy for liveness. |
 | `report_healthy_blocking()` | Same as `report_healthy()`; use from sync/blocking contexts (e.g. rdkafka callbacks). |
 
 ### Common pitfalls
 
-1. **Forgetting `work_completed()`** — When the **last** clone of a `Handle` is dropped (e.g. when your component task returns), the drop guard runs. If you never called `work_completed()`, the manager receives "component died" and shuts down. So: on every exit path from your component (normal shutdown, error, early return), call `work_completed()` before returning.
+1. **Drop during normal operation** — Only when the last handle is dropped **while shutdown is not in progress** (e.g. panic, early return) does the drop guard signal "component died" and trigger shutdown. Exiting after you see shutdown (e.g. `shutdown_recv()`) is fine; drop is treated as normal completion.
 2. **Register order** — Register all components before calling `monitor()` or `monitor_background()`; the manager is consumed by those calls, so you cannot register afterward.
 3. **Liveness** — If you use `with_liveness_deadline`, the component must call `report_healthy()` (or `report_healthy_blocking()`) more frequently than that interval, or the liveness probe will report the component as stalled/unhealthy. With `HealthStrategy::All`, one stalled component makes the app unhealthy.
 

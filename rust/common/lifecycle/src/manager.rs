@@ -417,14 +417,19 @@ impl Manager {
                     match event {
                         ComponentEvent::WorkCompleted { tag } => {
                             if let Some(s) = self.components.get_mut(&tag) {
-                                s.phase = ShutdownPhase::Completed;
-                                let elapsed = shutdown_clock.elapsed();
-                                metrics::emit_component_shutdown_duration(&name, &tag, "completed", elapsed.as_secs_f64());
-                                metrics::emit_component_shutdown_result(&name, &tag, "completed");
-                                info!(component = %tag,
-                                    duration_secs = elapsed.as_secs_f64(),
-                                    result = "completed",
-                                    "Lifecycle: component completed shutdown");
+                                if s.phase == ShutdownPhase::ShuttingDown {
+                                    s.phase = ShutdownPhase::Completed;
+                                    let elapsed = shutdown_clock.elapsed();
+                                    metrics::emit_component_shutdown_duration(&name, &tag, "completed", elapsed.as_secs_f64());
+                                    metrics::emit_component_shutdown_result(&name, &tag, "completed");
+                                    info!(component = %tag,
+                                        duration_secs = elapsed.as_secs_f64(),
+                                        result = "completed",
+                                        "Lifecycle: component completed shutdown");
+                                } else {
+                                    debug!(component = %tag, phase = ?s.phase,
+                                        "Lifecycle: late WorkCompleted for already-finished component");
+                                }
                             }
                         }
                         ComponentEvent::Died { tag } => {

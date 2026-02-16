@@ -17,11 +17,13 @@ pub(crate) enum ComponentEvent {
 
 /// RAII handle for a registered component. Clone and pass to tasks.
 ///
-/// **Drop guard:** When the last clone of a handle is dropped (e.g. when your component task
-/// returns), the manager is notified. If you did not call [`work_completed`](Handle::work_completed)
-/// before returning, the manager treats the component as "died" and initiates shutdown. So on
-/// every exit path from your component (shutdown, error, early return), call `work_completed()`
-/// before returning. See the crate README for usage and pitfalls.
+/// **Drop guard:** When the last clone of a handle is dropped, the manager is notified. If
+/// shutdown is already in progress ([`is_shutting_down`](Handle::is_shutting_down)), the drop
+/// is treated as normal completion (equivalent to [`work_completed`](Handle::work_completed)).
+/// If shutdown is not in progress, the drop signals "component died" and triggers shutdown.
+/// So for long-running components that exit when they see shutdown, just return (drop the
+/// handle); no need to call `work_completed()`. Call `work_completed()` for one-shot/finite
+/// work or when signaling done without dropping. See the crate README for usage.
 #[derive(Clone)]
 pub struct Handle {
     pub(crate) inner: Arc<HandleInner>,
@@ -71,7 +73,9 @@ impl Handle {
         );
     }
 
-    /// Mark this component as finished; suppresses "died" when the handle is dropped.
+    /// Mark this component as finished. Required for one-shot/finite work (e.g. migration runner)
+    /// or when signaling done without dropping the handle. Optional for long-running components
+    /// that exit on shutdown — dropping the handle during shutdown is treated as completion.
     pub fn work_completed(&self) {
         self.inner.completed.store(true, Ordering::SeqCst);
         drop(self.inner.event_tx.try_send(ComponentEvent::WorkCompleted {
@@ -104,10 +108,18 @@ impl Handle {
 
 impl Drop for HandleInner {
     fn drop(&mut self) {
-        if !self.completed.load(Ordering::SeqCst) {
-            drop(self.event_tx.try_send(ComponentEvent::Died {
-                tag: self.tag.clone(),
-            }));
+        if self.completed.load(Ordering::SeqCst) {
+            return;
         }
+        let event = if self.shutdown_token.is_cancelled() {
+            ComponentEvent::WorkCompleted {
+                tag: self.tag.clone(),
+            }
+        } else {
+            ComponentEvent::Died {
+                tag: self.tag.clone(),
+            }
+        };
+        drop(self.event_tx.try_send(event));
     }
 }

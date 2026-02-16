@@ -4,9 +4,10 @@ use lifecycle::{ComponentOptions, HealthStrategy, LifecycleError, Manager, Manag
 
 // --- Correct patterns (documented for integrators) ---
 
-/// Correct pattern: component loop selects on shutdown_recv(), drains, then calls work_completed() before return.
+/// Correct pattern: component loop selects on shutdown_recv(), then returns (drop during shutdown = completion).
+/// Spawn holds the only handle; it requests shutdown then waits for it, so when it returns the drop sends WorkCompleted.
 #[tokio::test]
-async fn component_loop_calls_work_completed_on_shutdown_path() {
+async fn component_loop_exit_during_shutdown_without_work_completed_ok() {
     let mut manager = Manager::new(ManagerOptions {
         name: "test".into(),
         global_shutdown_timeout: Duration::from_secs(5),
@@ -16,27 +17,16 @@ async fn component_loop_calls_work_completed_on_shutdown_path() {
     });
     let handle = manager.register("worker", ComponentOptions::new());
     let guard = manager.monitor_background();
-    let handle_in_task = handle.clone();
 
     tokio::spawn(async move {
-        let mut done = false;
-        while !done {
-            tokio::select! {
-                _ = handle_in_task.shutdown_recv() => {
-                    done = true;
-                }
-                _ = tokio::time::sleep(Duration::from_millis(10)) => {}
-            }
-        }
-        handle_in_task.work_completed();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        handle.request_shutdown();
+        handle.shutdown_recv().await;
     });
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    handle.request_shutdown();
-    tokio::task::yield_now().await;
     let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
         .await
-        .expect("component_loop_calls_work_completed_on_shutdown_path timed out");
+        .expect("component_loop_exit_during_shutdown_without_work_completed_ok timed out");
     assert!(result.is_ok());
 }
 
@@ -139,12 +129,10 @@ async fn readiness_returns_200_until_shutdown() {
     assert_eq!(readiness.check().await.as_u16(), 200);
 
     let guard = manager.monitor_background();
-    let handle_for_shutdown = handle.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        handle_for_shutdown.request_shutdown();
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        handle_for_shutdown.work_completed();
+        handle.request_shutdown();
+        tokio::time::sleep(Duration::from_millis(80)).await;
     });
 
     tokio::time::timeout(Duration::from_secs(10), guard.wait())
@@ -275,6 +263,29 @@ async fn work_completed_prevents_died_on_drop() {
     assert!(result.is_ok());
 }
 
+/// After shutdown signalled, component exits without work_completed(); drop is treated as completion.
+#[tokio::test]
+async fn request_shutdown_then_exit_without_work_completed_ok() {
+    let mut manager = Manager::new(ManagerOptions {
+        name: "test".into(),
+        global_shutdown_timeout: Duration::from_secs(5),
+        trap_signals: false,
+        enable_prestop_check: false,
+        liveness_strategy: HealthStrategy::All,
+    });
+    let handle = manager.register("worker", ComponentOptions::new());
+    let guard = manager.monitor_background();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        handle.request_shutdown();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    });
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("request_shutdown_then_exit_without_work_completed_ok timed out");
+    assert!(result.is_ok());
+}
+
 #[tokio::test]
 async fn request_shutdown_then_work_completed_clean_shutdown() {
     let mut manager = Manager::new(ManagerOptions {
@@ -319,5 +330,32 @@ async fn component_timeout_during_graceful_shutdown() {
     let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
         .await
         .expect("component_timeout_during_graceful_shutdown timed out");
+    assert!(result.is_ok());
+}
+
+/// Component exceeds graceful shutdown window, monitor marks TimedOut; late drop sends WorkCompleted
+/// but manager does not overwrite TimedOut with Completed.
+#[tokio::test]
+async fn component_timeout_then_late_drop_stays_timed_out() {
+    let mut manager = Manager::new(ManagerOptions {
+        name: "test".into(),
+        global_shutdown_timeout: Duration::from_secs(5),
+        trap_signals: false,
+        enable_prestop_check: false,
+        liveness_strategy: HealthStrategy::All,
+    });
+    let handle = manager.register(
+        "worker",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_millis(50)),
+    );
+    let guard = manager.monitor_background();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        handle.request_shutdown();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    });
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("component_timeout_then_late_drop_stays_timed_out timed out");
     assert!(result.is_ok());
 }
