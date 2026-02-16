@@ -3,14 +3,12 @@ import { DateTime } from 'luxon'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
-import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
 import { createTestTeam } from '../../../tests/helpers/team'
 import { UUIDT } from '../../utils/utils'
 import { PipelineResultType } from '../pipelines/results'
 import { createNormalizeEventStep } from './normalize-event-step'
 
 describe('normalizeEventStep wrapper', () => {
-    const timestampComparisonLoggingSampleRate = 0
     const team = createTestTeam()
 
     describe('distinctId conversion', () => {
@@ -27,11 +25,10 @@ describe('normalizeEventStep wrapper', () => {
                 uuid: uuid,
             }
 
-            const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+            const step = createNormalizeEventStep()
             const input = {
                 event,
                 headers: createTestEventHeaders(),
-                team,
                 processPerson: true,
             }
 
@@ -57,11 +54,10 @@ describe('normalizeEventStep wrapper', () => {
                 uuid: uuid,
             }
 
-            const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+            const step = createNormalizeEventStep()
             const input = {
                 event,
                 headers: createTestEventHeaders(),
-                team,
                 processPerson: true,
             }
 
@@ -89,11 +85,10 @@ describe('normalizeEventStep wrapper', () => {
             // No properties field
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -103,35 +98,6 @@ describe('normalizeEventStep wrapper', () => {
         if (result.type === PipelineResultType.OK) {
             expect(result.value.normalizedEvent.properties).toBeDefined()
             expect(typeof result.value.normalizedEvent.properties).toBe('object')
-        }
-    })
-
-    it('sanitizes token with null bytes', async () => {
-        const uuid = new UUIDT().toString()
-        const event = {
-            ...createTestPluginEvent({
-                distinct_id: 'my_id',
-                team_id: team.id,
-                timestamp: '2020-02-23T02:15:00Z',
-                event: 'test event',
-                uuid: uuid,
-            }),
-            token: '\u0000token',
-        } as PluginEvent
-
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
-        const input = {
-            event,
-            headers: createTestEventHeaders(),
-            team,
-            processPerson: true,
-        }
-
-        const result = await step(input)
-
-        expect(result.type).toBe(PipelineResultType.OK)
-        if (result.type === PipelineResultType.OK) {
-            expect((result.value.normalizedEvent as any).token).toBe('\uFFFDtoken')
         }
     })
 
@@ -152,11 +118,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -190,11 +155,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -233,11 +197,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -263,8 +226,6 @@ describe('normalizeEventStep wrapper', () => {
 
             expect(result.value.timestamp).toEqual(DateTime.fromISO(event.timestamp!, { zone: 'utc' }))
 
-            // Verify required fields are present
-            expect(result.value.team).toBe(team)
             expect(result.value.headers).toEqual(createTestEventHeaders())
         }
     })
@@ -282,11 +243,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -302,8 +262,6 @@ describe('normalizeEventStep wrapper', () => {
 
             expect(result.value.timestamp).toEqual(DateTime.fromISO(event.timestamp!, { zone: 'utc' }))
 
-            // Verify required fields are present
-            expect(result.value.team).toBe(team)
             expect(result.value.headers).toEqual(createTestEventHeaders())
         }
     })
@@ -337,11 +295,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: false,
         }
 
@@ -363,8 +320,6 @@ describe('normalizeEventStep wrapper', () => {
 
             expect(result.value.timestamp).toEqual(DateTime.fromISO(event.timestamp!, { zone: 'utc' }))
 
-            // Verify required fields are present
-            expect(result.value.team).toBe(team)
             expect(result.value.headers).toEqual(createTestEventHeaders())
         }
     })
@@ -390,11 +345,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -431,11 +385,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -465,11 +418,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -499,11 +451,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -531,11 +482,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -563,11 +513,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: false,
         }
 
@@ -601,11 +550,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -638,11 +586,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -669,11 +616,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: false,
             // Additional fields
             customField: 'custom value',

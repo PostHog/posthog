@@ -54,7 +54,6 @@ describe('createParseKafkaMessageStep', () => {
                                 $ip: '127.0.0.1',
                                 $sent_at: '2023-01-01T00:00:01Z',
                             },
-                            token: 'test_token',
                             ip: null,
                             site_url: 'https://example.com',
                             uuid: 'test-uuid',
@@ -157,7 +156,6 @@ describe('createParseKafkaMessageStep', () => {
                             event: 'test_event',
                             distinct_id: 'test_user',
                             properties: { outer: 'value' }, // This will overwrite the inner properties
-                            token: 'test_token',
                             ip: null,
                         },
                     },
@@ -199,7 +197,6 @@ describe('createParseKafkaMessageStep', () => {
                                 $ip: '192.168.1.1', // ip from raw event field added to properties
                                 $sent_at: '2023-01-01T00:00:01Z', // sent_at added to properties
                             },
-                            token: 'test\uFFFDtoken', // null byte replaced with replacement character
                             ip: null, // ip field set to null for safety
                             sent_at: '2023-01-01T00:00:01Z',
                         },
@@ -329,7 +326,6 @@ describe('createParseKafkaMessageStep', () => {
                     message: mockMessage,
                     event: {
                         event: {
-                            token: 'test_token',
                             distinct_id: 'undefined',
                             ip: null,
                             properties: {},
@@ -364,7 +360,6 @@ describe('createParseKafkaMessageStep', () => {
                             event: 'test_event',
                             distinct_id: 'null',
                             properties: {},
-                            token: 'null',
                             ip: null,
                         },
                     },

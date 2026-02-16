@@ -1,21 +1,29 @@
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
+import { EventHeaders } from '~/types'
+
 import { normalizeProcessPerson } from '../../utils/event'
-import { PerDistinctIdPipelineInput } from '../analytics'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { PipelineResult, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-type NormalizeProcessPersonFlagOutput = PerDistinctIdPipelineInput & {
+type NormalizeProcessPersonFlagInput = {
+    event: PluginEvent
+    headers: EventHeaders
+}
+
+type NormalizeProcessPersonFlagOutput = {
     processPerson: boolean
     forceDisablePersonProcessing: boolean
 }
 
-export function createNormalizeProcessPersonFlagStep(): ProcessingStep<
-    PerDistinctIdPipelineInput,
-    NormalizeProcessPersonFlagOutput
+export function createNormalizeProcessPersonFlagStep<TInput extends NormalizeProcessPersonFlagInput>(): ProcessingStep<
+    TInput,
+    TInput & NormalizeProcessPersonFlagOutput
 > {
     return function normalizeProcessPersonFlagStep(
-        input: PerDistinctIdPipelineInput
-    ): Promise<PipelineResult<NormalizeProcessPersonFlagOutput>> {
+        input: TInput
+    ): Promise<PipelineResult<TInput & NormalizeProcessPersonFlagOutput>> {
         const event = input.event
         const warnings: PipelineWarning[] = []
         const forceDisablePersonProcessing = input.headers.force_disable_person_processing === true

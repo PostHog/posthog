@@ -11,7 +11,7 @@ import { ProcessingStep } from '../pipelines/steps'
 function parseKafkaMessage(message: Message): IncomingEvent | null {
     try {
         // Parse the message payload into the event object
-        const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
+        const { data: dataStr, token: _token, ...rawEvent } = parseJSON(message.value!.toString())
         const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
         // Use sanitize-only normalization here. Full normalization (including
         // personInitialAndUTMProperties) happens after transformations in normalizeEventStep.

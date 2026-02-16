@@ -1,22 +1,9 @@
 import { DateTime } from 'luxon'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
-import { logger } from '../../utils/logger'
 import { compareTimestamps } from './timestamp-comparison'
 
-// Mock the logger
-jest.mock('../../utils/logger', () => ({
-    logger: {
-        info: jest.fn(),
-        warn: jest.fn(),
-    },
-}))
-
 describe('compareTimestamps', () => {
-    beforeEach(() => {
-        jest.clearAllMocks()
-    })
-
     it('should handle missing headers without throwing', () => {
         expect(() => {
             compareTimestamps('2023-01-01T12:00:00Z', undefined, 123, 'test-uuid', 'test-context')
@@ -73,7 +60,7 @@ describe('compareTimestamps', () => {
         }).not.toThrow()
     })
 
-    it('should detect timestamp difference and log it', () => {
+    it('should handle timestamp difference without throwing', () => {
         const timestamp = '2023-01-01T12:00:00Z'
         const timestampMs = DateTime.fromISO(timestamp).toMillis()
         const differentTimestampMs = timestampMs + 5000 // 5 seconds difference
@@ -82,17 +69,8 @@ describe('compareTimestamps', () => {
         })
 
         expect(() => {
-            compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 1.0)
+            compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context')
         }).not.toThrow()
-
-        expect(jest.mocked(logger.info)).toHaveBeenCalledWith(
-            'Timestamp difference detected',
-            expect.objectContaining({
-                context: 'test-context',
-                team_id: 123,
-                event_uuid: 'test-uuid',
-            })
-        )
     })
 
     it('should use default context when not provided', () => {
@@ -148,78 +126,5 @@ describe('compareTimestamps', () => {
                 compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context')
             }).not.toThrow()
         })
-    })
-
-    it('should always log when sample rate is 1.0', () => {
-        const timestamp = '2023-01-01T12:00:00Z'
-        const timestampMs = DateTime.fromISO(timestamp).toMillis() + 1000 // 1 second difference
-        const headers = createTestEventHeaders({
-            timestamp: timestampMs.toString(),
-        })
-
-        compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 1.0)
-
-        expect(jest.mocked(logger.info)).toHaveBeenCalledWith('Timestamp difference detected', expect.any(Object))
-    })
-
-    it('should never log when sample rate is 0.0', () => {
-        const timestamp = '2023-01-01T12:00:00Z'
-        const timestampMs = DateTime.fromISO(timestamp).toMillis() + 1000 // 1 second difference
-        const headers = createTestEventHeaders({
-            timestamp: timestampMs.toString(),
-        })
-
-        compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 0.0)
-
-        expect(jest.mocked(logger.info)).not.toHaveBeenCalled()
-    })
-
-    it('should always log parse error when sample rate is 1.0', () => {
-        const headers = createTestEventHeaders({
-            timestamp: 'invalid-timestamp',
-        })
-
-        compareTimestamps('invalid-date-format', headers, 123, 'test-uuid', 'test-context', 1.0)
-
-        expect(jest.mocked(logger.warn)).not.toHaveBeenCalled() // No logging for header_invalid
-    })
-
-    it('should never log parse error when sample rate is 0.0', () => {
-        const headers = createTestEventHeaders({
-            timestamp: 'invalid-timestamp',
-        })
-
-        compareTimestamps('invalid-date-format', headers, 123, 'test-uuid', 'test-context', 0.0)
-
-        expect(jest.mocked(logger.warn)).not.toHaveBeenCalled()
-    })
-
-    it('should respect sampling for intermediate rates', () => {
-        // Mock Math.random to return predictable values
-        const originalRandom = Math.random
-        const mockRandom = jest.fn()
-        Math.random = mockRandom
-
-        const timestamp = '2023-01-01T12:00:00Z'
-        const timestampMs = DateTime.fromISO(timestamp).toMillis() + 1000
-        const headers = createTestEventHeaders({
-            timestamp: timestampMs.toString(),
-        })
-
-        try {
-            // Test with 50% sampling - should log when random < 0.5
-            mockRandom.mockReturnValue(0.3) // < 0.5, should log
-            compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 0.5)
-            expect(jest.mocked(logger.info)).toHaveBeenCalled()
-
-            jest.clearAllMocks()
-
-            // Test with 50% sampling - should not log when random >= 0.5
-            mockRandom.mockReturnValue(0.7) // >= 0.5, should not log
-            compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 0.5)
-            expect(jest.mocked(logger.info)).not.toHaveBeenCalled()
-        } finally {
-            Math.random = originalRandom
-        }
     })
 })

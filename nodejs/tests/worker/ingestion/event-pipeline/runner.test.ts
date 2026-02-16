@@ -107,7 +107,6 @@ const pipelineEvent: PipelineEvent = {
     ip: '127.0.0.1',
     site_url: 'http://localhost',
     team_id: null,
-    token: 'token1',
     now: '2020-02-23T02:15:00.000Z',
     timestamp: '2020-02-23T02:15:00.000Z',
     event: 'default event',

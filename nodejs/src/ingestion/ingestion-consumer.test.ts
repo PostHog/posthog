@@ -51,18 +51,18 @@ jest.mock('../utils/token-bucket', () => {
 
 let offsetIncrementer = 0
 
-const createKafkaMessage = (event: PipelineEvent): Message => {
+const createKafkaMessage = (event: PipelineEvent, token: string): Message => {
     // TRICKY: This is the slightly different format that capture sends
     const captureEvent = {
         uuid: event.uuid,
         distinct_id: event.distinct_id,
         ip: event.ip,
         now: event.now,
-        token: event.token,
+        token,
         data: JSON.stringify(event),
     }
     return {
-        key: `${event.token}:${event.distinct_id}`,
+        key: `${token}:${event.distinct_id}`,
         value: Buffer.from(JSON.stringify(captureEvent)),
         size: 1,
         topic: 'test',
@@ -74,7 +74,7 @@ const createKafkaMessage = (event: PipelineEvent): Message => {
                 distinct_id: Buffer.from(event.distinct_id || ''),
             },
             {
-                token: Buffer.from(event.token || ''),
+                token: Buffer.from(token),
             },
             {
                 event: Buffer.from(event.event || ''),
@@ -87,10 +87,6 @@ const createKafkaMessage = (event: PipelineEvent): Message => {
             },
         ],
     }
-}
-
-const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (events) => {
-    return events.map(createKafkaMessage)
 }
 
 describe('IngestionConsumer', () => {
@@ -118,7 +114,6 @@ describe('IngestionConsumer', () => {
     const createEvent = (event?: Partial<PipelineEvent>): PipelineEvent => ({
         distinct_id: 'user-1',
         uuid: new UUIDT().toString(),
-        token: team.api_token,
         ip: '127.0.0.1',
         site_url: 'us.posthog.com',
         now: fixedTime.toISO()!,
@@ -133,7 +128,6 @@ describe('IngestionConsumer', () => {
     const createCookielessEvent = (event?: Partial<PipelineEvent>): PipelineEvent => ({
         distinct_id: COOKIELESS_SENTINEL_VALUE,
         uuid: new UUIDT().toString(),
-        token: team.api_token,
         ip: '127.0.0.1',
         site_url: 'us.posthog.com',
         now: fixedTime.toISO()!,
@@ -149,6 +143,10 @@ describe('IngestionConsumer', () => {
             ...(event?.properties || {}),
         },
     })
+
+    const createKafkaMessages = (events: PipelineEvent[], token?: string): Message[] => {
+        return events.map((event) => createKafkaMessage(event, token ?? team.api_token))
+    }
 
     beforeEach(async () => {
         fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
@@ -402,12 +400,11 @@ describe('IngestionConsumer', () => {
                     hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:team1-user`
                     ingester = await createIngestionConsumer(hub)
 
-                    const events = [
-                        createEvent({ token: team.api_token, distinct_id: 'team1-user' }), // should overflow
-                        createEvent({ token: team.api_token, distinct_id: 'team1-other' }), // should not overflow (different distinct_id)
-                        createEvent({ token: team2.api_token, distinct_id: 'team1-user' }), // should not overflow (different token)
+                    const messages = [
+                        createKafkaMessage(createEvent({ distinct_id: 'team1-user' }), team.api_token), // should overflow
+                        createKafkaMessage(createEvent({ distinct_id: 'team1-other' }), team.api_token), // should not overflow (different distinct_id)
+                        createKafkaMessage(createEvent({ distinct_id: 'team1-user' }), team2.api_token), // should not overflow (different token)
                     ]
-                    const messages = createKafkaMessages(events)
 
                     await ingester.handleKafkaBatch(messages)
 
@@ -438,13 +435,12 @@ describe('IngestionConsumer', () => {
                     hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:user1,${team2.api_token}:user2`
                     ingester = await createIngestionConsumer(hub)
 
-                    const events = [
-                        createEvent({ token: team.api_token, distinct_id: 'user1' }), // should overflow
-                        createEvent({ token: team.api_token, distinct_id: 'other' }), // should not overflow
-                        createEvent({ token: team2.api_token, distinct_id: 'user2' }), // should overflow
-                        createEvent({ token: team2.api_token, distinct_id: 'other' }), // should not overflow
+                    const messages = [
+                        createKafkaMessage(createEvent({ distinct_id: 'user1' }), team.api_token), // should overflow
+                        createKafkaMessage(createEvent({ distinct_id: 'other' }), team.api_token), // should not overflow
+                        createKafkaMessage(createEvent({ distinct_id: 'user2' }), team2.api_token), // should overflow
+                        createKafkaMessage(createEvent({ distinct_id: 'other' }), team2.api_token), // should not overflow
                     ]
-                    const messages = createKafkaMessages(events)
 
                     await ingester.handleKafkaBatch(messages)
 
@@ -485,7 +481,7 @@ describe('IngestionConsumer', () => {
                         hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
                         ingester = await createIngestionConsumer(hub)
 
-                        const event = createEvent({ token: team.api_token, distinct_id: 'not-forced' })
+                        const event = createEvent({ distinct_id: 'not-forced' })
                         const [message] = createKafkaMessages([event])
 
                         message.headers = [
@@ -512,7 +508,7 @@ describe('IngestionConsumer', () => {
                         hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY = true
                         ingester = await createIngestionConsumer(hub)
 
-                        const eventA = createEvent({ token: team.api_token, distinct_id: 'not-forced' })
+                        const eventA = createEvent({ distinct_id: 'not-forced' })
                         const [messageA] = createKafkaMessages([eventA])
                         const originalKeyA = messageA.key
                         messageA.headers = [
@@ -536,7 +532,7 @@ describe('IngestionConsumer', () => {
                         hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY = false
                         ingester = await createIngestionConsumer(hub)
 
-                        const eventB = createEvent({ token: team.api_token, distinct_id: 'not-forced' })
+                        const eventB = createEvent({ distinct_id: 'not-forced' })
                         const [messageB] = createKafkaMessages([eventB])
                         messageB.headers = [
                             { token: Buffer.from('forced-token') },
@@ -644,12 +640,14 @@ describe('IngestionConsumer', () => {
                 })
 
                 it('should not drop events for a different team token', async () => {
-                    const messages = createKafkaMessages([
-                        createEvent({
-                            token: team2.api_token,
-                            distinct_id: 'distinct-id-to-ignore',
-                        }),
-                    ])
+                    const messages = createKafkaMessages(
+                        [
+                            createEvent({
+                                distinct_id: 'distinct-id-to-ignore',
+                            }),
+                        ],
+                        team2.api_token
+                    )
                     addMessageHeaders(messages[0], team2.api_token, 'distinct-id-to-ignore')
                     await ingester.handleKafkaBatch(messages)
                     expect(
@@ -696,7 +694,6 @@ describe('IngestionConsumer', () => {
                     const unlisted_distinct_id = 'team1_user_NOT_to_drop'
                     const messages = createKafkaMessages([
                         createEvent({
-                            token: team.api_token,
                             distinct_id: unlisted_distinct_id,
                         }),
                     ])
@@ -711,16 +708,17 @@ describe('IngestionConsumer', () => {
                     const any_distinct_id = 'any_user'
                     const other_distinct_id = 'other_user'
 
-                    const messages = createKafkaMessages([
-                        createEvent({
-                            token: team2.api_token,
-                            distinct_id: any_distinct_id,
-                        }),
-                        createEvent({
-                            token: team2.api_token,
-                            distinct_id: other_distinct_id,
-                        }),
-                    ])
+                    const messages = createKafkaMessages(
+                        [
+                            createEvent({
+                                distinct_id: any_distinct_id,
+                            }),
+                            createEvent({
+                                distinct_id: other_distinct_id,
+                            }),
+                        ],
+                        team2.api_token
+                    )
                     addMessageHeaders(messages[0], team2.api_token, any_distinct_id)
                     addMessageHeaders(messages[1], team2.api_token, other_distinct_id)
 
@@ -762,7 +760,7 @@ describe('IngestionConsumer', () => {
             // The validate-historical-migration step compares: now - timestamp >= 48 hours
             const messages: Message[] = [
                 {
-                    ...createKafkaMessage(events[0]),
+                    ...createKafkaMessage(events[0], team.api_token),
                     headers: [
                         { token: Buffer.from(team.api_token) },
                         { distinct_id: Buffer.from('user-old-event') },
@@ -772,7 +770,7 @@ describe('IngestionConsumer', () => {
                     ],
                 },
                 {
-                    ...createKafkaMessage(events[1]),
+                    ...createKafkaMessage(events[1], team.api_token),
                     headers: [
                         { token: Buffer.from(team.api_token) },
                         { distinct_id: Buffer.from('user-recent-event') },
@@ -1200,7 +1198,7 @@ describe('IngestionConsumer', () => {
                 const observeResultsSpy = jest.spyOn(localIngester.hogTransformer['hogWatcher'], 'observeResults')
 
                 // Process batch with hogwatcher enabled
-                // in this stage we do not have the teamId on the event but the token is present
+                // in this stage we do not have the teamId on the event but the token is in kafka headers
                 const event = createEvent({
                     ip: '89.160.20.129',
                     properties: { $ip: '89.160.20.129' },

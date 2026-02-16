@@ -76,8 +76,8 @@ describe('createResolveTeamStep()', () => {
     it('event with an invalid token is not processed and the step returns drop', async () => {
         const input = {
             message: createTestMessage(),
-            headers: createTestEventHeaders(),
-            event: { event: { ...pipelineEvent, token: 'unknown' }, message: createTestMessage() } as IncomingEvent,
+            headers: createTestEventHeaders({ token: 'unknown' }),
+            event: { event: { ...pipelineEvent }, message: createTestMessage() } as IncomingEvent,
         }
         const response = await step(input)
         expect(response).toEqual(drop('invalid_token'))
@@ -95,14 +95,14 @@ describe('createResolveTeamStep()', () => {
     it('event with a valid token replaces event with PluginEvent and adds team', async () => {
         const input = {
             message: createTestMessage(),
-            headers: createTestEventHeaders(),
-            event: { event: { ...pipelineEvent, token: teamTwoToken }, message: createTestMessage() } as IncomingEvent,
+            headers: createTestEventHeaders({ token: teamTwoToken }),
+            event: { event: { ...pipelineEvent }, message: createTestMessage() } as IncomingEvent,
         }
         const response = await step(input)
         expect(response).toEqual(
             ok({
                 ...input,
-                event: { ...pipelineEvent, token: teamTwoToken, team_id: teamTwo.id },
+                event: { ...pipelineEvent, team_id: teamTwo.id },
                 team: teamTwo,
             })
         )
@@ -134,9 +134,9 @@ describe('createResolveTeamStep()', () => {
     it('event with both team_id and token uses token for team resolution', async () => {
         const input = {
             message: createTestMessage(),
-            headers: createTestEventHeaders(),
+            headers: createTestEventHeaders({ token: teamTwoToken }),
             event: {
-                event: { ...pipelineEvent, team_id: 3, token: teamTwoToken },
+                event: { ...pipelineEvent, team_id: 3 },
                 message: createTestMessage(),
             } as IncomingEvent,
         }
@@ -144,7 +144,7 @@ describe('createResolveTeamStep()', () => {
         expect(response).toEqual(
             ok({
                 ...input,
-                event: { ...pipelineEvent, team_id: teamTwo.id, token: teamTwoToken },
+                event: { ...pipelineEvent, team_id: teamTwo.id },
                 team: teamTwo,
             })
         )
@@ -156,8 +156,8 @@ describe('createResolveTeamStep()', () => {
         jest.mocked(teamManager.getTeamByToken).mockRejectedValueOnce(new Error('retry me'))
         const input = {
             message: createTestMessage(),
-            headers: createTestEventHeaders(),
-            event: { event: { ...pipelineEvent, token: teamTwoToken }, message: createTestMessage() } as IncomingEvent,
+            headers: createTestEventHeaders({ token: teamTwoToken }),
+            event: { event: { ...pipelineEvent }, message: createTestMessage() } as IncomingEvent,
         }
         await expect(async () => {
             await step(input)

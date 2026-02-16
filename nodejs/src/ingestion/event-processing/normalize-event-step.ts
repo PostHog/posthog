@@ -2,25 +2,30 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { EventHeaders, Team } from '../../types'
+import { EventHeaders } from '../../types'
 import { normalizeEventStep } from '../../worker/ingestion/event-pipeline/normalizeEventStep'
 import { PipelineResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-export function createNormalizeEventStep<
-    TInput extends { event: PluginEvent; headers: EventHeaders; team: Team; processPerson: boolean },
->(
-    timestampComparisonLoggingSampleRate: number
-): ProcessingStep<TInput, TInput & { normalizedEvent: PluginEvent; timestamp: DateTime }> {
+type NormalizeEventInput = {
+    event: PluginEvent
+    headers: EventHeaders
+    processPerson: boolean
+}
+
+type NormalizeEventOutput = {
+    normalizedEvent: PluginEvent
+    timestamp: DateTime
+}
+
+export function createNormalizeEventStep<TInput extends NormalizeEventInput>(): ProcessingStep<
+    TInput,
+    TInput & NormalizeEventOutput
+> {
     return async function normalizeEventStepWrapper(
         input: TInput
-    ): Promise<PipelineResult<TInput & { normalizedEvent: PluginEvent; timestamp: DateTime }>> {
-        const [normalizedEvent, timestamp] = await normalizeEventStep(
-            input.event,
-            input.processPerson,
-            input.headers,
-            timestampComparisonLoggingSampleRate
-        )
+    ): Promise<PipelineResult<TInput & NormalizeEventOutput>> {
+        const [normalizedEvent, timestamp] = await normalizeEventStep(input.event, input.processPerson, input.headers)
 
         return ok({
             ...input,

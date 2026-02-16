@@ -11,8 +11,7 @@ import { parseEventTimestamp } from '../timestamps'
 export function normalizeEventStep(
     event: PluginEvent,
     processPerson: boolean,
-    headers?: EventHeaders,
-    timestampLoggingSampleRate?: number
+    headers?: EventHeaders
 ): Promise<[PluginEvent, DateTime]> {
     let timestamp: DateTime
     try {
@@ -27,8 +26,7 @@ export function normalizeEventStep(
                 headers,
                 event.team_id,
                 event.uuid,
-                'normalize_event_step',
-                timestampLoggingSampleRate
+                'normalize_event_step'
             )
         }
     } catch (error) {

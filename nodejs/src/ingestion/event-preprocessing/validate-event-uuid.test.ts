@@ -9,7 +9,6 @@ describe('createValidateEventUuidStep', () => {
 
     beforeEach(() => {
         mockEvent = createTestPipelineEvent({
-            token: 'test-token-123',
             distinct_id: 'test-user-456',
             event: 'test-event',
             properties: { testProp: 'testValue' },
@@ -134,7 +133,6 @@ describe('createValidateEventUuidStep', () => {
         expect(result).toEqual(ok(input))
 
         if (result.type === PipelineResultType.OK) {
-            expect(result.value.event.token).toBe('test-token-123')
             expect(result.value.event.distinct_id).toBe('test-user-456')
             expect(result.value.event.event).toBe('test-event')
             expect(result.value.event.properties).toEqual({ testProp: 'testValue' })

@@ -11,7 +11,7 @@ const createMockEvent = (token: string, distinctId: string, now?: Date): RateLim
         force_disable_person_processing: false,
         historical_migration: false,
     },
-    event: createTestPipelineEvent({ distinct_id: distinctId, token }),
+    event: createTestPipelineEvent({ distinct_id: distinctId }),
 })
 
 const createMockOverflowRedirectService = (
