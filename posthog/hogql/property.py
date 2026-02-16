@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
 from pydantic import BaseModel
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CohortPropertyFilter,
@@ -1120,23 +1121,25 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
 
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
-        action = Action.objects.get(pk=entity.id, team=team)
-        return action_to_expr(action)
-    if entity.id is None:
-        return ast.Constant(value=True)
-
-    filters: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value=entity.id),
-        )
-    ]
+        # action
+        try:
+            action = Action.objects.get(pk=entity.id, team=team)
+        except Action.DoesNotExist:
+            raise ValidationError(f"Action ID {entity.id} does not exist!")
+        event_expr = action_to_expr(action)
+    elif entity.id is None:
+        # all events
+        event_expr = ast.Constant(value=True)
+    else:
+        # event
+        event_expr = parse_expr("events.event = {event}", {"event": ast.Constant(value=entity.id)})
 
     if entity.properties is not None and entity.properties != []:
-        filters.append(property_to_expr(entity.properties, team))
-
-    return ast.And(exprs=filters)
+        # add property filters
+        filter_expr = property_to_expr(entity.properties, team)
+        return ast.And(exprs=[event_expr, filter_expr])
+    else:
+        return event_expr
 
 
 def tag_name_to_expr(tag_name: str):
