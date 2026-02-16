@@ -107,7 +107,7 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
     if not outputs:
         return {"status": "success", "reason": "no_actionable_records", "signals_emitted": 0}
     signals_emitted = await _emit_signals(
-        team_id=inputs.team_id,
+        team=team,
         outputs=outputs,
         extra=inputs.properties_to_log,
     )
@@ -263,7 +263,7 @@ async def _filter_actionable(
 
 
 async def _emit_signals(
-    team_id: int,
+    team: Team,
     outputs: list[SignalEmitterOutput],
     extra: dict[str, Any],
 ) -> int:
@@ -271,7 +271,7 @@ async def _emit_signals(
     for output in outputs:
         try:
             await emit_signal(
-                team_id=team_id,
+                team=team,
                 source_product="data_imports",
                 source_type=output.source_type,
                 source_id=output.source_id,

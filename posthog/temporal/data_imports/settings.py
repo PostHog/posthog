@@ -11,6 +11,7 @@ from posthog.temporal.data_imports.external_data_job import (
     update_external_data_job_model,
 )
 from posthog.temporal.data_imports.workflow_activities.emit_signals import emit_data_import_signals_activity
+from posthog.temporal.data_imports.workflow_activities.emit_signals_workflow import EmitDataImportSignalsWorkflow
 
 WORKFLOWS = [ExternalDataJobWorkflow, CDPProducerJobWorkflow]
 
@@ -24,6 +25,8 @@ ACTIVITIES = [
     calculate_table_size_activity,
     trigger_schedule_buffer_one_activity,
     produce_to_cdp_kafka_activity,
-    # TODO: Decide if it's a proper queue or we should move it to signals queue instead?
-    emit_data_import_signals_activity,
 ]
+
+# Workflow + activities that run on the VIDEO_EXPORT_TASK_QUEUE (signals worker)
+EMIT_SIGNALS_WORKFLOWS = [EmitDataImportSignalsWorkflow]
+EMIT_SIGNALS_ACTIVITIES = [emit_data_import_signals_activity]

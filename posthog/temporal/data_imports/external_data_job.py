@@ -37,10 +37,8 @@ from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityOutputs,
     create_external_data_job_model_activity,
 )
-from posthog.temporal.data_imports.workflow_activities.emit_signals import (
-    EmitSignalsActivityInputs,
-    emit_data_import_signals_activity,
-)
+from posthog.temporal.data_imports.workflow_activities.emit_signals import EmitSignalsActivityInputs
+from posthog.temporal.data_imports.workflow_activities.emit_signals_workflow import EmitDataImportSignalsWorkflow
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
@@ -340,11 +338,11 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     ),
                 )
 
-            # Emit signals for new records (if registered for this source type + schema)
+            # Emit signals for new records (if registered for this source type + schema).
+            # Fire-and-forget: runs on its own task queue so it doesn't block the import pipeline.
             if source_type is not None and is_signal_emission_registered(source_type, schema_name):
-                # TODO: Decide if to make it workflow, so we can fire-and-forget a child workflow
-                await workflow.execute_activity(
-                    emit_data_import_signals_activity,
+                await workflow.start_child_workflow(
+                    EmitDataImportSignalsWorkflow.run,
                     EmitSignalsActivityInputs(
                         team_id=inputs.team_id,
                         schema_id=inputs.external_data_schema_id,
@@ -354,11 +352,11 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         schema_name=schema_name,
                         last_synced_at=last_synced_at,
                     ),
-                    start_to_close_timeout=dt.timedelta(minutes=30),
-                    retry_policy=RetryPolicy(
-                        # Don't retry as it should work every time, so retries won't help if it fails
-                        maximum_attempts=1,
-                    ),
+                    id=f"emit-data-import-signals-{job_id}",
+                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                    # Let the child workflow finish even if the parent completes or fails
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(hours=1),
                 )
 
             # Create source templates
