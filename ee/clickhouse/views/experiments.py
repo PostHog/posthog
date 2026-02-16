@@ -112,6 +112,15 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "user_access_level",
         ]
 
+    def get_fields(self):
+        fields = super().get_fields()
+        team_id = self.context.get("team_id")
+        if team_id:
+            fields["holdout_id"].queryset = ExperimentHoldout.objects.filter(team_id=team_id)  # type: ignore[attr-defined]
+        else:
+            fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
+        return fields
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # Normalize query date ranges to the experiment's current range

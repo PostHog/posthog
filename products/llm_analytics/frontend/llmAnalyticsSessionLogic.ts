@@ -1,7 +1,7 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import { urlToAction } from 'kea-router'
 
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -37,17 +37,11 @@ export function getDataNodeLogicProps({
     return dataNodeLogicProps
 }
 
-export interface LLMAnalyticsSessionLogicProps {
-    tabId?: string
-}
-
 export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsSessionLogic']),
-    props({} as LLMAnalyticsSessionLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect((props: LLMAnalyticsSessionLogicProps) => ({
-        values: [llmAnalyticsSharedLogic({ tabId: props.tabId }), ['dateFilter']],
+    connect(() => ({
+        values: [llmAnalyticsSharedLogic, ['dateFilter']],
     })),
 
     actions({
@@ -136,7 +130,7 @@ export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
         ],
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.llmAnalyticsSession(':id')]: ({ id }, { timestamp, date_from, date_to }) => {
             actions.setSessionId(id ?? '')
             if (timestamp) {
