@@ -1219,6 +1219,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             item,
                         })
                     }
+                    const isOnSuggestedFiltersTab = values.activeTab === TaxonomicFilterGroupType.SuggestedFilters
                     if (isQuickFilterItem(item)) {
                         posthog.capture('taxonomic suggested filter selected', {
                             query: originalQuery,
@@ -1228,12 +1229,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             filterValue: item.filterValue,
                             propertyFilterType: item.propertyFilterType,
                             eventName: item.eventName,
+                            source: 'suggested_filter',
                         })
                     } else {
                         posthog.capture('taxonomic non-suggested filter selected', {
                             group: group.type,
                             value,
                             activeTab: values.activeTab,
+                            source: isOnSuggestedFiltersTab ? 'top_match' : 'direct',
                         })
                     }
                 } catch (e) {
