@@ -166,13 +166,12 @@ class EndpointVersion(models.Model):
         self.saved_query.revert_materialization()
         self.saved_query.soft_delete()
         self.saved_query = None
-        self.is_materialized = False
-        self.save(update_fields=["saved_query", "is_materialized"])
+        self.save(update_fields=["saved_query"])
 
     @property
     def is_materialized(self) -> bool:
         """Derived from saved_query.table_id — True only when materialization is complete."""
-        if self.saved_query_id is None:
+        if self.saved_query is None:
             return False
         try:
             return self.saved_query.table_id is not None
@@ -373,7 +372,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
         return latest
 
     def soft_delete(self) -> None:
-        for version in self.versions.filter(is_materialized=True, saved_query__isnull=False):
+        for version in self.versions.filter(saved_query__isnull=False):
             version.disable_materialization()
 
         self.deleted = True
