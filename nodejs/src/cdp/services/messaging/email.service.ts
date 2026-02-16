@@ -27,22 +27,24 @@ export type EmailServiceHub = Pick<
 >
 
 export class EmailService {
-    ses: AWS.SES
-    sesV2Client: SESv2Client
+    ses: AWS.SES | null = null
+    sesV2Client: SESv2Client | null = null
 
     private recipientTokensService: RecipientTokensService
 
     constructor(private hub: EmailServiceHub) {
-        this.ses = new AWS.SES({
-            accessKeyId: this.hub.SES_ACCESS_KEY_ID,
-            secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
-            region: this.hub.SES_REGION,
-            endpoint: this.hub.SES_ENDPOINT || undefined,
-        })
-        this.sesV2Client = new SESv2Client({
-            region: this.hub.SES_REGION,
-            endpoint: this.hub.SES_ENDPOINT || undefined,
-        })
+        if (this.hub.SES_REGION) {
+            this.ses = new AWS.SES({
+                accessKeyId: this.hub.SES_ACCESS_KEY_ID,
+                secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
+                region: this.hub.SES_REGION,
+                endpoint: this.hub.SES_ENDPOINT || undefined,
+            })
+            this.sesV2Client = new SESv2Client({
+                region: this.hub.SES_REGION,
+                endpoint: this.hub.SES_ENDPOINT || undefined,
+            })
+        }
         this.recipientTokensService = new RecipientTokensService(hub)
     }
 
@@ -169,6 +171,9 @@ export class EmailService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
+        if (!this.ses) {
+            throw new Error('SES is not configured - set SES_REGION and SES credentials')
+        }
         const trackingCode = generateEmailTrackingCode(result.invocation)
         const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
         const htmlWithTrackingAndPreheader = params.preheader
@@ -222,6 +227,9 @@ export class EmailService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
+        if (!this.sesV2Client) {
+            throw new Error('SES is not configured - set SES_REGION and SES credentials')
+        }
         const trackingCode = generateEmailTrackingCode(result.invocation)
         const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
         const htmlWithTrackingAndPreheader = maybeAddPreheaderToEmail(htmlWithTracking, params.preheader)

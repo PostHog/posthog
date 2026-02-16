@@ -65,11 +65,14 @@ rules:
                               |BatchExportBackfill
                               |BatchImport
                               |ChangeRequest
+                              |ClusteringConfig
                               |Cohort
                               |Comment
                               |Conversation
                               |CoreMemory
+                              |CustomerJourney
                               |CustomerProfileConfig
+                              |DAG
                               |Dashboard
                               |DashboardTemplate
                               |DataColorTheme
@@ -130,6 +133,7 @@ rules:
                               |MessageTemplate
                               |Node
                               |Notebook
+                              |ObjectMediaPreview
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
@@ -220,11 +224,14 @@ rules:
                         |BatchExportBackfill
                         |BatchImport
                         |ChangeRequest
+                        |ClusteringConfig
                         |Cohort
                         |Comment
                         |Conversation
                         |CoreMemory
+                        |CustomerJourney
                         |CustomerProfileConfig
+                        |DAG
                         |Dashboard
                         |DashboardTemplate
                         |DataColorTheme
@@ -285,6 +292,7 @@ rules:
                         |MessageTemplate
                         |Node
                         |Notebook
+                        |ObjectMediaPreview
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey

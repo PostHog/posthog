@@ -11724,6 +11724,10 @@
             "required": ["results"],
             "type": "object"
         },
+        "DomainConnectProviderName": {
+            "const": "Cloudflare",
+            "type": "string"
+        },
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"
@@ -15674,6 +15678,7 @@
                 "toolbar",
                 "settings",
                 "health",
+                "inbox",
                 "sdk_doctor",
                 "pipeline_status",
                 "llm_evaluations",
@@ -22806,7 +22811,9 @@
                 "semver_lte",
                 "semver_tilde",
                 "semver_caret",
-                "semver_wildcard"
+                "semver_wildcard",
+                "icontains_multi",
+                "not_icontains_multi"
             ],
             "type": "string"
         },
@@ -30507,6 +30514,9 @@
         "SourceFieldInputConfig": {
             "additionalProperties": false,
             "properties": {
+                "caption": {
+                    "type": "string"
+                },
                 "label": {
                     "type": "string"
                 },
@@ -31538,6 +31548,7 @@
                 "activity_log_properties",
                 "max_ai_context",
                 "workflow_variables",
+                "suggested_filters",
                 "empty"
             ],
             "type": "string"
@@ -33229,6 +33240,9 @@
                 },
                 {
                     "$ref": "#/definitions/SessionPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/CohortPropertyFilter"
                 }
             ]
         },
