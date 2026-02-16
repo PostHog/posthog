@@ -1,6 +1,7 @@
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { userEvent, waitFor } from '@storybook/testing-library'
 
 import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
@@ -122,5 +123,23 @@ export const FunnelTimeToConvertEdit: Story = createInsightStory(
     'edit'
 )
 FunnelTimeToConvertEdit.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-histogram] svg' } }
+
+export const FunnelWithInlineEventsEdit: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightWithInlineEvents.json'),
+    'edit'
+)
+FunnelWithInlineEventsEdit.parameters = {
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
+}
+FunnelWithInlineEventsEdit.play = async ({ canvasElement }) => {
+    const expandFiltersButton = await waitFor(() => {
+        const filtersButton = canvasElement.querySelector<HTMLElement>('[data-attr="show-prop-filter-0"]')
+        if (!filtersButton) {
+            throw new Error('Filters button not yet rendered')
+        }
+        return filtersButton
+    })
+    await userEvent.click(expandFiltersButton)
+}
 
 /* eslint-enable @typescript-eslint/no-var-requires */

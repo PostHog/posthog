@@ -1,0 +1,126 @@
+{
+    "id": 60,
+    "short_id": "kFAIVJnC",
+    "name": "",
+    "derived_name": "Pageview or Pageleave → Pageview user conversion rate",
+    "filters": {},
+    "filters_hash": "cache_group_funnel_test",
+    "order": null,
+    "deleted": false,
+    "dashboard": null,
+    "layouts": {},
+    "color": null,
+    "last_refresh": null,
+    "refreshing": false,
+    "result": [
+        {
+            "action_id": "$pageview, $pageleave",
+            "name": "$pageview, $pageleave",
+            "custom_name": null,
+            "order": 0,
+            "people": [],
+            "count": 20166,
+            "type": "events",
+            "average_conversion_time": null,
+            "median_conversion_time": null,
+            "converted_people_url": "/api/person/funnel/?funnel_step=1",
+            "dropped_people_url": null
+        },
+        {
+            "action_id": "$pageview",
+            "name": "$pageview",
+            "custom_name": null,
+            "order": 1,
+            "people": [],
+            "count": 8438,
+            "type": "events",
+            "average_conversion_time": 370.49,
+            "median_conversion_time": 0,
+            "converted_people_url": "/api/person/funnel/?funnel_step=2",
+            "dropped_people_url": "/api/person/funnel/?funnel_step=-2"
+        }
+    ],
+    "created_at": "2022-03-15T21:31:00.192917Z",
+    "created_by": {
+        "id": 1,
+        "uuid": "017f7913-c1ee-0000-faff-0fe5ace3849a",
+        "distinct_id": "Q1OD2NmnqqbqrLR45mYm2p1VNNbSO9DBFsMig90GWkK",
+        "first_name": "Test",
+        "email": "test@posthog.com"
+    },
+    "description": "",
+    "updated_at": "2022-03-15T21:42:52.989476Z",
+    "tags": [],
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-03-15T21:42:52.984610Z",
+    "last_modified_by": {
+        "id": 1,
+        "uuid": "017f7913-c1ee-0000-faff-0fe5ace3849a",
+        "distinct_id": "Q1OD2NmnqqbqrLR45mYm2p1VNNbSO9DBFsMig90GWkK",
+        "first_name": "Test",
+        "email": "test@posthog.com"
+    },
+    "is_sample": false,
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "funnelsFilter": {
+                "exclusions": [],
+                "funnelVizType": "steps"
+            },
+            "interval": "day",
+            "kind": "FunnelsQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": []
+                    }
+                ]
+            },
+            "series": [
+                {
+                    "kind": "GroupNode",
+                    "name": "$pageview, $pageleave",
+                    "operator": "OR",
+                    "nodes": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "name": "$pageview",
+                            "properties": [
+                                {
+                                    "key": "$browser",
+                                    "value": ["Chrome"],
+                                    "operator": "exact",
+                                    "type": "event"
+                                }
+                            ]
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "event": "$pageleave",
+                            "name": "$pageleave",
+                            "properties": [
+                                {
+                                    "key": "$browser",
+                                    "value": ["Firefox"],
+                                    "operator": "exact",
+                                    "type": "event"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview"
+                }
+            ]
+        },
+        "full": true
+    }
+}
