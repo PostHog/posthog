@@ -119,84 +119,46 @@ class SnapchatAdsAdapter(MarketingSourceAdapter[SnapchatAdsConfig]):
 
         return ast.Call(name="SUM", args=[spend_float])
 
-    def _get_reported_conversion_field(self) -> ast.Expr:
+    def _build_conversion_sum(self, field_names: list[str], apply_currency: bool = False) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-
-        # Sum all available conversion fields that exist in the table
-        # Similar to Meta's approach of summing multiple action types
-        conversion_exprs: list[ast.Expr] = []
+        exprs: list[ast.Expr] = []
 
         try:
             columns = getattr(self.config.stats_table, "columns", None)
             if columns and hasattr(columns, "__contains__"):
-                for field_name in SNAPCHAT_CONVERSION_FIELDS:
+                for field_name in field_names:
                     if field_name in columns:
-                        field_as_float = ast.Call(
-                            name="ifNull",
-                            args=[
-                                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, field_name])]),
-                                ast.Constant(value=0),
-                            ],
+                        exprs.append(
+                            ast.Call(
+                                name="ifNull",
+                                args=[
+                                    ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, field_name])]),
+                                    ast.Constant(value=0),
+                                ],
+                            )
                         )
-                        conversion_exprs.append(field_as_float)
         except (TypeError, AttributeError, KeyError):
             pass
 
-        if not conversion_exprs:
+        if not exprs:
             return ast.Constant(value=0)
 
-        # Sum all conversion fields
-        if len(conversion_exprs) == 1:
-            total_conversions = conversion_exprs[0]
-        else:
-            total_conversions = ast.Call(name="plus", args=[conversion_exprs[0], conversion_exprs[1]])
-            for expr in conversion_exprs[2:]:
-                total_conversions = ast.Call(name="plus", args=[total_conversions, expr])
+        total = exprs[0]
+        for expr in exprs[1:]:
+            total = ast.Call(name="plus", args=[total, expr])
 
-        sum_result = ast.Call(name="SUM", args=[total_conversions])
-        return ast.Call(name="toFloat", args=[sum_result])
+        if apply_currency:
+            converted = self._apply_currency_conversion(self.config.stats_table, stats_table_name, "currency", total)
+            if converted:
+                return ast.Call(name="SUM", args=[converted])
+
+        return ast.Call(name="toFloat", args=[ast.Call(name="SUM", args=[total])])
+
+    def _get_reported_conversion_field(self) -> ast.Expr:
+        return self._build_conversion_sum(SNAPCHAT_CONVERSION_FIELDS)
 
     def _get_reported_conversion_value_field(self) -> ast.Expr:
-        stats_table_name = self.config.stats_table.name
-
-        # Sum all available conversion value fields that exist in the table
-        # Similar to Meta's approach of summing multiple action value types
-        conversion_value_exprs: list[ast.Expr] = []
-
-        try:
-            columns = getattr(self.config.stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__"):
-                for field_name in SNAPCHAT_CONVERSION_VALUE_FIELDS:
-                    if field_name in columns:
-                        field_as_float = ast.Call(
-                            name="ifNull",
-                            args=[
-                                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, field_name])]),
-                                ast.Constant(value=0),
-                            ],
-                        )
-                        conversion_value_exprs.append(field_as_float)
-        except (TypeError, AttributeError, KeyError):
-            pass
-
-        # If no conversion value columns found, return 0
-        if not conversion_value_exprs:
-            return ast.Constant(value=0)
-
-        # Sum all conversion value fields
-        if len(conversion_value_exprs) == 1:
-            total_value = conversion_value_exprs[0]
-        else:
-            total_value = ast.Call(name="plus", args=[conversion_value_exprs[0], conversion_value_exprs[1]])
-            for expr in conversion_value_exprs[2:]:
-                total_value = ast.Call(name="plus", args=[total_value, expr])
-
-        converted = self._apply_currency_conversion(self.config.stats_table, stats_table_name, "currency", total_value)
-        if converted:
-            return ast.Call(name="SUM", args=[converted])
-
-        sum_result = ast.Call(name="SUM", args=[total_value])
-        return ast.Call(name="toFloat", args=[sum_result])
+        return self._build_conversion_sum(SNAPCHAT_CONVERSION_VALUE_FIELDS, apply_currency=True)
 
     def _get_from(self) -> ast.JoinExpr:
         """Build FROM and JOIN clauses"""

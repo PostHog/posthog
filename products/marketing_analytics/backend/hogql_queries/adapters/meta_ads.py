@@ -149,6 +149,8 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
             ],
         )
 
+    # TODO: _get_reported_conversion_field and _get_reported_conversion_value_field share
+    # the same omni/fallback pattern. Extract a shared helper like Snapchat's _build_conversion_sum.
     def _get_reported_conversion_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
 
