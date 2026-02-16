@@ -363,9 +363,12 @@ jobs:
               # --log-order=stream: stream pytest output live instead of buffering until completion
               # pytest_args: optional pytest-split flags for sharded products (e.g. "-- --splits 3 --group 1")
               env:
-                  # On master, collect timing data for pytest-split sharding.
-                  # Each sequential turbo run merges its durations into the same file.
-                  PYTEST_ADDOPTS: ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
+                  # --reuse-db: keep the test database between sequential product runs to avoid
+                  # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
+                  # On master, also collect timing data for pytest-split sharding.
+                  PYTEST_ADDOPTS: >-
+                      --reuse-db
+                      ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
               run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
 
             - name: Upload timing data
