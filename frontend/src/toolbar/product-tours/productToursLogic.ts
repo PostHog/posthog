@@ -22,11 +22,12 @@ import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
+import { captureAndUploadElementScreenshot } from '~/toolbar/utils/screenshot'
 import { ProductTour, ProductTourStep, ProductTourStepType, StepOrderVersion } from '~/types'
 
 import { inferSelector } from './elementInference'
 import type { productToursLogicType } from './productToursLogicType'
-import { PRODUCT_TOURS_SIDEBAR_TRANSITION_MS, captureAndUploadElementScreenshotV2 } from './utils'
+import { PRODUCT_TOURS_SIDEBAR_TRANSITION_MS } from './utils'
 
 /**
  * Editor state machine - explicit states instead of multiple boolean flags.
@@ -169,7 +170,6 @@ export const productToursLogic = kea<productToursLogicType>([
         selectTour: (id: string | null) => ({ id }),
         newTour: true,
         saveTour: true,
-        saveAndEditInPostHog: true,
         deleteTour: (id: string) => ({ id }),
 
         // Preview
@@ -283,14 +283,6 @@ export const productToursLogic = kea<productToursLogicType>([
                 selectTour: () => true,
             },
         ],
-        pendingEditInPostHog: [
-            false,
-            {
-                saveAndEditInPostHog: () => true,
-                selectTour: () => false,
-                submitTourFormFailure: () => false,
-            },
-        ],
         launchedFromMainApp: [
             false,
             {
@@ -375,20 +367,18 @@ export const productToursLogic = kea<productToursLogicType>([
                 }
 
                 const savedTour = await response.json()
-                const { uiHost, pendingEditInPostHog, launchedFromMainApp } = values
+                const { uiHost, launchedFromMainApp } = values
 
-                if (pendingEditInPostHog) {
-                    const editUrl = joinWithUiHost(uiHost, urls.productTour(savedTour.id, 'edit=true&tab=steps'))
-                    if (launchedFromMainApp) {
-                        window.location.href = editUrl
-                    } else {
-                        window.open(editUrl, '_blank')
-                    }
+                const editUrl = joinWithUiHost(uiHost, urls.productTour(savedTour.id, 'edit=true'))
+
+                // always go back to posthog on save if that's where the user started
+                if (launchedFromMainApp) {
+                    window.location.href = editUrl
                 } else {
                     lemonToast.success(isUpdate ? 'Tour updated' : 'Tour created', {
                         button: {
                             label: 'Open in PostHog',
-                            action: () => window.open(joinWithUiHost(uiHost, urls.productTour(savedTour.id)), '_blank'),
+                            action: () => window.open(editUrl, '_blank'),
                         },
                     })
                 }
@@ -499,7 +489,7 @@ export const productToursLogic = kea<productToursLogicType>([
             const { stepIndex } = editorState
             const selector = elementToActionStep(element, dataAttributes).selector ?? ''
             const inferenceData = inferSelector(element)?.selector
-            const screenshot = await captureAndUploadElementScreenshotV2(element).catch((e) => {
+            const screenshot = await captureAndUploadElementScreenshot(element).catch((e) => {
                 console.warn('[Product Tours] Failed to capture element screenshot:', e)
                 return null
             })
@@ -603,9 +593,6 @@ export const productToursLogic = kea<productToursLogicType>([
             }
         },
         saveTour: () => {
-            actions.submitTourForm()
-        },
-        saveAndEditInPostHog: () => {
             actions.submitTourForm()
         },
         previewTour: () => {
@@ -726,6 +713,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 actions.selectTour(productTourId)
                 toolbarConfigLogic.actions.clearUserIntent()
             } else if (userIntent === 'add-product-tour') {
+                actions.setLaunchedFromMainApp(true)
                 actions.newTour()
                 toolbarConfigLogic.actions.clearUserIntent()
             } else if (userIntent === 'preview-product-tour' && productTourId) {

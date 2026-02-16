@@ -59,7 +59,7 @@ export interface LLMAnalyticsSharedLogicProps {
 export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsSharedLogic']),
     props({} as LLMAnalyticsSharedLogicProps),
-    key((props: LLMAnalyticsSharedLogicProps) => `${props?.personId || 'llmAnalyticsScene'}::${props?.tabId || ''}`),
+    key((props: LLMAnalyticsSharedLogicProps) => props?.personId || 'llmAnalyticsScene'),
     connect(() => ({
         values: [sceneLogic, ['sceneKey'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],
         actions: [teamLogic, ['addProductIntent']],

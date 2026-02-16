@@ -19,6 +19,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
+from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     AzureBlobIntegration,
@@ -500,3 +502,105 @@ class IntegrationViewSet(
         email.update_native_integration(serializer.validated_data, instance.team_id)
 
         return Response(IntegrationSerializer(email.integration).data)
+
+    @action(methods=["GET"], detail=False, url_path="domain-connect/check")
+    def domain_connect_check(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        domain = request.query_params.get("domain", "")
+        if not domain:
+            raise ValidationError("domain query parameter is required")
+
+        # Extract root domain so subdomains (e.g. ph.example.com) resolve correctly
+        root_domain, _ = extract_root_domain_and_host(domain)
+        result = discover_domain_connect(root_domain)
+        return Response(
+            {
+                "supported": result is not None,
+                "provider_name": result["provider_name"] if result else None,
+                "available_providers": get_available_providers() if result is None else [],
+            }
+        )
+
+    @action(methods=["POST"], detail=False, url_path="domain-connect/apply-url")
+    def domain_connect_apply_url(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Unified endpoint for generating Domain Connect apply URLs.
+
+        Accepts a context ("email" or "proxy") and the relevant resource ID.
+        The backend resolves the domain, template variables, and service ID
+        based on context, then builds the signed apply URL.
+        """
+        from posthog.domain_connect import (
+            DOMAIN_CONNECT_PROVIDERS,
+            DomainConnectSigningKeyMissing,
+            generate_apply_url,
+            resolve_email_context,
+            resolve_proxy_context,
+        )
+
+        context = request.data.get("context")
+        redirect_uri = request.data.get("redirect_uri")
+        provider_endpoint = request.data.get("provider_endpoint")
+
+        if provider_endpoint and provider_endpoint not in DOMAIN_CONNECT_PROVIDERS:
+            raise ValidationError("Unsupported provider endpoint")
+
+        host: str | None = None
+
+        if context == "email":
+            integration_id = request.data.get("integration_id")
+            if not integration_id:
+                raise ValidationError("integration_id is required for email context")
+            try:
+                domain, service_id, variables = resolve_email_context(integration_id, self.team_id)
+            except ValueError as e:
+                capture_exception(e, {"integration_id": integration_id, "team_id": self.team_id, "context": context})
+                raise ValidationError(
+                    "Validation error resolving email context. Please try again later or contact support."
+                )
+
+        elif context == "proxy":
+            proxy_record_id = request.data.get("proxy_record_id")
+            if not proxy_record_id:
+                raise ValidationError("proxy_record_id is required for proxy context")
+            organization = self.organization
+            try:
+                domain, service_id, host, variables = resolve_proxy_context(proxy_record_id, str(organization.id))
+            except ValueError as e:
+                capture_exception(
+                    e, {"proxy_record_id": proxy_record_id, "organization_id": organization.id, "context": context}
+                )
+                raise ValidationError(
+                    "Validation error resolving proxy context. Please try again later or contact support."
+                )
+        else:
+            raise ValidationError("context must be 'email' or 'proxy'")
+
+        try:
+            url = generate_apply_url(
+                domain=domain,
+                service_id=service_id,
+                variables=variables,
+                host=host,
+                provider_endpoint=provider_endpoint,
+                redirect_uri=redirect_uri,
+            )
+        except DomainConnectSigningKeyMissing as e:
+            capture_exception(e, {"context": context, "domain": domain, "provider_endpoint": provider_endpoint})
+            raise ValidationError(
+                "Automatic DNS configuration is temporarily unavailable for this provider. "
+                "Please configure your DNS records manually."
+            )
+        except ValueError as e:
+            capture_exception(
+                e,
+                {
+                    "context": context,
+                    "domain": domain,
+                    "service_id": service_id,
+                    "host": host,
+                    "provider_endpoint": provider_endpoint,
+                    "redirect_uri": redirect_uri,
+                },
+            )
+            raise ValidationError("Error generating apply URL. Please try again later or contact support.")
+
+        return Response({"url": url})

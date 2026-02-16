@@ -1,1 +1,1 @@
-1003_clean_up_stale_alert_subscriptions
+1006_resource_transfer_duplicated_resource_id

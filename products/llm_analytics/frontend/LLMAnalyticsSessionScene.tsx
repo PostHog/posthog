@@ -9,7 +9,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -33,12 +32,8 @@ export const scene: SceneExport = {
     logic: llmAnalyticsSessionLogic,
 }
 
-export function LLMAnalyticsSessionScene({ tabId }: { tabId?: string }): JSX.Element {
-    const sessionLogic = llmAnalyticsSessionLogic({ tabId })
-    const { sessionId, query } = useValues(sessionLogic)
-    const sessionDataLogic = llmAnalyticsSessionDataLogic({ sessionId, query })
-
-    useAttachedLogic(sessionDataLogic, sessionLogic)
+export function LLMAnalyticsSessionScene(): JSX.Element {
+    const { sessionId, query } = useValues(llmAnalyticsSessionLogic)
 
     return (
         <BindLogic logic={llmAnalyticsSessionDataLogic} props={{ sessionId, query }}>

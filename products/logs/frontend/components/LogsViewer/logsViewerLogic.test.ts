@@ -55,7 +55,7 @@ function mountWithLogs(rawLogs: LogMessage[] = mockRawLogs): {
     if (rawLogs.length > 0) {
         dataLogic.actions.setLogs(rawLogs)
     }
-    const logic = logsViewerLogic({ tabId: TEST_ID })
+    const logic = logsViewerLogic({ id: TEST_ID })
     logic.mount()
     return { logic, dataLogic }
 }
