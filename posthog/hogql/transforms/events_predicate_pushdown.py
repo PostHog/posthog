@@ -319,9 +319,6 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         # Get the events table type from the outer query (needed for both
         # predicate extraction and subquery building)
         events_table_type = node.select_from.type
-        if events_table_type is None:
-            return
-
         # We only apply pushdown to events table which should be TableType or TableAliasType
         if not isinstance(events_table_type, (ast.TableType, ast.TableAliasType)):
             return
