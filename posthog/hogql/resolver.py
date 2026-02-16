@@ -398,7 +398,7 @@ class Resolver(CloningVisitor):
 
                 return node
 
-            database_table = self.database.get_table_node(table_name_chain).get()  # type: ignore
+            database_table = self.database.get_table(table_name_chain)
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
