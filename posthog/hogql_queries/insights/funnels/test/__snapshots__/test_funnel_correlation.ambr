@@ -1,9 +1,7 @@
 # serializer version: 1
 # name: TestClickhouseFunnelCorrelation.test_action_events_are_excluded_from_correlations
   '''
-  WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-       assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-       funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -50,8 +48,10 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-       ['paid', 'user signed up'] AS funnel_step_names,
-       2 AS target_step
+       assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+       assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+       2 AS target_step,
+       ['paid', 'user signed up'] AS funnel_step_names
   SELECT event.event AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
                                                         and isNull(target_step))) AS success_count,
@@ -1320,9 +1320,7 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups
   '''
-  WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-       assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-       funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -1362,8 +1360,10 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-       ['paid', 'user signed up'] AS funnel_step_names,
-       2 AS target_step
+       assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+       assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+       2 AS target_step,
+       ['paid', 'user signed up'] AS funnel_step_names
   SELECT concat(ifNull(toString(event_name), ''), '::', ifNull(toString((prop).1), ''), '::', ifNull(toString((prop).2), '')) AS name,
          countDistinctIf(actor_id, ifNull(equals(steps, target_step), isNull(steps)
                                           and isNull(target_step))) AS success_count,
@@ -1443,9 +1443,7 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups_materialized
   '''
-  WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-       assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-       funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -1485,8 +1483,10 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-       ['paid', 'user signed up'] AS funnel_step_names,
-       2 AS target_step
+       assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+       assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+       2 AS target_step,
+       ['paid', 'user signed up'] AS funnel_step_names
   SELECT concat(ifNull(toString(event_name), ''), '::', ifNull(toString((prop).1), ''), '::', ifNull(toString((prop).2), '')) AS name,
          countDistinctIf(actor_id, ifNull(equals(steps, target_step), isNull(steps)
                                           and isNull(target_step))) AS success_count,
@@ -1566,9 +1566,7 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups
   '''
-  WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-       assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-       funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -1608,8 +1606,10 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-       ['paid', 'user signed up'] AS funnel_step_names,
-       2 AS target_step
+       assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+       assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+       2 AS target_step,
+       ['paid', 'user signed up'] AS funnel_step_names
   SELECT event.event AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
                                                         and isNull(target_step))) AS success_count,
@@ -1684,9 +1684,7 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-          funnel_actors AS
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -1727,10 +1725,12 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-          ['paid', 'user signed up'] AS funnel_step_names,
-          2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
-                                  any(funnel_actors.matching_events) AS matching_events,
-                                  actor_id AS key
+          assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+          2 AS target_step,
+          ['paid', 'user signed up'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
+                                                                 any(funnel_actors.matching_events) AS matching_events,
+                                                                 actor_id AS key
      FROM events AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
@@ -1758,9 +1758,7 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-          funnel_actors AS
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -1801,10 +1799,12 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-          ['paid', 'user signed up'] AS funnel_step_names,
-          2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
-                                  any(funnel_actors.matching_events) AS matching_events,
-                                  actor_id AS key
+          assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+          2 AS target_step,
+          ['paid', 'user signed up'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
+                                                                 any(funnel_actors.matching_events) AS matching_events,
+                                                                 actor_id AS key
      FROM events AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
@@ -1832,9 +1832,7 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-          funnel_actors AS
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -1875,10 +1873,12 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-          ['paid', 'user signed up'] AS funnel_step_names,
-          2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
-                                  any(funnel_actors.matching_events) AS matching_events,
-                                  actor_id AS key
+          assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+          2 AS target_step,
+          ['paid', 'user signed up'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
+                                                                 any(funnel_actors.matching_events) AS matching_events,
+                                                                 actor_id AS key
      FROM events AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
@@ -1906,9 +1906,7 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-          funnel_actors AS
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -1949,10 +1947,12 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-          ['paid', 'user signed up'] AS funnel_step_names,
-          2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
-                                  any(funnel_actors.matching_events) AS matching_events,
-                                  actor_id AS key
+          assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+          2 AS target_step,
+          ['paid', 'user signed up'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
+                                                                 any(funnel_actors.matching_events) AS matching_events,
+                                                                 actor_id AS key
      FROM events AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
@@ -1978,9 +1978,7 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.5
   '''
-  WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-       assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-       funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -2028,8 +2026,10 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-       ['paid', 'user signed up'] AS funnel_step_names,
-       2 AS target_step
+       assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+       assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+       2 AS target_step,
+       ['paid', 'user signed up'] AS funnel_step_names
   SELECT event.event AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
                                                         and isNull(target_step))) AS success_count,
@@ -2112,9 +2112,7 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-          funnel_actors AS
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -2155,10 +2153,12 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-          ['paid', 'user signed up'] AS funnel_step_names,
-          2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
-                                  any(funnel_actors.matching_events) AS matching_events,
-                                  actor_id AS key
+          assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+          2 AS target_step,
+          ['paid', 'user signed up'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
+                                                                 any(funnel_actors.matching_events) AS matching_events,
+                                                                 actor_id AS key
      FROM events AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
@@ -2186,9 +2186,7 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-          funnel_actors AS
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -2229,10 +2227,12 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-          ['paid', 'user signed up'] AS funnel_step_names,
-          2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
-                                  any(funnel_actors.matching_events) AS matching_events,
-                                  actor_id AS key
+          assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+          2 AS target_step,
+          ['paid', 'user signed up'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
+                                                                 any(funnel_actors.matching_events) AS matching_events,
+                                                                 actor_id AS key
      FROM events AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
@@ -2258,9 +2258,7 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2
   '''
-  WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-       assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-       funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -2300,8 +2298,10 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-       ['paid', 'user signed up'] AS funnel_step_names,
-       2 AS target_step
+       assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+       assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+       2 AS target_step,
+       ['paid', 'user signed up'] AS funnel_step_names
   SELECT event.event AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
                                                         and isNull(target_step))) AS success_count,
@@ -2376,9 +2376,7 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-          funnel_actors AS
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -2419,10 +2417,12 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-          ['paid', 'user signed up'] AS funnel_step_names,
-          2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
-                                  any(funnel_actors.matching_events) AS matching_events,
-                                  actor_id AS key
+          assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+          2 AS target_step,
+          ['paid', 'user signed up'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
+                                                                 any(funnel_actors.matching_events) AS matching_events,
+                                                                 actor_id AS key
      FROM events AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
@@ -2450,9 +2450,7 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-          funnel_actors AS
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -2493,10 +2491,12 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-          ['paid', 'user signed up'] AS funnel_step_names,
-          2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
-                                  any(funnel_actors.matching_events) AS matching_events,
-                                  actor_id AS key
+          assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+          2 AS target_step,
+          ['paid', 'user signed up'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
+                                                                 any(funnel_actors.matching_events) AS matching_events,
+                                                                 actor_id AS key
      FROM events AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
@@ -2524,9 +2524,7 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-          funnel_actors AS
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -2567,10 +2565,12 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-          ['paid', 'user signed up'] AS funnel_step_names,
-          2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
-                                  any(funnel_actors.matching_events) AS matching_events,
-                                  actor_id AS key
+          assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+          2 AS target_step,
+          ['paid', 'user signed up'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
+                                                                 any(funnel_actors.matching_events) AS matching_events,
+                                                                 actor_id AS key
      FROM events AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
@@ -2598,9 +2598,7 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-          funnel_actors AS
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -2641,10 +2639,12 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-          ['paid', 'user signed up'] AS funnel_step_names,
-          2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
-                                  any(funnel_actors.matching_events) AS matching_events,
-                                  actor_id AS key
+          assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+          2 AS target_step,
+          ['paid', 'user signed up'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
+                                                                 any(funnel_actors.matching_events) AS matching_events,
+                                                                 actor_id AS key
      FROM events AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
@@ -2670,9 +2670,7 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.5
   '''
-  WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-       assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-       funnel_actors AS
+  WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
             nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
@@ -2720,8 +2718,10 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-       ['paid', 'user signed up'] AS funnel_step_names,
-       2 AS target_step
+       assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+       assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+       2 AS target_step,
+       ['paid', 'user signed up'] AS funnel_step_names
   SELECT event.event AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
                                                         and isNull(target_step))) AS success_count,
@@ -2804,9 +2804,7 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-          funnel_actors AS
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -2847,10 +2845,12 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-          ['paid', 'user signed up'] AS funnel_step_names,
-          2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
-                                  any(funnel_actors.matching_events) AS matching_events,
-                                  actor_id AS key
+          assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+          2 AS target_step,
+          ['paid', 'user signed up'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
+                                                                 any(funnel_actors.matching_events) AS matching_events,
+                                                                 actor_id AS key
      FROM events AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
@@ -2878,9 +2878,7 @@
   '''
   SELECT source.actor_id AS actor_id
   FROM
-    (WITH assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
-          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
-          funnel_actors AS
+    (WITH funnel_actors AS
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -2921,10 +2919,12 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
-          ['paid', 'user signed up'] AS funnel_step_names,
-          2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
-                                  any(funnel_actors.matching_events) AS matching_events,
-                                  actor_id AS key
+          assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
+          assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
+          2 AS target_step,
+          ['paid', 'user signed up'] AS funnel_step_names SELECT funnel_actors.actor_id AS actor_id,
+                                                                 any(funnel_actors.matching_events) AS matching_events,
+                                                                 actor_id AS key
      FROM events AS event
      JOIN funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
      WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_from), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), date_to), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), date_to)), notIn(event.event, funnel_step_names), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)

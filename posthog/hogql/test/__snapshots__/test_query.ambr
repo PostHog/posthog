@@ -1123,8 +1123,7 @@
   GROUP BY PIVOT_FUNCTION_1.col_a) 
   SELECT PIVOT_FUNCTION_2.col_a AS col_a, PIVOT_FUNCTION_2.r AS r 
   FROM PIVOT_FUNCTION_2 ORDER BY PIVOT_FUNCTION_2.col_a ASC 
-  LIMIT 100 
-
+  LIMIT 2000 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
@@ -1140,8 +1139,7 @@
   GROUP BY col_a) 
   SELECT col_a, r 
   FROM PIVOT_FUNCTION_2 ORDER BY col_a ASC 
-  LIMIT 100
-
+  LIMIT 2000
   '''
 # ---
 # name: TestQuery.test_with_pivot_table_2_levels
@@ -1162,8 +1160,7 @@
   FROM PIVOT_FUNCTION_2) 
   SELECT final.col_a AS col_a, final.r AS r 
   FROM final ORDER BY final.col_a ASC 
-  LIMIT 100 
-
+  LIMIT 2000 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
@@ -1181,7 +1178,6 @@
   FROM PIVOT_FUNCTION_2) 
   SELECT col_a, r 
   FROM final ORDER BY col_a ASC 
-  LIMIT 100
-
+  LIMIT 2000
   '''
 # ---

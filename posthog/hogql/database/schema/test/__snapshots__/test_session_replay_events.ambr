@@ -410,7 +410,7 @@
               raw_sessions.session_id_v7) AS raw_session_replay_events__session ON equals(toUInt128(accurateCastOrNull(session_replay_events.session_id, 'UUID')), raw_session_replay_events__session.session_id_v7)
   WHERE and(equals(session_replay_events.team_id, 99999), ifNull(greater(raw_session_replay_events__session.duration, 3600), 0))
   GROUP BY session_replay_events.session_id
-  HAVING ifNull(equals(dateDiff('second', min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')), max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'))), 3600), 0)
+  HAVING equals(dateDiff('second', min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')), max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'))), 3600)
   ORDER BY session_replay_events.session_id ASC
   LIMIT 2000 SETTINGS readonly=2,
                       max_execution_time=60,
@@ -431,7 +431,7 @@
   FROM session_replay_events
   WHERE equals(session_replay_events.team_id, 99999)
   GROUP BY session_replay_events.session_id
-  HAVING ifNull(equals(dateDiff('second', min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')), max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'))), 3600), 0)
+  HAVING equals(dateDiff('second', min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')), max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'))), 3600)
   ORDER BY session_replay_events.session_id ASC
   LIMIT 2000 SETTINGS readonly=2,
                       max_execution_time=60,
