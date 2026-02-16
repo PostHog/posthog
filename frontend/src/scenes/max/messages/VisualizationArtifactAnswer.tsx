@@ -115,7 +115,7 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
         <MessageTemplate type="ai" className="w-full" wrapperClassName="w-full" boxClassName="flex flex-col w-full">
             {!isCollapsed && (
                 <div className={clsx('flex flex-col overflow-auto', isFunnelsQuery(rawQuery) ? 'h-[580px]' : 'h-96')}>
-                    <Query query={query} readOnly embedded />
+                    <Query query={query} readOnly embedded context={{ limitContext: 'posthog_ai' }} />
                 </div>
             )}
             <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>

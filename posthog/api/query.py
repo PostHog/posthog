@@ -141,6 +141,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             self._tag_client_query_id(client_query_id)
             query_dict = query.model_dump()
 
+            if data.limit_context == "posthog_ai":
+                limit_context: LimitContext | None = LimitContext.POSTHOG_AI
+            elif (
+                is_insight_query(query_dict)
+                or is_insight_actors_query(query_dict)
+                or is_insight_actors_options_query(query_dict)
+            ) and get_query_tag_value("access_method") != "personal_api_key":
+                # QUERY_ASYNC provides extended max execution time for insight queries
+                limit_context = LimitContext.QUERY_ASYNC
+            else:
+                limit_context = None
+
             result = process_query_model(
                 self.team,
                 query,
@@ -148,17 +160,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 query_id=client_query_id,
                 user=request.user,  # type: ignore[arg-type]
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
-                limit_context=(
-                    # QUERY_ASYNC provides extended max execution time for insight queries
-                    LimitContext.QUERY_ASYNC
-                    if (
-                        is_insight_query(query_dict)
-                        or is_insight_actors_query(query_dict)
-                        or is_insight_actors_options_query(query_dict)
-                    )
-                    and get_query_tag_value("access_method") != "personal_api_key"
-                    else None
-                ),
+                limit_context=limit_context,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)

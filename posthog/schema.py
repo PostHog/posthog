@@ -18812,6 +18812,10 @@ class QueryRequest(BaseModel):
         description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
     )
     filters_override: DashboardFilter | None = None
+    limit_context: Literal["posthog_ai"] | None = Field(
+        default=None,
+        description="Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value.",
+    )
     name: str | None = Field(
         default=None,
         description=(

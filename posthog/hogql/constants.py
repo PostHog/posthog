@@ -32,7 +32,7 @@ MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
 # Max limit for LLM traces
 MAX_SELECT_TRACES_LIMIT_EXPORT = 10000  # 10k traces
 # Max limit for PostHog AI queries
-MAX_SELECT_POSTHOG_AI_LIMIT = 100  # 100 rows
+MAX_SELECT_POSTHOG_AI_LIMIT = 500  # 500 rows
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
