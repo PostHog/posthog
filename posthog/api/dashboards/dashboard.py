@@ -537,9 +537,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
     @staticmethod
     def _delete_related_tiles(instance: Dashboard, delete_related_insights: bool) -> None:
-        from posthog.models.file_system.file_system import FileSystem
-        from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
-
         if delete_related_insights:
             # Count only non-deleted tiles. Note: deleted is nullable, so we exclude deleted=True
             # rather than filtering for deleted=False (which would miss deleted=None)
@@ -556,27 +553,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
             if insight_ids_to_delete:
-                # Get the short_ids for FileSystem cleanup before updating
-                insight_short_ids = list(
-                    Insight.objects.filter(id__in=insight_ids_to_delete).values_list("short_id", flat=True)
-                )
+                # Fetch instances before .update() so we can clean up FileSystem entries
+                insights_to_delete = list(Insight.objects.filter(id__in=insight_ids_to_delete))
 
                 # nosemgrep: idor-lookup-without-team
                 Insight.objects.filter(id__in=insight_ids_to_delete).update(deleted=True)
 
-                # Clean up FileSystem entries since .update() bypasses Django signals
-                if insight_short_ids:
-                    FileSystem.objects.filter(team=instance.team, type="insight", ref__in=insight_short_ids).delete()
-                    FileSystemShortcut.objects.filter(
-                        team=instance.team, type="insight", ref__in=insight_short_ids
-                    ).delete()
+                Insight.bulk_delete_file_system_entries(instance.team, insights_to_delete)
 
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
     @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:
-        from posthog.models.file_system.file_system import create_or_update_file
-
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=False)
         insights_to_undelete = []
         for tile in DashboardTile.objects.filter(dashboard__id=instance.id):
@@ -585,21 +573,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 insights_to_undelete.append(tile.insight)
         Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
 
-        # Re-create FileSystem entries since .bulk_update() bypasses Django signals
-        for insight in insights_to_undelete:
-            fs_data = insight.get_file_system_representation()
-            if not fs_data.should_delete:
-                create_or_update_file(
-                    team=instance.team,
-                    base_folder=fs_data.base_folder,
-                    name=fs_data.name,
-                    file_type=fs_data.type,
-                    ref=fs_data.ref,
-                    href=fs_data.href,
-                    meta=fs_data.meta,
-                    created_at=fs_data.meta.get("created_at") or getattr(insight, "created_at", None),
-                    created_by_id=fs_data.meta.get("created_by") or getattr(insight, "created_by_id", None),
-                )
+        Insight.bulk_create_file_system_entries(instance.team, insights_to_undelete)
 
     @tracer.start_as_current_span("DashboardSerializer.get_tiles")
     def get_tiles(self, dashboard: Dashboard) -> Optional[list[ReturnDict]]:
