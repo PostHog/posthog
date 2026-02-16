@@ -8,10 +8,18 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.approvals.models import Approval, ApprovalDecision, ApprovalPolicy, ChangeRequest, ChangeRequestState
+from posthog.constants import AvailableFeature
 from posthog.models import User
 
 
 class TestChangeRequestViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+
     def _create_change_request(self, **kwargs):
         defaults = {
             "team": self.team,
@@ -159,6 +167,10 @@ class TestChangeRequestViewSet(APIBaseTest):
 class TestApprovalPolicyViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
         self.organization_membership.level = 8  # Admin level
         self.organization_membership.save()
 

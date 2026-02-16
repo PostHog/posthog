@@ -48,7 +48,7 @@ jobs:
                   python-version: 3.12.12
 
             - name: Install uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -120,7 +120,7 @@ jobs:
 
     integration-tests:
         name: Integration Tests
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
         needs: changes
         timeout-minutes: 30
         if: needs.changes.outputs.mcp == 'true'
@@ -131,6 +131,7 @@ jobs:
         env:
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+            PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_SECURE: 'False'
@@ -143,6 +144,7 @@ jobs:
             NO_RESTART_LOOP: 1
             DISABLE_SECURE_SSL_REDIRECT: 'True'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
+            CELERY_METRICS_PORT: 8999
 
         steps:
             - uses: actions/checkout@v6
@@ -157,9 +159,36 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               shell: bash
               run: |
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d &
+                  (
+                      max_attempts=3
+                      attempt=1
+                      delay=5
+
+                      while [ $attempt -le $max_attempts ]; do
+                          echo "Attempt $attempt of $max_attempts to start stack..."
+
+                          if docker compose -f docker-compose.dev.yml --profile '*' down && \
+                            docker compose -f docker-compose.dev.yml up -d; then
+                              echo "Stack started successfully"
+                              exit 0
+                          fi
+
+                          echo "Failed to start stack on attempt $attempt"
+
+                          if [ $attempt -lt $max_attempts ]; then
+                              sleep_time=$((delay * 2 ** (attempt - 1)))
+                              echo "Waiting ${sleep_time} seconds before retry..."
+                              sleep $sleep_time
+                          fi
+
+                          attempt=$((attempt + 1))
+                      done
+
+                      echo "Failed to start stack after $max_attempts attempts"
+                      exit 1
+                  ) &
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               shell: bash
@@ -171,7 +200,7 @@ jobs:
                   python-version: 3.12.12
 
             - name: Install uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -210,14 +239,39 @@ jobs:
                   touch frontend/dist/layout.html
                   touch frontend/dist/exporter.html
 
-            - name: Wait for services to be available
-              shell: bash
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-mcp'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install sqlx-cli
               run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
+                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
+            - name: Start Docker services
+              shell: bash
+              run: docker compose -f docker-compose.dev.yml up -d
+
+            - name: Wait for Docker services
+              shell: bash
+              run: bin/wait-for-docker
 
             - name: Run migrations
               run: |
+                  # Create persons database and run sqlx migrations first
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx database create
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx migrate run --source rust/persons_migrations/
+                  # Then run Django migrations
                   python manage.py migrate --noinput
                   python manage.py migrate_clickhouse
 
@@ -262,8 +316,14 @@ jobs:
                   print(f'TEST_PROJECT_ID={team.id}')
                   " >> $GITHUB_ENV
 
-            - name: Start PostHog server
+            - name: Source celery queues
               run: |
+                  source ./bin/celery-queues.env
+                  echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
+
+            - name: Start PostHog web & Celery worker
+              run: |
+                  python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --workers 1 &> /tmp/server.log &
 
             - name: Wait for PostHog to be ready
@@ -285,6 +345,10 @@ jobs:
             - name: Show server logs on failure
               if: failure()
               run: cat /tmp/server.log || true
+
+            - name: Show celery logs on failure
+              if: failure()
+              run: cat /tmp/celery.log || true
 
             - name: Show docker compose logs on failure
               if: failure()

@@ -57,8 +57,7 @@ import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
-import { GithubIntegration } from './environment/Integrations'
-import { LinearIntegration } from './environment/Integrations'
+import { GithubIntegration, LinearIntegration } from './environment/Integrations'
 import { LogsCaptureSettings, LogsJsonParseSettings, LogsRetentionSettings } from './environment/LogsCaptureSettings'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
@@ -114,6 +113,7 @@ import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
+import { SqlEditorTabPreference } from './user/SqlEditorTabPreference'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -331,7 +331,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'datacapture',
                 title: 'IP data capture configuration',
                 description:
-                    'When enabled, PostHog will discard client IP addresses from all events captured in this project. IP data will not be stored or used for location-based insights.',
+                    'When enabled, client IP addresses will not be stored with your events. Transformations like GeoIP enrichment and bot detection can still use the IP before it is discarded.',
                 component: <IPCapture />,
             },
             {
@@ -468,6 +468,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WebAnalyticsEnablePreAggregatedTables />,
                 flag: 'WEB_ANALYTICS_API',
             },
+            {
+                id: 'web-vitals-autocapture',
+                title: 'Web vitals autocapture',
+                component: <WebVitalsAutocaptureSettings />,
+            },
         ],
     },
     {
@@ -495,6 +500,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-network',
                 title: 'Network capture',
                 component: <NetworkCaptureSettings />,
+            },
+            {
+                id: 'web-vitals-autocapture',
+                title: 'Web vitals',
+                component: <WebVitalsAutocaptureSettings />,
             },
             {
                 id: 'replay-authorized-domains',
@@ -706,7 +716,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-approvals',
         title: 'Approvals',
-        flag: 'APPROVALS',
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         settings: [
             {
@@ -1044,6 +1053,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'theme',
                 title: 'Theme',
                 component: <ThemeSwitcher onlyLabel />,
+            },
+            {
+                id: 'sql-editor-tab-preference',
+                title: 'SQL editor new tab behavior',
+                component: <SqlEditorTabPreference />,
             },
             {
                 id: 'optout',

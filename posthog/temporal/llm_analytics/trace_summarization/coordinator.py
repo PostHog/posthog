@@ -13,6 +13,7 @@ start_child_workflow + await pattern for controlled concurrency.
 
 import dataclasses
 from datetime import timedelta
+from typing import Any
 
 import structlog
 import temporalio
@@ -43,6 +44,11 @@ from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTra
 from products.llm_analytics.backend.summarization.models import SummarizationMode
 
 with temporalio.workflow.unsafe.imports_passed_through():
+    from posthog.temporal.llm_analytics.coordinator_metrics import (
+        increment_team_failed,
+        increment_team_succeeded,
+        record_teams_discovered,
+    )
     from posthog.temporal.llm_analytics.team_discovery import (
         DISCOVERY_ACTIVITY_RETRY_POLICY,
         DISCOVERY_ACTIVITY_TIMEOUT,
@@ -53,6 +59,14 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
 
 logger = structlog.get_logger(__name__)
+
+# Per-team trace filters to scope which traces are included in summarization sampling.
+# team_id=2 (PostHog internal): only summarize posthog_ai traces, excluding
+# summarization LLM calls, playground, and other internal noise.
+# TODO: generalize via FF payload config so any team can define filters without code changes.
+PER_TEAM_TRACE_FILTERS: dict[int, list[dict[str, Any]]] = {
+    2: [{"key": "ai_product", "value": "posthog_ai", "operator": "exact", "type": "event"}],
+}
 
 
 @dataclasses.dataclass
@@ -116,6 +130,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             team_ids = sorted(GUARANTEED_TEAM_IDS)
 
         logger.info("Processing discovered teams", team_count=len(team_ids), team_ids=team_ids)
+        record_teams_discovered(len(team_ids), "summarization", inputs.analysis_level)
 
         # Spawn child workflows for each team with concurrency limit.
         # Uses start_child_workflow + await pattern: start all workflows in a
@@ -138,6 +153,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                 tuple[int, ChildWorkflowHandle[BatchTraceSummarizationWorkflow, BatchSummarizationResult]]
             ] = []
             for team_id in batch:
+                trace_filters = PER_TEAM_TRACE_FILTERS.get(team_id, [])
                 handle = await temporalio.workflow.start_child_workflow(
                     BatchTraceSummarizationWorkflow.run,
                     BatchSummarizationInputs(
@@ -148,6 +164,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                         mode=inputs.mode,
                         window_minutes=inputs.window_minutes,
                         model=inputs.model,
+                        trace_filters=trace_filters,
                     ),
                     id=f"{child_id_prefix}-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
@@ -163,10 +180,12 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                     total_items += workflow_result.metrics.items_queried
                     total_summaries += workflow_result.metrics.summaries_generated
                     successful_teams.append(team_id)
+                    increment_team_succeeded("summarization", inputs.analysis_level)
 
                 except Exception:
                     logger.exception("Failed to process team", team_id=team_id)
                     failed_teams.append(team_id)
+                    increment_team_failed("summarization", inputs.analysis_level)
 
         logger.info(
             "Batch trace summarization coordinator completed",

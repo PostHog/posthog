@@ -429,22 +429,17 @@ export function LLMAnalyticsScene(): JSX.Element {
         },
     ]
 
-    if (
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_ERRORS_TAB] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    ) {
-        tabs.push({
-            key: 'errors',
-            label: 'Errors',
-            content: (
-                <LLMAnalyticsSetupPrompt>
-                    <LLMAnalyticsErrors />
-                </LLMAnalyticsSetupPrompt>
-            ),
-            link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
-            'data-attr': 'errors-tab',
-        })
-    }
+    tabs.push({
+        key: 'errors',
+        label: 'Errors',
+        content: (
+            <LLMAnalyticsSetupPrompt>
+                <LLMAnalyticsErrors />
+            </LLMAnalyticsSetupPrompt>
+        ),
+        link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
+        'data-attr': 'errors-tab',
+    })
 
     // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
     if (
@@ -482,7 +477,8 @@ export function LLMAnalyticsScene(): JSX.Element {
 
     const availableItemsInSidebar = useMemo(() => {
         return [
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ? (
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ||
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS] ? (
                 <Link to={urls.llmAnalyticsClusters()} onClick={() => toggleProduct('Clusters', true)}>
                     clusters
                 </Link>

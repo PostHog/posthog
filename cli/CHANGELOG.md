@@ -1,5 +1,17 @@
 # posthog-cli
 
+# 0.5.30
+
+- Add experimental dSYM upload for iOS/macOS crash symbolication
+
+# 0.5.29
+
+- chore: introduce env variable `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` (backwards compatible)
+
+# 0.5.28
+
+- chore: introduce `--release-name` and `--release-version` options (backwards compatible)
+
 # 0.5.27
 
 - fix: only warns on release id mismatch errors

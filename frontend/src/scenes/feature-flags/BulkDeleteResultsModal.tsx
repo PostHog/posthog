@@ -133,7 +133,7 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
         <LemonModal
             isOpen={resultsModalVisible}
             onClose={hideResultsModal}
-            title="Bulk delete results"
+            title="Bulk deletion results"
             width={600}
             footer={
                 <LemonButton type="primary" onClick={hideResultsModal}>
@@ -181,7 +181,7 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
                                 header: (
                                     <div className="flex items-center gap-2">
                                         <IconWarning className="text-warning" />
-                                        <span>Clean up code references</span>
+                                        <span>Clean up code references with AI</span>
                                     </div>
                                 ),
                                 content: (

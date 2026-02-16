@@ -123,7 +123,23 @@ jobs:
                   else
                     AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
-                    if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
+
+                    # Trusted bots that are allowed to run in update mode
+                    # Add bot usernames here to allow snapshot auto-updates on their PRs
+                    TRUSTED_BOTS=("mendral-app[bot]")
+
+                    IS_TRUSTED=false
+                    for bot in "${TRUSTED_BOTS[@]}"; do
+                      if [[ "$AUTHOR" == "$bot" ]]; then
+                        IS_TRUSTED=true
+                        break
+                      fi
+                    done
+
+                    if [[ "$IS_TRUSTED" == "true" ]]; then
+                      echo "mode=update" >> $GITHUB_OUTPUT
+                      echo "::notice::🔄 Trusted bot '$AUTHOR' - running in UPDATE mode"
+                    elif [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
                       echo "mode=check" >> $GITHUB_OUTPUT
                       echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
@@ -491,8 +507,8 @@ jobs:
         name: Calculate running time
         needs: [visual-regression, changes]
         runs-on: ubuntu-latest
-        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
-            always() &&
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
+            always() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
