@@ -27,6 +27,11 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     NOISE_CLUSTER_ID,
     WORKFLOW_NAME,
 )
+from posthog.temporal.llm_analytics.trace_clustering.metrics import (
+    record_clusters_generated,
+    record_items_analyzed,
+    record_noise_points,
+)
 from posthog.temporal.llm_analytics.trace_clustering.models import (
     ClusteringActivityInputs,
     ClusteringComputeResult,
@@ -144,6 +149,7 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
         Returns:
             ClusteringResult with clustering metrics and cluster info
         """
+        analysis_level = inputs.analysis_level
 
         # Calculate window from workflow time (deterministic for replays)
         now = workflow.now()
@@ -177,6 +183,9 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
             heartbeat_timeout=COMPUTE_HEARTBEAT_TIMEOUT,
             retry_policy=COMPUTE_ACTIVITY_RETRY_POLICY,
         )
+
+        record_items_analyzed(len(compute_result.items), analysis_level)
+        record_noise_points(compute_result.num_noise_points, analysis_level)
 
         # Compute per-item metadata for labeling (O(n) instead of O(n × k))
         item_metadata = _compute_item_labeling_metadata(compute_result)
@@ -238,4 +247,5 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
             retry_policy=EMIT_ACTIVITY_RETRY_POLICY,
         )
 
+        record_clusters_generated(result.metrics.num_clusters, analysis_level)
         return result

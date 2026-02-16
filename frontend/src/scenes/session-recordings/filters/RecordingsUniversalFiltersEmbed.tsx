@@ -528,7 +528,7 @@ const ReplayFiltersTab = ({
     }
 
     if (showQuickFilters) {
-        taxonomicGroupTypes.unshift(TaxonomicFilterGroupType.QuickFilters)
+        taxonomicGroupTypes.unshift(TaxonomicFilterGroupType.SuggestedFilters)
     }
 
     const { appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)

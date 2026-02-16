@@ -72,6 +72,7 @@ rules:
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |DAG
                               |Dashboard
                               |DashboardTemplate
                               |DataColorTheme
@@ -229,6 +230,7 @@ rules:
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |DAG
                         |Dashboard
                         |DashboardTemplate
                         |DataColorTheme

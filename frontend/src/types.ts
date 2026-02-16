@@ -4267,6 +4267,7 @@ export interface Experiment {
     scheduling_config?: {
         timeseries?: boolean
     }
+    exposure_preaggregation_enabled?: boolean
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
@@ -5170,12 +5171,14 @@ export interface DataModelingNode {
     type: DataModelingNodeType
     dag_id: string
     saved_query_id?: string
-    properties: Record<string, unknown>
     created_at: string
     updated_at: string
     upstream_count: number
     downstream_count: number
+    user_tag?: string
     last_run_at?: string
+    last_run_status?: DataModelingJobStatus
+    sync_interval?: DataWarehouseSyncInterval
 }
 
 export interface DataModelingEdge {
@@ -6020,6 +6023,8 @@ export type HogFunctionType = {
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
     batch_export_id?: string | null
+    template_id?: string
+    deleted?: boolean
 }
 
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
