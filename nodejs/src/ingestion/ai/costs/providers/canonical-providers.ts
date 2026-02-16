@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-02-12 10:15:28 UTC
+// Generated at: 2026-02-16 10:17:48 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -46,7 +46,6 @@ export type CanonicalProvider =
     | 'fireworks-fp8'
     | 'friendli'
     | 'gmicloud-fp8'
-    | 'gmicloud-int4'
     | 'google-ai-studio'
     | 'google-vertex'
     | 'google-vertex-europe'
@@ -67,7 +66,7 @@ export type CanonicalProvider =
     | 'mancer-int4'
     | 'minimax'
     | 'minimax-fp8'
-    | 'minimax-lightning'
+    | 'minimax-highspeed'
     | 'mistral'
     | 'modelrun-fp4'
     | 'moonshotai'
@@ -110,6 +109,7 @@ export type CanonicalProvider =
     | 'sambanova-turbo'
     | 'seed-fp8'
     | 'siliconflow-fp8'
+    | 'siliconflow-int4'
     | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake-fp16'
