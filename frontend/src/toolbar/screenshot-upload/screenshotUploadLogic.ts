@@ -1,11 +1,11 @@
-import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { captureScreenshot } from '~/toolbar/product-tours/utils'
-import { toolbarConfigLogic, toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { captureElementScreenshot, uploadScreenshot } from '~/toolbar/utils/screenshot'
 import { EventDefinition } from '~/types'
 
 import type { screenshotUploadLogicType } from './screenshotUploadLogicType'
@@ -23,14 +23,14 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
         selectEvent: (definition: EventDefinition) => ({ definition }),
         setShowSuggestions: (show: boolean) => ({ show }),
         takeScreenshot: true,
-        openModal: (screenshot: string) => ({ screenshot }),
+        openModal: (previewUrl: string) => ({ previewUrl }),
         closeModal: true,
     }),
 
     reducers({
         isTakingScreenshot: [false, { takeScreenshot: () => true, openModal: () => false }],
         isModalOpen: [false, { openModal: () => true, closeModal: () => false }],
-        screenshot: [null as string | null, { openModal: (_, { screenshot }) => screenshot, closeModal: () => null }],
+        previewUrl: [null as string | null, { openModal: (_, { previewUrl }) => previewUrl, closeModal: () => null }],
         eventName: [
             '',
             {
@@ -85,21 +85,18 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
             null as null | { success: boolean },
             {
                 submitUpload: async (_, breakpoint) => {
-                    const { screenshot, selectedDefinition } = screenshotUploadLogic.values
-                    if (!screenshot || !selectedDefinition) {
+                    const { previewUrl, selectedDefinition } = screenshotUploadLogic.values
+                    if (!previewUrl || !selectedDefinition) {
                         lemonToast.error('Please select an event')
                         return null
                     }
 
-                    const resp = await fetch(screenshot)
-                    const blob = await resp.blob()
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-                    const file = new File([blob], `screenshot-${timestamp}.jpg`, { type: 'image/jpeg' })
-                    const uploaded = await toolbarUploadMedia(file)
+                    const blob = await fetch(previewUrl).then((r) => r.blob())
+                    const { mediaId } = await uploadScreenshot(blob)
                     breakpoint()
 
                     await toolbarFetch('/api/projects/@current/object_media_previews/', 'POST', {
-                        uploaded_media_id: uploaded.id,
+                        uploaded_media_id: mediaId,
                         event_definition_id: selectedDefinition.id,
                     })
                     breakpoint()
@@ -110,14 +107,15 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
         ],
     }),
 
-    selectors({
-        previewUrl: [(s) => [s.screenshot], (screenshot): string | null => screenshot],
-    }),
-
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values }) => ({
         takeScreenshot: async () => {
-            const base64 = await captureScreenshot()
-            actions.openModal(base64)
+            const blob = await captureElementScreenshot(document.documentElement)
+            actions.openModal(URL.createObjectURL(blob))
+        },
+        closeModal: () => {
+            if (values.previewUrl) {
+                URL.revokeObjectURL(values.previewUrl)
+            }
         },
         setEventName: ({ name }) => {
             actions.setShowSuggestions(name.length > 0)
