@@ -10,24 +10,24 @@
 ## Commands
 
 - Environment:
-  - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
-    - Never use `flox activate` in interactive sessions (it hangs if you try)
-  - If local hooks fail with missing Husky bootstrap files (for example `.husky/_/husky.sh`) or missing `lint-staged`, run `pnpm install --frozen-lockfile --filter=.` once in the repo root
+    - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
+        - Never use `flox activate` in interactive sessions (it hangs if you try)
+    - If local hooks fail with missing Husky bootstrap files (for example `.husky/_/husky.sh`) or missing `lint-staged`, run `pnpm install --frozen-lockfile --filter=.` once in the repo root
 - Tests:
-  - All tests: `pytest`
-  - Single test: `pytest path/to/test.py::TestClass::test_method`
-  - Product tests (Turbo): `pnpm turbo run backend:test --filter=@posthog/products-<name>`
-  - Frontend: `pnpm --filter=@posthog/frontend test`
-  - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
+    - All tests: `pytest`
+    - Single test: `pytest path/to/test.py::TestClass::test_method`
+    - Product tests (Turbo): `pnpm turbo run backend:test --filter=@posthog/products-<name>`
+    - Frontend: `pnpm --filter=@posthog/frontend test`
+    - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
 - Lint:
-  - Python:
-    - `ruff check . --fix` and `ruff format .`
-    - Do not run mypy for type checks. It takes too long.
-  - Frontend: `pnpm --filter=@posthog/frontend format`
-  - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
+    - Python:
+        - `ruff check . --fix` and `ruff format .`
+        - Do not run mypy for type checks. It takes too long.
+    - Frontend: `pnpm --filter=@posthog/frontend format`
+    - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
 - Build:
-  - Frontend: `pnpm --filter=@posthog/frontend build`
-  - Start dev: `./bin/start`
+    - Frontend: `pnpm --filter=@posthog/frontend build`
+    - Start dev: `./bin/start`
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - New product: `bin/hogli product:bootstrap <name>`
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
