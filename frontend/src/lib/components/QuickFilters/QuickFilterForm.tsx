@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useMemo } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -11,24 +12,15 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, QuickFilterOption } from '~/types'
+import { PropertyFilterType, PropertyOperator, QuickFilter, QuickFilterOption } from '~/types'
 
+import { QuickFilterSelector } from './QuickFilterSelector'
 import { allowedOperators, operatorsWithoutValues, quickFilterFormLogic } from './quickFilterFormLogic'
 import { quickFiltersLogic } from './quickFiltersLogic'
 import { quickFiltersModalLogic } from './quickFiltersModalLogic'
 
 interface QuickFilterFormProps {
     context: QuickFilterContext
-}
-
-const OPERATOR_LABELS: Partial<Record<PropertyOperator, string>> = {
-    [PropertyOperator.Exact]: 'equals',
-    [PropertyOperator.IsNot]: 'does not equal',
-    [PropertyOperator.IContains]: 'contains',
-    [PropertyOperator.NotIContains]: 'does not contain',
-    [PropertyOperator.Regex]: 'matches regex',
-    [PropertyOperator.IsSet]: 'is set',
-    [PropertyOperator.IsNotSet]: 'is not set',
 }
 
 export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element {
@@ -39,6 +31,23 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
     const { quickFiltersLoading } = useValues(quickFiltersLogic({ context }))
     const { name, propertyName, type, options, valuePattern, isQuickFilterSubmitting } = useValues(formLogic)
     const { addOption } = useActions(formLogic)
+
+    const previewFilter: QuickFilter | null = useMemo(() => {
+        if (!propertyName) {
+            return null
+        }
+        return {
+            id: 'preview',
+            name: name || 'Filter',
+            property_name: propertyName,
+            type,
+            options:
+                type === 'auto-discovery' ? { value_pattern: valuePattern, operator: PropertyOperator.Exact } : options,
+            contexts: [context],
+            created_at: '',
+            updated_at: '',
+        }
+    }, [name, propertyName, type, options, valuePattern, context])
 
     return (
         <Form
@@ -119,62 +128,23 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
                 )}
 
                 {propertyName && type === 'auto-discovery' && (
-                    <div className="space-y-4">
-                        <LemonField
-                            name="valuePattern"
-                            label="Value pattern (regex)"
-                            info="Optional regex to filter which property values appear in the dropdown. Leave empty to show all values."
-                        >
-                            <LemonInput placeholder="e.g. ^prod.*" disabled={quickFiltersLoading} />
-                        </LemonField>
-                        <LemonField name="operator" label="Operator">
-                            {({ value, onChange }) => (
-                                <LemonSelect
-                                    value={value}
-                                    onChange={onChange}
-                                    options={allowedOperators.map((op) => ({
-                                        value: op,
-                                        label: OPERATOR_LABELS[op] || op,
-                                    }))}
-                                    size="small"
-                                    fullWidth
-                                />
-                            )}
-                        </LemonField>
-                    </div>
+                    <LemonField
+                        name="valuePattern"
+                        label="Value pattern (regex)"
+                        info="Optional regex to filter which property values appear in the dropdown. Leave empty to show all values."
+                    >
+                        <LemonInput placeholder="e.g. ^prod.*" disabled={quickFiltersLoading} />
+                    </LemonField>
                 )}
 
-                {type === 'auto-discovery' ? (
-                    <div className="border rounded p-4 bg-bg-3000">
-                        <div className="text-xs font-semibold uppercase text-muted mb-2">Preview</div>
-                        <p className="text-sm text-muted">
-                            Values will be loaded dynamically from the "{propertyName}" property
-                            {valuePattern ? (
-                                <>
-                                    , filtered by pattern: <code className="text-xs">{valuePattern}</code>
-                                </>
-                            ) : null}
-                        </p>
-                    </div>
-                ) : (
-                    <div className="border rounded p-4 bg-bg-3000">
-                        <div className="text-xs font-semibold uppercase text-muted mb-2">Preview</div>
-                        <LemonSelect
-                            value={null}
-                            options={[
-                                { value: null, label: `Any ${name?.toLowerCase() || 'items'}` },
-                                ...options.map((opt: QuickFilterOption) => ({
-                                    value: opt.id,
-                                    label: opt.label,
-                                })),
-                            ]}
-                            size="small"
-                            placeholder={name || 'Filter name'}
-                            dropdownMatchSelectWidth={false}
-                            allowClear
-                        />
-                    </div>
-                )}
+                <div className="border rounded p-4 bg-bg-3000">
+                    <div className="text-xs font-semibold uppercase text-muted mb-2">Preview</div>
+                    {previewFilter ? (
+                        <QuickFilterSelector filter={previewFilter} selectedOptionId={null} onChange={() => {}} />
+                    ) : (
+                        <p className="text-sm text-muted">Select an event property to see a preview.</p>
+                    )}
+                </div>
 
                 <div className="flex justify-between gap-2 pt-4 border-t">
                     <LemonButton

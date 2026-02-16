@@ -80,6 +80,7 @@ export interface LemonSelectPropsBase<T>
     size?: LemonButtonProps['size']
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
     visible?: LemonDropdownProps['visible']
+    onVisibilityChange?: LemonDropdownProps['onVisibilityChange']
     startVisible?: LemonDropdownProps['startVisible']
     truncateText?: { maxWidthClass: string }
 }
@@ -119,6 +120,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
     menu,
     renderButtonContent,
     visible,
+    onVisibilityChange,
     startVisible,
     truncateText,
     ...buttonProps

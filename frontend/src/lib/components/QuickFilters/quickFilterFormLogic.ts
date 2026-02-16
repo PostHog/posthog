@@ -1,13 +1,11 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 
-import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { uuid } from 'lib/utils'
 
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { QuickFilterType } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, QuickFilter, QuickFilterOption } from '~/types'
+import { PropertyOperator, QuickFilter, QuickFilterOption } from '~/types'
 
 import type { quickFilterFormLogicType } from './quickFilterFormLogicType'
 import { quickFiltersLogic } from './quickFiltersLogic'
@@ -56,8 +54,7 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
     key((props) => `${props.context}-${props.filter?.id || 'new'}`),
 
     connect((props: QuickFilterFormLogicProps) => ({
-        values: [propertyDefinitionsModel, ['options as propertyOptions']],
-        actions: [propertyDefinitionsModel, ['loadPropertyValues'], quickFiltersModalLogic(props), ['closeModal']],
+        actions: [quickFiltersModalLogic(props), ['closeModal']],
     })),
 
     actions({
@@ -74,11 +71,10 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
                 type: (props.filter?.type || 'manual-options') as QuickFilterType,
                 options: (isManualQuickFilter(props.filter)
                     ? props.filter.options
-                    : [{ id: uuid(), value: null, label: '', operator: PropertyOperator.Exact }]
-                ) as QuickFilterOption[],
-                valuePattern: isAutoDiscoveryQuickFilter(props.filter)
-                    ? props.filter.options.value_pattern
-                    : '',
+                    : [
+                          { id: uuid(), value: null, label: '', operator: PropertyOperator.Exact },
+                      ]) as QuickFilterOption[],
+                valuePattern: isAutoDiscoveryQuickFilter(props.filter) ? props.filter.options.value_pattern : '',
                 operator: isAutoDiscoveryQuickFilter(props.filter)
                     ? props.filter.options.operator
                     : PropertyOperator.Exact,
@@ -138,7 +134,7 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
 
                 return errors
             },
-            submit: async ({ name, propertyName, type, options, valuePattern, operator }) => {
+            submit: async ({ name, propertyName, type, options, valuePattern }) => {
                 const basePayload = {
                     name: name.trim(),
                     property_name: propertyName.trim(),
@@ -151,7 +147,7 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
                         type: 'auto-discovery' as const,
                         options: {
                             value_pattern: valuePattern.trim(),
-                            operator: operator || PropertyOperator.Exact,
+                            operator: PropertyOperator.Exact,
                         },
                     }
                 } else {
@@ -185,27 +181,10 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
         options: [(s) => [s.quickFilter], (quickFilter) => quickFilter.options],
         valuePattern: [(s) => [s.quickFilter], (quickFilter) => quickFilter.valuePattern],
         operator: [(s) => [s.quickFilter], (quickFilter) => quickFilter.operator],
-        suggestions: [
-            (s) => [s.propertyName, s.propertyOptions],
-            (propertyName, propertyOptions): any[] => {
-                return propertyName ? propertyOptions[propertyName]?.values || [] : []
-            },
-        ],
     }),
 
     listeners(({ actions, values }) => ({
         setQuickFilterValue: ({ name, value }) => {
-            if (name === 'propertyName' && value) {
-                actions.loadPropertyValues({
-                    endpoint: undefined,
-                    type: propertyFilterTypeToPropertyDefinitionType(PropertyFilterType.Event),
-                    newInput: '',
-                    propertyKey: value as string,
-                    eventNames: [],
-                    properties: [],
-                })
-            }
-
             // Auto-fill label when value is set and label is empty (manual options only)
             if (Array.isArray(name) && name[0] === 'options' && name[2] === 'value') {
                 const optionIndex = name[1] as number
