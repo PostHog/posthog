@@ -51,7 +51,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
-    ComputationResult,
+    LazyComputationResult,
     LazyComputationTable,
     ensure_precomputed,
 )
@@ -153,7 +153,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         return breakdowns
 
-    def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> ComputationResult:
+    def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
         """
         Ensures precomputed exposure data exists for this experiment.
 

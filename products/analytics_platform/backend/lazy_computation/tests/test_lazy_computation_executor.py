@@ -31,8 +31,8 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     DEFAULT_TTL_SCHEDULE,
     DEFAULT_WAIT_TIMEOUT_SECONDS,
     NON_RETRYABLE_CLICKHOUSE_ERROR_CODES,
-    ComputationExecutor,
-    ComputationResult,
+    LazyComputationExecutor,
+    LazyComputationResult,
     LazyComputationTable,
     QueryInfo,
     TtlSchedule,
@@ -481,14 +481,14 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         query = self._make_computation_query()
         query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
-        result = ComputationExecutor().execute(
+        result = LazyComputationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 1, tzinfo=UTC),
             end=datetime(2024, 1, 4, tzinfo=UTC),
         )
 
-        assert isinstance(result, ComputationResult)
+        assert isinstance(result, LazyComputationResult)
         assert result.ready is True
         assert len(result.errors) == 0
         assert len(result.job_ids) == 1
@@ -514,7 +514,7 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
         # First: run for Jan 1-2
-        first_result = ComputationExecutor().execute(
+        first_result = LazyComputationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -530,7 +530,7 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         assert len(ch_results_1) == 1  # Jan 1
 
         # Second: run again for same range
-        second_result = ComputationExecutor().execute(
+        second_result = LazyComputationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -559,7 +559,7 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
         # First: Create job for Jan 2 only
-        jan2_result = ComputationExecutor().execute(
+        jan2_result = LazyComputationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 2, tzinfo=UTC),
@@ -576,7 +576,7 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
 
         # Second: Run for Jan 1-4 (Jan 2 is covered)
         # Missing: Jan 1, Jan 3 -> 2 contiguous ranges
-        result = ComputationExecutor().execute(
+        result = LazyComputationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -1223,14 +1223,14 @@ class TestSplitRangesByTtl(BaseTest):
 
 class TestComputationExecutor(BaseTest):
     def test_executor_with_custom_settings(self):
-        default_executor = ComputationExecutor()
+        default_executor = LazyComputationExecutor()
         assert default_executor.wait_timeout_seconds == DEFAULT_WAIT_TIMEOUT_SECONDS
         assert default_executor.poll_interval_seconds == DEFAULT_POLL_INTERVAL_SECONDS
         assert default_executor.max_retries == DEFAULT_RETRIES
         assert default_executor.ttl_schedule == DEFAULT_TTL_SCHEDULE
 
         custom_schedule = TtlSchedule.from_seconds(3600)
-        custom_executor = ComputationExecutor(
+        custom_executor = LazyComputationExecutor(
             wait_timeout_seconds=60.0,
             poll_interval_seconds=0.5,
             max_retries=5,
@@ -1263,7 +1263,7 @@ class TestRaceConditionHandling(BaseTest):
         query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
         query_hash = compute_query_hash(query_info)
 
-        executor = ComputationExecutor(wait_timeout_seconds=2.0, poll_interval_seconds=0.05)
+        executor = LazyComputationExecutor(wait_timeout_seconds=2.0, poll_interval_seconds=0.05)
 
         # Another executor already created a PENDING job for this range
         existing_pending = PreaggregationJob.objects.create(
@@ -1366,7 +1366,7 @@ class TestComputationExecutorExecute(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        executor = ComputationExecutor()
+        executor = LazyComputationExecutor()
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1381,7 +1381,7 @@ class TestComputationExecutorExecute(BaseTest):
     def test_inserts_missing_ranges_and_returns_all_job_ids(self):
         query_info, query_hash = self._make_query_info()
 
-        executor = ComputationExecutor()
+        executor = LazyComputationExecutor()
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1398,7 +1398,7 @@ class TestComputationExecutorExecute(BaseTest):
         query_info, _ = self._make_query_info()
 
         one_hour = 60 * 60
-        executor = ComputationExecutor(ttl_schedule=TtlSchedule.from_seconds(one_hour))
+        executor = LazyComputationExecutor(ttl_schedule=TtlSchedule.from_seconds(one_hour))
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1416,7 +1416,7 @@ class TestComputationExecutorExecute(BaseTest):
     def test_short_ttl_does_not_infinite_loop(self):
         query_info, _ = self._make_query_info()
 
-        executor = ComputationExecutor(ttl_schedule=TtlSchedule.from_seconds(60), wait_timeout_seconds=5.0)
+        executor = LazyComputationExecutor(ttl_schedule=TtlSchedule.from_seconds(60), wait_timeout_seconds=5.0)
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1450,7 +1450,7 @@ class TestComputationExecutorExecute(BaseTest):
         )
 
         one_hour = 60 * 60
-        executor = ComputationExecutor(ttl_schedule=TtlSchedule.from_seconds(one_hour))
+        executor = LazyComputationExecutor(ttl_schedule=TtlSchedule.from_seconds(one_hour))
         insert_count = [0]
 
         def counting_insert(t, j):
@@ -1482,7 +1482,7 @@ class TestComputationExecutorExecute(BaseTest):
         )
 
         one_hour = 60 * 60
-        executor = ComputationExecutor(ttl_schedule=TtlSchedule.from_seconds(one_hour))
+        executor = LazyComputationExecutor(ttl_schedule=TtlSchedule.from_seconds(one_hour))
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1509,7 +1509,7 @@ class TestComputationExecutorExecute(BaseTest):
         range_start = today_start - timedelta(days=2)
         range_end = today_start + timedelta(days=1)
 
-        executor = ComputationExecutor(ttl_schedule=schedule)
+        executor = LazyComputationExecutor(ttl_schedule=schedule)
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1552,7 +1552,7 @@ class TestComputationExecutorExecute(BaseTest):
         now = django_timezone.now()
         today_utc = datetime(now.year, now.month, now.day, tzinfo=UTC)
 
-        executor = ComputationExecutor(ttl_schedule=schedule)
+        executor = LazyComputationExecutor(ttl_schedule=schedule)
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1593,7 +1593,7 @@ class TestComputationExecutorExecute(BaseTest):
         )
 
         one_hour = 60 * 60
-        executor = ComputationExecutor(
+        executor = LazyComputationExecutor(
             ttl_schedule=TtlSchedule.from_seconds(one_hour),
             wait_timeout_seconds=5.0,
             poll_interval_seconds=0.05,
@@ -1650,7 +1650,7 @@ class TestComputationExecutorExecute(BaseTest):
             pending_job.save()
             return {"type": b"message", "channel": job_channel(pending_job.id).encode(), "data": b"ready"}
 
-        executor = ComputationExecutor(wait_timeout_seconds=5.0, poll_interval_seconds=0.1)
+        executor = LazyComputationExecutor(wait_timeout_seconds=5.0, poll_interval_seconds=0.1)
         with patch.object(executor, "_wait_for_notification", side_effect=mock_wait):
             result = executor.execute(
                 team=self.team,
@@ -1675,7 +1675,7 @@ class TestComputationExecutorExecute(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        executor = ComputationExecutor(wait_timeout_seconds=0.3, poll_interval_seconds=0.1)
+        executor = LazyComputationExecutor(wait_timeout_seconds=0.3, poll_interval_seconds=0.1)
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1699,7 +1699,7 @@ class TestComputationExecutorExecute(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        executor = ComputationExecutor(wait_timeout_seconds=0.3, poll_interval_seconds=0.1)
+        executor = LazyComputationExecutor(wait_timeout_seconds=0.3, poll_interval_seconds=0.1)
         with patch(
             "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_computation_job",
             wraps=create_lazy_computation_job,
@@ -1743,7 +1743,7 @@ class TestComputationExecutorExecute(BaseTest):
             pending_job.save()
             return {"type": b"message", "data": b"ready"}
 
-        executor = ComputationExecutor(wait_timeout_seconds=5.0, poll_interval_seconds=0.1)
+        executor = LazyComputationExecutor(wait_timeout_seconds=5.0, poll_interval_seconds=0.1)
         with patch.object(executor, "_wait_for_notification", side_effect=mock_wait):
             result = executor.execute(
                 team=self.team,
@@ -1771,7 +1771,7 @@ class TestComputationExecutorExecute(BaseTest):
             if insert_count[0] == 1:
                 raise ConnectionError("Connection refused")
 
-        executor = ComputationExecutor(max_retries=2)
+        executor = LazyComputationExecutor(max_retries=2)
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1791,7 +1791,7 @@ class TestComputationExecutorExecute(BaseTest):
             insert_count[0] += 1
             raise ConnectionError("Connection refused")
 
-        executor = ComputationExecutor(max_retries=2, wait_timeout_seconds=5.0)
+        executor = LazyComputationExecutor(max_retries=2, wait_timeout_seconds=5.0)
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1815,7 +1815,7 @@ class TestComputationExecutorExecute(BaseTest):
             insert_count[0] += 1
             raise ServerException(message="Syntax error", code=62)
 
-        executor = ComputationExecutor(max_retries=3)
+        executor = LazyComputationExecutor(max_retries=3)
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1832,7 +1832,7 @@ class TestComputationExecutorExecute(BaseTest):
     def test_non_retryable_error_does_not_block_future_queries(self):
         query_info, query_hash = self._make_query_info()
 
-        executor = ComputationExecutor(max_retries=3)
+        executor = LazyComputationExecutor(max_retries=3)
 
         # First call fails with non-retryable error
         result1 = executor.execute(
@@ -1872,7 +1872,7 @@ class TestComputationExecutorExecute(BaseTest):
             created_at=django_timezone.now() - timedelta(seconds=120),
         )
 
-        executor = ComputationExecutor(
+        executor = LazyComputationExecutor(
             stale_pending_threshold_seconds=0.1,
             ch_start_grace_period_seconds=0.1,
             wait_timeout_seconds=5.0,
@@ -1905,7 +1905,7 @@ class TestComputationExecutorExecute(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        executor = ComputationExecutor(
+        executor = LazyComputationExecutor(
             stale_pending_threshold_seconds=300,
             ch_start_grace_period_seconds=300,
             wait_timeout_seconds=0.3,
@@ -1951,7 +1951,7 @@ class TestComputationExecutorExecute(BaseTest):
                 return {"type": b"message", "data": b"ready"}
             return None
 
-        executor = ComputationExecutor(
+        executor = LazyComputationExecutor(
             wait_timeout_seconds=100.0,
             poll_interval_seconds=0.5,
             max_poll_interval_seconds=4.0,
@@ -1997,7 +1997,7 @@ class TestComputationExecutorExecute(BaseTest):
                 return {"type": b"message", "data": b"ready"}
             return None
 
-        executor = ComputationExecutor(
+        executor = LazyComputationExecutor(
             wait_timeout_seconds=100.0,
             poll_interval_seconds=1.0,
             max_poll_interval_seconds=8.0,
@@ -2024,7 +2024,7 @@ class TestPubsubAndStaleDetection(BaseTest):
     # --- Stale detection with CH liveness ---
 
     def test_stale_detection_ch_not_started_within_grace(self):
-        executor = ComputationExecutor(
+        executor = LazyComputationExecutor(
             stale_pending_threshold_seconds=0.1,
             ch_start_grace_period_seconds=300,
         )
@@ -2042,7 +2042,7 @@ class TestPubsubAndStaleDetection(BaseTest):
         assert executor._is_job_stale(pending_job) is False
 
     def test_stale_detection_ch_not_started_past_grace(self):
-        executor = ComputationExecutor(
+        executor = LazyComputationExecutor(
             stale_pending_threshold_seconds=0.1,
             ch_start_grace_period_seconds=1,
         )
@@ -2063,7 +2063,7 @@ class TestPubsubAndStaleDetection(BaseTest):
         assert executor._is_job_stale(pending_job) is True
 
     def test_stale_detection_ch_started_still_running(self):
-        executor = ComputationExecutor(stale_pending_threshold_seconds=0.1)
+        executor = LazyComputationExecutor(stale_pending_threshold_seconds=0.1)
 
         pending_job = PreaggregationJob.objects.create(
             team=self.team,
@@ -2084,7 +2084,7 @@ class TestPubsubAndStaleDetection(BaseTest):
             assert executor._is_job_stale(pending_job) is False
 
     def test_stale_detection_ch_started_not_running(self):
-        executor = ComputationExecutor(stale_pending_threshold_seconds=0.1)
+        executor = LazyComputationExecutor(stale_pending_threshold_seconds=0.1)
 
         pending_job = PreaggregationJob.objects.create(
             team=self.team,
@@ -2108,7 +2108,7 @@ class TestPubsubAndStaleDetection(BaseTest):
             assert executor._is_job_stale(pending_job) is True
 
     def test_marks_stale_pending_job_as_failed(self):
-        executor = ComputationExecutor(stale_pending_threshold_seconds=0.1)
+        executor = LazyComputationExecutor(stale_pending_threshold_seconds=0.1)
 
         pending_job = PreaggregationJob.objects.create(
             team=self.team,
@@ -2127,7 +2127,7 @@ class TestPubsubAndStaleDetection(BaseTest):
         assert pending_job.error is not None and "stale" in pending_job.error.lower()
 
     def test_only_one_waiter_marks_stale_job(self):
-        executor = ComputationExecutor(stale_pending_threshold_seconds=0.1)
+        executor = LazyComputationExecutor(stale_pending_threshold_seconds=0.1)
 
         pending_job = PreaggregationJob.objects.create(
             team=self.team,
@@ -2156,7 +2156,7 @@ class TestPubsubAndStaleDetection(BaseTest):
             assert isinstance(query, ast.SelectQuery)
             query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
-            executor = ComputationExecutor()
+            executor = LazyComputationExecutor()
             result = executor.execute(
                 team=self.team,
                 query_info=query_info,
@@ -2178,7 +2178,7 @@ class TestPubsubAndStaleDetection(BaseTest):
             assert isinstance(query, ast.SelectQuery)
             query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
-            executor = ComputationExecutor(max_retries=0)
+            executor = LazyComputationExecutor(max_retries=0)
             result = executor.execute(
                 team=self.team,
                 query_info=query_info,
@@ -2194,7 +2194,7 @@ class TestPubsubAndStaleDetection(BaseTest):
         with patch(
             "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.publish_job_completion"
         ) as mock_publish:
-            executor = ComputationExecutor()
+            executor = LazyComputationExecutor()
             stale_job = PreaggregationJob.objects.create(
                 team=self.team,
                 query_hash="stale_hash",

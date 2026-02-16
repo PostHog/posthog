@@ -11,8 +11,8 @@ from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RES
 from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
-    ComputationExecutor,
-    ComputationResult,
+    LazyComputationExecutor,
+    LazyComputationResult,
     LazyComputationTable,
     QueryInfo,
 )
@@ -458,7 +458,7 @@ def _run_daily_unique_persons_pageviews(
     query_to_insert: ast.SelectQuery,
     start: datetime,
     end: datetime,
-) -> ComputationResult:
+) -> LazyComputationResult:
     """
     Orchestrate preaggregation jobs for daily unique persons pageviews.
 
@@ -471,7 +471,7 @@ def _run_daily_unique_persons_pageviews(
         query=query_to_insert, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone=team.timezone
     )
 
-    executor = ComputationExecutor()
+    executor = LazyComputationExecutor()
     result = executor.execute(
         team=team,
         query_info=query_info,

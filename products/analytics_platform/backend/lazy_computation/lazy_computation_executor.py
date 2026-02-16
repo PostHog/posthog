@@ -255,7 +255,7 @@ class QueryInfo:
 
 
 @dataclass
-class ComputationResult:
+class LazyComputationResult:
     """Result of executing lazy computation jobs."""
 
     ready: bool
@@ -568,7 +568,7 @@ def run_lazy_computation_insert(
         )
 
 
-class ComputationExecutor:
+class LazyComputationExecutor:
     """
     Executes computation jobs with configurable waiting behavior.
 
@@ -614,7 +614,7 @@ class ComputationExecutor:
         start: datetime,
         end: datetime,
         run_insert: Callable[[Team, PreaggregationJob], None] | None = None,
-    ) -> ComputationResult:
+    ) -> LazyComputationResult:
         """
         Execute computation jobs for the given query and time range.
 
@@ -643,7 +643,7 @@ class ComputationExecutor:
             while True:
                 if time.monotonic() - start_time >= self.wait_timeout_seconds:
                     errors.append("Timeout waiting for computation jobs")
-                    return ComputationResult(ready=False, job_ids=[], errors=errors)
+                    return LazyComputationResult(ready=False, job_ids=[], errors=errors)
 
                 # Step 1: See what exists, filter out stale READY jobs
                 existing_jobs = find_existing_jobs(team, query_hash, start, end)
@@ -679,16 +679,16 @@ class ComputationExecutor:
                             publish_job_completion(new_job.id, "failed")
                             if is_non_retryable_error(e):
                                 errors.append(str(e))
-                                return ComputationResult(ready=False, job_ids=[], errors=errors)
+                                return LazyComputationResult(ready=False, job_ids=[], errors=errors)
                             failures += 1
                             if failures > self.max_retries:
                                 errors.append(f"Max retries ({self.max_retries}) exceeded: {e}")
-                                return ComputationResult(ready=False, job_ids=[], errors=errors)
+                                return LazyComputationResult(ready=False, job_ids=[], errors=errors)
                         did_work = True
 
                 if ttl_ranges and failures > self.max_retries:
                     errors.append("Max retries exceeded for computation")
-                    return ComputationResult(ready=False, job_ids=[], errors=errors)
+                    return LazyComputationResult(ready=False, job_ids=[], errors=errors)
 
                 if did_work:
                     interval = self.poll_interval_seconds
@@ -730,7 +730,7 @@ class ComputationExecutor:
         final_jobs = find_existing_jobs(team, query_hash, start, end)
         final_fresh = self._filter_by_freshness(final_jobs)
         final_ready = filter_overlapping_jobs([j for j in final_fresh if j.status == PreaggregationJob.Status.READY])
-        return ComputationResult(ready=True, job_ids=[j.id for j in final_ready])
+        return LazyComputationResult(ready=True, job_ids=[j.id for j in final_ready])
 
     def _try_mark_stale_job_as_failed(self, job: PreaggregationJob) -> bool:
         """
@@ -801,7 +801,7 @@ def ensure_precomputed(
     ttl_seconds: int | dict[str, int] = DEFAULT_TTL_SECONDS,
     table: LazyComputationTable = LazyComputationTable.PREAGGREGATION_RESULTS,
     placeholders: dict[str, ast.Expr] | None = None,
-) -> ComputationResult:
+) -> LazyComputationResult:
     """
     Ensure precomputed data exists for the given query and time range.
 
@@ -901,7 +901,7 @@ def ensure_precomputed(
             )
 
     ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)
-    executor = ComputationExecutor(ttl_schedule=ttl_schedule)
+    executor = LazyComputationExecutor(ttl_schedule=ttl_schedule)
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
 
 
