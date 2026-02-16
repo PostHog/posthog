@@ -15,6 +15,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 import jwt
@@ -45,6 +46,7 @@ from posthog.api.oauth.toolbar_service import (
     get_or_create_toolbar_oauth_application,
     new_state_nonce,
     normalize_and_validate_app_url,
+    refresh_tokens,
     validate_and_consume_toolbar_oauth_state,
 )
 from posthog.api.organization import OrganizationSerializer
@@ -936,6 +938,41 @@ def toolbar_oauth_callback(request):
         "toolbar_oauth_callback.html",
         request=request,
         context={"payload": payload, "target_origin": settings.SITE_URL},
+    )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def toolbar_oauth_refresh(request):
+    """
+    Refresh toolbar OAuth tokens.
+
+    No session auth — the refresh_token itself is the credential.
+    csrf_exempt because cross-origin toolbar calls cannot provide the CSRF cookie.
+    """
+    try:
+        body = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"code": "invalid_json", "detail": "Request body must be valid JSON"}, status=400)
+
+    refresh_token = body.get("refresh_token")
+    client_id = body.get("client_id")
+    if not refresh_token or not client_id:
+        return JsonResponse(
+            {"code": "invalid_request", "detail": "refresh_token and client_id are required"}, status=400
+        )
+
+    try:
+        token_payload = refresh_tokens(client_id=client_id, refresh_token=refresh_token)
+    except ToolbarOAuthError as exc:
+        return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
+
+    return JsonResponse(
+        {
+            "access_token": token_payload["access_token"],
+            "refresh_token": token_payload["refresh_token"],
+            "expires_in": token_payload["expires_in"],
+        }
     )
 
 

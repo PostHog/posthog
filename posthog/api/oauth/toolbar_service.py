@@ -289,5 +289,41 @@ def exchange_code_for_tokens(
     }
 
 
+def refresh_tokens(
+    client_id: str,
+    refresh_token: str,
+) -> dict[str, Any]:
+    """Exchange a refresh token for new access + refresh tokens."""
+    token_url = f"{settings.SITE_URL}/oauth/token/"
+
+    response = requests.post(
+        token_url,
+        data={
+            "grant_type": "refresh_token",
+            "client_id": client_id,
+            "refresh_token": refresh_token,
+        },
+        timeout=settings.TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS,
+    )
+
+    try:
+        payload = response.json()
+    except (ValueError, requests.exceptions.JSONDecodeError):
+        raise ToolbarOAuthError("token_refresh_failed", "Non-JSON response from token endpoint", 502)
+
+    if response.status_code >= 400:
+        error = payload.get("error", "token_refresh_failed")
+        detail = payload.get("error_description", "OAuth token refresh failed")
+        raise ToolbarOAuthError(error, detail, 400)
+
+    return {
+        "access_token": payload.get("access_token"),
+        "refresh_token": payload.get("refresh_token"),
+        "expires_in": payload.get("expires_in"),
+        "token_type": payload.get("token_type"),
+        "scope": payload.get("scope"),
+    }
+
+
 def new_state_nonce() -> str:
     return secrets.token_urlsafe(24)
