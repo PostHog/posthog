@@ -26,44 +26,40 @@ def create_clickhouse_tables():
         CREATE_MV_TABLE_QUERIES,
         CREATE_VIEW_QUERIES,
         build_query,
+        get_table_name,
     )
 
-    num_expected_tables = (
-        len(CREATE_MERGETREE_TABLE_QUERIES)
-        + len(CREATE_DISTRIBUTED_TABLE_QUERIES)
-        + len(CREATE_MV_TABLE_QUERIES)
-        + len(CREATE_VIEW_QUERIES)
-        + len(CREATE_DICTIONARY_QUERIES)
-    )
+    existing_tables = {
+        row[0]
+        for row in sync_execute(
+            "SELECT name FROM system.tables WHERE database = %(database)s",
+            {"database": settings.CLICKHOUSE_DATABASE},
+        )
+    }
 
-    # Evaluation tests use Kafka for faster data ingestion.
-    if settings.IN_EVAL_TESTING:
-        num_expected_tables += len(CREATE_KAFKA_TABLE_QUERIES)
+    def missing(queries):
+        return [q for q in queries if get_table_name(q) not in existing_tables]
 
-    [[num_tables]] = sync_execute(
-        "SELECT count() FROM system.tables WHERE database = %(database)s",
-        {"database": settings.CLICKHOUSE_DATABASE},
-    )
-
-    # Check if all the tables have already been created. Views, materialized views, and dictionaries also count
-    if num_tables == num_expected_tables:
-        return
-
-    table_queries = list(map(build_query, CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(table_queries)
+    table_queries = list(map(build_query, missing(CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES)))
+    if table_queries:
+        run_clickhouse_statement_in_parallel(table_queries)
 
     if settings.IN_EVAL_TESTING:
-        kafka_table_queries = list(map(build_query, CREATE_KAFKA_TABLE_QUERIES))
-        run_clickhouse_statement_in_parallel(kafka_table_queries)
+        kafka_table_queries = list(map(build_query, missing(CREATE_KAFKA_TABLE_QUERIES)))
+        if kafka_table_queries:
+            run_clickhouse_statement_in_parallel(kafka_table_queries)
 
-    mv_queries = list(map(build_query, CREATE_MV_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(mv_queries)
+    mv_queries = list(map(build_query, missing(CREATE_MV_TABLE_QUERIES)))
+    if mv_queries:
+        run_clickhouse_statement_in_parallel(mv_queries)
 
-    view_queries = list(map(build_query, CREATE_VIEW_QUERIES))
-    run_clickhouse_statement_in_parallel(view_queries)
+    view_queries = list(map(build_query, missing(CREATE_VIEW_QUERIES)))
+    if view_queries:
+        run_clickhouse_statement_in_parallel(view_queries)
 
-    dictionary_queries = list(map(build_query, CREATE_DICTIONARY_QUERIES))
-    run_clickhouse_statement_in_parallel(dictionary_queries)
+    dictionary_queries = list(map(build_query, missing(CREATE_DICTIONARY_QUERIES)))
+    if dictionary_queries:
+        run_clickhouse_statement_in_parallel(dictionary_queries)
 
     data_queries = list(map(build_query, CREATE_DATA_QUERIES))
     run_clickhouse_statement_in_parallel(data_queries)
