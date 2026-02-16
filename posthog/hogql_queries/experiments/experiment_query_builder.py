@@ -1240,8 +1240,7 @@ class ExperimentQueryBuilder:
                 max(timestamp) AS last_exposure_time,
                 argMin(uuid, timestamp) AS exposure_event_uuid,
                 argMin(`$session_id`, timestamp) AS exposure_session_id,
-                [] AS breakdown_value,
-                today() + INTERVAL 1 DAY AS expires_at
+                [] AS breakdown_value
             FROM events
             WHERE timestamp >= {time_window_min}
                 AND timestamp < {time_window_max}
