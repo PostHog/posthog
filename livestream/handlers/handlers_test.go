@@ -148,7 +148,6 @@ func TestStreamEventsHandler_TokenAndTeamIDValidation(t *testing.T) {
 	}
 }
 
-
 func createJWTToken(audience string, claims jwt.MapClaims) string {
 	newClaims := jwt.MapClaims{
 		"aud": audience,

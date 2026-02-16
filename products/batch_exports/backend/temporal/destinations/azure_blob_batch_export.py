@@ -119,7 +119,7 @@ class AzureBlobConsumer(Consumer):
         max_file_size_mb: int | None = None,
         max_concurrency: int = 5,
     ):
-        super().__init__()
+        super().__init__(model=batch_export_model.name if batch_export_model else "events")
 
         self.container_client = container_client
         self.prefix = prefix

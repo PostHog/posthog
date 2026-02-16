@@ -12,6 +12,7 @@ else:
 
 SubTemplateId = Literal[
     "activity-log",
+    "discussion-mention",
     "error-tracking-issue-created",
     "error-tracking-issue-reopened",
     "error-tracking-issue-spiking",

@@ -1,5 +1,7 @@
 metadata:
     categories:
+        - key: devenv
+          title: Intent-based dev environment
         - key: core
           title: Core development commands
         - key: start
@@ -82,6 +84,11 @@ metadata:
             name: mprocs
             about: Process orchestrator that runs all dev services in parallel with live
                 output and easy process management.
+devenv:
+    dev:setup:
+    dev:generate:
+    dev:explain:
+    dev:intents:
 core:
     categories:
         description: Show all available commands grouped by category
@@ -117,8 +124,7 @@ core:
             - docker:services:remove
             - docker:services:up
             - setup:python
-            - check:postgres
-            - check:clickhouse
+            - services:ready
             - hogli: db:restore-schema
               prompt: 'Restore pre-migrated schema from CI? (faster than migrations)'
               else: migrations:run
@@ -134,11 +140,6 @@ core:
         services:
             - postgresql
 health_checks:
-    check:clickhouse:
-        bin_script: check_clickhouse_up
-        description: Poll ClickHouse HTTP port until service is ready
-        services:
-            - clickhouse
     check:dagster-graphql:
         bin_script: check_dagster_graphql_up
         description: Wait for Dagster UI to become available
@@ -148,32 +149,13 @@ health_checks:
         description: Verify DNS resolution for required service hostnames (clickhouse,
             kafka, etc)
         hidden: true
-    check:kafka-clickhouse:
-        bin_script: check_kafka_clickhouse_up
-        description: Wait for both Kafka and ClickHouse services to be ready
-        services:
-            - kafka
-            - clickhouse
-    check:postgres:
-        bin_script: check_postgres_up
-        description: Poll PostgreSQL connection until database is available
-        services:
-            - postgresql
-    check:temporal:
-        bin_script: check_temporal_up
-        description: Wait for Temporal service port with 180s timeout
-        services:
-            - temporal
     check:video-deps:
         bin_script: check_video_deps
         description: Install and verify Playwright browsers and FFmpeg dependencies
         hidden: true
     services:ready:
-        steps:
-            - check:clickhouse
-            - check:postgres
-            - check:temporal
-        description: Verify all core infrastructure services are ready
+        bin_script: wait-for-docker
+        description: Wait for all Docker Compose services to pass health checks
 start:
     start:
         bin_script: start
@@ -301,6 +283,9 @@ build:
             - postgresql
             - clickhouse
             - django
+    build:schema-mcp:
+        cmd: cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm prettier --write schema/tool-inputs.json
+        description: Generate MCP tool-inputs.json schema from Zod definitions
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema
@@ -315,36 +300,25 @@ build:
     build:products:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
+    build:skills:
+        cmd: python products/posthog_ai/scripts/build_skills.py
+        description: Build agent skills from products/*/skills/ into dist/skills/ and dist/skills.zip
+    init:skill:
+        cmd: python products/posthog_ai/scripts/build_skills.py --init
+        description: Scaffold a new agent skill directory with SKILL.md boilerplate
 docker:
-    docker:services:up:
-        cmd: docker compose -f docker-compose.dev.yml up -d
-        description: Start Docker infrastructure services
-        services:
-            - docker
-            - postgresql
-            - clickhouse
-            - redis
-            - kafka
-    docker:services:up:minimal:
-        extends: docker:services:up
-        cmd: docker compose -f docker-compose.dev-minimal.yml up -d
+    # docker:services:up is a Python command in common/hogli/devenv/cli.py that respects intent config
     docker:services:down:
         cmd: docker compose -f docker-compose.dev.yml down
         description: Stop Docker infrastructure services
         services:
             - docker
-    docker:services:down:minimal:
-        extends: docker:services:down
-        cmd: docker compose -f docker-compose.dev-minimal.yml down
     docker:services:remove:
         cmd: docker compose -f docker-compose.dev.yml down -v
         description: Stop Docker infrastructure services and remove all volumes (complete wipe)
         services:
             - docker
         prompt: true
-    docker:services:remove:minimal:
-        extends: docker:services:remove
-        cmd: docker compose -f docker-compose.dev-minimal.yml down -v
     docker:deprecated:
         bin_script: docker
         description: '[DEPRECATED] Use `hogli start` instead'
@@ -470,6 +444,11 @@ db:
                   gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose exec -T db psql -q -U posthog posthog
                   echo "✅ Schema restored"
             - db:migrate
+            - name: ensure-migration-defaults
+              cmd: |
+                  set -e
+                  echo "Ensuring default migration data..."
+                  python manage.py ensure_migration_defaults
         description: Fetch pre-migrated schema from CI, restore it, and run any pending migrations (creates backup first)
         prompt: true
         services:
@@ -515,6 +494,9 @@ quality:
     format:python:
         cmd: ./bin/ruff.sh format
         description: Format Python files
+    lint:skills:
+        cmd: python products/posthog_ai/scripts/build_skills.py --lint
+        description: Validate agent skill sources (syntax, frontmatter, depth constraints)
     lint:python:fix:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues

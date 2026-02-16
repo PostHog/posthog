@@ -321,6 +321,7 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     total_read_rows = serializers.ReadOnlyField()
     total_written_rows = serializers.ReadOnlyField()
     main_query = serializers.ReadOnlyField()
+    main_query_id = serializers.ReadOnlyField()
 
     class Meta:
         model = CohortCalculationHistory
@@ -340,6 +341,7 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
             "total_read_rows",
             "total_written_rows",
             "main_query",
+            "main_query_id",
         ]
 
 
@@ -1219,10 +1221,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         except Person.DoesNotExist:
             raise NotFound("Person with this UUID does not exist in the cohort's team")
 
-        success = cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
-
-        if not success:
-            raise NotFound("Person is not part of the cohort")
+        # Remove is idempotent - succeeds even if person wasn't in cohort (handles CH/PG sync issues)
+        cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
 
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),
@@ -1310,6 +1310,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # Using to_dict() here serializer.save() was changing the instance in memory,
             # so we need to get the before state in a "detached" manner that won't be
             # affected by the serializer.save() call.
+            # nosemgrep: idor-lookup-without-team (ID from already team-scoped instance)
             before_update = Cohort.objects.get(pk=instance_id).to_dict()
         except Cohort.DoesNotExist:
             before_update = {}
@@ -1378,6 +1379,7 @@ def will_create_loops(cohort: Cohort) -> bool:
 
 
 def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
+    # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
     ids = sync_execute(
         f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} where team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
         {"cohort_id": cohort.pk, "team_id": team_id},

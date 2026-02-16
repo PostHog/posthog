@@ -8,6 +8,7 @@ from rest_framework import status
 
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.surveys.survey import Survey
+from posthog.models.team.team import Team
 
 from products.product_tours.backend.constants import ProductTourEventName
 from products.product_tours.backend.models import ProductTour
@@ -629,3 +630,342 @@ class TestProductTourInternalTargetingFlag(APIBaseTest):
                 assert any(substring in key for key in property_keys), f"Expected {substring} in {property_keys}"
         else:
             assert len(properties) == 0, f"Expected no exclusion properties, got {properties}"
+
+
+class TestProductTourStepNormalization(APIBaseTest):
+    @parameterized.expand(
+        [
+            # (test_name, stored_step, expected_elementTargeting, expected_type)
+            (
+                "legacy_useManualSelector_true",
+                {"id": "s1", "type": "modal", "useManualSelector": True, "selector": ".foo"},
+                "manual",
+                "modal",
+            ),
+            (
+                "legacy_inferenceData",
+                {"id": "s1", "type": "modal", "inferenceData": {"selector": ".bar"}},
+                "auto",
+                "modal",
+            ),
+            (
+                "legacy_type_element",
+                {"id": "s1", "type": "element", "selector": ".baz"},
+                "auto",
+                "modal",
+            ),
+            (
+                "already_has_elementTargeting",
+                {"id": "s1", "type": "modal", "elementTargeting": "manual", "selector": ".foo"},
+                "manual",
+                "modal",
+            ),
+            (
+                "no_targeting_fields",
+                {"id": "s1", "type": "modal", "content": {}},
+                None,
+                "modal",
+            ),
+        ]
+    )
+    def test_read_normalizes_elementTargeting(self, _name, stored_step, expected_elementTargeting, expected_type):
+        tour = ProductTour.objects.create(
+            team=self.team,
+            name="Normalization test",
+            content={"steps": [stored_step]},
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/{tour.id}/")
+        assert response.status_code == status.HTTP_200_OK
+
+        step = response.json()["content"]["steps"][0]
+        if expected_elementTargeting is not None:
+            assert step["elementTargeting"] == expected_elementTargeting
+        else:
+            assert "elementTargeting" not in step
+        assert step["type"] == expected_type
+
+    @parameterized.expand(
+        [
+            # (test_name, submitted_step, expected_useManualSelector, expect_useManualSelector_absent)
+            (
+                "manual_sets_useManualSelector",
+                {"id": "s1", "type": "modal", "elementTargeting": "manual", "selector": ".foo"},
+                True,
+                False,
+            ),
+            (
+                "auto_removes_useManualSelector",
+                {"id": "s1", "type": "modal", "elementTargeting": "auto", "inferenceData": {"selector": ".bar"}},
+                None,
+                True,
+            ),
+        ]
+    )
+    def test_write_normalizes_useManualSelector(
+        self, _name, submitted_step, expected_useManualSelector, expect_useManualSelector_absent
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Write normalization test",
+                "content": {"steps": [submitted_step]},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        tour = ProductTour.objects.get(id=response.json()["id"])
+        stored_step = tour.content["steps"][0]
+
+        if expect_useManualSelector_absent:
+            assert "useManualSelector" not in stored_step
+        else:
+            assert stored_step["useManualSelector"] == expected_useManualSelector
+
+
+class TestProductTourLinkedFlagValidation(APIBaseTest):
+    def test_linked_flag_must_belong_to_same_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_flag = FeatureFlag.objects.create(team=other_team, key="other-flag", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={"name": "Tour", "content": {"steps": []}, "linked_flag_id": other_flag.id},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Feature Flag with this ID does not exist" in str(response.json())
+
+    @parameterized.expand(
+        [
+            # (variant, has_variants_on_flag, expected_status, error_substring)
+            ("control", True, 201, None),  # valid variant
+            ("any", True, 201, None),  # "any" is always valid
+            ("nonexistent", True, 400, "does not exist"),  # invalid variant
+            ("some_variant", False, 400, "has no variants"),  # flag has no variants
+        ]
+    )
+    def test_linked_flag_variant_validation(self, variant, has_variants_on_flag, expected_status, error_substring):
+        filters: dict = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        if has_variants_on_flag:
+            filters["multivariate"] = {"variants": [{"key": "control", "rollout_percentage": 100}]}
+
+        flag = FeatureFlag.objects.create(team=self.team, key="flag", created_by=self.user, filters=filters)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Tour",
+                "linked_flag_id": flag.id,
+                "content": {"steps": [], "conditions": {"linkedFlagVariant": variant}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        if error_substring:
+            assert error_substring in str(response.json())
+
+    def test_linked_flag_variant_requires_linked_flag_id(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={"name": "Tour", "content": {"steps": [], "conditions": {"linkedFlagVariant": "v"}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "linkedFlagVariant can only be used when a linked_flag_id is specified" in str(response.json())
+
+
+class TestProductTourLaunchValidation(APIBaseTest):
+    def _create_tour(self, steps):
+        return ProductTour.objects.create(
+            team=self.team,
+            name="Tour",
+            content={"steps": steps},
+            created_by=self.user,
+        )
+
+    def _launch(self, tour_id):
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour_id}/",
+            data={"start_date": timezone.now().isoformat()},
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            # (description, step, expected_status, error_substring)
+            (
+                "auto_targeting_without_inference_data",
+                {"elementTargeting": "auto"},
+                400,
+                "requires an element to be selected",
+            ),
+            (
+                "manual_targeting_without_selector",
+                {"elementTargeting": "manual"},
+                400,
+                "is missing an element selector",
+            ),
+            (
+                "auto_targeting_with_inference_data",
+                {"elementTargeting": "auto", "inferenceData": {"tag": "button"}},
+                200,
+                None,
+            ),
+            (
+                "manual_targeting_with_selector",
+                {"elementTargeting": "manual", "selector": "#btn"},
+                200,
+                None,
+            ),
+            (
+                "no_element_targeting",
+                {"title": "Welcome"},
+                200,
+                None,
+            ),
+        ]
+    )
+    def test_launch_with_element_targeting(self, _description, step, expected_status, error_substring):
+        tour = self._create_tour([step])
+
+        response = self._launch(tour.id)
+
+        assert response.status_code == expected_status
+        if error_substring:
+            assert error_substring in str(response.json())
+
+    @parameterized.expand(
+        [
+            (
+                "auto_targeting_without_inference_data",
+                {"elementTargeting": "auto"},
+                400,
+                "requires an element to be selected",
+            ),
+            (
+                "manual_targeting_without_selector",
+                {"elementTargeting": "manual"},
+                400,
+                "is missing an element selector",
+            ),
+        ]
+    )
+    def test_create_launched_with_element_targeting(self, _description, step, expected_status, error_substring):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Tour",
+                "content": {"steps": [step]},
+                "start_date": timezone.now().isoformat(),
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        assert error_substring in str(response.json())
+
+    def test_launch_reports_first_incomplete_step(self):
+        tour = self._create_tour(
+            [
+                {"title": "OK step"},
+                {"elementTargeting": "auto"},
+                {"elementTargeting": "manual"},
+            ]
+        )
+
+        response = self._launch(tour.id)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Step 2" in str(response.json())
+
+    def test_saving_without_launching_skips_targeting_validation(self):
+        tour = self._create_tour([{"elementTargeting": "auto"}])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={"name": "Updated name"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_already_launched_tour_validates_targeting_on_update(self):
+        tour = self._create_tour([{"elementTargeting": "auto"}])
+        tour.start_date = timezone.now()
+        tour.save(update_fields=["start_date"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={"name": "Updated name", "start_date": timezone.now().isoformat()},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "requires an element to be selected" in str(response.json())
+
+    def test_launch_validates_content_from_existing_tour_when_not_in_payload(self):
+        tour = self._create_tour([{"elementTargeting": "manual"}])
+
+        response = self._launch(tour.id)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "is missing an element selector" in str(response.json())
+
+    def test_patch_content_without_linked_flag_id_uses_instance_value(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tour = ProductTour.objects.create(
+            team=self.team,
+            name="Tour",
+            linked_flag=flag,
+            content={"steps": [], "conditions": {"linkedFlagVariant": "any"}},
+            created_by=self.user,
+        )
+
+        # PATCH with content (preserving linkedFlagVariant) but without linked_flag_id —
+        # mimics the toolbar save flow
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={"content": {"steps": [], "conditions": {"linkedFlagVariant": "any"}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_patch_explicitly_clearing_linked_flag_id_still_validates(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tour = ProductTour.objects.create(
+            team=self.team,
+            name="Tour",
+            linked_flag=flag,
+            content={"steps": [], "conditions": {"linkedFlagVariant": "any"}},
+            created_by=self.user,
+        )
+
+        # Explicitly clearing linked_flag_id while content still references a variant
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={
+                "linked_flag_id": None,
+                "content": {"steps": [], "conditions": {"linkedFlagVariant": "any"}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "linkedFlagVariant can only be used when a linked_flag_id is specified" in str(response.json())

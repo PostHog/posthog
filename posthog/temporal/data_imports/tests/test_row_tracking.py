@@ -4,15 +4,18 @@ from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.test import override_settings
 
+from asgiref.sync import sync_to_async
 from structlog.types import FilteringBoundLogger
 
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 from posthog.tasks.usage_report import ExternalDataJob
 from posthog.temporal.data_imports.row_tracking import (
     finish_row_tracking,
@@ -24,9 +27,10 @@ from posthog.temporal.data_imports.row_tracking import (
 from products.data_warehouse.backend.models import ExternalDataSource
 
 
+@mock.patch("posthog.temporal.data_imports.row_tracking.database_sync_to_async_pool", database_sync_to_async)
 class TestRowTracking(BaseTest):
     def _logger(self) -> FilteringBoundLogger:
-        return mock.MagicMock()
+        return mock.AsyncMock()
 
     @contextlib.contextmanager
     def _setup_limits(self, limit: int):
@@ -48,23 +52,23 @@ class TestRowTracking(BaseTest):
 
             yield
 
-    @contextlib.contextmanager
-    def _setup_redis_rows(self, rows: int, team_id: Optional[int] = None):
+    @contextlib.asynccontextmanager
+    async def _setup_redis_rows(self, rows: int, team_id: Optional[int] = None):
         with override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"):
             t_id = team_id or self.team.pk
 
             schema_id = str(uuid.uuid4())
-            setup_row_tracking(t_id, schema_id)
-            increment_rows(t_id, schema_id, rows)
+            await setup_row_tracking(t_id, schema_id)
+            await increment_rows(t_id, schema_id, rows)
 
             yield
 
-            finish_row_tracking(t_id, schema_id)
+            await finish_row_tracking(t_id, schema_id)
 
-    def _run(self, source: ExternalDataSource, limit: int) -> bool:
+    async def _run(self, source: ExternalDataSource, limit: int) -> bool:
         from ee.models.license import License
 
-        License.objects.create(
+        await sync_to_async(License.objects.create)(
             key="12345::67890",
             plan="enterprise",
             valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")),
@@ -75,19 +79,22 @@ class TestRowTracking(BaseTest):
             self._setup_limits(limit),
             freeze_time("2024-01-01 12:00:00"),
         ):
-            return will_hit_billing_limit(team_id=self.team.pk, source=source, logger=self._logger())
+            return await will_hit_billing_limit(team_id=self.team.pk, source=source, logger=self._logger())
 
+    @sync_to_async
     def _create_source(self) -> ExternalDataSource:
         with freeze_time(datetime(2023, 12, 1)):
             return ExternalDataSource.objects.create(team=self.team)
 
-    def test_row_tracking(self):
-        source = self._create_source()
-        assert self._run(source, 10) is False
+    @pytest.mark.asyncio
+    async def test_row_tracking(self):
+        source = await self._create_source()
+        assert await self._run(source, 10) is False
 
-    def test_row_tracking_with_previous_jobs(self):
-        source = self._create_source()
-        ExternalDataJob.objects.create(
+    @pytest.mark.asyncio
+    async def test_row_tracking_with_previous_jobs(self):
+        source = await self._create_source()
+        await sync_to_async(ExternalDataJob.objects.create)(
             team=self.team,
             rows_synced=11,
             pipeline=source,
@@ -96,11 +103,12 @@ class TestRowTracking(BaseTest):
             status=ExternalDataJob.Status.COMPLETED,
         )
 
-        assert self._run(source, 10) is True
+        assert await self._run(source, 10) is True
 
-    def test_row_tracking_with_free_rows(self):
-        source = self._create_source()
-        ExternalDataJob.objects.create(
+    @pytest.mark.asyncio
+    async def test_row_tracking_with_free_rows(self):
+        source = await self._create_source()
+        await sync_to_async(ExternalDataJob.objects.create)(
             team=self.team,
             rows_synced=11,
             pipeline=source,
@@ -111,11 +119,12 @@ class TestRowTracking(BaseTest):
 
         # 11 rows were during the free sync period and so we've not hit the 10 row limit yet
 
-        assert self._run(source, 10) is False
+        assert await self._run(source, 10) is False
 
-    def test_row_tracking_with_previous_incomplete_jobs(self):
-        source = self._create_source()
-        ExternalDataJob.objects.create(
+    @pytest.mark.asyncio
+    async def test_row_tracking_with_previous_incomplete_jobs(self):
+        source = await self._create_source()
+        await sync_to_async(ExternalDataJob.objects.create)(
             team=self.team,
             rows_synced=11,
             pipeline=source,
@@ -124,11 +133,12 @@ class TestRowTracking(BaseTest):
             status=ExternalDataJob.Status.RUNNING,
         )
 
-        assert self._run(source, 10) is False
+        assert await self._run(source, 10) is False
 
-    def test_row_tracking_with_previous_no_finished_at_jobs(self):
-        source = self._create_source()
-        ExternalDataJob.objects.create(
+    @pytest.mark.asyncio
+    async def test_row_tracking_with_previous_no_finished_at_jobs(self):
+        source = await self._create_source()
+        await sync_to_async(ExternalDataJob.objects.create)(
             team=self.team,
             rows_synced=11,
             pipeline=source,
@@ -137,11 +147,12 @@ class TestRowTracking(BaseTest):
             status=ExternalDataJob.Status.COMPLETED,
         )
 
-        assert self._run(source, 10) is False
+        assert await self._run(source, 10) is False
 
-    def test_row_tracking_with_previous_unbillable_jobs(self):
-        source = self._create_source()
-        ExternalDataJob.objects.create(
+    @pytest.mark.asyncio
+    async def test_row_tracking_with_previous_unbillable_jobs(self):
+        source = await self._create_source()
+        await sync_to_async(ExternalDataJob.objects.create)(
             team=self.team,
             rows_synced=11,
             pipeline=source,
@@ -150,17 +161,19 @@ class TestRowTracking(BaseTest):
             status=ExternalDataJob.Status.COMPLETED,
         )
 
-        assert self._run(source, 10) is False
+        assert await self._run(source, 10) is False
 
-    def test_row_tracking_with_in_progress_rows(self):
-        source = self._create_source()
-        with self._setup_redis_rows(20):
-            assert self._run(source, 10) is True
+    @pytest.mark.asyncio
+    async def test_row_tracking_with_in_progress_rows(self):
+        source = await self._create_source()
+        async with self._setup_redis_rows(20):
+            assert await self._run(source, 10) is True
 
-    def test_row_tracking_with_previous_rows_from_other_team_in_org(self):
-        another_team = Team.objects.create(organization=self.organization)
-        source = self._create_source()
-        ExternalDataJob.objects.create(
+    @pytest.mark.asyncio
+    async def test_row_tracking_with_previous_rows_from_other_team_in_org(self):
+        another_team = await sync_to_async(Team.objects.create)(organization=self.organization)
+        source = await self._create_source()
+        await sync_to_async(ExternalDataJob.objects.create)(
             team=another_team,
             rows_synced=11,
             pipeline=source,
@@ -169,11 +182,12 @@ class TestRowTracking(BaseTest):
             status=ExternalDataJob.Status.COMPLETED,
         )
 
-        assert self._run(source, 10) is True
+        assert await self._run(source, 10) is True
 
-    def test_row_tracking_with_in_progress_rows_from_other_team_in_org(self):
-        another_team = Team.objects.create(organization=self.organization)
-        source = self._create_source()
+    @pytest.mark.asyncio
+    async def test_row_tracking_with_in_progress_rows_from_other_team_in_org(self):
+        another_team = await sync_to_async(Team.objects.create)(organization=self.organization)
+        source = await self._create_source()
 
-        with self._setup_redis_rows(20, team_id=another_team.pk):
-            assert self._run(source, 10) is True
+        async with self._setup_redis_rows(20, team_id=another_team.pk):
+            assert await self._run(source, 10) is True

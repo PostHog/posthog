@@ -8,10 +8,11 @@ import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launche
 import experimentMetricResultsErrorJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_error.json'
 import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_success.json'
 import { useMocks } from '~/mocks/jest'
+import { Breakdown, ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
 
-import { experimentLogic } from './experimentLogic'
+import { ExperimentSavedMetric, experimentLogic } from './experimentLogic'
 
 const RUNNING_EXP_ID = 45
 const RUNNING_FUNNEL_EXP_ID = 46
@@ -158,6 +159,8 @@ describe('experimentLogic', () => {
                             },
                             hasDiagnostics: true,
                             statusCode: 400,
+                            queryId: expect.any(String),
+                            timestamp: expect.any(Number),
                         },
                     ],
                 })
@@ -232,6 +235,8 @@ describe('experimentLogic', () => {
                             },
                             hasDiagnostics: true,
                             statusCode: 400,
+                            queryId: expect.any(String),
+                            timestamp: expect.any(Number),
                         },
                         null,
                     ],
@@ -324,6 +329,339 @@ describe('experimentLogic', () => {
                     metrics_secondary: [],
                 })
             )
+        })
+    })
+    describe('pause and resume experiment', () => {
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            jest.spyOn(api, 'get')
+            api.update.mockClear()
+            api.get.mockClear()
+
+            const experimentWithFlag = {
+                ...experiment,
+                feature_flag: { id: 123, key: 'test-flag', active: true },
+            } as Experiment
+            logic.actions.setExperiment(experimentWithFlag)
+        })
+
+        it('should pause experiment by disabling feature flag', async () => {
+            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: false })
+
+            await expectLogic(logic, () => {
+                logic.actions.pauseExperiment()
+            })
+                .toDispatchActions(['pauseExperiment'])
+                .toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/feature_flags/123'),
+                expect.objectContaining({ active: false })
+            )
+        })
+
+        it('should resume experiment by enabling feature flag', async () => {
+            const experimentWithInactiveFlag = {
+                ...experiment,
+                feature_flag: { id: 123, key: 'test-flag', active: false },
+            } as Experiment
+            logic.actions.setExperiment(experimentWithInactiveFlag)
+
+            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.resumeExperiment()
+            })
+                .toDispatchActions(['resumeExperiment'])
+                .toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/feature_flags/123'),
+                expect.objectContaining({ active: true })
+            )
+        })
+
+        it('should reload experiment after pause/resume', async () => {
+            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: false })
+
+            // The experiment will be reloaded via loadExperiment action
+            // which uses the GET endpoint already set up in useMocks
+            await expectLogic(logic, () => {
+                logic.actions.pauseExperiment()
+            })
+                .toDispatchActions(['pauseExperiment', 'loadExperiment'])
+                .toFinishAllListeners()
+
+            // Verify that loadExperiment was called which will fetch the experiment again
+            expect(logic.values.experiment).not.toBeNull()
+        })
+    })
+
+    describe('breakdown management', () => {
+        it('should add breakdown to inline metric', () => {
+            const breakdown: Breakdown = { property: '$browser', type: 'event' }
+            const testExperiment: Experiment = {
+                ...experiment,
+                metrics: [
+                    {
+                        uuid: 'test-metric-uuid',
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        breakdownFilter: { breakdowns: [] },
+                    },
+                ] as unknown as ExperimentMetric[],
+            }
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.updateMetricBreakdown('test-metric-uuid', breakdown)
+
+            const updatedMetric = logic.values.experiment.metrics[0] as ExperimentMetric
+            expect(updatedMetric.breakdownFilter?.breakdowns).toEqual([breakdown])
+        })
+
+        it('should add breakdown to shared metric metadata', () => {
+            const breakdown: Breakdown = { property: '$browser', type: 'event' }
+            const testExperiment: Experiment = {
+                ...experiment,
+                saved_metrics: [
+                    {
+                        id: 1,
+                        experiment: experiment.id as number,
+                        saved_metric: 123,
+                        name: 'Shared Metric',
+                        query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        },
+                        metadata: { type: 'primary' },
+                        created_at: '2024-01-01T00:00:00Z',
+                    } satisfies ExperimentSavedMetric,
+                ],
+                metrics: [],
+            }
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.updateMetricBreakdown('shared-metric-uuid', breakdown)
+
+            expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual([breakdown])
+        })
+
+        it('should remove breakdown from inline metric', () => {
+            const testExperiment: Experiment = {
+                ...experiment,
+                metrics: [
+                    {
+                        uuid: 'test-metric-uuid',
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        breakdownFilter: {
+                            breakdowns: [
+                                { property: '$browser', type: 'event' },
+                                { property: '$os', type: 'event' },
+                            ],
+                        },
+                    },
+                ] as unknown as ExperimentMetric[],
+            }
+
+            logic.actions.setExperiment(testExperiment)
+            const breakdownToRemove: Breakdown = { property: '$browser', type: 'event' }
+            logic.actions.removeMetricBreakdown('test-metric-uuid', 0, breakdownToRemove)
+
+            const updatedMetric = logic.values.experiment.metrics[0] as ExperimentMetric
+            expect(updatedMetric.breakdownFilter?.breakdowns).toEqual([{ property: '$os', type: 'event' }])
+        })
+
+        it('should remove breakdown from shared metric metadata', () => {
+            const testExperiment: Experiment = {
+                ...experiment,
+                saved_metrics: [
+                    {
+                        id: 1,
+                        experiment: experiment.id as number,
+                        saved_metric: 123,
+                        name: 'Shared Metric',
+                        query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        },
+                        metadata: {
+                            type: 'primary',
+                            breakdowns: [
+                                { property: '$browser', type: 'event' } satisfies Breakdown,
+                                { property: '$os', type: 'event' } satisfies Breakdown,
+                            ],
+                        },
+                        created_at: '2024-01-01T00:00:00Z',
+                    } satisfies ExperimentSavedMetric,
+                ],
+                metrics: [],
+            }
+
+            logic.actions.setExperiment(testExperiment)
+            const breakdownToRemove: Breakdown = { property: '$browser', type: 'event' }
+            logic.actions.removeMetricBreakdown('shared-metric-uuid', 0, breakdownToRemove)
+
+            expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual([
+                { property: '$os', type: 'event' },
+            ])
+        })
+
+        it('should include breakdowns when preparing shared metrics for loading', () => {
+            const testExperiment: Experiment = {
+                ...experiment,
+                saved_metrics: [
+                    {
+                        id: 1,
+                        experiment: experiment.id as number,
+                        saved_metric: 123,
+                        name: 'Shared Metric',
+                        query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        },
+                        metadata: {
+                            type: 'primary',
+                            breakdowns: [
+                                { property: '$browser', type: 'event' } satisfies Breakdown,
+                                { property: '$os', type: 'event' } satisfies Breakdown,
+                            ],
+                        },
+                        created_at: '2024-01-01T00:00:00Z',
+                    } satisfies ExperimentSavedMetric,
+                ],
+                metrics: [],
+                primary_metrics_ordered_uuids: ['shared-metric-uuid'],
+                start_date: '2024-01-01',
+            }
+
+            logic.actions.setExperiment(testExperiment)
+
+            // Check that orderedPrimaryMetricsWithResults includes breakdowns
+            const metricsWithResults = logic.values.orderedPrimaryMetricsWithResults
+            expect(metricsWithResults.length).toBe(1)
+            const enrichedMetric = metricsWithResults[0].metric
+            expect(enrichedMetric.breakdownFilter?.breakdowns).toEqual([
+                { property: '$browser', type: 'event' },
+                { property: '$os', type: 'event' },
+            ])
+        })
+
+        it('should add breakdown to secondary shared metric metadata', () => {
+            const breakdown: Breakdown = { property: '$browser', type: 'event' }
+            const testExperiment: Experiment = {
+                ...experiment,
+                saved_metrics: [
+                    {
+                        id: 1,
+                        experiment: experiment.id as number,
+                        saved_metric: 123,
+                        name: 'Secondary Shared Metric',
+                        query: {
+                            uuid: 'secondary-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        },
+                        metadata: { type: 'secondary' },
+                        created_at: '2024-01-01T00:00:00Z',
+                    } satisfies ExperimentSavedMetric,
+                ],
+                metrics: [],
+                metrics_secondary: [],
+            }
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.updateMetricBreakdown('secondary-metric-uuid', breakdown)
+
+            expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual([breakdown])
+        })
+
+        it('should remove breakdown from secondary shared metric metadata', () => {
+            const testExperiment: Experiment = {
+                ...experiment,
+                saved_metrics: [
+                    {
+                        id: 1,
+                        experiment: experiment.id as number,
+                        saved_metric: 123,
+                        name: 'Secondary Shared Metric',
+                        query: {
+                            uuid: 'secondary-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        },
+                        metadata: {
+                            type: 'secondary',
+                            breakdowns: [
+                                { property: '$browser', type: 'event' } satisfies Breakdown,
+                                { property: '$os', type: 'event' } satisfies Breakdown,
+                            ],
+                        },
+                        created_at: '2024-01-01T00:00:00Z',
+                    } satisfies ExperimentSavedMetric,
+                ],
+                metrics: [],
+                metrics_secondary: [],
+            }
+
+            logic.actions.setExperiment(testExperiment)
+            const breakdownToRemove: Breakdown = { property: '$browser', type: 'event' }
+            logic.actions.removeMetricBreakdown('secondary-metric-uuid', 0, breakdownToRemove)
+
+            expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual([
+                { property: '$os', type: 'event' },
+            ])
+        })
+
+        it('should include breakdowns when preparing secondary shared metrics for loading', () => {
+            const testExperiment: Experiment = {
+                ...experiment,
+                saved_metrics: [
+                    {
+                        id: 1,
+                        experiment: experiment.id as number,
+                        saved_metric: 123,
+                        name: 'Secondary Shared Metric',
+                        query: {
+                            uuid: 'secondary-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        },
+                        metadata: {
+                            type: 'secondary',
+                            breakdowns: [
+                                { property: '$browser', type: 'event' } satisfies Breakdown,
+                                { property: '$os', type: 'event' } satisfies Breakdown,
+                            ],
+                        },
+                        created_at: '2024-01-01T00:00:00Z',
+                    } satisfies ExperimentSavedMetric,
+                ],
+                metrics: [],
+                metrics_secondary: [],
+                secondary_metrics_ordered_uuids: ['secondary-metric-uuid'],
+                start_date: '2024-01-01',
+            }
+
+            logic.actions.setExperiment(testExperiment)
+
+            // Check that orderedSecondaryMetricsWithResults includes breakdowns
+            const metricsWithResults = logic.values.orderedSecondaryMetricsWithResults
+            expect(metricsWithResults.length).toBe(1)
+            const enrichedMetric = metricsWithResults[0].metric
+            expect(enrichedMetric.breakdownFilter?.breakdowns).toEqual([
+                { property: '$browser', type: 'event' },
+                { property: '$os', type: 'event' },
+            ])
         })
     })
 })

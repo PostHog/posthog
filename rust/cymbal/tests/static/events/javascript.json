@@ -1,0 +1,36 @@
+{
+  "uuid": "123e4567-e89b-12d3-a456-426614174000",
+  "event": "$exception",
+  "team_id": 1,
+  "timestamp": "2024-01-01T00:00:00Z",
+  "properties": {
+    "$exception_list": [
+      {
+        "type": "CustomError",
+        "value": "Custom error message",
+        "stacktrace": {
+          "type": "raw",
+          "frames": [
+            {
+              "filename": "main.js",
+              "function": "onClick",
+              "in_app": true,
+              "lineno": 14,
+              "synthetic": false,
+              "platform": "web:javascript"
+            },
+            {
+              "filename": "main.js",
+              "function": "onClick",
+              "in_app": true,
+              "lineno": 14,
+              "synthetic": false,
+              "platform": "web:javascript"
+            }
+          ]
+        }
+      }
+    ],
+    "$exception_handled": false
+  }
+}

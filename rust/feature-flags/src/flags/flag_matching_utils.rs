@@ -226,7 +226,10 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         }
     };
 
-    let query_labels = [("pool".to_string(), "persons_reader".to_string())];
+    let query_labels = [
+        ("pool".to_string(), "persons_reader".to_string()),
+        ("team_id".to_string(), team_id.to_string()),
+    ];
 
     // First query: Get person data from the distinct_id (person_id and person_properties)
     // TRICKY: sometimes we don't have a person_id ingested by the time we get a `/flags` request for a given
@@ -243,9 +246,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         .map(|p| (Some(p.id), Some(p.properties)))
         .unwrap_or((None, None));
     person_query_timer.fin();
-    with_canonical_log(|log| log.person_queries += 1);
-
     let person_query_duration = person_query_start.elapsed();
+    with_canonical_log(|log| {
+        log.person_queries += 1;
+        log.person_query_time_ms += person_query_duration.as_millis() as u64;
+    });
 
     if person_query_duration.as_millis() > 500 {
         warn!(
@@ -291,9 +296,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 .fetch_all(&mut *conn)
                 .await?;
             cohort_timer.fin();
-            with_canonical_log(|log| log.static_cohort_queries += 1);
-
             let cohort_query_duration = cohort_query_start.elapsed();
+            with_canonical_log(|log| {
+                log.static_cohort_queries += 1;
+                log.cohort_query_time_ms += cohort_query_duration.as_millis() as u64;
+            });
 
             if cohort_query_duration.as_millis() > 200 {
                 warn!(
@@ -382,9 +389,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             .fetch_all(&mut *conn)
             .await?;
         group_query_timer.fin();
-        with_canonical_log(|log| log.group_queries += 1);
-
         let group_query_duration = group_query_start.elapsed();
+        with_canonical_log(|log| {
+            log.group_queries += 1;
+            log.group_query_time_ms += group_query_duration.as_millis() as u64;
+        });
 
         if group_query_duration.as_millis() > 300 {
             warn!(
@@ -880,6 +889,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "set_hash_key_overrides".to_string(),
             ),
             ("pool".to_string(), "persons_writer".to_string()),
+            ("team_id".to_string(), team_id.to_string()),
         ];
         let person_query_start = Instant::now();
         let person_query_timer =
@@ -954,6 +964,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "set_hash_key_overrides".to_string(),
             ),
             ("pool".to_string(), "non_persons_reader".to_string()),
+            ("team_id".to_string(), team_id.to_string()),
         ];
         let flags_query_start = Instant::now();
         let flags_query_timer =
@@ -1018,6 +1029,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "set_hash_key_overrides".to_string(),
             ),
             ("pool".to_string(), "persons_writer".to_string()),
+            ("team_id".to_string(), team_id.to_string()),
         ];
         let insert_start = Instant::now();
         let insert_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &insert_labels);
@@ -1216,6 +1228,7 @@ async fn try_should_write_hash_key_override(
             ),
             ("operation".to_string(), "should_write_check".to_string()),
             ("pool".to_string(), "persons_reader".to_string()),
+            ("team_id".to_string(), team_id.to_string()),
         ];
         let person_query_timer =
             common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
@@ -1298,6 +1311,7 @@ async fn try_should_write_hash_key_override(
             ),
             ("operation".to_string(), "should_write_check".to_string()),
             ("pool".to_string(), "non_persons_reader".to_string()),
+            ("team_id".to_string(), team_id.to_string()),
         ];
         let flags_query_timer =
             common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);

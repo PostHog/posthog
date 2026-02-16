@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
@@ -23,10 +23,12 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isOperatorMulti, isOperatorRegex, toParams } from 'lib/utils'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyPropertyFilter,
@@ -78,7 +80,11 @@ export function TaxonomicPropertyFilter({
     endpointFilters,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
-    const groupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
+    const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
+    const baseGroupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
+    const groupTypes = showQuickFilters
+        ? [TaxonomicFilterGroupType.SuggestedFilters, ...baseGroupTypes]
+        : baseGroupTypes
     const taxonomicOnChange: (
         group: TaxonomicFilterGroup,
         value: TaxonomicFilterValue,
@@ -86,7 +92,10 @@ export function TaxonomicPropertyFilter({
         originalQuery?: string
     ) => void = (taxonomicGroup, value, item, originalQuery) => {
         selectItem(taxonomicGroup, value, item?.propertyFilterType, item, originalQuery)
-        if (taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression) {
+        if (
+            taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression ||
+            taxonomicGroup.type === TaxonomicFilterGroupType.SuggestedFilters
+        ) {
             onComplete?.()
         }
     }
@@ -121,6 +130,7 @@ export function TaxonomicPropertyFilter({
     const placeOperatorValueSelectOnLeft = filter?.type && filter?.key && filter?.type === PropertyFilterType.Cohort
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
+    const { cohortsById } = useValues(cohortsModel)
     const { columnsJoinedToPersons } = useValues(dataWarehouseJoinsLogic)
     const { currentTeamId } = useValues(teamLogic)
 
@@ -140,6 +150,17 @@ export function TaxonomicPropertyFilter({
         filter?.type === PropertyFilterType.DataWarehousePersonProperty
             ? columnsJoinedToPersons
             : propertyDefinitionsByType(basePropertyType, groupTypeIndex)
+
+    // Look up cohort name, if not already provided in filter
+    const cohortValue =
+        filter?.type === PropertyFilterType.Cohort && !Array.isArray(filter?.value) ? filter.value : undefined
+    const cohortName =
+        filter?.type === PropertyFilterType.Cohort
+            ? filter.cohort_name ||
+              (cohortValue !== undefined
+                  ? cohortsById[cohortValue]?.name || cohortsById[String(cohortValue)]?.name
+                  : undefined)
+            : undefined
 
     const taxonomicFilter = (
         <TaxonomicFilter
@@ -209,7 +230,7 @@ export function TaxonomicPropertyFilter({
 
     const filterContent =
         filter?.type === 'cohort'
-            ? filter.cohort_name || `Cohort #${filter?.value}`
+            ? cohortName || `Cohort #${filter?.value}`
             : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
               ? filter.label || `Group ${filter?.value}`
               : filter?.type === PropertyFilterType.Flag && filter?.label
@@ -283,8 +304,20 @@ export function TaxonomicPropertyFilter({
                                     sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
                                     onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                                     size={size}
-                                    tooltipDocLink={addFilterDocLink}
                                     truncate={true}
+                                    tooltip={
+                                        <>
+                                            {filterContent ?? (addText || 'Add filter')}
+                                            {addFilterDocLink && (
+                                                <>
+                                                    <br />
+                                                    <Link to={addFilterDocLink} target="_blank">
+                                                        Read the docs
+                                                    </Link>
+                                                </>
+                                            )}
+                                        </>
+                                    }
                                 >
                                     {filterContent ?? (addText || 'Add filter')}
                                 </LemonButton>

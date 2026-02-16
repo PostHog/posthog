@@ -8,6 +8,7 @@ from .dashboard_admin import DashboardAdmin
 from .dashboard_template_admin import DashboardTemplateAdmin
 from .data_color_theme_admin import DataColorThemeAdmin
 from .data_warehouse_table_admin import DataWarehouseTableAdmin
+from .ducklake_catalog_admin import DuckLakeCatalogAdmin
 from .event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
 from .experiment_admin import ExperimentAdmin
 from .experiment_saved_metric_admin import ExperimentSavedMetricAdmin
@@ -16,6 +17,7 @@ from .group_type_mapping_admin import GroupTypeMappingAdmin
 from .hog_function_admin import HogFunctionAdmin
 from .insight_admin import InsightAdmin
 from .instance_setting_admin import InstanceSettingAdmin
+from .integration_admin import IntegrationAdmin, OrganizationIntegrationAdmin
 from .oauth_admin import OAuthApplicationAdmin
 from .organization_admin import OrganizationAdmin
 from .organization_domain_admin import OrganizationDomainAdmin
@@ -40,6 +42,7 @@ __all__ = [
     "DashboardTemplateAdmin",
     "DataColorThemeAdmin",
     "DataWarehouseTableAdmin",
+    "DuckLakeCatalogAdmin",
     "EventIngestionRestrictionConfigAdmin",
     "ExperimentAdmin",
     "ExperimentSavedMetricAdmin",
@@ -48,6 +51,8 @@ __all__ = [
     "HogFunctionAdmin",
     "InsightAdmin",
     "InstanceSettingAdmin",
+    "IntegrationAdmin",
+    "OrganizationIntegrationAdmin",
     "LinkAdmin",
     "OAuthApplicationAdmin",
     "OrganizationAdmin",

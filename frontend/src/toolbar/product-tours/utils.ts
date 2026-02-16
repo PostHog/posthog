@@ -1,7 +1,10 @@
+import { toBlob } from 'html-to-image'
 import { domToJpeg } from 'modern-screenshot'
 
 import { toolbarConfigLogic, toolbarUploadMedia } from '~/toolbar/toolbarConfigLogic'
 import { TOOLBAR_ID, elementToQuery } from '~/toolbar/utils'
+
+export const PRODUCT_TOURS_SIDEBAR_TRANSITION_MS = 200
 
 export interface ElementInfo {
     selector: string
@@ -141,6 +144,38 @@ export function getPageContext(): { url: string; title: string } {
         url: window.location.href,
         title: document.title,
     }
+}
+
+const getAllStylePropertyNames = (): string[] => {
+    const names: string[] = []
+    const style = getComputedStyle(document.documentElement)
+    for (let i = 0; i < style.length; i++) {
+        const name = style[i]
+        if (!name.startsWith('--')) {
+            names.push(name)
+        }
+    }
+    return names
+}
+
+// trying out a new screenshot method with only the target element, instead of
+// capture the entire dom + cropping (see captureAndUploadElementScreenshot)
+// which was causing massive lag and browser crashes on heavy sites
+export async function captureAndUploadElementScreenshotV2(element: HTMLElement): Promise<ElementScreenshot> {
+    const blob = await toBlob(element, {
+        type: 'image/jpeg',
+        includeStyleProperties: getAllStylePropertyNames(),
+        quality: 0.7,
+        filter: screenshotFilter,
+    })
+
+    if (!blob) {
+        throw new Error('Failed to capture element screenshot')
+    }
+
+    const file = new File([blob], `tour-step-${Date.now()}.jpg`, { type: 'image/jpeg' })
+    const { id } = await toolbarUploadMedia(file)
+    return { mediaId: id }
 }
 
 /**

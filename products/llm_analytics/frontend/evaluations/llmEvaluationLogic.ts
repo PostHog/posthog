@@ -1,6 +1,7 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
@@ -8,10 +9,25 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
+import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { queryEvaluationRuns } from '../utils'
+import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
+import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
-import { EvaluationConditionSet, EvaluationConfig, EvaluationRun } from './types'
+import {
+    EvaluationConditionSet,
+    EvaluationConfig,
+    EvaluationRun,
+    EvaluationSummary,
+    EvaluationSummaryFilter,
+    ModelConfiguration,
+} from './types'
+
+export interface AvailableModel {
+    id: string
+    posthog_available: boolean
+}
 
 export interface LLMEvaluationLogicProps {
     evaluationId: string
@@ -23,6 +39,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     props({} as LLMEvaluationLogicProps),
     key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
 
+    connect(() => ({
+        values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
+        actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadProviderKeysSuccess']],
+    })),
+
     actions({
         // Evaluation configuration actions
         setEvaluationName: (name: string) => ({ name }),
@@ -31,6 +52,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setEvaluationEnabled: (enabled: boolean) => ({ enabled }),
         setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
+        setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
 
         // Evaluation management actions
         saveEvaluation: true,
@@ -41,6 +63,20 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         // Evaluation runs actions
         refreshEvaluationRuns: true,
+
+        // Model selection actions
+        setSelectedProvider: (provider: LLMProvider) => ({ provider }),
+        setSelectedKeyId: (keyId: string | null) => ({ keyId }),
+        setSelectedModel: (model: string) => ({ model }),
+
+        // Evaluation summary actions
+        setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter, previousFilter: EvaluationSummaryFilter) => ({
+            filter,
+            previousFilter,
+        }),
+        toggleSummaryExpanded: true,
+        regenerateEvaluationSummary: true,
+        trackSummarizeClicked: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -56,6 +92,59 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         evaluationId: props.evaluationId,
                         forceRefresh: values.isForceRefresh,
                     })
+                },
+            },
+        ],
+        availableModels: [
+            [] as AvailableModel[],
+            {
+                loadAvailableModels: async ({
+                    provider,
+                    keyId,
+                }: {
+                    provider: LLMProvider
+                    keyId: string | null
+                }): Promise<AvailableModel[]> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return []
+                    }
+                    const params = new URLSearchParams({ provider })
+                    if (keyId) {
+                        params.append('key_id', keyId)
+                    }
+                    const response = await api.get(
+                        `/api/environments/${teamId}/llm_analytics/models/?${params.toString()}`
+                    )
+                    return response.models
+                },
+            },
+        ],
+        evaluationSummary: [
+            null as EvaluationSummary | null,
+            {
+                generateEvaluationSummary: async ({ forceRefresh }: { forceRefresh?: boolean }) => {
+                    const shouldRefresh = forceRefresh ?? false
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || !props.evaluationId || props.evaluationId === 'new') {
+                        return null
+                    }
+
+                    const requestFilter = values.evaluationSummaryFilter
+
+                    // Backend fetches data server-side by ID - we just pass the filter
+                    const response = await api.create(`/api/environments/${teamId}/llm_analytics/evaluation_summary/`, {
+                        evaluation_id: props.evaluationId,
+                        filter: requestFilter,
+                        force_refresh: shouldRefresh,
+                    })
+
+                    // Discard if the user changed the filter while the request was in flight
+                    if (values.evaluationSummaryFilter !== requestFilter) {
+                        return null
+                    }
+
+                    return response as EvaluationSummary
                 },
             },
         ],
@@ -80,8 +169,31 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setAllowsNA: (state, { allowsNA }) =>
                     state ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } } : null,
                 setTriggerConditions: (state, { conditions }) => (state ? { ...state, conditions } : null),
+                setModelConfiguration: (state, { modelConfiguration }) =>
+                    state ? { ...state, model_configuration: modelConfiguration } : null,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
+            },
+        ],
+        selectedProvider: [
+            'openai' as LLMProvider,
+            {
+                setSelectedProvider: (_, { provider }) => provider,
+                loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.provider || 'openai',
+            },
+        ],
+        selectedKeyId: [
+            null as string | null,
+            {
+                setSelectedKeyId: (_, { keyId }) => keyId,
+                loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.provider_key_id || null,
+            },
+        ],
+        selectedModel: [
+            '' as string,
+            {
+                setSelectedModel: (_, { model }) => model,
+                loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.model || '',
             },
         ],
         isForceRefresh: [
@@ -115,9 +227,36 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationEnabled: () => true,
                 setAllowsNA: () => true,
                 setTriggerConditions: () => true,
+                setModelConfiguration: () => true,
                 saveEvaluationSuccess: () => false,
                 loadEvaluationSuccess: () => false,
                 resetEvaluation: () => false,
+            },
+        ],
+        evaluationSummaryFilter: [
+            'all' as EvaluationSummaryFilter,
+            {
+                setEvaluationSummaryFilter: (_, { filter }) => filter,
+            },
+        ],
+        // Clear summary when filter changes so stale summary doesn't mismatch current filter
+        evaluationSummary: {
+            setEvaluationSummaryFilter: () => null,
+        },
+        evaluationSummaryError: [
+            false,
+            {
+                generateEvaluationSummary: () => false,
+                generateEvaluationSummarySuccess: () => false,
+                generateEvaluationSummaryFailure: () => true,
+                setEvaluationSummaryFilter: () => false,
+            },
+        ],
+        summaryExpanded: [
+            true,
+            {
+                toggleSummaryExpanded: (state) => !state,
+                generateEvaluationSummarySuccess: () => true,
             },
         ],
     }),
@@ -162,6 +301,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             properties: [],
                         },
                     ],
+                    model_configuration: null,
                     total_runs: 0,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
@@ -170,8 +310,79 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
         },
 
+        loadEvaluationSuccess: ({ evaluation }) => {
+            // Load available models for the current provider/key combination
+            if (evaluation) {
+                const provider = evaluation.model_configuration?.provider || 'openai'
+                let keyId = evaluation.model_configuration?.provider_key_id || null
+
+                // Auto-select user's first key if none set (for new OR existing evals)
+                if (!keyId) {
+                    const keysForProvider = values.providerKeysByProvider[provider] || []
+                    if (keysForProvider.length > 0) {
+                        keyId = keysForProvider[0].id
+                        actions.setSelectedKeyId(keyId)
+                    }
+                }
+
+                actions.loadAvailableModels({ provider, keyId })
+            }
+        },
+
+        loadProviderKeysSuccess: () => {
+            const evaluation = values.evaluation
+
+            // For new evals without a key, auto-select first key
+            if (evaluation && !evaluation.id && !values.selectedKeyId) {
+                const keysForProvider = values.providerKeysByProvider[values.selectedProvider] || []
+                if (keysForProvider.length > 0) {
+                    const keyId = keysForProvider[0].id
+                    actions.setSelectedKeyId(keyId)
+                    actions.loadAvailableModels({ provider: values.selectedProvider, keyId })
+                }
+            }
+
+            // For existing evals, if selected key no longer exists, reload evaluation to get fresh data
+            if (evaluation && evaluation.id && values.selectedKeyId) {
+                const keysForProvider = values.providerKeysByProvider[values.selectedProvider] || []
+                const keyExists = keysForProvider.some((key) => key.id === values.selectedKeyId)
+                if (!keyExists) {
+                    actions.loadEvaluation()
+                }
+            }
+        },
+
         refreshEvaluationRuns: () => {
             actions.loadEvaluationRuns()
+        },
+
+        regenerateEvaluationSummary: () => {
+            posthog.capture('llma evaluation regenerate clicked', {
+                filter: values.evaluationSummaryFilter,
+                runs_to_summarize: values.runsToSummarizeCount,
+            })
+            actions.generateEvaluationSummary({ forceRefresh: true })
+        },
+
+        trackSummarizeClicked: () => {
+            posthog.capture('llma evaluation summarize clicked', {
+                filter: values.evaluationSummaryFilter,
+                runs_to_summarize: values.runsToSummarizeCount,
+            })
+        },
+
+        setEvaluationSummaryFilter: ({ filter, previousFilter }) => {
+            posthog.capture('llma evaluation summary filter changed', {
+                filter,
+                previous_filter: previousFilter,
+            })
+        },
+
+        toggleSummaryExpanded: () => {
+            posthog.capture('llma evaluation summary toggled', {
+                expanded: values.summaryExpanded,
+                filter: values.evaluationSummaryFilter,
+            })
         },
 
         resetEvaluation: () => {
@@ -194,6 +405,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             properties: [],
                         },
                     ],
+                    model_configuration: null,
                     total_runs: 0,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
@@ -214,6 +426,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (props.evaluationId === 'new') {
                     const response = await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
                     actions.saveEvaluationSuccess(response)
+                    llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
                 } else {
                     const response = await api.update(
                         `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
@@ -224,6 +437,55 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 router.actions.push(urls.llmAnalyticsEvaluations())
             } catch (error) {
                 console.error('Failed to save evaluation:', error)
+            }
+        },
+
+        setSelectedProvider: ({ provider }) => {
+            // When provider changes, auto-select user's first key if they have one, otherwise use PostHog default
+            const keysForProvider = values.providerKeysByProvider[provider] || []
+            const keyId = keysForProvider.length > 0 ? keysForProvider[0].id : null
+            actions.loadAvailableModels({ provider, keyId })
+            actions.setSelectedKeyId(keyId)
+            actions.setSelectedModel('')
+        },
+
+        setSelectedKeyId: ({ keyId }) => {
+            // When key changes, reload available models and reset model selection
+            const provider = values.selectedProvider
+            actions.loadAvailableModels({ provider, keyId })
+            actions.setSelectedModel('')
+        },
+
+        setSelectedModel: ({ model }) => {
+            // When model is selected, update the model configuration
+            if (model) {
+                const modelConfig: ModelConfiguration = {
+                    provider: values.selectedProvider,
+                    model,
+                    provider_key_id: values.selectedKeyId,
+                }
+                actions.setModelConfiguration(modelConfig)
+            } else {
+                actions.setModelConfiguration(null)
+            }
+        },
+
+        loadAvailableModelsSuccess: ({ availableModels }) => {
+            // If the currently selected model is not in the available models, reset it
+            if (values.selectedModel && !availableModels.some((m: AvailableModel) => m.id === values.selectedModel)) {
+                actions.setSelectedModel('')
+            }
+            // Auto-select the first available model if none selected
+            if (!values.selectedModel && availableModels.length > 0) {
+                // When using PostHog key (no selectedKeyId), pick first PostHog-available model
+                if (!values.selectedKeyId) {
+                    const firstPostHogModel = availableModels.find((m: AvailableModel) => m.posthog_available)
+                    if (firstPostHogModel) {
+                        actions.setSelectedModel(firstPostHogModel.id)
+                    }
+                } else {
+                    actions.setSelectedModel(availableModels[0].id)
+                }
             }
         },
     })),
@@ -243,6 +505,41 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     evaluation.conditions.length > 0 &&
                     evaluation.conditions.every((c) => c.rollout_percentage > 0 && c.rollout_percentage <= 100)
                 )
+            },
+        ],
+
+        providerKeysByProvider: [
+            (s) => [s.providerKeys],
+            (providerKeys: LLMProviderKey[]) => {
+                const byProvider: Record<LLMProvider, LLMProviderKey[]> = {
+                    openai: [],
+                    anthropic: [],
+                    gemini: [],
+                    openrouter: [],
+                }
+                for (const key of providerKeys) {
+                    if (key.provider in byProvider) {
+                        byProvider[key.provider as LLMProvider].push(key)
+                    }
+                }
+                return byProvider
+            },
+        ],
+
+        keysForSelectedProvider: [
+            (s) => [s.providerKeysByProvider, s.selectedProvider],
+            (providerKeysByProvider: Record<LLMProvider, LLMProviderKey[]>, selectedProvider: LLMProvider) =>
+                providerKeysByProvider[selectedProvider] || [],
+        ],
+
+        runsLookup: [
+            (s) => [s.evaluationRuns],
+            (runs): Record<string, EvaluationRun> => {
+                const lookup: Record<string, EvaluationRun> = {}
+                for (const run of runs) {
+                    lookup[run.generation_id] = run
+                }
+                return lookup
             },
         ],
 
@@ -271,24 +568,48 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
 
+        filteredEvaluationRuns: [
+            (s) => [s.evaluationRuns, s.evaluationSummaryFilter],
+            (runs: EvaluationRun[], filter: EvaluationSummaryFilter): EvaluationRun[] => {
+                if (filter === 'all') {
+                    return runs
+                }
+                // Only consider completed runs for filtering
+                const completedRuns = runs.filter((r) => r.status === 'completed')
+                if (filter === 'pass') {
+                    return completedRuns.filter((r) => r.result === true)
+                }
+                if (filter === 'fail') {
+                    return completedRuns.filter((r) => r.result === false)
+                }
+                // na
+                return completedRuns.filter((r) => r.result === null)
+            },
+        ],
+
+        runsToSummarizeCount: [
+            (s) => [s.filteredEvaluationRuns, s.evaluationSummaryFilter],
+            (filteredRuns: EvaluationRun[], filter: EvaluationSummaryFilter): number => {
+                // When 'all', filteredEvaluationRuns includes non-completed runs, but summarization only uses completed
+                const count =
+                    filter === 'all' ? filteredRuns.filter((r) => r.status === 'completed').length : filteredRuns.length
+                return Math.min(count, EVALUATION_SUMMARY_MAX_RUNS)
+            },
+        ],
+
         breadcrumbs: [
             (s) => [s.evaluation],
             (evaluation): Breadcrumb[] => [
                 {
-                    name: 'LLM Analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                    key: 'LLMAnalytics',
-                    iconType: 'llm_analytics',
-                },
-                {
                     name: 'Evaluations',
                     path: urls.llmAnalyticsEvaluations(),
                     key: 'LLMAnalyticsEvaluations',
-                    iconType: 'llm_analytics',
+                    iconType: 'llm_evaluations',
                 },
                 {
                     name: evaluation?.name || 'New Evaluation',
                     key: 'LLMAnalyticsEvaluationEdit',
+                    iconType: 'llm_evaluations',
                 },
             ],
         ],
@@ -308,6 +629,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     })),
 
     afterMount(({ actions, props }) => {
+        actions.loadProviderKeys()
         actions.loadEvaluation()
         if (props.evaluationId !== 'new') {
             actions.loadEvaluationRuns()

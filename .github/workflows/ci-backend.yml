@@ -40,6 +40,7 @@ env:
     # this is a fake key so this workflow can run for external contributors as they do not have access to secrets (that we don't need here)
     OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    SANDBOX_JWT_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
 
 permissions:
     contents: write
@@ -109,12 +110,11 @@ jobs:
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
                         - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
                         - docker-compose.base.yml
+                        - bin/wait-for-docker
                         - frontend/public/email/*
                         - docker/clickhouse
-                        # These scripts are used in the CI
-                        - bin/check_temporal_up
-                        - bin/check_kafka_clickhouse_up
                       migrations:
                         - docker/clickhouse
                         - 'posthog/migrations/*.py'
@@ -133,7 +133,6 @@ jobs:
                         # Generation tooling - changes here could affect output
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
-                        - 'frontend/src/lib/api-stub-for-orval.ts'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -155,7 +154,10 @@ jobs:
                   else
                     AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
-                    if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
+                    # Dependabot is excluded - it creates new PRs that may need snapshot updates
+                    # Other bots (github-actions, posthog-bot) commit snapshots and must use CHECK mode to avoid loops
+                    if [[ "$AUTHOR" != "dependabot[bot]" ]] && \
+                       ([[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]); then
                       echo "mode=check" >> $GITHUB_OUTPUT
                       echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
@@ -163,6 +165,27 @@ jobs:
                       echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
                     fi
                   fi
+
+    check-idor-coverage:
+        needs: [changes]
+        if: needs.changes.outputs.backend == 'true'
+        timeout-minutes: 5
+        name: Check IDOR semgrep rule coverage
+        runs-on: depot-ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+            - name: Set up Python
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              with:
+                  python-version: 3.12.12
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: 0.9.9
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            - name: Check IDOR model coverage
+              run: python .github/scripts/check-idor-model-coverage.py
 
     check-migrations:
         needs: [changes]
@@ -194,9 +217,10 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
@@ -213,7 +237,9 @@ jobs:
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
               with:
+                  shared-key: 'v2-rust-backend'
                   workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               run: |
@@ -230,10 +256,24 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
 
-            - name: Wait for services to be available
+            - name: Wait for Docker services
               run: |
-                  bin/check_postgres_up
-                  bin/check_kafka_clickhouse_up
+                  # Can't use bin/wait-for-docker here — working tree is on master
+                  # which doesn't have the script yet.
+                  SECONDS=0
+                  for svc in db redis7 kafka clickhouse; do
+                    while true; do
+                      if [ "$SECONDS" -ge 300 ]; then
+                        echo "Timed out after 300s waiting for $svc"
+                        exit 1
+                      fi
+                      cid=$(docker compose -f docker-compose.dev.yml ps -q "$svc" 2>/dev/null || true)
+                      [ -n "$cid" ] && status=$(docker inspect --format='{{.State.Health.Status}}' "$cid" 2>/dev/null || echo starting) && [ "$status" = "healthy" ] && break
+                      echo "Waiting for $svc... (${SECONDS}s)"
+                      sleep 1
+                    done
+                  done
+                  echo "All services healthy in ${SECONDS}s."
 
             - name: Run migrations up to master
               run: |
@@ -455,6 +495,9 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
             - name: Set up Node.js
               uses: actions/setup-node@v4
               with:
@@ -495,7 +538,8 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: depot-ubuntu-latest
+        # Runner type is performance-critical — consult #team-devex before changing
+        runs-on: depot-ubuntu-latest-4
 
         strategy:
             fail-fast: false
@@ -505,7 +549,9 @@ jobs:
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
-                concurrency: [40]
+                # Shard counts are tuned to balance wall-clock time vs setup overhead (Amdahl's law).
+                # Consult #team-devex before changing.
+                concurrency: [38]
                 group:
                     [
                         1,
@@ -546,110 +592,78 @@ jobs:
                         36,
                         37,
                         38,
-                        39,
-                        40,
                     ]
                 include:
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 5
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 6
                     - segment: 'Core'
                       person-on-events: true
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 7
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 8
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 9
-                    - segment: 'Core'
-                      person-on-events: true
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 10
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 5
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 6
                     - segment: 'Temporal'
                       person-on-events: false
                       python-version: '3.12.12'
-                      concurrency: 10
+                      concurrency: 7
                       group: 7
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 8
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 9
-                    - segment: 'Temporal'
-                      person-on-events: false
-                      python-version: '3.12.12'
-                      concurrency: 10
-                      group: 10
 
         steps:
             - uses: actions/checkout@v6
@@ -657,6 +671,7 @@ jobs:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
+                  lfs: true
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
@@ -695,8 +710,9 @@ jobs:
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
 
+                          # Docker profiles control which services start — consult #team-devex before changing
                           if docker compose -f docker-compose.dev.yml --profile '*' down && \
-                            docker compose -f docker-compose.dev.yml --profile batch-exports up -d; then
+                            docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal --profile azure up -d; then
                               echo "Stack started successfully"
                               exit 0
                           fi
@@ -727,9 +743,10 @@ jobs:
 
             - name: Install uv
               id: setup-uv-tests
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
@@ -749,11 +766,9 @@ jobs:
               if: needs.changes.outputs.backend == 'true'
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
               with:
-                  # Add unique prefix per matrix job to avoid cache contention
-                  prefix-key: 'v1-rust-${{ matrix.segment }}-${{ matrix.group }}'
-                  # Add shared-key for cross-job cache reuse
-                  shared-key: 'v1-rust-shared'
+                  shared-key: 'v2-rust-backend'
                   workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
@@ -768,15 +783,6 @@ jobs:
                   changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
                   echo "changed=$changed" >> $GITHUB_OUTPUT
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
-
-            - name: Set up Node.js
-              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
-              with:
-                  node-version: 24.13.0
-                  cache: pnpm
-
             # tests would intermittently fail in GH actions
             # with exit code 134 _after passing_ all tests
             # this appears to fix it
@@ -789,12 +795,6 @@ jobs:
               with:
                   packages: libegl1 libdbus-1-3 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xinput0 libxcb-xfixes0 x11-utils libxcb-cursor0 libopengl0
                   version: 1.0
-
-            - name: Install plugin_transpiler
-              shell: bash
-              run: |
-                  pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/plugin-transpiler build
 
             - name: Install Python dependencies
               shell: bash
@@ -836,17 +836,13 @@ jobs:
                   touch frontend/dist/exporter.html
                   ./bin/download-mmdb
 
-            - name: Wait for services to be available
+            - name: Wait for Docker services
               shell: bash
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
-
-            - name: Wait for Temporal
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
-              shell: bash
-              run: |
-                  bin/check_temporal_up
+              # Read-only health poll for core services only. Can't use --wait here
+              # because it blocks on ALL project containers including temporal, which
+              # boots slowly (auto-setup runs DB migrations). Temporal was started in
+              # background above and will be ready by the time temporal tests run.
+              run: bin/wait-for-docker
 
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
@@ -857,6 +853,29 @@ jobs:
               run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV
 
             # Tests
+            - name: Log test environment diagnostics
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
+              shell: bash
+              env:
+                  SHARD_GROUP: ${{ matrix.group }}
+                  SHARD_CONCURRENCY: ${{ matrix.concurrency }}
+                  CLICKHOUSE_IMAGE: ${{ matrix.clickhouse-server-image }}
+                  COMMIT_SHA: ${{ github.sha }}
+                  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+              run: |
+                  echo "=== Test Environment Diagnostics ==="
+                  echo "Shard: $SHARD_GROUP/$SHARD_CONCURRENCY"
+                  echo "Python version: $(python --version)"
+                  echo "ClickHouse version: $CLICKHOUSE_IMAGE"
+                  echo "Commit: $COMMIT_SHA"
+                  echo "Branch: $BRANCH_NAME"
+                  echo "Runner: $(uname -a)"
+                  echo "Memory: $(free -h | head -2)"
+                  echo "Disk: $(df -h / | tail -1)"
+                  echo "Docker containers:"
+                  docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
+                  echo "==================================="
+
             - name: Run Core tests
               id: run-core-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
@@ -865,7 +884,7 @@ jobs:
               shell: bash
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
-                  pytest ${{
+                  pytest -v --tb=short ${{
                       matrix.person-on-events
                       && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
                       || 'posthog products'
@@ -881,6 +900,8 @@ jobs:
                       --durations=1000 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
+                      -r fEsxX \
+                      --junitxml=junit-core.xml \
                       $PYTEST_ARGS
                   exit_code=$?
                   set -e
@@ -897,6 +918,27 @@ jobs:
             #   if: failure()
             #   uses: mxschmitt/action-tmate@v3
 
+            - name: Log test environment diagnostics
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
+              shell: bash
+              env:
+                  SHARD_GROUP: ${{ matrix.group }}
+                  SHARD_CONCURRENCY: ${{ matrix.concurrency }}
+                  COMMIT_SHA: ${{ github.sha }}
+                  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+              run: |
+                  echo "=== Test Environment Diagnostics ==="
+                  echo "Shard: $SHARD_GROUP/$SHARD_CONCURRENCY"
+                  echo "Python version: $(python --version)"
+                  echo "Commit: $COMMIT_SHA"
+                  echo "Branch: $BRANCH_NAME"
+                  echo "Runner: $(uname -a)"
+                  echo "Memory: $(free -h | head -2)"
+                  echo "Disk: $(df -h / | tail -1)"
+                  echo "Docker containers:"
+                  docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
+                  echo "==================================="
+
             - name: Run Temporal tests
               id: run-temporal-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
@@ -907,11 +949,13 @@ jobs:
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
                   set +e
-                  pytest posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                  pytest -v --tb=short --timeout=300 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
+                      -r fEsxX \
+                      --junitxml=junit-temporal.xml \
                       $PYTEST_ARGS
                   exit_code=$?
                   set -e
@@ -978,6 +1022,14 @@ jobs:
                   name: email_renders-${{ github.sha }}-${{ github.run_attempt }}-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
                   path: posthog/tasks/test/__emails__
                   retention-days: 1
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-backend-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
+                  path: junit-*.xml
+
+    # Aggregate and commit snapshot changes from all matrix jobs
 
     get_clickhouse_versions:
         name: Get ClickHouse versions
@@ -1048,6 +1100,12 @@ jobs:
                   person-on-events: false
                   pytest-targets: 'posthog/clickhouse ee/clickhouse'
                   oldest_supported_clickhouse_image: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
+                  # Skip plugin transpiler build - these tests don't need it and it causes esbuild deadlocks
+                  skip-plugin-transpiler: 'true'
+                  # Compat tests run a subset and don't own snapshots (main django tests do).
+                  # This flag makes unused snapshots non-fatal and always updates snapshot
+                  # content so compat tests never fail due to CH version query differences.
+                  snapshot-warn-unused: 'true'
 
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:
@@ -1121,7 +1179,7 @@ jobs:
     # Job just to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
     django_tests:
-        needs: [django, clickhouse-compat, check-migrations, async-migrations, handle-snapshots]
+        needs: [django, clickhouse-compat, check-migrations, async-migrations, handle-snapshots, check-idor-coverage]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -1149,6 +1207,12 @@ jobs:
                   # Check async migrations - must pass for Django Tests to be green
                   if [[ "${{ needs.async-migrations.result }}" != "success" && "${{ needs.async-migrations.result }}" != "skipped" ]]; then
                     echo "Async migrations tests failed."
+                    exit 1
+                  fi
+
+                  # Check IDOR coverage - must pass for Django Tests to be green
+                  if [[ "${{ needs.check-idor-coverage.result }}" != "success" && "${{ needs.check-idor-coverage.result }}" != "skipped" ]]; then
+                    echo "IDOR coverage check failed."
                     exit 1
                   fi
 
@@ -1194,9 +1258,10 @@ jobs:
 
             - name: Install uv
               id: setup-uv-async
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
@@ -1214,7 +1279,9 @@ jobs:
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
               with:
+                  shared-key: 'v2-rust-backend'
                   workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               run: |
@@ -1235,22 +1302,27 @@ jobs:
                   touch frontend/dist/layout.html
                   touch frontend/dist/exporter.html
 
-            - name: Wait for services to be available
+            - name: Wait for Docker services
               shell: bash
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
+              run: bin/wait-for-docker
 
             - name: Run async migrations tests
               run: |
-                  pytest -m "async_migrations" --reruns 2 --reruns-delay 1
+                  pytest -m "async_migrations" --reruns 2 --reruns-delay 1 --junitxml=junit.xml
+
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-async-migrations
+                  path: junit.xml
 
     calculate-running-time:
         name: Calculate running time
         needs: [django_tests, async-migrations]
         runs-on: ubuntu-latest
-        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
-            always() && (
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
+            always() && github.actor != 'dependabot[bot]' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
@@ -1284,7 +1356,7 @@ jobs:
                   python-version: '3.12'
 
             - name: Install uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
 
             - name: Install dependencies
               run: uv sync --frozen --dev
@@ -1293,4 +1365,11 @@ jobs:
               env:
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-              run: uv run pytest tests/ -v --tb=short
+              run: uv run pytest tests/ -v --tb=short --junitxml=junit.xml
+
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-llm-gateway
+                  path: junit.xml

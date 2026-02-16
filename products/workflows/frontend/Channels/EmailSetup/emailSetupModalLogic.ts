@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
@@ -13,6 +13,7 @@ import type { emailSetupModalLogicType } from './emailSetupModalLogicType'
 export interface EmailSetupModalLogicProps {
     integration?: IntegrationType | null
     onComplete: (integrationId?: number) => void
+    onClose: () => void
 }
 
 export interface ApiDnsRecord {
@@ -21,6 +22,7 @@ export interface ApiDnsRecord {
     recordValue: string
     recordType: string
     recordHostname: string
+    priority?: number
 }
 
 export interface DnsRecord extends ApiDnsRecord {
@@ -31,6 +33,7 @@ export interface EmailSenderFormType {
     email: string
     name: string
     provider: 'ses' | 'maildev'
+    mail_from_subdomain?: string
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i
@@ -49,6 +52,15 @@ export const parseHostname = (hostname: string, rootDomain: string): { subdomain
     return { subdomain: hostname, rootDomain: '' }
 }
 
+const getEmailSenderFromIntegration = (integration: IntegrationType): EmailSenderFormType => {
+    return {
+        email: integration.config.email,
+        name: integration.config.name,
+        provider: integration.config.provider,
+        mail_from_subdomain: integration.config.mail_from_subdomain,
+    }
+}
+
 export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     path(['products', 'workflows', 'frontend', 'EmailSetup', 'emailSetupModalLogic']),
     props({} as EmailSetupModalLogicProps),
@@ -57,14 +69,27 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
         values: [integrationsLogic, ['integrations', 'integrationsLoading']],
         actions: [integrationsLogic, ['loadIntegrations']],
     })),
-    forms(({ actions }) => ({
+    actions({
+        setSavedIntegration: (integration: IntegrationType | null) => ({ integration }),
+        verifyDomain: true,
+    }),
+    reducers({
+        savedIntegration: [
+            null as IntegrationType | null,
+            {
+                setSavedIntegration: (_, { integration }) => integration || null,
+            },
+        ],
+    }),
+    forms(({ actions, values }) => ({
         emailSender: {
             defaults: {
                 provider: 'ses',
                 email: '',
                 name: '',
+                mail_from_subdomain: 'feedback',
             } as EmailSenderFormType,
-            errors: ({ email, name, provider }) => {
+            errors: ({ email, name, provider, mail_from_subdomain }) => {
                 let emailError = undefined
                 if (!email) {
                     emailError = 'Email is required'
@@ -76,16 +101,27 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                     email: emailError,
                     name: !name ? 'Name is required' : undefined,
                     provider: !provider ? 'Provider is required' : undefined,
+                    mail_from_subdomain:
+                        values.savedIntegration === null && !mail_from_subdomain
+                            ? 'MAIL FROM subdomain is required for new senders'
+                            : undefined,
                 }
             },
             submit: async (config) => {
                 try {
-                    const integration = await api.integrations.create({
-                        kind: 'email',
-                        config: config,
-                    })
+                    let integration: IntegrationType
+                    if (values.savedIntegration) {
+                        integration = await api.integrations.updateEmailConfig(values.savedIntegration.id, {
+                            config,
+                        })
+                    } else {
+                        integration = await api.integrations.create({
+                            kind: 'email',
+                            config,
+                        })
+                    }
                     actions.loadIntegrations()
-                    actions.setIntegration(integration)
+                    actions.setSavedIntegration(integration)
                     actions.verifyDomain()
                     return config
                 } catch (error) {
@@ -98,49 +134,55 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
         },
     })),
     loaders(({ values }) => ({
-        integration: {
-            setIntegration: (integration?: IntegrationType) => integration,
-        },
         verification: {
             verifyDomain: async () => {
-                return api.integrations.verifyEmail(values.integration.id)
+                if (values.savedIntegration) {
+                    return api.integrations.verifyEmail(values.savedIntegration.id)
+                }
             },
         },
     })),
     selectors({
         dnsRecords: [
-            (s) => [s.verification, s.integration],
+            (s) => [s.verification, s.savedIntegration],
             (
                 verification: { dnsRecords?: ApiDnsRecord[] } | null,
-                integration: IntegrationType | undefined
+                savedIntegration: IntegrationType | undefined
             ): DnsRecord[] => {
-                if (!verification?.dnsRecords || !integration) {
+                if (!verification?.dnsRecords || !savedIntegration) {
                     return []
                 }
-                const rootDomain = integration?.config?.domain || ''
+                const rootDomain = savedIntegration?.config?.domain || ''
                 return verification.dnsRecords.map((record) => ({
                     ...record,
                     parsedHostname: parseHostname(record.recordHostname, rootDomain),
                 }))
             },
         ],
+        domain: [
+            (s) => [s.emailSender],
+            (emailSender: EmailSenderFormType): string => {
+                return emailSender.email.includes('@') ? emailSender.email.split('@')[1] : ''
+            },
+        ],
+        isDomainVerified: [
+            (s) => [s.verification],
+            (verification: { status: string } | null): boolean => {
+                return verification?.status === 'success'
+            },
+        ],
     }),
-    listeners(({ props, values, actions }) => ({
-        submitEmailSenderSuccess: () => {
-            // After creating the integration, verify the domain
-            actions.verifyDomain()
-        },
+    listeners(({ actions }) => ({
         verifyDomainSuccess: ({ verification }) => {
-            if (verification.status === 'success') {
-                lemonToast.success('Domain verified successfully!')
+            if (verification?.status === 'success') {
                 actions.loadIntegrations()
-                props.onComplete(values.integration.id)
             }
         },
     })),
     afterMount(({ props, actions }) => {
         if (props.integration) {
-            actions.setIntegration(props.integration)
+            actions.setSavedIntegration(props.integration)
+            actions.setEmailSenderValues(getEmailSenderFromIntegration(props.integration))
             actions.verifyDomain()
         }
     }),

@@ -19,6 +19,7 @@ class ThrottleContext:
     user: AuthenticatedUser
     product: str
     request_id: str | None = None
+    end_user_id: str | None = None
 
 
 @dataclass

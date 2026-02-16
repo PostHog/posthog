@@ -58,9 +58,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                             <div className="flex items-center gap-2">
                                 <span className="flex-1 line-clamp-1">{conversation.title}</span>
                                 {conversation.is_internal && <LemonTag type="muted">Impersonated</LemonTag>}
-                                {conversation.type === ConversationType.DeepResearch && (
-                                    <LemonTag>Deep research</LemonTag>
-                                )}
+                                {conversation.type === ConversationType.DeepResearch && <LemonTag>Research</LemonTag>}
                             </div>
                         </Link>
 

@@ -18,10 +18,7 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.temporal.ai import (
-    ACTIVITIES as AI_ACTIVITIES,
-    WORKFLOWS as AI_WORKFLOWS,
-)
+from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, SIGNALS_ACTIVITIES, SIGNALS_WORKFLOWS
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
@@ -73,6 +70,10 @@ from posthog.temporal.exports_video import (
 from posthog.temporal.import_recording import (
     ACTIVITIES as IMPORT_RECORDING_ACTIVITIES,
     WORKFLOWS as IMPORT_RECORDING_WORKFLOWS,
+)
+from posthog.temporal.ingestion_acceptance_test import (
+    ACTIVITIES as INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
+    WORKFLOWS as INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
 )
 from posthog.temporal.llm_analytics import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
@@ -169,7 +170,8 @@ _task_queue_specs = [
         + DLQ_REPLAY_WORKFLOWS
         + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
-        + CLEANUP_PROPDEFS_WORKFLOWS,
+        + CLEANUP_PROPDEFS_WORKFLOWS
+        + INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
@@ -180,7 +182,8 @@ _task_queue_specs = [
         + DLQ_REPLAY_ACTIVITIES
         + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
-        + CLEANUP_PROPDEFS_ACTIVITIES,
+        + CLEANUP_PROPDEFS_ACTIVITIES
+        + INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
     ),
     (
         settings.DUCKLAKE_TASK_QUEUE,
@@ -214,8 +217,8 @@ _task_queue_specs = [
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        VIDEO_EXPORT_WORKFLOWS,
-        VIDEO_EXPORT_ACTIVITIES,
+        VIDEO_EXPORT_WORKFLOWS + SIGNALS_WORKFLOWS,
+        VIDEO_EXPORT_ACTIVITIES + SIGNALS_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
@@ -242,6 +245,11 @@ _task_queue_specs = [
         settings.LLMA_EVALS_TASK_QUEUE,
         LLM_ANALYTICS_EVAL_WORKFLOWS,
         LLM_ANALYTICS_EVAL_ACTIVITIES,
+    ),
+    (
+        settings.LLMA_TASK_QUEUE,
+        LLM_ANALYTICS_WORKFLOWS,
+        LLM_ANALYTICS_ACTIVITIES,
     ),
 ]
 
@@ -357,6 +365,12 @@ class Command(BaseCommand):
             default=settings.TEMPORAL_HEALTH_MAX_IDLE_SECONDS,
             help="Maximum seconds without workflow/activity execution before unhealthy",
         )
+        parser.add_argument(
+            "--disable-combined-metrics-server",
+            action="store_true",
+            default=not settings.TEMPORAL_COMBINED_METRICS_SERVER_ENABLED,
+            help="Disable the combined metrics server (useful for workers with GIL contention issues)",
+        )
 
     def handle(self, *args, **options):
         temporal_host = options["temporal_host"]
@@ -374,6 +388,7 @@ class Command(BaseCommand):
         target_cpu_usage = options.get("target_cpu_usage", None)
         health_port = options.get("health_port", None)
         health_max_idle_seconds = options.get("health_max_idle_seconds", None)
+        disable_combined_metrics_server = options.get("disable_combined_metrics_server", False)
 
         try:
             workflows = list(WORKFLOWS_DICT[task_queue])
@@ -445,6 +460,7 @@ class Command(BaseCommand):
                 target_cpu_usage=target_cpu_usage,
                 health_port=health_port,
                 health_max_idle_seconds=health_max_idle_seconds,
+                combined_metrics_server_enabled=not disable_combined_metrics_server,
             )
             logger.info("Starting Temporal Worker")
 
@@ -471,6 +487,7 @@ class Command(BaseCommand):
                     use_pydantic_converter=use_pydantic_converter,
                     target_memory_usage=target_memory_usage,
                     target_cpu_usage=target_cpu_usage,
+                    enable_combined_metrics_server=not disable_combined_metrics_server,
                 )
             )
 

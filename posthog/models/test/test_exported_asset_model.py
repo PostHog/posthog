@@ -143,3 +143,40 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
         asset.save(update_fields=["expires_after"])
         asset.refresh_from_db()
         assert asset.expires_after == new_expiry
+
+
+class TestExportedAssetFilename(APIBaseTest):
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_filename_includes_timestamp(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+        )
+        assert asset.filename == "export-2024-06-15.csv"
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_filename_uses_custom_name_with_timestamp(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"filename": "My Cohort Name"},
+        )
+        assert asset.filename == "my-cohort-name-2024-06-15.csv"
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_filename_slugifies_special_characters(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"filename": "Power Users @ 50% Rollout"},
+        )
+        assert asset.filename == "power-users-50-rollout-2024-06-15.csv"
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_xlsx_format_extension(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.XLSX,
+            export_context={"filename": "cohort-test"},
+        )
+        assert asset.filename == "cohort-test-2024-06-15.xlsx"

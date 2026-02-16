@@ -1,18 +1,14 @@
-import { getRubySteps as getRubyStepsPA } from '../product-analytics/ruby'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getRubySteps = (
-    CodeBlock: any,
-    Markdown: any,
-    dedent: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+import { getRubySteps as getRubyStepsPA } from '../product-analytics/ruby'
+import { StepDefinition } from '../steps'
+
+export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 
     // Get installation steps from product-analytics only
-    const installationSteps = getRubyStepsPA(CodeBlock, Markdown, dedent).filter(
+    const installationSteps = getRubyStepsPA(ctx).filter(
         (step: StepDefinition) => step.title !== 'Send events'
     )
 
@@ -47,21 +43,7 @@ export const getRubySteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...experimentSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...experimentSteps]
 }
 
-export const RubyInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
-    const steps = getRubySteps(CodeBlock, Markdown, dedent, snippets, { modifySteps })
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const RubyInstallation = createInstallation(getRubySteps)

@@ -1,8 +1,10 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { PersonProfiles } from './_snippets/person-profiles'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getPHPSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
+export const getPHPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
     return [
         {
             title: 'Install the package',
@@ -16,8 +18,8 @@ export const getPHPSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDef
                                 language: 'bash',
                                 file: 'Terminal',
                                 code: dedent`
-                                    composer require posthog/posthog-php
-                                `,
+                                composer require posthog/posthog-php
+                            `,
                             },
                         ]}
                     />
@@ -36,11 +38,11 @@ export const getPHPSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDef
                                 language: 'php',
                                 file: 'PHP',
                                 code: dedent`
-                                    PostHog\\PostHog::init(
-                                        '<ph_project_api_key>',
-                                        ['host' => '<ph_client_api_host>']
-                                    );
-                                `,
+                                PostHog\\PostHog::init(
+                                    '<ph_project_api_key>',
+                                    ['host' => '<ph_client_api_host>']
+                                );
+                            `,
                             },
                         ]}
                     />
@@ -52,41 +54,25 @@ export const getPHPSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDef
             badge: 'recommended',
             content: (
                 <>
-                    <Markdown>
-                        Once installed, you can manually send events to test your integration:
-                    </Markdown>
+                    <Markdown>Once installed, you can manually send events to test your integration:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
                                 language: 'php',
                                 file: 'PHP',
                                 code: dedent`
-                                    PostHog::capture([
-                                        'distinctId' => 'test-user',
-                                        'event' => 'test-event',
-                                    ]);
-                                `,
+                                PostHog::capture([
+                                    'distinctId' => 'test-user',
+                                    'event' => 'test-event',
+                                ]);
+                            `,
                             },
                         ]}
                     />
-                    <PersonProfiles language="php" />
                 </>
             ),
         },
     ]
 }
 
-export const PHPInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
-    const steps = getPHPSteps(CodeBlock, Markdown, dedent)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const PHPInstallation = createInstallation(getPHPSteps)

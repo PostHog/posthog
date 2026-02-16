@@ -37,6 +37,7 @@ from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
     HogQLDialect,
     HogQLGlobalSettings,
+    HogQLParserBackend,
     HogQLQuerySettings,
     LimitContext,
 )
@@ -54,6 +55,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.models.property_definition import PropertyType
 from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
@@ -77,8 +79,9 @@ class TestPrinter(BaseTest):
         context: Optional[HogQLContext] = None,
         dialect: HogQLDialect = "clickhouse",
         settings: Optional[HogQLQuerySettings] = None,
+        backend: HogQLParserBackend = "cpp-json",
     ) -> str:
-        node = parse_expr(query)
+        node = parse_expr(query, backend=backend)
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         select_query = ast.SelectQuery(
             select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
@@ -2297,6 +2300,86 @@ class TestPrinter(BaseTest):
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
+    def test_table_top_level_settings_added_to_query(self):
+        printed = self._print("SELECT job_id FROM preaggregation_results")
+        assert "load_balancing='in_order'" in printed
+
+    def test_table_top_level_settings_not_added_for_regular_tables(self):
+        printed = self._print("SELECT event FROM events")
+        assert "load_balancing" not in printed
+
+    def test_table_top_level_settings_deduplication(self):
+        printed = self._print(
+            "SELECT a.job_id, b.job_id "
+            "FROM preaggregation_results a "
+            "JOIN experiment_exposures_preaggregated b ON a.job_id = b.job_id"
+        )
+        assert printed.count("load_balancing") == 1
+
+    def test_table_top_level_settings_conflict_between_tables(self):
+        db = Database()
+        db.get_table("preaggregation_results").top_level_settings = HogQLQuerySettings(load_balancing="round_robin")
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query_both = parse_select(
+            "SELECT a.job_id, b.job_id "
+            "FROM preaggregation_results a "
+            "JOIN experiment_exposures_preaggregated b ON a.job_id = b.job_id"
+        )
+        with self.assertRaises(QueryError) as cm:
+            prepare_and_print_ast(query_both, context, "clickhouse")
+        assert "Conflicting" in str(cm.exception)
+
+    def test_table_top_level_settings_conflict_with_query_settings(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        assert isinstance(query, ast.SelectQuery)
+        query.settings = HogQLQuerySettings(load_balancing="round_robin")
+        with self.assertRaises(QueryError) as cm:
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                "clickhouse",
+            )
+        assert "Conflicting" in str(cm.exception)
+
+    def test_table_top_level_settings_conflict_with_global_settings(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        with self.assertRaises(QueryError) as cm:
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                "clickhouse",
+                settings=HogQLGlobalSettings(load_balancing="round_robin"),
+            )
+        assert "Conflicting" in str(cm.exception)
+
+    def test_table_top_level_settings_same_value_in_query_settings(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        assert isinstance(query, ast.SelectQuery)
+        query.settings = HogQLQuerySettings(load_balancing="in_order")
+        printed, _ = prepare_and_print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        assert "load_balancing='in_order'" in printed
+        assert printed.count("load_balancing") == 1
+
+    def test_table_top_level_settings_with_global_settings_single_clause(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        printed, _ = prepare_and_print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=30),
+        )
+        assert "load_balancing='in_order'" in printed
+        assert printed.count("SETTINGS") == 1
+        assert printed.count("load_balancing") == 1
+
+    def test_subquery_table_settings_bubble_up(self):
+        printed = self._print("SELECT job_id FROM (SELECT job_id FROM preaggregation_results)")
+        assert "load_balancing='in_order'" in printed
+
     def test_pretty_print(self):
         printed = self._pretty("SELECT 1, event FROM events")
         self.assertEqual(
@@ -2572,61 +2655,87 @@ class TestPrinter(BaseTest):
         )
 
     def test_get_survey_response(self):
-        # Test with just question index
-        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
-            mock_get_survey_response.return_value = "MOCKED SQL FOR SURVEY RESPONSE"
+        # Test with just question index (0) - dynamic key
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(0) FROM events",
+        )
+        assert result.clickhouse is not None
+        # Dynamic key (no question_id) uses concat for key construction
+        self.assertIn("coalesce", result.clickhouse)
+        self.assertIn("nullIf", result.clickhouse)
+        self.assertIn("concat", result.clickhouse)
+        # Always uses JSONExtractString for consistent String return type
+        self.assertIn("JSONExtractString", result.clickhouse)
 
-            printed = self._print(
-                "select getSurveyResponse(0) from events",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
-
-            # Verify the utility function was called with correct parameters
-            mock_get_survey_response.assert_called_once_with(0, None, False)
-
-            # Just test that the mock value was inserted into the query
-            self.assertIn("MOCKED SQL FOR SURVEY RESPONSE", printed)
-
-        # Test with question index and specific ID
-        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
-            mock_get_survey_response.return_value = "MOCKED SQL FOR SURVEY RESPONSE WITH ID"
-
-            printed = self._print(
-                "select getSurveyResponse(1, 'question123') from events",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
-
-            # Verify the utility function was called with correct parameters
-            mock_get_survey_response.assert_called_once_with(1, "question123", False)
-
-            # Just test that the mock value was inserted into the query
-            self.assertIn("MOCKED SQL FOR SURVEY RESPONSE WITH ID", printed)
+        # Test with question index and specific ID - static key
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(1, 'question123') FROM events",
+        )
+        assert result.clickhouse is not None
+        # Static key also uses JSONExtractString for type consistency
+        self.assertIn("coalesce", result.clickhouse)
+        self.assertIn("nullIf", result.clickhouse)
+        self.assertIn("JSONExtractString", result.clickhouse)
 
         # Test with multiple choice question
-        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
-            mock_get_survey_response.return_value = "MOCKED SQL FOR MULTIPLE CHOICE SURVEY RESPONSE"
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(2, 'abc123', true) FROM events",
+        )
+        assert result.clickhouse is not None
+        # Multiple choice uses if() with JSONHas and JSONExtractArrayRaw
+        self.assertIn("JSONHas", result.clickhouse)
+        self.assertIn("JSONExtractArrayRaw", result.clickhouse)
+        self.assertIn("if(", result.clickhouse)
 
-            printed = self._print(
-                "select getSurveyResponse(2, 'abc123', true) from events",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
+    def test_get_survey_response_with_numeric_property_type(self):
+        """Test that getSurveyResponse returns consistent types even when property has Numeric type.
 
-            # Verify the utility function was called with correct parameters
-            mock_get_survey_response.assert_called_once_with(2, "abc123", True)
+        Regression test for a bug where PropertySwapper would wrap the index-based
+        property access with toFloat() when $survey_response had type=Numeric in
+        PropertyDefinition, causing a ClickHouse type mismatch error:
+        "There is no supertype for types String, Float64"
+        """
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="$survey_response",
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+        # This should NOT raise a ClickHouse error about type mismatch
+        # Before the fix, this would fail with:
+        # "There is no supertype for types String, Float64 because some of them
+        # are String/FixedString/Enum and some of them are not"
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(0) FROM events",
+        )
+
+        # Query should execute successfully (even with no results)
+        assert result.clickhouse is not None
+        # Both branches of coalesce should return String type (via JSONExtractString)
+        self.assertIn("JSONExtractString", result.clickhouse)
+        # Should NOT contain Float64 casting which would cause type mismatch
+        self.assertNotIn("accurateCastOrNull", result.clickhouse)
+        self.assertNotIn("Float64", result.clickhouse)
 
     def test_unique_survey_submissions_filter(self):
-        with patch(
-            "posthog.hogql.printer.base.filter_survey_sent_events_by_unique_submission"
-        ) as mock_filter_survey_sent_events_by_unique_submission:
-            mock_filter_survey_sent_events_by_unique_submission.return_value = (
-                "MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER"
-            )
-            printed = self._print(
-                "select uuid from events where uniqueSurveySubmissionsFilter('survey123')",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
-            mock_filter_survey_sent_events_by_unique_submission.assert_called_once_with("survey123", self.team.pk)
-            self.assertIn("MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER", printed)
+        printed = self._print(
+            "select uuid from events where uniqueSurveySubmissionsFilter('survey123')",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        # Should contain subquery with argMax for deduplication
+        # String literals are parameterized, so check for structure instead
+        self.assertIn("argMax", printed)
+        self.assertIn("in(events.uuid", printed)
+        self.assertIn("SELECT argMax(events.uuid", printed)
+        self.assertIn("FROM events WHERE", printed)
+        self.assertIn("GROUP BY", printed)
+        self.assertIn("JSONExtractString", printed)
 
     def test_override_timezone(self):
         context = HogQLContext(
@@ -2898,6 +3007,26 @@ class TestPrinter(BaseTest):
                 dialect="clickhouse",
             )
 
+    def test_fails_on_placeholder_macro_expansion_depth_limit(self):
+        query = parse_select(
+            """
+            SELECT date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', now())))))))))
+            """
+        )
+        with pytest.raises(QueryError, match="exceeded maximum placeholder macro depth"):
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+    def test_date_part_macro_does_not_expand_exponentially(self):
+        sql = self._select("SELECT date_part('year', date_part('year', date_part('year', now())))")
+
+        assert "arrayMap((part, dt) -> multiIf" in sql
+        assert sql.count("now()") == 1
+        assert len(sql) < 3_000
+
     def test_team_id_guarding_events(self):
         sql = self._select(
             "SELECT event FROM events",
@@ -2963,14 +3092,16 @@ class TestPrinter(BaseTest):
                 credential=credential,
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
-            printed = self._select("""
+            printed = self._select(
+                """
                                    WITH some_remote_table AS
                                             (SELECT e.event, t.id
                                              FROM events e
                                                       JOIN test_table t on toString(t.id) = e.event)
                                    SELECT some_remote_table.event
                                    FROM events
-                                            JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
+                                            JOIN some_remote_table ON events.event = toString(some_remote_table.id)"""
+            )
 
             if using_global_joins:
                 assert "GLOBAL JOIN" in printed
@@ -2994,11 +3125,13 @@ class TestPrinter(BaseTest):
                 credential=credential,
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
-            printed = self._select("""
+            printed = self._select(
+                """
                                    SELECT e.event, s.event, t.id
                                    FROM events e
                                             JOIN (SELECT event from events) as s ON e.event = s.event
-                                            LEFT JOIN test_table t on e.event = toString(t.id)""")
+                                            LEFT JOIN test_table t on e.event = toString(t.id)"""
+            )
 
             if using_global_joins:
                 assert "GLOBAL JOIN" in printed  # Join #1
@@ -3025,11 +3158,13 @@ class TestPrinter(BaseTest):
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
 
-            printed = self._select("""
+            printed = self._select(
+                """
                                    SELECT event
                                    FROM events
                                    WHERE properties.$browser IN (SELECT id
-                                                                 FROM test_table)""")
+                                                                 FROM test_table)"""
+            )
 
             if using_global_joins:
                 assert "globalIn" in printed
@@ -3163,6 +3298,46 @@ class TestPrinter(BaseTest):
         with self.assertRaises(QueryError) as e:
             self._select("SELECT * FROM events FINAL WHERE timestamp > '2026-01-01'")
         self.assertEqual("The FINAL keyword is not supported in HogQL as it causes slow queries", str(e.exception))
+
+    @parameterized.expand(
+        [
+            # Integer types
+            ("int", "event::int", "toInt64(events.event)"),
+            ("integer", "event::integer", "toInt64(events.event)"),
+            ("int_upper", "event::INT", "toInt64(events.event)"),
+            # Float types
+            ("float", "event::float", "toFloat64(events.event)"),
+            ("double", "event::double", "toFloat64(events.event)"),
+            ("double_precision", 'event::"double precision"', "toFloat64(events.event)"),
+            ("real", "event::real", "toFloat64(events.event)"),
+            # String types
+            ("text", "event::text", "toString(events.event)"),
+            ("varchar", "event::varchar", "toString(events.event)"),
+            ("char", "event::char", "toString(events.event)"),
+            ("string", "event::string", "toString(events.event)"),
+            # Boolean types
+            ("boolean", "event::boolean", "toBoolean(events.event)"),
+            ("bool", "event::bool", "toBoolean(events.event)"),
+            # Date type
+            ("date", "event::date", "toDate(events.event)"),
+            # Constant cast
+            ("const_int", "'123'::int", "toInt64(%(hogql_val_0)s)"),
+            ("const_float", "123.45::float", "toFloat64(123.45)"),
+        ]
+    )
+    def test_postgres_style_cast(self, name, expr, expected):
+        self.assertEqual(self._expr(expr, backend="cpp-json"), expected)
+
+    def test_postgres_style_cast_datetime(self):
+        # DateTime types include timezone, test separately
+        self.assertIn("toDateTime(events.event", self._expr("event::datetime", backend="cpp-json"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamp", backend="cpp-json"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamptz", backend="cpp-json"))
+
+    def test_postgres_style_cast_unsupported_type(self):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr("event::unsupported_type", backend="cpp-json")
+        self.assertIn("Unsupported type cast", str(ctx.exception))
 
 
 @snapshot_clickhouse_queries
@@ -3902,11 +4077,12 @@ class TestPostgresPrinter(BaseTest):
 
     def _expr(
         self,
-        query: str,
+        query: ast.Expr | str,
         context: Optional[HogQLContext] = None,
         settings: Optional[HogQLQuerySettings] = None,
+        backend: HogQLParserBackend = "cpp-json",
     ) -> str:
-        node = parse_expr(query)
+        node = parse_expr(query, backend=backend) if isinstance(query, str) else query
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         select_query = ast.SelectQuery(
             select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
@@ -4080,3 +4256,42 @@ class TestPostgresPrinter(BaseTest):
                 stack=[prepared_select_query],
             ),
         )
+
+    def test_postgres_style_cast(self):
+        self.assertEqual(self._expr("123::int", backend="cpp-json"), "CAST(123 AS int)")
+        self.assertEqual(self._expr("123.45::float", backend="cpp-json"), "CAST(123.45 AS float)")
+        self.assertEqual(self._expr("'2024-01-01'::date", backend="cpp-json"), "CAST('2024-01-01' AS date)")
+        self.assertEqual(self._expr("event::int", backend="cpp-json"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("event::text", backend="cpp-json"), "CAST(events.event AS text)")
+        self.assertEqual(self._expr("event::boolean", backend="cpp-json"), "CAST(events.event AS boolean)")
+        self.assertEqual(self._expr("event::INT", backend="cpp-json"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("(1 + 2)::int", backend="cpp-json"), "CAST((1 + 2) AS int)")
+
+    @parameterized.expand(
+        [
+            # SQL injection attempts
+            ("int); DROP TABLE users; --", '"int); DROP TABLE users; --"'),
+            ("text' OR '1'='1", "\"text' OR '1'='1\""),
+            ("int; DELETE FROM events;", '"int; DELETE FROM events;"'),
+            ("varchar(100)); --", '"varchar(100)); --"'),
+            # Quote escaping
+            ('int"test', '"int""test"'),
+            ("int'test", '"int\'test"'),
+            # Backslash handling
+            ("int\\test", '"int\\test"'),
+            # Unicode/special chars
+            ("int\x00test", '"int\x00test"'),
+            # Newlines and whitespace injection
+            ("int\nDROP TABLE", '"int\nDROP TABLE"'),
+            ("int\rtest", '"int\rtest"'),
+            # Simple identifiers should not be quoted
+            ("varchar", "varchar"),
+            ("integer", "integer"),
+        ]
+    )
+    def test_type_cast_typename_escape(self, type_name, expected_escaped):
+        node = ast.TypeCast(
+            expr=ast.Constant(value=123),
+            type_name=type_name,
+        )
+        self.assertEqual(self._expr(node), f"CAST(123 AS {expected_escaped})")

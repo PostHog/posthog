@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconPencil } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -33,9 +34,12 @@ interface EndpointQueryProps {
 
 export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
     const { endpoint } = useValues(endpointLogic({ tabId }))
-    const { queryToRender, endpointLoading } = useValues(endpointSceneLogic({ tabId }))
+    const { queryToRender, endpointLoading, viewingVersion } = useValues(endpointSceneLogic({ tabId }))
     const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
     const { newTab } = useActions(sceneLogic)
+
+    // Use the query from the viewed version if set, otherwise fall back to endpoint
+    const effectiveQuery = viewingVersion?.query || endpoint?.query
 
     if (endpointLoading) {
         return (
@@ -54,12 +58,14 @@ export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
     }
 
     // If it's a HogQL query, show the code editor
-    if (isHogQLQuery(endpoint.query)) {
-        const hogqlQuery = endpoint.query as HogQLQuery
+    if (effectiveQuery && isHogQLQuery(effectiveQuery)) {
+        const hogqlQuery = effectiveQuery as HogQLQuery
         const variables = hogqlQuery.variables || {}
 
         const handleEditQuery = (): void => {
-            newTab(urls.sqlEditor(hogqlQuery.query, undefined, undefined, undefined, OutputTab.Endpoint, endpoint.name))
+            newTab(
+                urls.sqlEditor({ query: hogqlQuery.query, outputTab: OutputTab.Endpoint, endpointName: endpoint.name })
+            )
         }
 
         return (
@@ -81,12 +87,21 @@ export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
                                     const { text, isPlaceholder } = formatVariableValue(variable)
                                     return (
                                         <LemonField.Pure key={variable.variableId} label={variable.code_name}>
-                                            <div
-                                                className={`text-sm border rounded px-2 py-1 ${
-                                                    isPlaceholder ? 'text-muted italic' : 'font-mono bg-bg-light'
-                                                }`}
-                                            >
-                                                {text}
+                                            <div className="flex items-center gap-1">
+                                                <div
+                                                    className={`text-sm border rounded px-2 py-1 flex-1 ${
+                                                        isPlaceholder ? 'text-muted italic' : 'font-mono bg-bg-light'
+                                                    }`}
+                                                >
+                                                    {text}
+                                                </div>
+                                                <LemonButton
+                                                    icon={<IconPencil />}
+                                                    size="small"
+                                                    type="tertiary"
+                                                    to={urls.variableEdit(variable.variableId)}
+                                                    tooltip="Edit variable"
+                                                />
                                             </div>
                                         </LemonField.Pure>
                                     )
@@ -100,9 +115,12 @@ export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
     }
 
     // For other query types (Insights), show the Query component with editing enabled
+    const queryKey = viewingVersion?.version ?? 'current'
+
     return (
         <div>
             <Query
+                key={queryKey}
                 query={queryToRender}
                 editMode={true}
                 setQuery={handleQueryChange}

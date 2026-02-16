@@ -1,5 +1,4 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { ExceptionAutocaptureSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ExceptionAutocaptureSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
@@ -33,6 +32,7 @@ import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/a
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
+import { ExceptionAutocaptureSettings } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -45,7 +45,11 @@ import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
+import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
+import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
+import { DiscussionMentionNotifications } from './environment/DiscussionSettings'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
+import { ExperimentRecalculationTime } from './environment/ExperimentRecalculationTime'
 import { FeatureFlagSettings } from './environment/FeatureFlagSettings'
 import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
@@ -53,9 +57,8 @@ import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
-import { GithubIntegration } from './environment/Integrations'
-import { LinearIntegration } from './environment/Integrations'
-import { LogsCaptureSettings } from './environment/LogsCaptureSettings'
+import { GithubIntegration, LinearIntegration } from './environment/Integrations'
+import { LogsCaptureSettings, LogsJsonParseSettings, LogsRetentionSettings } from './environment/LogsCaptureSettings'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -90,10 +93,10 @@ import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
+import { MembersPlatformAddonAd } from './organization/MembersPlatformAddonAd'
 import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
-import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentStatsMethod'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationLogo } from './organization/OrgLogo'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
@@ -110,6 +113,7 @@ import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
+import { SqlEditorTabPreference } from './user/SqlEditorTabPreference'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -165,7 +169,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-autocapture',
         title: 'Autocapture & heatmaps',
-
         settings: [
             {
                 id: 'autocapture',
@@ -191,356 +194,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'dead-clicks-autocapture',
                 title: 'Dead clicks autocapture',
                 component: <DeadClicksAutocaptureSettings />,
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-customer-analytics',
-        title: 'Customer analytics',
-        flag: 'CUSTOMER_ANALYTICS',
-        settings: [
-            {
-                id: 'group-analytics',
-                title: 'Group analytics',
-                component: <GroupAnalyticsConfig />,
-            },
-            {
-                id: 'customer-analytics-usage-metrics',
-                title: 'Usage metrics',
-                component: <UsageMetricsConfig />,
-                flag: 'CUSTOMER_ANALYTICS',
-            },
-            {
-                id: 'customer-analytics-dashboard-events',
-                title: 'Dashboard events',
-                component: <CustomerAnalyticsDashboardEvents />,
-                flag: 'CUSTOMER_ANALYTICS',
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-product-analytics',
-        title: 'Product analytics',
-        settings: [
-            {
-                id: 'base-currency',
-                title: 'Base currency',
-                component: <BaseCurrency hideTitle />,
-            },
-            {
-                id: 'internal-user-filtering',
-                title: 'Filter out internal and test users',
-                component: <ProjectAccountFiltersSetting />,
-            },
-            {
-                id: 'data-theme',
-                title: (
-                    <>
-                        Chart color themes
-                        <LemonTag type="warning" className="ml-1 uppercase">
-                            Beta
-                        </LemonTag>
-                    </>
-                ),
-                component: <DataColorThemes />,
-            },
-            {
-                id: 'persons-on-events',
-                title: 'Person properties mode',
-                component: <PersonsOnEvents />,
-                flag: '!SETTINGS_PERSONS_ON_EVENTS_HIDDEN', // Setting hidden for Cloud orgs created since June 2024
-            },
-            {
-                id: 'correlation-analysis',
-                title: 'Correlation analysis exclusions',
-                component: <CorrelationConfig />,
-            },
-            {
-                id: 'person-display-name',
-                title: 'Person display name',
-                component: <PersonDisplayNameProperties />,
-            },
-            {
-                id: 'path-cleaning',
-                title: 'Path cleaning rules',
-                component: <PathCleaningFiltersConfig />,
-            },
-            {
-                id: 'datacapture',
-                title: 'IP data capture configuration',
-                description:
-                    'When enabled, PostHog will discard client IP addresses from all events captured in this project. IP data will not be stored or used for location-based insights.',
-                component: <IPCapture />,
-            },
-            {
-                id: 'human-friendly-comparison-periods',
-                title: 'Human friendly comparison periods',
-                component: <HumanFriendlyComparisonPeriodsSetting />,
-            },
-            {
-                id: 'group-analytics',
-                title: 'Group analytics',
-                component: <GroupAnalyticsConfig />,
-                flag: '!CUSTOMER_ANALYTICS',
-            },
-            {
-                id: 'persons-join-mode',
-                title: 'Persons join mode',
-                component: <PersonsJoinMode />,
-                flag: 'SETTINGS_PERSONS_JOIN_MODE',
-            },
-            {
-                id: 'session-table-version',
-                title: 'Sessions Table Version',
-                component: <SessionsTableVersion />,
-                flag: 'SETTINGS_SESSION_TABLE_VERSION',
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-revenue-analytics',
-        title: 'Revenue analytics',
-        accessControl: {
-            resourceType: AccessControlResourceType.RevenueAnalytics,
-            minimumAccessLevel: AccessControlLevel.Editor,
-        },
-        settings: [
-            {
-                id: 'revenue-base-currency',
-                title: 'Base currency',
-                component: (
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.RevenueAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <BaseCurrency hideTitle />
-                    </AccessControlAction>
-                ),
-                hideWhenNoSection: true,
-            },
-            {
-                id: 'revenue-analytics-filter-test-accounts',
-                title: 'Filter out internal and test users from revenue analytics',
-                component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
-            },
-            {
-                id: 'revenue-analytics-goals',
-                title: 'Revenue goals',
-                component: <GoalsConfiguration />,
-            },
-            {
-                id: 'revenue-analytics-events',
-                title: 'Revenue events',
-                component: <EventConfiguration />,
-            },
-            {
-                id: 'revenue-analytics-external-data-sources',
-                title: 'External data sources',
-                component: <ExternalDataSourceConfiguration />,
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-marketing-analytics',
-        title: 'Marketing analytics',
-        flag: 'WEB_ANALYTICS_MARKETING',
-        settings: [
-            {
-                id: 'marketing-settings',
-                title: 'Marketing settings',
-                component: <MarketingAnalyticsSettingsWrapper />,
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-web-analytics',
-        title: 'Web analytics',
-        settings: [
-            {
-                id: 'web-analytics-authorized-urls',
-                title: 'Web Analytics Domains',
-                component: <TeamAuthorizedURLs />,
-            },
-            {
-                id: 'channel-type',
-                title: 'Custom channel type',
-                component: <CustomChannelTypes />,
-            },
-            {
-                id: 'cookieless-server-hash-mode',
-                title: 'Cookieless server hash mode',
-                component: <CookielessServerHashModeSetting />,
-            },
-            {
-                id: 'bounce-rate-duration',
-                title: 'Bounce rate duration',
-                component: <BounceRateDurationSetting />,
-            },
-            {
-                id: 'bounce-rate-page-view-mode',
-                title: 'Bounce rate page view mode',
-                component: <BounceRatePageViewModeSetting />,
-                flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
-            },
-            {
-                id: 'session-join-mode',
-                title: 'Session join mode',
-                component: <SessionsV2JoinModeSettings />,
-                flag: 'SETTINGS_SESSIONS_V2_JOIN',
-            },
-            {
-                id: 'web-analytics-pre-aggregated-tables',
-                title: 'Pre-aggregated tables',
-                component: <PreAggregatedTablesSetting />,
-                flag: 'SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES',
-            },
-            {
-                id: 'web-analytics-opt-in-pre-aggregated-tables-and-api',
-                title: 'New query engine',
-                component: <WebAnalyticsEnablePreAggregatedTables />,
-                flag: 'WEB_ANALYTICS_API',
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-replay',
-        title: 'Session replay',
-        settings: [
-            {
-                id: 'replay',
-                title: 'Session replay',
-                component: <ReplayGeneral />,
-            },
-            {
-                id: 'replay-triggers',
-                title: 'Recording conditions',
-                component: <ReplayTriggers />,
-            },
-            {
-                id: 'replay-masking',
-                title: 'Privacy and masking',
-                component: <ReplayMaskingSettings />,
-            },
-            {
-                id: 'replay-network',
-                title: 'Network capture',
-                component: <NetworkCaptureSettings />,
-            },
-            {
-                id: 'replay-authorized-domains',
-                title: 'Authorized domains for replay',
-                component: <ReplayAuthorizedDomains />,
-                allowForTeam: (t) => !!t?.recording_domains?.length,
-            },
-            {
-                id: 'replay-retention',
-                title: (
-                    <>
-                        Data retention
-                        <LemonTag type="success" className="ml-1 uppercase">
-                            New
-                        </LemonTag>
-                    </>
-                ),
-                component: <ReplayDataRetentionSettings />,
-            },
-            {
-                id: 'replay-integrations',
-                title: (
-                    <>
-                        Integrations
-                        <LemonTag type="success" className="ml-1 uppercase">
-                            New
-                        </LemonTag>
-                    </>
-                ),
-                component: <ReplayIntegrations />,
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-surveys',
-        title: 'Surveys',
-        settings: [
-            {
-                id: 'surveys-interface',
-                title: 'Surveys web interface',
-                component: <SurveySettings />,
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-feature-flags',
-        title: 'Feature flags',
-        settings: [
-            {
-                id: 'feature-flags-interface',
-                title: 'Feature flags',
-                component: <FeatureFlagSettings />,
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-error-tracking',
-        title: 'Error tracking',
-        settings: [
-            {
-                id: 'error-tracking-exception-autocapture',
-                title: 'Exception autocapture',
-                component: <ExceptionAutocaptureSettings />,
-            },
-            {
-                id: 'error-tracking-alerting',
-                title: 'Alerting',
-                component: <ErrorTrackingAlerting />,
-            },
-            {
-                id: 'error-tracking-auto-assignment',
-                title: 'Auto assignment rules',
-                component: <AutoAssignmentRules />,
-            },
-            {
-                id: 'error-tracking-custom-grouping',
-                title: 'Custom grouping rules',
-                component: <CustomGroupingRules />,
-            },
-            {
-                id: 'error-tracking-integrations',
-                title: 'Integrations',
-                component: <ErrorTrackingIntegrations />,
-            },
-            {
-                id: 'error-tracking-symbol-sets',
-                title: 'Symbol sets',
-                component: <SymbolSets />,
-            },
-            {
-                id: 'error-tracking-releases',
-                title: 'Releases',
-                component: <Releases />,
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-logs',
-        title: 'Logs',
-        flag: 'LOGS_SETTINGS',
-        settings: [
-            {
-                id: 'logs',
-                title: 'Logs',
-                component: <LogsCaptureSettings />,
-                flag: 'LOGS_SETTINGS',
             },
         ],
     },
@@ -589,6 +242,429 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'mcp-server',
+        title: 'MCP server',
+        settings: [
+            {
+                id: 'mcp-server-configure',
+                title: 'Model Context Protocol (MCP) server',
+                component: <MCPServerSettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-customer-analytics',
+        title: 'Customer analytics',
+        flag: 'CUSTOMER_ANALYTICS',
+        group: 'Products',
+        settings: [
+            {
+                id: 'group-analytics',
+                title: 'Group analytics',
+                component: <GroupAnalyticsConfig />,
+            },
+            {
+                id: 'customer-analytics-usage-metrics',
+                title: 'Usage metrics',
+                component: <UsageMetricsConfig />,
+                flag: 'CUSTOMER_ANALYTICS',
+            },
+            {
+                id: 'customer-analytics-dashboard-events',
+                title: 'Dashboard events',
+                component: <CustomerAnalyticsDashboardEvents />,
+                flag: 'CUSTOMER_ANALYTICS',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-product-analytics',
+        title: 'Product analytics',
+        group: 'Products',
+        settings: [
+            {
+                id: 'base-currency',
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
+            },
+            {
+                id: 'internal-user-filtering',
+                title: 'Filter out internal and test users',
+                component: <ProjectAccountFiltersSetting />,
+            },
+            {
+                id: 'data-theme',
+                title: (
+                    <>
+                        Chart color themes
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                component: <DataColorThemes />,
+            },
+            {
+                id: 'persons-on-events',
+                title: 'Person properties mode',
+                component: <PersonsOnEvents />,
+                flag: '!SETTINGS_PERSONS_ON_EVENTS_HIDDEN', // Setting hidden for Cloud orgs created since June 2024
+            },
+            {
+                id: 'correlation-analysis',
+                title: 'Correlation analysis exclusions',
+                component: <CorrelationConfig />,
+            },
+            {
+                id: 'person-display-name',
+                title: 'Person display name',
+                component: <PersonDisplayNameProperties />,
+            },
+            {
+                id: 'path-cleaning',
+                title: 'Path cleaning rules',
+                component: <PathCleaningFiltersConfig />,
+            },
+            {
+                id: 'datacapture',
+                title: 'IP data capture configuration',
+                description:
+                    'When enabled, client IP addresses will not be stored with your events. Transformations like GeoIP enrichment and bot detection can still use the IP before it is discarded.',
+                component: <IPCapture />,
+            },
+            {
+                id: 'human-friendly-comparison-periods',
+                title: 'Human friendly comparison periods',
+                component: <HumanFriendlyComparisonPeriodsSetting />,
+            },
+            {
+                id: 'group-analytics',
+                title: 'Group analytics',
+                component: <GroupAnalyticsConfig />,
+                flag: '!CUSTOMER_ANALYTICS',
+            },
+            {
+                id: 'persons-join-mode',
+                title: 'Persons join mode',
+                component: <PersonsJoinMode />,
+                flag: 'SETTINGS_PERSONS_JOIN_MODE',
+            },
+            {
+                id: 'session-table-version',
+                title: 'Sessions Table Version',
+                component: <SessionsTableVersion />,
+                flag: 'SETTINGS_SESSION_TABLE_VERSION',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-revenue-analytics',
+        title: 'Revenue analytics',
+        group: 'Products',
+        accessControl: {
+            resourceType: AccessControlResourceType.RevenueAnalytics,
+            minimumAccessLevel: AccessControlLevel.Editor,
+        },
+        settings: [
+            {
+                id: 'revenue-base-currency',
+                title: 'Base currency',
+                component: (
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.RevenueAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <BaseCurrency hideTitle />
+                    </AccessControlAction>
+                ),
+                hideWhenNoSection: true,
+            },
+            {
+                id: 'revenue-analytics-filter-test-accounts',
+                title: 'Filter out internal and test users from revenue analytics',
+                component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
+            },
+            {
+                id: 'revenue-analytics-goals',
+                title: 'Revenue goals',
+                component: <GoalsConfiguration />,
+            },
+            {
+                id: 'revenue-analytics-events',
+                title: 'Revenue events',
+                component: <EventConfiguration />,
+            },
+            {
+                id: 'revenue-analytics-external-data-sources',
+                title: 'External data sources',
+                component: <ExternalDataSourceConfiguration />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-marketing-analytics',
+        title: 'Marketing analytics',
+        flag: 'WEB_ANALYTICS_MARKETING',
+        group: 'Products',
+        settings: [
+            {
+                id: 'marketing-settings',
+                title: 'Marketing settings',
+                component: <MarketingAnalyticsSettingsWrapper />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-web-analytics',
+        title: 'Web analytics',
+        group: 'Products',
+        settings: [
+            {
+                id: 'web-analytics-authorized-urls',
+                title: 'Web Analytics Domains',
+                component: <TeamAuthorizedURLs />,
+            },
+            {
+                id: 'channel-type',
+                title: 'Custom channel type',
+                component: <CustomChannelTypes />,
+            },
+            {
+                id: 'cookieless-server-hash-mode',
+                title: 'Cookieless server hash mode',
+                component: <CookielessServerHashModeSetting />,
+            },
+            {
+                id: 'bounce-rate-duration',
+                title: 'Bounce rate duration',
+                component: <BounceRateDurationSetting />,
+            },
+            {
+                id: 'bounce-rate-page-view-mode',
+                title: 'Bounce rate page view mode',
+                component: <BounceRatePageViewModeSetting />,
+                flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
+            },
+            {
+                id: 'session-join-mode',
+                title: 'Session join mode',
+                component: <SessionsV2JoinModeSettings />,
+                flag: 'SETTINGS_SESSIONS_V2_JOIN',
+            },
+            {
+                id: 'web-analytics-pre-aggregated-tables',
+                title: 'Pre-aggregated tables',
+                component: <PreAggregatedTablesSetting />,
+                flag: 'SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES',
+            },
+            {
+                id: 'web-analytics-opt-in-pre-aggregated-tables-and-api',
+                title: 'New query engine',
+                component: <WebAnalyticsEnablePreAggregatedTables />,
+                flag: 'WEB_ANALYTICS_API',
+            },
+            {
+                id: 'web-vitals-autocapture',
+                title: 'Web vitals autocapture',
+                component: <WebVitalsAutocaptureSettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-replay',
+        title: 'Session replay',
+        group: 'Products',
+        settings: [
+            {
+                id: 'replay',
+                title: 'Session replay',
+                component: <ReplayGeneral />,
+            },
+            {
+                id: 'replay-triggers',
+                title: 'Recording conditions',
+                component: <ReplayTriggers />,
+            },
+            {
+                id: 'replay-masking',
+                title: 'Privacy and masking',
+                component: <ReplayMaskingSettings />,
+            },
+            {
+                id: 'replay-network',
+                title: 'Network capture',
+                component: <NetworkCaptureSettings />,
+            },
+            {
+                id: 'web-vitals-autocapture',
+                title: 'Web vitals',
+                component: <WebVitalsAutocaptureSettings />,
+            },
+            {
+                id: 'replay-authorized-domains',
+                title: 'Authorized domains for replay',
+                component: <ReplayAuthorizedDomains />,
+                allowForTeam: (t) => !!t?.recording_domains?.length,
+            },
+            {
+                id: 'replay-retention',
+                title: (
+                    <>
+                        Data retention
+                        <LemonTag type="success" className="ml-1 uppercase">
+                            New
+                        </LemonTag>
+                    </>
+                ),
+                component: <ReplayDataRetentionSettings />,
+            },
+            {
+                id: 'replay-integrations',
+                title: (
+                    <>
+                        Integrations
+                        <LemonTag type="success" className="ml-1 uppercase">
+                            New
+                        </LemonTag>
+                    </>
+                ),
+                component: <ReplayIntegrations />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-surveys',
+        title: 'Surveys',
+        group: 'Products',
+        settings: [
+            {
+                id: 'surveys-interface',
+                title: 'Surveys web interface',
+                component: <SurveySettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-feature-flags',
+        title: 'Feature flags',
+        group: 'Products',
+        settings: [
+            {
+                id: 'feature-flags-interface',
+                title: 'Feature flags',
+                component: <FeatureFlagSettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-experiments',
+        title: 'Experiments',
+        group: 'Products',
+        settings: [
+            {
+                id: 'environment-experiment-stats-method',
+                title: 'Default statistical method',
+                description:
+                    'Choose which statistical method to use by default for new experiments in this environment. Individual experiments can override this setting.',
+                component: <DefaultExperimentStatsMethod />,
+            },
+            {
+                id: 'environment-experiment-confidence-level',
+                title: 'Default confidence level',
+                description:
+                    'Higher confidence level reduces false positives but requires more data. Can be overridden per experiment.',
+                component: <DefaultExperimentConfidenceLevel />,
+            },
+            {
+                id: 'environment-experiment-recalculation-time',
+                title: 'Daily recalculation time',
+                description:
+                    "Select the time of day when experiment metrics should be recalculated. This time is in your project's timezone.",
+                component: <ExperimentRecalculationTime />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-error-tracking',
+        title: 'Error tracking',
+        group: 'Products',
+        settings: [
+            {
+                id: 'error-tracking-exception-autocapture',
+                title: 'Exception autocapture',
+                component: <ExceptionAutocaptureSettings />,
+            },
+            {
+                id: 'error-tracking-alerting',
+                title: 'Alerting',
+                component: <ErrorTrackingAlerting />,
+            },
+            {
+                id: 'error-tracking-auto-assignment',
+                title: 'Auto assignment rules',
+                component: <AutoAssignmentRules />,
+            },
+            {
+                id: 'error-tracking-custom-grouping',
+                title: 'Custom grouping rules',
+                component: <CustomGroupingRules />,
+            },
+            {
+                id: 'error-tracking-integrations',
+                title: 'Integrations',
+                component: <ErrorTrackingIntegrations />,
+            },
+            {
+                id: 'error-tracking-symbol-sets',
+                title: 'Symbol sets',
+                component: <SymbolSets />,
+            },
+            {
+                id: 'error-tracking-releases',
+                title: 'Releases',
+                component: <Releases />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-logs',
+        title: 'Logs',
+        flag: 'LOGS_SETTINGS',
+        group: 'Products',
+        settings: [
+            {
+                id: 'logs',
+                title: 'Logs',
+                component: <LogsCaptureSettings />,
+                flag: 'LOGS_SETTINGS',
+            },
+            {
+                id: 'logs-json-parse',
+                title: 'JSON parse logs',
+                component: <LogsJsonParseSettings />,
+                flag: 'LOGS_SETTINGS_JSON',
+            },
+            {
+                id: 'logs-retention',
+                title: 'Retention',
+                component: <LogsRetentionSettings />,
+                flag: 'LOGS_SETTINGS_RETENTION',
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-integrations',
         title: 'Integrations',
         settings: [
@@ -621,6 +697,38 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-ip-allowlist',
                 title: 'Static IP addresses',
                 component: <IPAllowListInfo />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-discussions',
+        title: 'Discussions',
+        settings: [
+            {
+                id: 'discussion-mention-integrations',
+                title: 'Integrations',
+                component: <DiscussionMentionNotifications />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-approvals',
+        title: 'Approvals',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        settings: [
+            {
+                id: 'approval-policies',
+                title: 'Policies',
+                description: 'Configure which actions require approval before being applied',
+                component: <ApprovalPolicies />,
+            },
+            {
+                id: 'change-requests',
+                title: 'Change requests',
+                description: 'Review and approve pending change requests',
+                component: <ChangeRequestsList />,
             },
         ],
     },
@@ -661,27 +769,13 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'mcp-server',
-        // hideSelfHost: true,
-        title: 'MCP Server',
-        settings: [
-            {
-                id: 'mcp-server-configure',
-                title: 'Model Context Protocol (MCP) server',
-                component: <MCPServerSettings />,
-            },
-        ],
-    },
-    {
-        level: 'environment',
         id: 'environment-danger-zone',
         title: 'Danger zone',
         settings: [
             {
                 id: 'project-move',
                 title: 'Move project',
-                flag: '!ENVIRONMENTS',
-                component: <ProjectMove />, // There isn't EnvironmentMove yet
+                component: <ProjectMove />,
             },
             {
                 id: 'environment-delete',
@@ -759,13 +853,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <OrganizationAI />,
             },
             {
-                id: 'organization-experiment-stats-method',
-                title: 'Default experiment statistical method',
-                description:
-                    'Choose which statistical method to use by default for new experiments in this organization. Individual experiments can override this setting.',
-                component: <OrganizationExperimentStatsMethod />,
-            },
-            {
                 id: 'organization-ip-anonymization-default',
                 title: 'IP data capture default',
                 description:
@@ -786,11 +873,17 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
+
     {
         level: 'organization',
         id: 'organization-members',
         title: 'Members',
         settings: [
+            {
+                id: 'banner',
+                title: null,
+                component: <MembersPlatformAddonAd />,
+            },
             {
                 id: 'invites',
                 title: 'Pending invites',
@@ -847,33 +940,12 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-security',
-        title: 'Security settings',
+        title: 'Security',
         settings: [
             {
                 id: 'organization-security',
-                title: 'Security settings',
+                title: 'Security',
                 component: <OrganizationSecuritySettings />,
-            },
-        ],
-    },
-    {
-        level: 'organization',
-        id: 'organization-approvals',
-        title: 'Approvals',
-        flag: 'APPROVALS',
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-        settings: [
-            {
-                id: 'approval-policies',
-                title: 'Policies',
-                description: 'Configure which actions require approval before being applied',
-                component: <ApprovalPolicies />,
-            },
-            {
-                id: 'change-requests',
-                title: 'Change requests',
-                description: 'Review and approve pending change requests',
-                component: <ChangeRequestsList />,
             },
         ],
     },
@@ -981,6 +1053,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'theme',
                 title: 'Theme',
                 component: <ThemeSwitcher onlyLabel />,
+            },
+            {
+                id: 'sql-editor-tab-preference',
+                title: 'SQL editor new tab behavior',
+                component: <SqlEditorTabPreference />,
             },
             {
                 id: 'optout',

@@ -27,7 +27,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                 data-attr="launch-survey"
                 disabledReason={
                     showSurveysDisabledBanner && survey.type !== SurveyType.API
-                        ? 'Please enable surveys in the banner below before launching'
+                        ? 'Please enable surveys in the banner above before launching'
                         : undefined
                 }
                 size="small"

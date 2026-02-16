@@ -105,7 +105,7 @@ export function getDefaultTourStepButtons(stepIndex: number, totalSteps: number)
     return {
         primary: {
             text: isLastStep ? 'Done' : 'Next',
-            action: isLastStep ? 'dismiss' : 'next_step',
+            action: 'next_step',
         },
         ...(isFirstStep
             ? {}
@@ -220,10 +220,6 @@ export function isAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
 
 export function isBannerAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
     return isAnnouncement(tour) && tour.content?.steps?.[0]?.type === 'banner'
-}
-
-export function isModalAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
-    return isAnnouncement(tour) && tour.content?.steps?.[0]?.type === 'modal'
 }
 
 export interface ProductToursFilters {

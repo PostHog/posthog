@@ -318,6 +318,7 @@ export enum PathTab {
 
 export enum GeographyTab {
     MAP = 'MAP',
+    REGIONS_MAP = 'REGIONS_MAP',
     COUNTRIES = 'COUNTRIES',
     REGIONS = 'REGIONS',
     CITIES = 'CITIES',
@@ -553,6 +554,8 @@ export interface ParsedURL {
     pathname: string | null
     isValid: boolean
 }
+
+export const faviconUrl = (domain: string): string => `${window.JS_URL}/favicons/${domain}`
 
 export const parseWebAnalyticsURL = (urlString: string): ParsedURL => {
     try {

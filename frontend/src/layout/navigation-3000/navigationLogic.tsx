@@ -346,6 +346,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         },
     })),
     selectors({
+        zenModeFromUrl: [
+            () => [router.selectors.searchParams],
+            (searchParams): boolean => {
+                // Enable zen mode via ?zen or ?zen=true or ?zen=1
+                const zenParam = searchParams?.zen
+                return zenParam !== undefined && zenParam !== 'false' && zenParam !== '0'
+            },
+        ],
         mode: [
             (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable, s.zenMode],
             (sceneConfig, isCurrentOrganizationUnavailable, zenMode): Navigation3000Mode => {
@@ -475,14 +483,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.webAnalytics(),
                             tooltipDocLink: 'https://posthog.com/docs/web-analytics/getting-started',
                         },
-                        {
-                            identifier: Scene.RevenueAnalytics,
-                            label: 'Revenue analytics',
-                            icon: <IconPiggyBank />,
-                            to: urls.revenueAnalytics(),
-                            tag: 'beta' as const,
-                            tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
-                        },
+                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
+                            ? {
+                                  identifier: Scene.RevenueAnalytics,
+                                  label: 'Revenue analytics',
+                                  icon: <IconPiggyBank />,
+                                  to: urls.revenueAnalytics(),
+                                  tag: 'alpha' as const,
+                                  tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
+                              }
+                            : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
@@ -607,11 +617,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
                         {
-                            identifier: Scene.DataPipelines,
-                            label: 'Data pipelines',
+                            identifier: Scene.Apps,
+                            label: 'Apps',
                             icon: <IconPlug />,
-                            to: urls.dataPipelines('overview'),
-                            tooltipDocLink: 'https://posthog.com/docs/cdp',
+                            to: urls.apps(),
+                            tooltipDocLink: 'https://posthog.com/docs/cdp/apps',
                         },
                         {
                             identifier: Scene.Heatmaps,
@@ -774,6 +784,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 item.ref?.current?.focus()
             } else {
                 props.inputElement?.focus()
+            }
+        },
+        zenModeFromUrl: (zenModeFromUrl: boolean) => {
+            // Enable zen mode when URL parameter is present (e.g., ?zen or ?zen=true)
+            // Only enable, never disable from URL - user can manually disable
+            if (zenModeFromUrl && !values.zenMode) {
+                actions.setZenMode(true)
             }
         },
     })),

@@ -14,22 +14,20 @@ export function PreviousTicketsPanel({
     previousTickets,
     previousTicketsLoading,
 }: PreviousTicketsPanelProps): JSX.Element {
-    const title = (
-        <>
-            Previous tickets
-            {previousTickets.length > 0 && (
-                <span className="text-muted-alt font-normal ml-1">({previousTickets.length})</span>
-            )}
-        </>
-    )
-
     return (
         <LemonCollapse
             className="bg-surface-primary"
             panels={[
                 {
                     key: 'previous-tickets',
-                    header: title,
+                    header: (
+                        <>
+                            Previous tickets
+                            {previousTickets.length > 0 && (
+                                <span className="text-muted-alt font-normal ml-1">({previousTickets.length})</span>
+                            )}
+                        </>
+                    ),
                     content: (
                         <div className="space-y-2">
                             {previousTicketsLoading ? (

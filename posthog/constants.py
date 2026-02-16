@@ -23,7 +23,6 @@ class AvailableFeature(StrEnum):
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"
     GROUP_ANALYTICS = "group_analytics"
-    TAGGING = "tagging"
     BEHAVIORAL_COHORT_FILTERING = "behavioral_cohort_filtering"
     WHITE_LABELLING = "white_labelling"
     SUBSCRIPTIONS = "subscriptions"
@@ -48,6 +47,7 @@ class AvailableFeature(StrEnum):
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
     AUDIT_LOGS = "audit_logs"
+    APPROVALS = "approvals"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

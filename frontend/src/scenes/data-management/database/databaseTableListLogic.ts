@@ -54,6 +54,13 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     }),
     reducers({ searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }] }),
     selectors({
+        allPosthogTables: [
+            (s) => [s.allTables],
+            (allTables: DatabaseSchemaTable[]): DatabaseSchemaTable[] => {
+                return allTables.filter((n) => n.type === 'posthog')
+            },
+            { resultEqualityCheck: objectsEqual },
+        ],
         filteredTables: [
             (s) => [s.allTables, s.searchTerm],
             (allTables, searchTerm): DatabaseSchemaTable[] => {
@@ -80,9 +87,10 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         posthogTables: [
-            (s) => [s.allTables],
-            (allTables: DatabaseSchemaTable[]): DatabaseSchemaTable[] => {
-                return allTables.filter((n) => n.type === 'posthog')
+            (s) => [s.allPosthogTables],
+            (allPosthogTables: DatabaseSchemaTable[]): DatabaseSchemaTable[] => {
+                const visiblePosthogTableNames = new Set(['events', 'groups', 'persons', 'sessions'])
+                return allPosthogTables.filter((table) => visiblePosthogTableNames.has(table.name))
             },
             { resultEqualityCheck: objectsEqual },
         ],

@@ -21,7 +21,7 @@ import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 export const scene: SceneExport = {
     component: EarlyAccessFeatures,
     logic: earlyAccessFeaturesLogic,
-    settingSectionId: 'environment-feature-flags',
+    productKey: ProductKey.EARLY_ACCESS_FEATURES,
 }
 
 const STAGES_IN_ORDER: Record<EarlyAccessFeatureType['stage'], number> = {
@@ -59,6 +59,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                             type="primary"
                             to={urls.earlyAccessFeature('new')}
                             tooltip="New feature"
+                            data-attr="create-feature"
                         >
                             New feature
                         </LemonButton>
@@ -118,6 +119,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                                                       : 'default'
                                             }
                                             className="uppercase cursor-default"
+                                            data-attr="feature-stage"
                                         >
                                             {stage}
                                         </LemonTag>

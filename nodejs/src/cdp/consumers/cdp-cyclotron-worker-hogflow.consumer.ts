@@ -27,7 +27,6 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
-        this.personsManager.clear() // We want to load persons fresh each time
         const loadedInvocations = await this.loadHogFlows(invocations)
         return await Promise.all(loadedInvocations.map((item) => this.hogFlowExecutor.execute(item)))
     }
@@ -76,6 +75,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
                     hogFlowInvocationState.event.distinct_id,
                     dbPerson?.properties ?? {}
                 )
+
+                if (!dbPerson && hogFlow.trigger?.type === 'event') {
+                    logger.warn('⚠️', 'Person not found for hog flow invocation', {
+                        hogFlowId: hogFlow.id,
+                        distinctId: hogFlowInvocationState.event.distinct_id,
+                        invocationId: item.id,
+                    })
+                }
 
                 const person: CyclotronPerson | undefined = dbPerson
                     ? {

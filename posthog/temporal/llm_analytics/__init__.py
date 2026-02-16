@@ -1,5 +1,7 @@
+from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor  # noqa: F401
 from posthog.temporal.llm_analytics.run_evaluation import (
     RunEvaluationWorkflow,
+    disable_evaluation_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     execute_llm_judge_activity,
@@ -7,6 +9,8 @@ from posthog.temporal.llm_analytics.run_evaluation import (
     increment_trial_eval_count_activity,
     update_key_state_activity,
 )
+from posthog.temporal.llm_analytics.shared_activities import fetch_all_clustering_filters_activity
+from posthog.temporal.llm_analytics.team_discovery import get_team_ids_for_llm_analytics
 from posthog.temporal.llm_analytics.trace_clustering import (
     DailyTraceClusteringWorkflow,
     TraceClusteringCoordinatorWorkflow,
@@ -17,8 +21,9 @@ from posthog.temporal.llm_analytics.trace_clustering import (
 from posthog.temporal.llm_analytics.trace_summarization import (
     BatchTraceSummarizationCoordinatorWorkflow,
     BatchTraceSummarizationWorkflow,
-    generate_and_save_summary_activity,
-    query_traces_in_window_activity,
+    fetch_and_format_activity,
+    sample_items_in_window_activity,
+    summarize_and_save_activity,
 )
 
 EVAL_WORKFLOWS = [
@@ -28,6 +33,7 @@ EVAL_WORKFLOWS = [
 EVAL_ACTIVITIES = [
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
+    disable_evaluation_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
     emit_evaluation_event_activity,
@@ -44,8 +50,14 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
-    query_traces_in_window_activity,
-    generate_and_save_summary_activity,
+    # Team discovery
+    get_team_ids_for_llm_analytics,
+    # Summarization activities
+    sample_items_in_window_activity,
+    fetch_and_format_activity,
+    summarize_and_save_activity,
+    # Shared activities
+    fetch_all_clustering_filters_activity,
     # Clustering activities
     perform_clustering_compute_activity,
     generate_cluster_labels_activity,
@@ -53,6 +65,7 @@ ACTIVITIES = [
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
+    disable_evaluation_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
     emit_evaluation_event_activity,

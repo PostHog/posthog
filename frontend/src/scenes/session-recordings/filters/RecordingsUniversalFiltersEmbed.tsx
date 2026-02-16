@@ -11,6 +11,7 @@ import {
     IconHide,
     IconPerson,
     IconPlus,
+    IconRefresh,
     IconRevert,
     IconTrash,
     IconX,
@@ -62,11 +63,15 @@ import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSa
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
-import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
+import {
+    defaultRecordingDurationFilter,
+    sessionRecordingsPlaylistLogic,
+} from '../playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
+import { recordingsUniversalFiltersEmbedLogic } from './recordingsUniversalFiltersEmbedLogic'
 
 function QuickFilterButton({
     filterKey,
@@ -84,7 +89,23 @@ function QuickFilterButton({
     const icon = propertyType === PropertyFilterType.Person ? <IconPerson /> : <IconUnverifiedEvent />
     const propertyTypeLabel = propertyType === PropertyFilterType.Person ? 'Person property' : 'Event property'
 
-    const tooltipContent = (
+    const { getPropertyCheckState } = useValues(recordingsUniversalFiltersEmbedLogic)
+    const { propertyMissing, propertyLoading } = getPropertyCheckState(filterKey, propertyType)
+
+    const tooltipContent = propertyMissing ? (
+        <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+                <PropertyFilterIcon type={propertyType} />
+                <span>{propertyTypeLabel}</span>
+            </div>
+            <span>Sent as: {filterKey}</span>
+            <LemonDivider className="my-1" />
+            <span className="text-secondary">
+                This person property doesn't exist in your data. You may have set this as an event property instead. Try
+                adding a new filter from the events category.
+            </span>
+        </div>
+    ) : (
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
                 <PropertyFilterIcon type={propertyType} />
@@ -101,6 +122,13 @@ function QuickFilterButton({
                 size="small"
                 icon={icon}
                 data-attr={`quick-filter-${filterKey}`}
+                disabledReason={
+                    propertyMissing
+                        ? `The person property "${filterKey}" doesn't exist in your data`
+                        : propertyLoading
+                          ? 'Loading property definition...'
+                          : undefined
+                }
                 onClick={() => {
                     // Create the new filter based on property type
                     const newFilter: PersonPropertyFilter | EventPropertyFilter = {
@@ -181,12 +209,15 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     setFilters,
     totalFiltersCount,
     currentSessionRecordingId,
+    onReload,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     totalFiltersCount?: number
     currentSessionRecordingId?: string
+    onReload?: () => void
 }): JSX.Element => {
+    const { sessionRecordingsResponseLoading } = useValues(sessionRecordingsPlaylistLogic)
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
@@ -194,26 +225,27 @@ export const RecordingsUniversalFiltersEmbedButton = ({
 
     return (
         <>
-            <MaxTool
-                identifier="filter_session_recordings"
-                context={{
-                    current_filters: filters,
-                    current_session_id: currentSessionRecordingId,
-                }}
-                callback={(toolOutput: Record<string, any>) => {
-                    // Improve type
-                    setFilters(toolOutput.recordings_filters)
-                    setIsFiltersExpanded(true)
-                }}
-                initialMaxPrompt="Show me recordings where "
-                suggestions={[
-                    'Show recordings of people who visited signup in the last 24 hours',
-                    'Show recordings showing user frustration',
-                    'Show recordings of people who faced bugs',
-                ]}
-                onMaxOpen={() => setIsFiltersExpanded(false)}
-            >
-                <>
+            <div className="flex gap-2">
+                <MaxTool
+                    identifier="filter_session_recordings"
+                    context={{
+                        current_filters: filters,
+                        current_session_id: currentSessionRecordingId,
+                    }}
+                    callback={(toolOutput: Record<string, any>) => {
+                        // Improve type
+                        setFilters(toolOutput.recordings_filters)
+                        setIsFiltersExpanded(true)
+                    }}
+                    initialMaxPrompt="Show me recordings where "
+                    suggestions={[
+                        'Show recordings of people who visited signup in the last 24 hours',
+                        'Show recordings showing user frustration',
+                        'Show recordings of people who faced bugs',
+                    ]}
+                    onMaxOpen={() => setIsFiltersExpanded(false)}
+                    className="grow"
+                >
                     <LemonButton
                         active={isFiltersExpanded}
                         type="secondary"
@@ -228,9 +260,18 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                         {isFiltersExpanded ? 'Hide' : 'Show'} filters{' '}
                         {totalFiltersCount ? <LemonBadge.Number count={totalFiltersCount} size="small" /> : null}
                     </LemonButton>
-                </>
-            </MaxTool>
-            <CurrentFilterIndicator />
+                    <CurrentFilterIndicator />
+                </MaxTool>
+                <LemonButton
+                    type="secondary"
+                    onClick={onReload}
+                    icon={<IconRefresh />}
+                    loading={sessionRecordingsResponseLoading}
+                    size="small"
+                    tooltip="Refresh list"
+                    data-attr="refresh-recordings-list"
+                />
+            </div>
             <div className="flex gap-2 mt-2 justify-between">
                 <HideRecordingsMenu />
                 <SettingsMenu
@@ -274,6 +315,7 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
     useMountedLogic(groupsModel)
+    useMountedLogic(recordingsUniversalFiltersEmbedLogic)
 
     const { activeFilterTab } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistFiltersLogic)
@@ -468,6 +510,8 @@ const ReplayFiltersTab = ({
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
+    const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
+
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.Replay,
         TaxonomicFilterGroupType.Events,
@@ -481,6 +525,10 @@ const ReplayFiltersTab = ({
 
     if (allowReplayHogQLFilters) {
         taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
+    }
+
+    if (showQuickFilters) {
+        taxonomicGroupTypes.unshift(TaxonomicFilterGroupType.SuggestedFilters)
     }
 
     const { appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
@@ -506,7 +554,7 @@ const ReplayFiltersTab = ({
     return (
         <div className={clsx('relative bg-surface-primary w-full h-full', className)}>
             {appliedSavedFilter && (
-                <div className="border-b px-2 py-3 flex items-center justify-between gap-2">
+                <div className="border-b px-2 py-3 flex flex-wrap items-center gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                         <span className="font-medium whitespace-nowrap flex-shrink-0">Loaded saved filter:</span>
                         <LemonTag
@@ -526,7 +574,7 @@ const ReplayFiltersTab = ({
                         </LemonTag>
                     </div>
                     {hasFilterChanges && (
-                        <div className="flex gap-2 flex-shrink-0">
+                        <div className="flex gap-2 ml-auto">
                             <LemonButton
                                 data-attr="replay-filters-discard-changes-button"
                                 type="secondary"
@@ -543,12 +591,11 @@ const ReplayFiltersTab = ({
                                 type="secondary"
                                 status="danger"
                                 size="small"
+                                className="max-w-xs"
+                                truncate
                                 onClick={() => void updateSavedFilter()}
-                                className="max-w-72"
                             >
-                                <span className="truncate">
-                                    Save changes to "{appliedSavedFilter.name || 'Unnamed'}"
-                                </span>
+                                Save changes to "{appliedSavedFilter.name || 'Unnamed'}"
                             </LemonButton>
                         </div>
                     )}
@@ -599,34 +646,38 @@ const ReplayFiltersTab = ({
             >
                 <div className="flex items-center gap-2 px-2 mt-2">
                     <span className="font-medium">Add filters:</span>
-                    <QuickFilterButton
-                        filterKey="email"
-                        label="Email"
-                        propertyType={PropertyFilterType.Person}
-                        filters={filters}
-                        setFilters={setFilters}
-                    />
-                    <QuickFilterButton
-                        filterKey="$user_id"
-                        label="User ID"
-                        propertyType={PropertyFilterType.Person}
-                        filters={filters}
-                        setFilters={setFilters}
-                    />
-                    <QuickFilterButton
-                        filterKey="$pathname"
-                        label="Path name"
-                        propertyType={PropertyFilterType.Event}
-                        filters={filters}
-                        setFilters={setFilters}
-                    />
-                    <QuickFilterButton
-                        filterKey="$current_url"
-                        label="Current URL"
-                        propertyType={PropertyFilterType.Event}
-                        filters={filters}
-                        setFilters={setFilters}
-                    />
+                    {!showQuickFilters && (
+                        <>
+                            <QuickFilterButton
+                                filterKey="email"
+                                label="Email"
+                                propertyType={PropertyFilterType.Person}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$user_id"
+                                label="User ID"
+                                propertyType={PropertyFilterType.Person}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$pathname"
+                                label="Path name"
+                                propertyType={PropertyFilterType.Event}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$current_url"
+                                label="Current URL"
+                                propertyType={PropertyFilterType.Event}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                        </>
+                    )}
                     {/* Add filter button scoped to the first nested group */}
                     {filters.filter_group.values.length > 0 &&
                         isUniversalGroupFilterLike(filters.filter_group.values[0]) && (

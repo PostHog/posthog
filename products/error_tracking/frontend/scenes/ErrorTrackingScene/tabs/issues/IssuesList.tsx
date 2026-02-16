@@ -156,7 +156,10 @@ export function IssuesList(): JSX.Element {
                     </LemonBanner>
                 )}
             </SceneStickyBar>
-            <Query query={query} context={context} />
+
+            <div data-attr="error-tracking-issue-row">
+                <Query query={query} context={context} />
+            </div>
         </BindLogic>
     )
 }

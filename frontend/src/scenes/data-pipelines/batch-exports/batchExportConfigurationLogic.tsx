@@ -1,14 +1,16 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { addProductIntent } from 'lib/utils/product-intents'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaBatchExportTable } from '~/queries/schema/schema-general'
+import { DatabaseSchemaBatchExportTable, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     BatchExportConfiguration,
     BatchExportConfigurationTest,
@@ -76,6 +78,9 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         destination: destinationType,
         paused: batchExportConfig.paused,
         interval: batchExportConfig.interval,
+        timezone: batchExportConfig.timezone,
+        offset_day: (batchExportConfig as any).offset_day ?? null,
+        offset_hour: (batchExportConfig as any).offset_hour ?? null,
         model: batchExportConfig.model,
         filters: batchExportConfig.filters,
         ...batchExportConfig.destination.config,
@@ -626,7 +631,10 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         }
         return `NEW:${service}`
     }),
-    path((id) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigurationLogic', id]),
+    path((key) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigurationLogic', key]),
+    connect(() => ({
+        values: [teamLogic, ['timezone as teamTimezone', 'weekStartDay as teamWeekStartDay']],
+    })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
@@ -648,6 +656,9 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         name,
                         destination,
                         interval,
+                        timezone,
+                        offset_day,
+                        offset_hour,
                         paused,
                         created_at,
                         start_at,
@@ -711,17 +722,30 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         paused,
                         name,
                         interval,
+                        // timezone and offset are only used for day and week intervals
+                        timezone: interval === 'day' || interval === 'week' ? timezone : null,
+                        offset_day: interval === 'week' ? offset_day : null,
+                        offset_hour: interval === 'day' || interval === 'week' ? offset_hour : null,
                         model,
                         filters,
                         destination: destinationObj,
-                    }
+                    } as any
                     if (props.id) {
                         const res = await api.batchExports.update(props.id, data)
                         lemonToast.success('Batch export configuration updated successfully')
+                        void addProductIntent({
+                            product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                            intent_context: ProductIntentContext.BATCH_EXPORT_UPDATED,
+                        })
                         return res
                     }
                     const res = await api.batchExports.create(data)
                     actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
+
+                    void addProductIntent({
+                        product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                        intent_context: ProductIntentContext.BATCH_EXPORT_CREATED,
+                    })
 
                     router.actions.replace(urls.batchExport(res.id))
                     lemonToast.success('Batch export created successfully')
@@ -773,6 +797,9 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         name,
                         destination,
                         interval,
+                        timezone,
+                        offset_day,
+                        offset_hour,
                         paused,
                         created_at,
                         start_at,
@@ -833,10 +860,14 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         paused,
                         name,
                         interval,
+                        // timezone and offset are only used for day and week intervals
+                        timezone: interval === 'day' || interval === 'week' ? timezone : null,
+                        offset_day: interval === 'week' ? offset_day : null,
+                        offset_hour: interval === 'day' || interval === 'week' ? offset_hour : null,
                         model,
                         filters,
                         destination: destinationObj,
-                    }
+                    } as any
 
                     if (props.id) {
                         return await api.batchExports.runTestStep(props.id, step, data)
@@ -941,6 +972,11 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
             (batchExportConfigLoading, batchExportConfigTestLoading) =>
                 batchExportConfigLoading || batchExportConfigTestLoading,
         ],
+        isDatabaseDestination: [
+            (s) => [s.service],
+            (service): boolean =>
+                !!service && ['Postgres', 'Redshift', 'Snowflake', 'Databricks', 'BigQuery'].includes(service),
+        ],
         requiredFields: [
             (s) => [s.service, s.isNew, s.configuration],
             (service, isNew, config): string[] => {
@@ -1030,6 +1066,16 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
             }
 
             actions.updateBatchExportConfigTest(batchExportConfig.destination.type)
+
+            // Set timezone to team's timezone if interval is day/week but timezone is not set
+            // Check values.configuration since the reducer has already updated it
+            if (
+                (values.configuration.interval === 'day' || values.configuration.interval === 'week') &&
+                !values.configuration.timezone
+            ) {
+                const teamTz = values.teamTimezone || 'UTC'
+                actions.setConfigurationValue('timezone', teamTz)
+            }
         },
         runBatchExportConfigTestStepSuccess: ({ batchExportConfigTestStep }) => {
             if (!values.batchExportConfigTest) {
@@ -1069,7 +1115,8 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
             actions.setRunningStep(null)
         },
         setConfigurationValue: async ({ name, value }) => {
-            if (name[0] === 'json_config_file' && value) {
+            const fieldName = Array.isArray(name) ? name[0] : name
+            if (fieldName === 'json_config_file' && value) {
                 try {
                     const loadedFile: string = await new Promise((resolve, reject) => {
                         const filereader = new FileReader()
@@ -1093,6 +1140,26 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         json_config_file: 'The config file is not valid',
                     })
                 }
+            } else if (fieldName === 'interval') {
+                // if changing to day or week, set the timezone to the team's timezone if not already set
+                if (value === 'day' || value === 'week') {
+                    // if we didn't have a timezone set before, set it to the team's timezone
+                    if (values.savedConfiguration.interval !== 'day' && values.savedConfiguration.interval !== 'week') {
+                        const teamTz = values.teamTimezone || 'UTC'
+                        actions.setConfigurationValue('timezone', teamTz)
+                    }
+                    // if changing to week, set the day of the week to the team's week start day
+                    if (value === 'week') {
+                        const weekStartDay = values.teamWeekStartDay || 0
+                        actions.setConfigurationValue('offset_day', weekStartDay)
+                        actions.setConfigurationValue('offset_hour', 0)
+                    }
+                } else {
+                    // Clear timezone and offset when interval is not day or week
+                    actions.setConfigurationValue('timezone', null)
+                    actions.setConfigurationValue('offset_day', null)
+                    actions.setConfigurationValue('offset_hour', null)
+                }
             }
         },
         deleteBatchExport: async () => {
@@ -1104,7 +1171,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
             try {
                 await api.batchExports.delete(batchExportId)
                 lemonToast.success('Batch export deleted successfully')
-                router.actions.replace(urls.dataPipelines('destinations'))
+                router.actions.replace(urls.destinations())
             } catch (error: any) {
                 // Show error toast with the error message from the API
                 const errorMessage = error.detail || error.message || 'Failed to delete'
@@ -1145,6 +1212,53 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                 }
             },
             submit: async (formdata) => {
+                // Check if schedule fields have changed and show confirmation modal
+                const scheduleFieldsChanged =
+                    formdata.interval !== values.savedConfiguration.interval ||
+                    formdata.timezone !== values.savedConfiguration.timezone ||
+                    formdata.offset_day !== values.savedConfiguration.offset_day ||
+                    formdata.offset_hour !== values.savedConfiguration.offset_hour
+
+                if (!values.isNew && scheduleFieldsChanged) {
+                    let userConfirmed = false
+                    await new Promise<void>((resolve) => {
+                        LemonDialog.open({
+                            title: 'Confirm schedule change',
+                            description: (
+                                <>
+                                    <p>
+                                        Changing the schedule (interval, timezone, or start time) of a batch export
+                                        could result in a gap of data.
+                                    </p>
+                                    <p>
+                                        Make sure to run a backfill if necessary to ensure all data is exported
+                                        correctly.
+                                    </p>
+                                </>
+                            ),
+                            primaryButton: {
+                                children: 'Save changes',
+                                onClick: () => {
+                                    userConfirmed = true
+                                    resolve()
+                                },
+                            },
+                            secondaryButton: {
+                                children: 'Cancel',
+                                onClick: () => {
+                                    userConfirmed = false
+                                    resolve()
+                                },
+                            },
+                        })
+                    })
+
+                    // Only proceed with submission if user confirmed
+                    if (!userConfirmed) {
+                        return
+                    }
+                }
+
                 await asyncActions.updateBatchExportConfig(formdata)
             },
         },

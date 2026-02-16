@@ -79,10 +79,6 @@ export const SidePanelSettings: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Settings} />
 }
 
-export const SidePanelActivation: StoryFn = () => {
-    return <BaseTemplate panel={SidePanelTab.Activation} />
-}
-
 export const SidePanelNotebooks: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Notebooks} />
 }

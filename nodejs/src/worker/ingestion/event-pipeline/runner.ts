@@ -2,9 +2,8 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { HogTransformerService, TransformationResult } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { PipelineWarning } from '../../../ingestion/pipelines/pipeline.interface'
-import { PipelineResult, dlq, drop, isOkResult, ok } from '../../../ingestion/pipelines/results'
+import { PipelineResult, dlq, isOkResult, ok } from '../../../ingestion/pipelines/results'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { EventHeaders, Person, PipelineEvent, PreIngestionEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
@@ -17,7 +16,6 @@ import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
 import { MergeMode, PersonMergeLimitExceededError, determineMergeMode } from '../persons/person-merge-types'
 import { PersonsStore } from '../persons/persons-store'
 import { EventsProcessor } from '../process-event'
-import { dropOldEventsStep } from './dropOldEventsStep'
 import {
     pipelineLastStepCounter,
     pipelineStepErrorCounter,
@@ -29,7 +27,6 @@ import { normalizeEventStep } from './normalizeEventStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonlessStep } from './processPersonlessStep'
 import { processPersonsStep } from './processPersonsStep'
-import { transformEventStep } from './transformEventStep'
 
 export type RunnerResult<T = object> = T & {
     // Only used in tests
@@ -81,7 +78,6 @@ export class EventPipelineRunner {
         teamManager: TeamManager,
         groupTypeManager: GroupTypeManager,
         private originalEvent: PipelineEvent,
-        private hogTransformer: HogTransformerService | null = null,
         private personsStore: PersonsStore,
         private groupStoreForBatch: GroupStoreForBatch,
         private headers?: EventHeaders
@@ -201,47 +197,9 @@ export class EventPipelineRunner {
         const kafkaAcks: Promise<unknown>[] = []
         const warnings: PipelineWarning[] = []
 
-        const dropOldResult = await this.runStep<PluginEvent | null, typeof dropOldEventsStep>(
-            dropOldEventsStep,
-            [this.kafkaProducer, event, team],
-            team.id,
-            true,
-            kafkaAcks,
-            warnings
-        )
-        if (!isOkResult(dropOldResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return dropOldResult
-        }
-        const dropOldEventsResult = dropOldResult.value
-
-        if (dropOldEventsResult == null) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return drop('event_too_old', kafkaAcks, warnings)
-        }
-
-        const transformResult = await this.runStep<TransformationResult, typeof transformEventStep>(
-            transformEventStep,
-            [dropOldEventsResult, this.hogTransformer],
-            team.id,
-            true,
-            kafkaAcks,
-            warnings
-        )
-        if (!isOkResult(transformResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return transformResult
-        }
-        const { event: transformedEvent } = transformResult.value
-
-        if (transformedEvent === null) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return drop('dropped_by_transformation', kafkaAcks, warnings)
-        }
-
         const normalizeResult = await this.runStep<[PluginEvent, DateTime], typeof normalizeEventStep>(
             normalizeEventStep,
-            [transformedEvent, processPerson, this.headers, this.options.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
+            [event, processPerson, this.headers, this.options.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
             team.id,
             true,
             kafkaAcks,

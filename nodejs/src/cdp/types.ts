@@ -105,6 +105,7 @@ export type HogFunctionInvocationGlobals = {
     }
 
     unsubscribe_url?: string // For email actions, the unsubscribe URL to use
+    unsubscribe_url_one_click?: string // For email actions, the one-click unsubscribe URL to use
 
     actions?: HogFunctionInvocationActionVariables
     variables?: Record<string, any> // For HogFlows, workflow-level variables
@@ -258,7 +259,7 @@ export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
 ] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
-export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka', 'delay'] as const
+export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka', 'delay', 'shadow'] as const
 export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]
 
 // Agnostic job invocation type
@@ -266,6 +267,8 @@ export type CyclotronJobInvocation = {
     id: string
     teamId: Team['id']
     functionId: string
+    // Optional parent run ID, e.g. if this invocation is part of a batch workflow run
+    parentRunId?: string | null
     state: Record<string, any> | null
     // The queue that the invocation is on
     queue: CyclotronJobQueueKind
@@ -387,6 +390,7 @@ export type HogFunctionType = {
     execution_order?: number
     created_at: string
     updated_at: string
+    metadata?: Record<string, any>
 }
 
 export type HogFunctionMappingTemplate = HogFunctionMappingType & {

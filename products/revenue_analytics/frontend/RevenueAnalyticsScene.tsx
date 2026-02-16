@@ -1,14 +1,17 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -25,7 +28,7 @@ import { GrossRevenueTile, MRRTile, MetricsTile, OverviewTile, TopCustomersTile 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
     logic: revenueAnalyticsLogic,
-    settingSectionId: 'environment-revenue-analytics',
+    productKey: ProductKey.REVENUE_ANALYTICS,
 }
 
 export const PRODUCT_KEY = ProductKey.REVENUE_ANALYTICS
@@ -34,6 +37,7 @@ export const PRODUCT_THING_NAME = 'revenue source'
 export function RevenueAnalyticsScene(): JSX.Element {
     const { dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
     const { revenueEnabledDataWarehouseSources } = useValues(revenueAnalyticsLogic)
+    const { featureFlags: enabledFlags } = useValues(enabledFeaturesLogic)
 
     const sourceRunningForTheFirstTime = revenueEnabledDataWarehouseSources?.find(
         (source) => source.status === 'Running' && !source.last_run_at
@@ -55,6 +59,18 @@ export function RevenueAnalyticsScene(): JSX.Element {
                     }}
                     actions={<RevenueAnalyticsViewStatusIcon />}
                 />
+
+                <LemonBanner type="info" className="mb-4">
+                    <strong>Revenue analytics is currently in maintenance mode.</strong> This product is not being
+                    actively developed at the moment, so bug reports and fixes might be far and between. Revenue
+                    analytics will be re-released in the future as part of{' '}
+                    {enabledFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? (
+                        <Link to={urls.customerAnalytics()}>Customer analytics</Link>
+                    ) : (
+                        <Link to={urls.earlyAccessFeatures()}>Customer analytics (early access)</Link>
+                    )}
+                    .
+                </LemonBanner>
 
                 {sourceRunningForTheFirstTime && (
                     <LemonBanner

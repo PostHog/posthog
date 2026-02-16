@@ -1,67 +1,28 @@
+import './MessageTemplatesGrid.scss'
+
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { IconTrash } from '@posthog/icons'
+
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ReadingHog } from 'lib/components/hedgehogs'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import MaxTool from 'scenes/max/MaxTool'
 import { urls } from 'scenes/urls'
 
-import { MessageTemplate, messageTemplatesLogic } from './messageTemplatesLogic'
+import { MessageTemplateCard } from './MessageTemplateCard'
+import { messageTemplatesLogic } from './messageTemplatesLogic'
 
 export function MessageTemplatesTable(): JSX.Element {
     useMountedLogic(messageTemplatesLogic)
-    const { templates, templatesLoading } = useValues(messageTemplatesLogic)
-    const { deleteTemplate, createTemplate, duplicateTemplate } = useActions(messageTemplatesLogic)
-
-    const columns: LemonTableColumns<MessageTemplate> = [
-        {
-            title: 'Name',
-            render: (_, item) => {
-                return (
-                    <LemonTableLink
-                        to={urls.workflowsLibraryTemplate(item.id)}
-                        title={item.name}
-                        description={item.description}
-                    />
-                )
-            },
-        },
-        createdByColumn<MessageTemplate>() as LemonTableColumn<MessageTemplate, keyof MessageTemplate | undefined>,
-        createdAtColumn<MessageTemplate>() as LemonTableColumn<MessageTemplate, keyof MessageTemplate | undefined>,
-        {
-            width: 0,
-            render: function Render(_, message: MessageTemplate) {
-                return (
-                    <More
-                        overlay={
-                            <>
-                                <LemonButton
-                                    data-attr="message-template-duplicate"
-                                    fullWidth
-                                    onClick={() => duplicateTemplate(message)}
-                                >
-                                    Duplicate
-                                </LemonButton>
-                                <LemonButton
-                                    data-attr="message-template-delete"
-                                    fullWidth
-                                    status="danger"
-                                    onClick={() => deleteTemplate(message)}
-                                >
-                                    Delete
-                                </LemonButton>
-                            </>
-                        }
-                    />
-                )
-            },
-        },
-    ]
+    const { filteredTemplates, templates, templatesLoading, search, createdByFilter } = useValues(messageTemplatesLogic)
+    const { deleteTemplate, createTemplate, duplicateTemplate, setSearch, setCreatedByFilter } =
+        useActions(messageTemplatesLogic)
 
     const showProductIntroduction = !templatesLoading && templates.length === 0
 
@@ -89,7 +50,48 @@ export function MessageTemplatesTable(): JSX.Element {
             >
                 <div className="relative" />
             </MaxTool>
-            <LemonTable dataSource={templates} loading={templatesLoading} columns={columns} />
+            <div className="flex items-center gap-2 mb-4">
+                <LemonInput type="search" placeholder="Search templates" value={search} onChange={setSearch} />
+                <div className="flex items-center gap-2">
+                    <span className="text-secondary whitespace-nowrap">Created by:</span>
+                    <MemberSelect value={createdByFilter} onChange={(user) => setCreatedByFilter(user?.id ?? null)} />
+                </div>
+            </div>
+            {templatesLoading ? (
+                <Spinner className="text-6xl" />
+            ) : (
+                <div className="MessageTemplatesGrid">
+                    {filteredTemplates.map((template, index) => (
+                        <MessageTemplateCard
+                            key={template.id}
+                            template={template}
+                            index={index}
+                            onClick={() => router.actions.push(urls.workflowsLibraryTemplate(template.id))}
+                            actions={
+                                <More
+                                    size="small"
+                                    overlay={
+                                        <LemonMenuOverlay
+                                            items={[
+                                                {
+                                                    label: 'Duplicate',
+                                                    onClick: () => duplicateTemplate(template),
+                                                },
+                                                {
+                                                    label: 'Delete',
+                                                    status: 'danger' as const,
+                                                    icon: <IconTrash />,
+                                                    onClick: () => deleteTemplate(template),
+                                                },
+                                            ]}
+                                        />
+                                    }
+                                />
+                            }
+                        />
+                    ))}
+                </div>
+            )}
         </div>
     )
 }

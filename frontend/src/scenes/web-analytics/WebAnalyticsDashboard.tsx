@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSkeleton } from '@posthog/lemon-ui'
@@ -8,8 +8,9 @@ import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSkeleton } from '@po
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -71,6 +72,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
                 'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
                 compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-4'
             )}
+            data-attr="web-analytics-dashboard"
         >
             {emptyOnboardingContent ??
                 tiles.map((tile, i) => {
@@ -497,12 +499,15 @@ const WebAnalyticsSurveyModal = (): JSX.Element | null => {
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
+    useOnMountEffect(() => {
+        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewWebAnalyticsDashboard)
+    })
+
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
                 <WebAnalyticsSurveyModal />
-                <VersionCheckerBanner />
                 <SceneContent className="WebAnalyticsDashboard gap-y-2">
                     <>
                         <WebAnalyticsTabs />
@@ -558,6 +563,15 @@ const WebAnalyticsTabs = (): JSX.Element => {
         scope: Scene.WebAnalytics,
         disabled: !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB],
     })
+
+    useEffect(() => {
+        if (productTab === ProductTab.ANALYTICS) {
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewWebAnalyticsDashboard)
+        }
+        if (productTab === ProductTab.WEB_VITALS) {
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.VisitWebVitalsDashboard)
+        }
+    }, [productTab])
 
     const handleShare = (): void => {
         void copyToClipboard(window.location.href, 'link')

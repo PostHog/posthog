@@ -19,6 +19,7 @@ def fetch_responses(
     team: Team,
     limit: int = 100,
     exclude_values: list[str] | None = None,
+    exclude_uuids: set[str] | None = None,
 ) -> list[str]:
     """
     Fetch survey responses for a specific question.
@@ -32,29 +33,44 @@ def fetch_responses(
         team: The team to query
         limit: Maximum number of responses to fetch
         exclude_values: List of values to exclude (e.g., predefined choices for choice questions)
+        exclude_uuids: Set of response UUIDs to exclude (e.g., archived responses)
 
     Returns:
         List of response strings
     """
     paginator = HogQLHasMorePaginator(limit=limit, offset=0)
-    q = parse_select(
-        """
+
+    # Build the base query
+    # Use uniqueSurveySubmissionsFilter to deduplicate by $survey_submission_id
+    # This ensures multiple "survey sent" events for the same submission are rolled up
+    base_query = """
         SELECT getSurveyResponse({question_index}, {question_id})
         FROM events
         WHERE event == 'survey sent'
             AND properties.$survey_id = {survey_id}
+            AND uniqueSurveySubmissionsFilter({survey_id})
             AND trim(getSurveyResponse({question_index}, {question_id})) != ''
             AND timestamp >= {start_date}
             AND timestamp <= {end_date}
-        """,
-        {
-            "survey_id": ast.Constant(value=survey_id),
-            "start_date": ast.Constant(value=start_date),
-            "end_date": ast.Constant(value=end_date),
-            "question_index": ast.Constant(value=question_index),
-            "question_id": ast.Constant(value=question_id),
-        },
-    )
+    """
+
+    # Add archived response filter if there are UUIDs to exclude
+    # UUIDs are pre-validated by Django's UUIDField when stored in SurveyResponseArchive
+    if exclude_uuids:
+        base_query += " AND uuid NOT IN {exclude_uuids}"
+
+    placeholders: dict[str, ast.Expr] = {
+        "survey_id": ast.Constant(value=survey_id),
+        "start_date": ast.Constant(value=start_date),
+        "end_date": ast.Constant(value=end_date),
+        "question_index": ast.Constant(value=question_index),
+        "question_id": ast.Constant(value=question_id),
+    }
+
+    if exclude_uuids:
+        placeholders["exclude_uuids"] = ast.Tuple(exprs=[ast.Constant(value=uuid) for uuid in exclude_uuids])
+
+    q = parse_select(base_query, placeholders)
 
     query_response = paginator.execute_hogql_query(
         team=team,

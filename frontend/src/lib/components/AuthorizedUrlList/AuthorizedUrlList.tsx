@@ -27,6 +27,7 @@ export interface AuthorizedUrlListProps {
     showLaunch?: boolean
     allowAdd?: boolean
     allowDelete?: boolean
+    launchInSameTab?: boolean
 }
 
 export function AuthorizedUrlList({
@@ -42,6 +43,7 @@ export function AuthorizedUrlList({
     allowAdd = true,
     allowDelete = true,
     showLaunch = true,
+    launchInSameTab = false,
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
@@ -60,7 +62,7 @@ export function AuthorizedUrlList({
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" data-attr="authorized-urls-table">
             <EmptyState
                 experimentId={experimentId}
                 productTourId={productTourId}
@@ -147,7 +149,7 @@ export function AuthorizedUrlList({
                                                     : // other urls are simply opened directly
                                                       `${keyedURL.url}${query ?? ''}`
                                             }
-                                            targetBlank
+                                            targetBlank={!launchInSameTab}
                                             tooltip={
                                                 type === AuthorizedUrlListType.TOOLBAR_URLS ||
                                                 type === AuthorizedUrlListType.WEB_ANALYTICS

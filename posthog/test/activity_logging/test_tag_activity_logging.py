@@ -1,16 +1,10 @@
 from django.db.models.query import QuerySet
 
-from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
 
 class TestTagActivityLogging(ActivityLogTestHelper):
-    def setUp(self):
-        super().setUp()
-        self.organization.available_product_features = [{"key": AvailableFeature.TAGGING, "name": "Tagging"}]
-        self.organization.save()
-
     def test_tag_creation_via_insight_tagging(self):
         insight = self.create_insight(name="Test Insight")
         self.update_insight(insight["id"], {"tags": ["test-tag"]})
@@ -40,11 +34,6 @@ class TestTagActivityLogging(ActivityLogTestHelper):
 
 
 class TestTaggedItemActivityLogging(ActivityLogTestHelper):
-    def setUp(self):
-        super().setUp()
-        self.organization.available_product_features = [{"key": AvailableFeature.TAGGING, "name": "Tagging"}]
-        self.organization.save()
-
     def test_tagged_item_creation_via_dashboard_api(self):
         dashboard = self.create_dashboard(name="Test Dashboard")
         self.update_dashboard(dashboard["id"], {"tags": ["test-tag"]})

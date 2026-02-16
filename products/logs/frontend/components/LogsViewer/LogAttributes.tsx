@@ -4,6 +4,10 @@ import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import ViewRecordingButton, {
+    RecordingPlayerType,
+    ViewRecordingButtonVariant,
+} from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -12,7 +16,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { AttributeBreakdowns } from 'products/logs/frontend/AttributeBreakdowns'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
-import { isDistinctIdKey } from 'products/logs/frontend/utils'
+import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
 
 export interface LogAttributesProps {
     attributes: Record<string, string>
@@ -22,7 +26,7 @@ export interface LogAttributesProps {
 }
 
 export function LogAttributes({ attributes, type, logUuid, title }: LogAttributesProps): JSX.Element {
-    const { expandedAttributeBreakdowns, tabId, isAttributeColumn } = useValues(logsViewerLogic)
+    const { expandedAttributeBreakdowns, id, isAttributeColumn } = useValues(logsViewerLogic)
     const { addFilter, toggleAttributeColumn, toggleAttributeBreakdown } = useActions(logsViewerLogic)
 
     const expandedBreakdownsForThisLog = expandedAttributeBreakdowns[logUuid] || []
@@ -131,6 +135,14 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
                                         <span onClick={(e) => e.stopPropagation()}>
                                             <PersonDisplay person={{ distinct_id: record.value }} noEllipsis inline />
                                         </span>
+                                    ) : isSessionIdKey(record.key) ? (
+                                        <ViewRecordingButton
+                                            sessionId={record.value}
+                                            openPlayerIn={RecordingPlayerType.Modal}
+                                            label={record.value}
+                                            variant={ViewRecordingButtonVariant.Link}
+                                            checkRecordingExists
+                                        />
                                     ) : (
                                         <span>{record.value}</span>
                                     )}
@@ -145,12 +157,7 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
                     showRowExpansionToggle: false,
                     isRowExpanded: (record) => expandedBreakdownsForThisLog.includes(record.key),
                     expandedRowRender: (record) => (
-                        <AttributeBreakdowns
-                            attribute={record.key}
-                            addFilter={addFilter}
-                            tabId={tabId}
-                            type={record.type}
-                        />
+                        <AttributeBreakdowns attribute={record.key} addFilter={addFilter} id={id} type={record.type} />
                     ),
                 }}
             />

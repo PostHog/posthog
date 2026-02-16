@@ -2,12 +2,15 @@ import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { ProductKey } from '~/queries/schema/schema-general'
+
 import { TaskDetailPage } from './components/TaskDetailPage'
 import { TaskDetailSceneLogicProps, taskDetailSceneLogic } from './logics/taskDetailSceneLogic'
 
 export const scene: SceneExport<TaskDetailSceneLogicProps> = {
     component: TaskDetailScene,
     logic: taskDetailSceneLogic,
+    productKey: ProductKey.TASKS,
     paramsToProps: ({ params: { taskId } }) => ({
         taskId: taskId,
     }),

@@ -273,6 +273,66 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             },
         },
     },
+    [FieldOptionsType.CohortMathOperators]: {
+        label: 'Operators',
+        type: FieldOptionsType.MathOperators,
+        values: {
+            [PropertyOperator.Exact]: {
+                label: 'equals',
+            },
+            [PropertyOperator.IsNot]: {
+                label: 'does not equal',
+            },
+            [PropertyOperator.IContains]: {
+                label: 'contains',
+            },
+            [PropertyOperator.NotIContains]: {
+                label: 'does not contain',
+            },
+            [PropertyOperator.IContainsMulti]: {
+                label: 'contains any of',
+            },
+            [PropertyOperator.NotIContainsMulti]: {
+                label: 'does not contain any of',
+            },
+            [PropertyOperator.Regex]: {
+                label: 'matches regex',
+            },
+            [PropertyOperator.NotRegex]: {
+                label: 'does not match regex',
+            },
+            [PropertyOperator.GreaterThan]: {
+                label: 'greater than',
+            },
+            [PropertyOperator.GreaterThanOrEqual]: {
+                label: 'greater than or equal to',
+            },
+            [PropertyOperator.LessThan]: {
+                label: 'less than',
+            },
+            [PropertyOperator.LessThanOrEqual]: {
+                label: 'less than or equal to',
+            },
+            [PropertyOperator.IsSet]: {
+                label: 'is set',
+            },
+            [PropertyOperator.IsNotSet]: {
+                label: 'is not set',
+            },
+            [PropertyOperator.Between]: {
+                label: 'between',
+            },
+            [PropertyOperator.NotBetween]: {
+                label: 'not between',
+            },
+            [PropertyOperator.Minimum]: {
+                label: 'minimum',
+            },
+            [PropertyOperator.Maximum]: {
+                label: 'maximum',
+            },
+        },
+    },
     [FieldOptionsType.EventsAndActionsMathOperators]: {
         label: 'Operators',
         type: FieldOptionsType.EventsAndActionsMathOperators,
@@ -883,7 +943,10 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         return (
             <CohortSelectorField
                 {...p}
-                fieldOptionGroupTypes={[FieldOptionsType.MathOperators, FieldOptionsType.SingleFieldDateOperators]}
+                fieldOptionGroupTypes={[
+                    FieldOptionsType.CohortMathOperators,
+                    FieldOptionsType.SingleFieldDateOperators,
+                ]}
             />
         )
     },

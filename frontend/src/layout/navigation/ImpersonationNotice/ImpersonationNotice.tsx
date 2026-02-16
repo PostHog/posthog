@@ -69,7 +69,7 @@ export function ImpersonationNotice(): JSX.Element | null {
 
     useEffect(() => {
         setPageVisible(isPageVisible)
-    }, [isPageVisible])
+    }, [isPageVisible, setPageVisible])
 
     if (!isImpersonated || !user) {
         return null

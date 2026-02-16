@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { ProductSelection } from 'scenes/onboarding/productSelection/ProductSelection'
@@ -22,7 +21,6 @@ import { AvailableFeature, type SessionRecordingMaskingLevel, TeamPublicType, Te
 
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
-import { OnboardingProjectData } from './OnboardingProjectData'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
@@ -35,8 +33,14 @@ import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
 import { ErrorTrackingSDKInstructions } from './sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
-import { LLMAnalyticsSDKInstructions } from './sdks/llm-analytics/LLMAnalyticsSDKInstructions'
-import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
+import {
+    LLMAnalyticsSDKInstructions,
+    LLMAnalyticsSDKTagOverrides,
+} from './sdks/llm-analytics/LLMAnalyticsSDKInstructions'
+import {
+    ProductAnalyticsSDKInstructions,
+    ProductAnalyticsSDKTagOverrides,
+} from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
 import { OnboardingWebAnalyticsAuthorizedDomainsStep } from './web-analytics/OnboardingWebAnalyticsAuthorizedDomainsStep'
@@ -55,24 +59,22 @@ const OnboardingWrapper = ({
 }: { children: React.ReactNode } & OnboardingLogicProps): JSX.Element => {
     const logic = onboardingLogic(logicProps)
     const {
-        productKey,
         currentOnboardingStep,
         shouldShowBillingStep,
         shouldShowReverseProxyStep,
         shouldShowDataWarehouseStep,
         product,
+        billingProduct,
         waitForBilling,
     } = useValues(logic)
     const { setAllOnboardingSteps } = useActions(logic)
-    const { billing, billingLoading } = useValues(billingLogic)
+    const { billingLoading } = useValues(billingLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const minAdminRestrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
-
-    const shouldShowTellUsMoreStep = useFeatureFlag('ONBOARDING_TELL_US_MORE_STEP', 'test')
 
     useEffect(() => {
         if (billingLoading && waitForBilling) {
@@ -96,33 +98,20 @@ const OnboardingWrapper = ({
             steps = [...steps, ReverseProxyStep]
         }
 
-        const billingProduct = billing?.products.find((p) => p.type === productKey)
         if (shouldShowBillingStep && billingProduct) {
             const BillingStep = <OnboardingUpgradeStep product={billingProduct} />
 
             steps = [...steps, BillingStep]
         }
 
-        const userCannotInvite = minAdminRestrictionReason && !currentOrganization?.members_can_invite
+        const userCannotInvite = Boolean(minAdminRestrictionReason) && !currentOrganization?.members_can_invite
         if (!userCannotInvite) {
             const inviteTeammatesStep = <OnboardingInviteTeammates />
             steps = [...steps, inviteTeammatesStep]
         }
 
-        if (shouldShowTellUsMoreStep) {
-            const tellUsMoreStep = <OnboardingProjectData />
-            steps = [...steps, tellUsMoreStep]
-        }
-
         setAllOnboardingSteps(steps.filter(Boolean))
-    }, [
-        children,
-        billingLoading,
-        waitForBilling,
-        minAdminRestrictionReason,
-        currentOrganization,
-        shouldShowTellUsMoreStep,
-    ]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [children, billingLoading, waitForBilling, minAdminRestrictionReason, currentOrganization]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!product || !children) {
         return <></>
@@ -220,7 +209,10 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={ProductAnalyticsSDKInstructions} />
+            <OnboardingInstallStep
+                sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                sdkTagOverrides={ProductAnalyticsSDKTagOverrides}
+            />
             <OnboardingProductConfiguration options={filteredOptions} />
 
             <OnboardingSessionReplayConfiguration />
@@ -407,7 +399,31 @@ const ErrorTrackingOnboarding = (): JSX.Element => {
 const LLMAnalyticsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={LLMAnalyticsSDKInstructions} listeningForName="LLM generation" />
+            <OnboardingInstallStep
+                sdkInstructionMap={LLMAnalyticsSDKInstructions}
+                sdkTagOverrides={LLMAnalyticsSDKTagOverrides}
+                listeningForName="LLM generation"
+            />
+        </OnboardingWrapper>
+    )
+}
+
+// No custom page for workflows yet, we do all the onboarding inside the app
+const WorkflowsOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            {/* Show Product Analytics instructions by default to allow events from any source but display warning showing it's not neccessary */}
+            <OnboardingInstallStep
+                sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                sdkTagOverrides={ProductAnalyticsSDKTagOverrides}
+                header={
+                    <LemonBanner type="warning" className="mb-4">
+                        Setting up events is <strong>not</strong> necessary for workflows but it means you'll be able to
+                        trigger workflows more easily from any source via our SDKs. You can skip this step for now if
+                        you prefer.
+                    </LemonBanner>
+                }
+            />
         </OnboardingWrapper>
     )
 }
@@ -422,6 +438,7 @@ export const onboardingViews = {
     [ProductKey.DATA_WAREHOUSE]: DataWarehouseOnboarding,
     [ProductKey.ERROR_TRACKING]: ErrorTrackingOnboarding,
     [ProductKey.LLM_ANALYTICS]: LLMAnalyticsOnboarding,
+    [ProductKey.WORKFLOWS]: WorkflowsOnboarding,
 }
 
 export function Onboarding(): JSX.Element | null {

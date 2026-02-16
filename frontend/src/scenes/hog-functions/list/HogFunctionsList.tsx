@@ -44,8 +44,13 @@ const urlForHogFunction = (hogFunction: HogFunctionType): string => {
 export function HogFunctionList({
     extraControls,
     hideFeedback = false,
+    emptyText,
     ...props
-}: HogFunctionListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
+}: HogFunctionListLogicProps & {
+    extraControls?: JSX.Element
+    hideFeedback?: boolean
+    emptyText?: string
+}): JSX.Element {
     const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
         hogFunctionsListLogic(props)
     )
@@ -242,8 +247,8 @@ export function HogFunctionList({
                     </Link>
                 ) : null}
                 <div className="flex-1" />
-                <div className="flex items-center gap-2">
-                    <span>Created by:</span>
+                <div className="flex flex-col xl:flex-row items-center gap-0.5 xl:gap-2 shrink-0">
+                    <span className="text-xs xl:text-sm">Created by:</span>
                     <MemberSelect
                         value={filters.createdBy || null}
                         onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
@@ -267,7 +272,7 @@ export function HogFunctionList({
                     columns={columns}
                     emptyState={
                         hogFunctions.length === 0 && !loading ? (
-                            `No ${humanizedType}s found`
+                            (emptyText ?? `No ${humanizedType}s found`)
                         ) : (
                             <>
                                 No {humanizedType}s matching filters.{' '}

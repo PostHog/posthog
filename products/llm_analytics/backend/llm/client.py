@@ -17,6 +17,7 @@ from products.llm_analytics.backend.llm.types import (
 )
 
 if TYPE_CHECKING:
+    from products.llm_analytics.backend.llm.config import ProviderConfig
     from products.llm_analytics.backend.llm.providers.base import Provider
     from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
@@ -27,6 +28,7 @@ class Client:
     def __init__(
         self,
         provider_key: "LLMProviderKey | None" = None,
+        config: "ProviderConfig | None" = None,
         distinct_id: str = "",
         trace_id: str | None = None,
         properties: dict[str, Any] | None = None,
@@ -34,6 +36,7 @@ class Client:
         capture_analytics: bool = True,
     ):
         self.provider_key = provider_key
+        self.config = config
         self.analytics = AnalyticsContext(
             distinct_id=distinct_id,
             trace_id=trace_id or str(uuid.uuid4()),
@@ -57,13 +60,21 @@ class Client:
         """Non-streaming completion."""
         self._validate_provider(request.provider)
         provider = _get_provider(request.provider)
-        return provider.complete(request, self._get_api_key(), self.analytics)
+        api_key, base_url = self._resolve_credentials()
+        return provider.complete(request, api_key, self.analytics, base_url)
 
     def stream(self, request: CompletionRequest) -> Generator[StreamChunk, None, None]:
         """Streaming completion."""
         self._validate_provider(request.provider)
         provider = _get_provider(request.provider)
-        yield from provider.stream(request, self._get_api_key(), self.analytics)
+        api_key, base_url = self._resolve_credentials()
+        yield from provider.stream(request, api_key, self.analytics, base_url)
+
+    def _resolve_credentials(self) -> tuple[str | None, str | None]:
+        """Get api_key and base_url from config or provider_key."""
+        if self.config:
+            return self.config.api_key, self.config.base_url
+        return self._get_api_key(), None
 
     @classmethod
     def validate_key(cls, provider: str, api_key: str) -> tuple[str, str | None]:
@@ -81,6 +92,7 @@ def _get_provider(name: str) -> "Provider":
     from products.llm_analytics.backend.llm.providers.anthropic import AnthropicAdapter
     from products.llm_analytics.backend.llm.providers.gemini import GeminiAdapter
     from products.llm_analytics.backend.llm.providers.openai import OpenAIAdapter
+    from products.llm_analytics.backend.llm.providers.openrouter import OpenRouterAdapter
 
     match name:
         case "openai":
@@ -89,5 +101,7 @@ def _get_provider(name: str) -> "Provider":
             return AnthropicAdapter()
         case "gemini":
             return GeminiAdapter()
+        case "openrouter":
+            return OpenRouterAdapter()
         case _:
             raise UnsupportedProviderError(name)

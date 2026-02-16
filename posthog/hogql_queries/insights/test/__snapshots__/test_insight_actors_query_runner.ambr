@@ -7,17 +7,17 @@
      FROM events AS e
      WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'US/Pacific')), less(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-13 00:00:00.000000', 6, 'US/Pacific')), equals(e.event, '$pageview')), less(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('today', 6, 'US/Pacific')))
      ORDER BY e.distinct_id ASC)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_funnels_query
@@ -74,17 +74,17 @@
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
      ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
                                                      join_algorithm='auto')
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_lifecycle_query
@@ -167,17 +167,17 @@
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
      ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
                                                      join_algorithm='auto')
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_stickiness_groups_query
@@ -210,17 +210,17 @@
                  groups.group_key) AS groups ON equals(groups.key, source.group_key)
      ORDER BY groups.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
                                                     join_algorithm='auto')
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_stickiness_query
@@ -281,17 +281,17 @@
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
      ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
                                                      join_algorithm='auto')
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_groups_query
@@ -320,17 +320,17 @@
                  groups.group_key) AS groups ON equals(groups.key, source.actor_id)
      ORDER BY groups.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
                                                     join_algorithm='auto')
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_query_with_argmaxV1
@@ -396,17 +396,17 @@
         HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'US/Pacific')), person.version), 1), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
      ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
                                                      join_algorithm='auto')
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_query_with_argmaxV2
@@ -481,16 +481,16 @@
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
      ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
                                                      join_algorithm='auto')
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---

@@ -8,6 +8,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
@@ -27,6 +28,7 @@ import { workflowsLogic } from './workflowsLogic'
 
 export interface WorkflowLogicProps {
     id?: string
+    tabId?: string
     templateId?: string
     editTemplateId?: string
 }
@@ -36,7 +38,7 @@ export const EXIT_NODE_ID = 'exit_node'
 
 export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 
-const NEW_WORKFLOW: HogFlow = {
+export const NEW_WORKFLOW: HogFlow = {
     id: 'new',
     name: 'New workflow',
     actions: [
@@ -112,8 +114,8 @@ export function sanitizeWorkflow(
 
 export const workflowLogic = kea<workflowLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic']),
-    props({ id: 'new' } as WorkflowLogicProps),
-    key((props) => props.id || 'new'),
+    props({ id: 'new', tabId: 'default' } as WorkflowLogicProps),
+    key((props) => `workflow-${props.id || 'new'}-${props.tabId}`),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
         actions: [workflowsLogic, ['archiveWorkflow']],
@@ -226,12 +228,14 @@ export const workflowLogic = kea<workflowLogicType>([
     forms(({ actions, values }) => ({
         workflow: {
             defaults: NEW_WORKFLOW,
-            errors: ({ name, actions }) => {
+            errors: ({ name, actions, status }) => {
                 const errors = {
                     name: !name ? 'Name is required' : undefined,
-                    actions: actions.some((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
-                        ? 'Some fields need work'
-                        : undefined,
+                    actions:
+                        status === 'active' &&
+                        actions.some((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
+                            ? 'Some fields need work'
+                            : undefined,
                 } as DeepPartialMap<HogFlow, ValidationErrorType>
 
                 return errors
@@ -296,9 +300,15 @@ export const workflowLogic = kea<workflowLogicType>([
                             const emailTemplating = action.config.inputs?.email?.templating
 
                             const emailTemplateErrors: Partial<EmailTemplate> = {
-                                html: !emailValue?.html
-                                    ? 'HTML is required'
-                                    : getTemplatingError(emailValue?.html, emailTemplating),
+                                html:
+                                    !emailValue?.html && !emailValue?.text
+                                        ? 'HTML or plain text is required'
+                                        : emailValue?.html
+                                          ? getTemplatingError(emailValue?.html, emailTemplating)
+                                          : undefined,
+                                text: emailValue?.text
+                                    ? getTemplatingError(emailValue?.text, emailTemplating)
+                                    : undefined,
                                 subject: !emailValue?.subject
                                     ? 'Subject is required'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
@@ -377,6 +387,16 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
 
+        workflowHasActionErrors: [
+            (s) => [s.workflow, s.actionValidationErrorsById],
+            (
+                workflow: HogFlow,
+                actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
+            ): boolean => {
+                return workflow.actions.some((action) => !(actionValidationErrorsById[action.id]?.valid ?? true))
+            },
+        ],
+
         triggerAction: [
             (s) => [s.workflow],
             (workflow): TriggerAction | null => {
@@ -393,15 +413,18 @@ export const workflowLogic = kea<workflowLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         saveWorkflowPartial: async ({ workflow }) => {
-            actions.saveWorkflow({
-                ...values.workflow,
-                ...workflow,
-            })
+            const merged = { ...values.workflow, ...workflow }
+            if (merged.status === 'active' && values.workflowHasActionErrors) {
+                lemonToast.error('Fix all errors before enabling')
+                return
+            }
+            actions.saveWorkflow(merged)
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
             actions.resetWorkflow(originalWorkflow)
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
+            const tasksToMarkAsCompleted: SetupTaskId[] = []
             lemonToast.success('Workflow saved')
             if (props.id === 'new' && originalWorkflow.id) {
                 router.actions.replace(
@@ -410,6 +433,39 @@ export const workflowLogic = kea<workflowLogicType>([
                         workflowSceneLogic.findMounted()?.values.currentTab || 'workflow'
                     )
                 )
+            }
+
+            // Mark workflow creation task as completed everytime it's saved for completeness
+            tasksToMarkAsCompleted.push(SetupTaskId.CreateFirstWorkflow)
+
+            // Check trigger configuration
+            const trigger = originalWorkflow.actions.find((a) => a.type === 'trigger')
+            if (trigger) {
+                const config = trigger.config as any
+                const hasValidTrigger =
+                    (config.type === 'event' &&
+                        (config.filters?.events?.length > 0 || config.filters?.actions?.length > 0)) ||
+                    (config.type === 'schedule' && config.scheduled_at) ||
+                    (config.type === 'batch' && config.filters?.properties?.length > 0)
+                if (hasValidTrigger) {
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureWorkflowTrigger)
+                }
+            }
+
+            // Check if workflow has actions beyond trigger and exit
+            const actionNodes = originalWorkflow.actions.filter((a) => a.type !== 'trigger' && a.type !== 'exit')
+            if (actionNodes.length > 0) {
+                tasksToMarkAsCompleted.push(SetupTaskId.AddWorkflowAction)
+            }
+
+            // Check if workflow is active (launched)
+            if (originalWorkflow.status === 'active') {
+                tasksToMarkAsCompleted.push(SetupTaskId.LaunchWorkflow)
+            }
+
+            // Make sure we submit all the tasks for completion at once in the end
+            if (tasksToMarkAsCompleted.length > 0) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(tasksToMarkAsCompleted)
             }
 
             actions.resetWorkflow(originalWorkflow)

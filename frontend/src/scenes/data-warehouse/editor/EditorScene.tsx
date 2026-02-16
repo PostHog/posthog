@@ -3,8 +3,10 @@ import './EditorScene.scss'
 import { Monaco } from '@monaco-editor/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
@@ -74,13 +76,20 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
     )
     const [monaco, editor] = monacoAndEditor ?? []
 
+    // Clear editor state on unmount to avoid holding references to disposed editor
+    useOnMountEffect(() => {
+        return () => {
+            setMonacoAndEditor(null)
+        }
+    })
+
     const logic = multitabEditorLogic({
         tabId: tabId || '',
         monaco,
         editor,
     })
 
-    const { queryInput, sourceQuery, dataLogicKey } = useValues(logic)
+    const { sourceQuery, dataLogicKey } = useValues(logic)
     const { setSourceQuery } = useActions(logic)
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
@@ -118,10 +127,11 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
 
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), logic)
+
     const variablesLogicProps: VariablesLogicProps = {
         key: dataVisualizationLogicProps.key,
         readOnly: false,
-        queryInput: queryInput ?? '',
         sourceQuery,
         setQuery: setSourceQuery,
         onUpdate: (query) => {
@@ -138,6 +148,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
                             <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
                                 <BindLogic logic={outputPaneLogic} props={{ tabId }}>
                                     <BindLogic logic={multitabEditorLogic} props={{ tabId, monaco, editor }}>
+                                        <VariablesQuerySync />
                                         <div className="flex grow h-full">
                                             <DatabaseTree databaseTreeRef={databaseTreeRef} />
                                             <div
@@ -163,4 +174,16 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
             </BindLogic>
         </BindLogic>
     )
+}
+
+/** Syncs queryInput from multitabEditorLogic to variablesLogic without causing EditorScene re-renders */
+function VariablesQuerySync(): null {
+    const { queryInput } = useValues(multitabEditorLogic)
+    const { setEditorQuery } = useActions(variablesLogic)
+
+    useEffect(() => {
+        setEditorQuery(queryInput ?? '')
+    }, [queryInput, setEditorQuery])
+
+    return null
 }

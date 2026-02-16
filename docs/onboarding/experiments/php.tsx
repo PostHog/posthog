@@ -1,18 +1,14 @@
-import { getPHPSteps as getPHPStepsPA } from '../product-analytics/php'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getPHPSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    dedent: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+import { getPHPSteps as getPHPStepsPA } from '../product-analytics/php'
+import { StepDefinition } from '../steps'
+
+export const getPHPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 
     // Get installation steps from product-analytics only
-    const installationSteps = getPHPStepsPA(CodeBlock, Markdown, dedent).filter(
+    const installationSteps = getPHPStepsPA(ctx).filter(
         (step: StepDefinition) => step.title !== 'Send events'
     )
 
@@ -47,21 +43,7 @@ export const getPHPSteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...experimentSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...experimentSteps]
 }
 
-export const PHPInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
-    const steps = getPHPSteps(CodeBlock, Markdown, dedent, snippets, { modifySteps })
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const PHPInstallation = createInstallation(getPHPSteps)

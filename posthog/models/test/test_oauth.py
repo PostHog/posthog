@@ -250,9 +250,9 @@ class TestOAuthModels(TestCase):
             )
 
     valid_custom_scheme_uris = [
-        ("simple custom scheme", "array://callback"),
+        ("simple custom scheme", "twig://callback"),
         ("custom scheme with path", "myapp://oauth/callback"),
-        ("reverse domain style", "com.posthog.array://oauth"),
+        ("reverse domain style", "com.posthog.twig://oauth"),
         ("cursor scheme", "cursor://oauth"),
         ("vscode scheme", "vscode://oauth"),
     ]
@@ -315,11 +315,11 @@ class TestOAuthModels(TestCase):
             client_secret="mixed_scheme_client_secret",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback array://oauth http://localhost:3000/callback",
+            redirect_uris="https://example.com/callback twig://oauth http://localhost:3000/callback",
             organization=self.organization,
             algorithm="RS256",
         )
-        self.assertIn("array://", app.redirect_uris)
+        self.assertIn("twig://", app.redirect_uris)
         self.assertIn("https://example.com", app.redirect_uris)
         self.assertIn("localhost", app.redirect_uris)
 
@@ -477,13 +477,13 @@ class TestOAuthModels(TestCase):
             client_secret="multi_scheme_client_secret",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback array://oauth http://localhost:3000/callback",
+            redirect_uris="https://example.com/callback twig://oauth http://localhost:3000/callback",
             organization=self.organization,
             algorithm="RS256",
         )
         schemes = app.get_allowed_schemes()
         self.assertIn("https", schemes)
-        self.assertIn("array", schemes)
+        self.assertIn("twig", schemes)
         self.assertIn("http", schemes)
         self.assertEqual(len(schemes), 3)
 

@@ -30,9 +30,9 @@ class TestRateLimitCallback:
             }
         }
 
-        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0)
+        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0, end_user_id=None)
 
-        mock_record_cost.assert_called_once_with(0.0015)
+        mock_record_cost.assert_called_once_with(0.0015, None)
 
     @pytest.mark.asyncio
     @patch("llm_gateway.callbacks.rate_limiting.record_cost")
@@ -52,9 +52,9 @@ class TestRateLimitCallback:
             }
         }
 
-        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0)
+        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0, end_user_id=None)
 
-        mock_record_cost.assert_called_once_with(0.01)
+        mock_record_cost.assert_called_once_with(0.01, None)
         mock_fallback_metric.labels.assert_called()
 
     @pytest.mark.asyncio
@@ -75,9 +75,9 @@ class TestRateLimitCallback:
             }
         }
 
-        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0)
+        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0, end_user_id=None)
 
-        mock_record_cost.assert_called_once_with(0.01)
+        mock_record_cost.assert_called_once_with(0.01, None)
         mock_fallback_metric.labels.assert_called()
 
     @pytest.mark.asyncio
@@ -92,9 +92,9 @@ class TestRateLimitCallback:
         mock_record_cost.return_value = None
         kwargs: dict[str, Any] = {}
 
-        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0)
+        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0, end_user_id=None)
 
-        mock_record_cost.assert_called_once_with(0.01)
+        mock_record_cost.assert_called_once_with(0.01, None)
         mock_fallback_metric.labels.assert_called()
 
     @pytest.mark.asyncio
@@ -115,7 +115,7 @@ class TestRateLimitCallback:
             }
         }
 
-        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0)
+        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0, end_user_id=None)
 
         mock_cost_recorded.labels.assert_called()
 
@@ -141,7 +141,7 @@ class TestRateLimitCallback:
             }
         }
 
-        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0)
+        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0, end_user_id=None)
 
         mock_cost_missing.labels.assert_called()
 
@@ -166,10 +166,10 @@ class TestRateLimitCallback:
             }
         }
 
-        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0)
+        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0, end_user_id=None)
 
         mock_estimate.assert_called_once_with("gpt-4", 100, 50)
-        mock_record_cost.assert_called_once_with(0.002)
+        mock_record_cost.assert_called_once_with(0.002, None)
 
     @pytest.mark.asyncio
     @patch("llm_gateway.callbacks.rate_limiting.record_cost")
@@ -196,7 +196,7 @@ class TestRateLimitCallback:
             }
         }
 
-        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0)
+        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0, end_user_id=None)
 
         mock_cost_recorded.labels.assert_called()
         mock_cost_estimated.labels.assert_called()
@@ -215,9 +215,9 @@ class TestRateLimitCallback:
         kwargs = {"standard_logging_object": {"response_cost": cost}}
 
         with patch("llm_gateway.callbacks.rate_limiting.record_cost", new_callable=AsyncMock) as mock_record:
-            await callback._on_success(kwargs, None, 0.0, 1.0)
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-            mock_record.assert_called_once_with(cost)
+            mock_record.assert_called_once_with(cost, None)
 
 
 class TestDefaultFallbackCost:
@@ -245,9 +245,9 @@ class TestDefaultFallbackCost:
             }
         }
 
-        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0)
+        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0, end_user_id=None)
 
-        mock_record_cost.assert_called_once_with(0.01)
+        mock_record_cost.assert_called_once_with(0.01, None)
         mock_fallback_metric.labels.assert_called()
         mock_fallback_metric.labels().inc.assert_called_once()
 
@@ -281,9 +281,9 @@ class TestDefaultFallbackCost:
             }
         }
 
-        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0)
+        await callback._on_success(kwargs, MagicMock(), 0.0, 1.0, end_user_id=None)
 
-        mock_record_cost.assert_called_once_with(0.05)
+        mock_record_cost.assert_called_once_with(0.05, None)
         get_settings.cache_clear()
 
 

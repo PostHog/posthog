@@ -247,8 +247,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
         asyncio.create_task(worker_shutdown_handler())
 
-        rows_exported = get_rows_exported_metric()
-        bytes_exported = get_bytes_exported_metric()
+        rows_exported = get_rows_exported_metric(model="events")
+        bytes_exported = get_bytes_exported_metric(model="events")
 
         # The HTTP destination currently only supports the PostHog batch capture endpoint. In the
         # future we may support other endpoints, but we'll need a way to template the request body,

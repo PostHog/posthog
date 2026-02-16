@@ -20,6 +20,7 @@ from posthog.schema import (
     ModeContext,
 )
 
+from posthog.constants import AvailableFeature
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -106,6 +107,10 @@ class AssistantContextManager(AssistantContextMixin):
 
         return contextual_tools
 
+    @property
+    def is_subagent(self) -> bool:
+        return (self._config.get("configurable") or {}).get("is_subagent", False)
+
     def get_billing_context(self) -> MaxBillingContext | None:
         """
         Extracts the billing context from the runnable config.
@@ -125,6 +130,13 @@ class AssistantContextManager(AssistantContextMixin):
             OrganizationMembership.Level.OWNER,
         )
 
+    @database_sync_to_async
+    def check_has_audit_logs_access(self) -> bool:
+        """
+        Check if the user has access to the audit logs tool.
+        """
+        return self._team.organization.is_feature_available(AvailableFeature.AUDIT_LOGS)
+
     def get_groups(self):
         """
         Returns the ORM chain of the team's groups.
@@ -135,7 +147,12 @@ class AssistantContextManager(AssistantContextMixin):
         """
         Returns the names of the team's groups.
         """
-        return [group async for group in self.get_groups().values_list("group_type", flat=True)]
+
+        @database_sync_to_async(thread_sensitive=False)
+        def _get_group_names_sync() -> list[str]:
+            return list(self.get_groups().values_list("group_type", flat=True))
+
+        return await _get_group_names_sync()
 
     async def _format_ui_context(self, ui_context: MaxUIContext | None) -> str | None:
         """

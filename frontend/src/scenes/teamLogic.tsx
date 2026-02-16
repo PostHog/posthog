@@ -2,7 +2,8 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api, { ApiConfig } from 'lib/api'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -17,7 +18,6 @@ import {
     addProductIntentForCrossSell,
 } from 'lib/utils/product-intents'
 
-import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { CurrencyCode, CustomerAnalyticsConfig, ProductKey } from '~/queries/schema/schema-general'
 import { CorrelationConfigType, ProjectType, TeamPublicType, TeamType } from '~/types'
@@ -118,15 +118,9 @@ export const teamLogic = kea<teamLogicType>([
                         api.update(`api/environments/${values.currentTeam.id}`, payload),
                         undefined,
                     ]
-                    if (
-                        Object.keys(payload).length === 1 &&
-                        payload.name &&
-                        values.currentProject &&
-                        !values.featureFlags[FEATURE_FLAGS.ENVIRONMENTS]
-                    ) {
-                        // If we're only updating the name and the user doesn't have access to the environments feature,
-                        // update the project name as well, for 100% equivalence
-                        promises[0] = api.update(`api/projects/${values.currentProject.id}`, { name: payload.name })
+                    if (Object.keys(payload).length === 1 && payload.name && values.currentProject) {
+                        // If we're only updating the name, update the project name as well for equivalence
+                        promises[1] = api.update(`api/projects/${values.currentProject.id}`, { name: payload.name })
                     }
                     const [patchedTeam] = await Promise.all(promises)
                     breakpoint()
@@ -176,6 +170,27 @@ export const teamLogic = kea<teamLogicType>([
 
                     if (!window.location.pathname.match(/\/(onboarding|products)/) && !isUpdatingOnboardingTasks) {
                         lemonToast.success(message)
+                    }
+
+                    const setupLogic = globalSetupLogic.findMounted()
+                    if (setupLogic) {
+                        if (payload.autocapture_web_vitals_opt_in) {
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.SetUpWebVitals)
+                        }
+                        if (payload.session_recording_opt_in) {
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.SetupSessionRecordings)
+                        }
+                        if (payload.capture_console_log_opt_in) {
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.EnableConsoleLogs)
+                        }
+                        if (
+                            payload.session_recording_sample_rate ||
+                            payload.session_recording_minimum_duration_milliseconds ||
+                            payload.session_recording_linked_flag ||
+                            payload.session_recording_network_payload_capture_config
+                        ) {
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.ConfigureRecordingSettings)
+                        }
                     }
 
                     return patchedTeam
@@ -237,12 +252,6 @@ export const teamLogic = kea<teamLogicType>([
                     return false
                 }
                 return true
-            },
-        ],
-        hasIngestedEvent: [
-            (selectors) => [selectors.currentTeam],
-            (currentTeam): boolean => {
-                return currentTeam?.ingested_event ?? false
             },
         ],
         currentTeamId: [
@@ -315,11 +324,13 @@ export const teamLogic = kea<teamLogicType>([
             if (currentTeam) {
                 ApiConfig.setCurrentTeamId(currentTeam.id)
             }
-        },
-        updateCurrentTeamSuccess: ({ currentTeam, payload }) => {
-            if (currentTeam && !payload?.onboarding_tasks) {
-                activationLogic.findMounted()?.actions?.onTeamLoad(currentTeam)
+
+            // Detect managed viewsets to mark them as completed in the product setup
+            if (currentTeam?.managed_viewsets?.['revenue_analytics']) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.EnableRevenueAnalyticsViewset)
             }
+        },
+        updateCurrentTeamSuccess: () => {
             // Reload user after team update to keep user object in sync
             actions.loadUser()
         },
@@ -341,27 +352,18 @@ export const teamLogic = kea<teamLogicType>([
             lemonToast.success('Project has been deleted')
         },
     })),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions }) => {
         const appContext = getAppContext()
         const currentTeam = appContext?.current_team
-        const currentProject = appContext?.current_project
         const switchedTeam = appContext?.switched_team
         if (switchedTeam) {
-            lemonToast.info(
-                <>
-                    You've switched to&nbsp;project{' '}
-                    {values.featureFlags[FEATURE_FLAGS.ENVIRONMENTS]
-                        ? `${currentProject?.name}, environment ${currentTeam?.name}`
-                        : currentTeam?.name}
-                </>,
-                {
-                    button: {
-                        label: 'Switch back',
-                        action: () => actions.switchTeam(switchedTeam),
-                    },
-                    icon: <IconSwapHoriz />,
-                }
-            )
+            lemonToast.info(<>You've switched to&nbsp;project {currentTeam?.name}</>, {
+                button: {
+                    label: 'Switch back',
+                    action: () => actions.switchTeam(switchedTeam),
+                },
+                icon: <IconSwapHoriz />,
+            })
         }
 
         if (currentTeam) {

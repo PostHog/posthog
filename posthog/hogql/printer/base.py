@@ -12,7 +12,13 @@ from posthog.schema import MaterializationMode, PersonsOnEventsMode, PropertyGro
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant, StringType
 from posthog.hogql.base import AST
-from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings, LimitContext, get_max_limit_for_context
+from posthog.hogql.constants import (
+    HogQLDialect,
+    HogQLGlobalSettings,
+    HogQLQuerySettings,
+    LimitContext,
+    get_max_limit_for_context,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable, Table
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
@@ -47,12 +53,10 @@ from posthog.clickhouse.materialized_columns import (
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
-from posthog.models.surveys.util import (
-    filter_survey_sent_events_by_unique_submission,
-    get_survey_response_clickhouse_query,
-)
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
+
+MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH = 8
 
 
 def get_channel_definition_dict():
@@ -86,6 +90,8 @@ class HogQLPrinter(Visitor[str]):
         self.pretty = pretty
         self._indent = -1
         self.tab_size = 4
+        self._table_top_level_settings: dict[str, Any] = {}
+        self._placeholder_macro_expansion_depth = 0
 
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
@@ -190,7 +196,7 @@ class HogQLPrinter(Visitor[str]):
                 raise ImpossibleASTError(f"Invalid ARRAY JOIN operation: {node.array_join_op}")
             array_join = node.array_join_op
             if node.array_join_list is None or len(node.array_join_list or []) == 0:
-                raise ImpossibleASTError(f"Invalid ARRAY JOIN without an array")
+                raise ImpossibleASTError("Invalid ARRAY JOIN without an array")
             array_join += f" {', '.join(self.visit(expr) for expr in node.array_join_list)}"
 
         space = f"\n{self.indent(1)}" if self.pretty else " "
@@ -297,6 +303,8 @@ class HogQLPrinter(Visitor[str]):
 
             if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
+
+            self._collect_table_top_level_settings(table_type.table)
 
             # :IMPORTANT: Ensures team_id filtering on every table. For LEFT JOINs, we add it to the
             # ON clause (not WHERE) to preserve LEFT JOIN semantics - otherwise NULL rows get filtered out.
@@ -548,23 +556,13 @@ class HogQLPrinter(Visitor[str]):
                     )
 
             # Handle format strings in function names before checking function type
-            if func_meta.using_placeholder_arguments:
-                # Check if using positional arguments (e.g. {0}, {1})
-                if func_meta.using_positional_arguments:
-                    # For positional arguments, pass the args as a dictionary
-                    arg_arr = [self.visit(arg) for arg in node.args]
-                    try:
-                        return func_meta.clickhouse_name.format(*arg_arr)
-                    except (KeyError, IndexError) as e:
-                        raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
-                else:
-                    # Original sequential placeholder behavior
-                    placeholder_count = func_meta.clickhouse_name.count("{}")
-                    if len(node.args) != placeholder_count:
-                        raise QueryError(
-                            f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
-                        )
-                    return func_meta.clickhouse_name.format(*[self.visit(arg) for arg in node.args])
+            # For HogQL, don't expand the macro, just display it in its original shape.
+            if func_meta.using_placeholder_arguments and self.dialect != "hogql":
+                return self._render_placeholder_macro(
+                    node=node,
+                    clickhouse_name=func_meta.clickhouse_name,
+                    using_positional_arguments=func_meta.using_positional_arguments,
+                )
 
         if node.name in HOGQL_COMPARISON_MAPPING:
             op = HOGQL_COMPARISON_MAPPING[node.name]
@@ -611,7 +609,7 @@ class HogQLPrinter(Visitor[str]):
             params = [self.visit(param) for param in node.params] if node.params is not None else None
 
             params_part = f"({', '.join(params)})" if params is not None else ""
-            args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
+            args_part = f"({'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
 
             return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
 
@@ -808,28 +806,6 @@ class HogQLPrinter(Visitor[str]):
                     # (old analyzer evaluates all branches regardless of condition)
                     safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
                     return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
-                elif node.name == "getSurveyResponse":
-                    question_index_obj = node.args[0]
-                    if not isinstance(question_index_obj, ast.Constant):
-                        raise QueryError("getSurveyResponse first argument must be a constant")
-                    if (
-                        not isinstance(question_index_obj.value, int | str)
-                        or not str(question_index_obj.value).lstrip("-").isdigit()
-                    ):
-                        raise QueryError("getSurveyResponse first argument must be a valid integer")
-                    second_arg = node.args[1] if len(node.args) > 1 else None
-                    third_arg = node.args[2] if len(node.args) > 2 else None
-                    question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
-                    is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
-                    return get_survey_response_clickhouse_query(
-                        int(question_index_obj.value), question_id, is_multiple_choice
-                    )
-
-                elif node.name == "uniqueSurveySubmissionsFilter":
-                    survey_id = node.args[0]
-                    if not isinstance(survey_id, ast.Constant):
-                        raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
-                    return filter_survey_sent_events_by_unique_submission(survey_id.value, self.context.team_id)
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if "{}" in relevant_clickhouse_name:
@@ -856,6 +832,32 @@ class HogQLPrinter(Visitor[str]):
         if node.field is None:
             raise QueryError("You can not use placeholders here")
         raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
+
+    def _render_placeholder_macro(self, node: ast.Call, clickhouse_name: str, using_positional_arguments: bool) -> str:
+        self._placeholder_macro_expansion_depth += 1
+        try:
+            if self._placeholder_macro_expansion_depth > MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH:
+                raise QueryError(
+                    f"Function '{node.name}' exceeded maximum placeholder macro depth of {MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH}."
+                )
+
+            if using_positional_arguments:
+                arg_arr = [self.visit(arg) for arg in node.args]
+                try:
+                    rendered = clickhouse_name.format(*arg_arr)
+                except (KeyError, IndexError) as e:
+                    raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
+            else:
+                placeholder_count = clickhouse_name.count("{}")
+                if len(node.args) != placeholder_count:
+                    raise QueryError(
+                        f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
+                    )
+                rendered = clickhouse_name.format(*[self.visit(arg) for arg in node.args])
+
+            return rendered
+        finally:
+            self._placeholder_macro_expansion_depth -= 1
 
     def visit_alias(self, node: ast.Alias):
         # Skip hidden aliases completely.
@@ -951,7 +953,7 @@ class HogQLPrinter(Visitor[str]):
         else:
             error = f"Can't access field '{type.name}' on a table with type '{type.table_type.__class__.__name__}'."
             if isinstance(type.table_type, ast.LazyJoinType):
-                error += f" Lazy joins should have all been replaced in the resolver."
+                error += " Lazy joins should have all been replaced in the resolver."
             raise ImpossibleASTError(error)
 
         return field_sql
@@ -1351,9 +1353,37 @@ class HogQLPrinter(Visitor[str]):
             return nullable
         return True
 
-    def _print_settings(self, settings):
+    def _collect_table_top_level_settings(self, table: Table) -> None:
+        if table.top_level_settings is None:
+            return
+        for key, value in table.top_level_settings.model_dump().items():
+            if value is None:
+                continue
+            existing = self._table_top_level_settings.get(key)
+            if existing is not None and existing != value:
+                raise QueryError(
+                    f"Conflicting top_level_settings for '{key}': "
+                    f"one table requires {existing!r} but another requires {value!r}"
+                )
+            self._table_top_level_settings[key] = value
+
+    def _merge_table_top_level_settings(self, settings: HogQLQuerySettings | None) -> dict[str, Any]:
+        merged = dict(settings.model_dump()) if settings else {}
+        if not self._table_top_level_settings:
+            return merged
+        for key, value in self._table_top_level_settings.items():
+            existing = merged.get(key)
+            if existing is not None and existing != value:
+                raise QueryError(
+                    f"Conflicting settings for '{key}': query has {existing!r} but table requires {value!r}"
+                )
+            merged[key] = value
+        return merged
+
+    def _print_settings(self, settings: HogQLQuerySettings | dict[str, Any]) -> str | None:
         pairs = []
-        for key, value in settings:
+        items = settings.items() if isinstance(settings, dict) else settings
+        for key, value in items:
             if value is None:
                 continue
             if not re.match(r"^[a-zA-Z0-9_]+$", key):
@@ -1395,3 +1425,20 @@ class HogQLPrinter(Visitor[str]):
             frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
             frame_end=ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
         )
+
+    def visit_type_cast(self, node: ast.TypeCast):
+        match node.type_name.lower():
+            case "int" | "integer":
+                return f"toInt64({self.visit(node.expr)})"
+            case "float" | "double" | "double precision" | "real":
+                return f"toFloat64({self.visit(node.expr)})"
+            case "text" | "varchar" | "char" | "string":
+                return f"toString({self.visit(node.expr)})"
+            case "boolean" | "bool":
+                return f"toBoolean({self.visit(node.expr)})"
+            case "date":
+                return f"toDate({self.visit(node.expr)})"
+            case "datetime" | "timestamp" | "timestamptz":
+                return f"toDateTime({self.visit(node.expr)}, '{self._get_timezone()}')"
+            case _:
+                raise QueryError(f"Unsupported type cast to '{node.type_name}'")

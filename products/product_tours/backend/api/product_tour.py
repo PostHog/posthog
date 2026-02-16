@@ -1,3 +1,4 @@
+import uuid
 import logging
 from typing import Any, cast
 
@@ -42,6 +43,49 @@ logger = logging.getLogger(__name__)
 TOUR_GENERATION_MODEL = "claude-haiku-4-5"
 
 
+def normalize_step(step: dict) -> dict:
+    """Ensure elementTargeting and useManualSelector are consistent.
+
+    Handles both read (legacy → elementTargeting) and write (elementTargeting → useManualSelector).
+    """
+    step = {**step}
+
+    # Derive elementTargeting from legacy fields if missing
+    if "elementTargeting" not in step:
+        if step.get("useManualSelector") is True:
+            step["elementTargeting"] = "manual"
+        elif step.get("inferenceData"):
+            step["elementTargeting"] = "auto"
+        elif step.get("type") == "element":
+            step["elementTargeting"] = "auto"
+            step["type"] = "modal"
+
+    # Derive useManualSelector from elementTargeting for SDK compat
+    targeting = step.get("elementTargeting")
+    if targeting == "manual":
+        step["useManualSelector"] = True
+    elif targeting is not None:
+        step.pop("useManualSelector", None)
+
+    return step
+
+
+def _validate_launch(steps: list[dict]):
+    [_validate_step_targeting(step, idx) for idx, step in enumerate(steps)]
+
+
+def _validate_step_targeting(step: dict, idx: int):
+    targeting = step.get("elementTargeting")
+    if not targeting:
+        return
+
+    if targeting == "manual" and not step.get("selector"):
+        raise serializers.ValidationError(f"Step {idx + 1} is missing an element selector")
+
+    if targeting == "auto" and not step.get("inferenceData"):
+        raise serializers.ValidationError(f"Step {idx + 1} requires an element to be selected")
+
+
 class TourStepContent(BaseModel):
     """A single step in the generated tour."""
 
@@ -76,8 +120,8 @@ class ProductTourSerializer(serializers.ModelSerializer):
     """Read-only serializer for ProductTour."""
 
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
+    linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
-    feature_flag_key = serializers.SerializerMethodField()
     targeting_flag_filters = serializers.SerializerMethodField()
 
     class Meta:
@@ -87,7 +131,7 @@ class ProductTourSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "internal_targeting_flag",
-            "feature_flag_key",
+            "linked_flag",
             "targeting_flag_filters",
             "content",
             "auto_launch",
@@ -100,10 +144,13 @@ class ProductTourSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 
-    def get_feature_flag_key(self, tour: ProductTour) -> str | None:
-        if tour.internal_targeting_flag:
-            return tour.internal_targeting_flag.key
-        return None
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        content = data.get("content") or {}
+        if "steps" in content:
+            content["steps"] = [normalize_step(s) for s in content["steps"]]
+            data["content"] = content
+        return data
 
     def get_targeting_flag_filters(self, tour: ProductTour) -> dict | None:
         """Return the targeting flag filters, excluding the base exclusion properties."""
@@ -139,6 +186,8 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
     """Serializer for creating and updating ProductTour."""
 
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
+    linked_flag = MinimalFeatureFlagSerializer(read_only=True)
+    linked_flag_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     created_by = UserBasicSerializer(read_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
     creation_context = serializers.ChoiceField(
@@ -156,6 +205,8 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             "name",
             "description",
             "internal_targeting_flag",
+            "linked_flag",
+            "linked_flag_id",
             "targeting_flag_filters",
             "content",
             "auto_launch",
@@ -167,7 +218,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             "archived",
             "creation_context",
         ]
-        read_only_fields = ["id", "internal_targeting_flag", "created_at", "created_by", "updated_at"]
+        read_only_fields = ["id", "internal_targeting_flag", "linked_flag", "created_at", "created_by", "updated_at"]
 
     def validate_content(self, value):
         if value is None:
@@ -180,7 +231,57 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             if len(steps) != 1:
                 raise serializers.ValidationError("Announcements must have exactly 1 step.")
 
+        if "steps" in value:
+            value["steps"] = [normalize_step(s) for s in value["steps"]]
+
         return value
+
+    def validate(self, data):
+        from posthog.models.feature_flag import FeatureFlag
+
+        # For partial updates (PATCH), fall back to the instance's existing
+        # linked_flag_id when the field wasn't included in the request.
+        # "linked_flag_id" absent from data = not sent; present as None = explicitly cleared.
+        if "linked_flag_id" not in data and self.instance is not None:
+            linked_flag_id = self.instance.linked_flag_id
+        else:
+            linked_flag_id = data.get("linked_flag_id")
+
+        linked_flag = None
+        if linked_flag_id:
+            try:
+                linked_flag = FeatureFlag.objects.get(pk=linked_flag_id, team_id=self.context["team_id"])
+            except FeatureFlag.DoesNotExist:
+                raise serializers.ValidationError("Feature Flag with this ID does not exist")
+
+        # Validate linkedFlagVariant if provided in content conditions
+        content = data.get("content") or {}
+        conditions = content.get("conditions") or {}
+        linked_flag_variant = conditions.get("linkedFlagVariant")
+        if linked_flag_variant and linked_flag and linked_flag_variant != "any":
+            available_variants = [variant["key"] for variant in linked_flag.variants]
+            if linked_flag_variant not in available_variants:
+                if available_variants:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' does not exist. "
+                        f"Available variants: {', '.join(available_variants)}"
+                    )
+                else:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' specified but the linked feature flag has no variants"
+                    )
+        elif linked_flag_variant and not linked_flag_id:
+            raise serializers.ValidationError("linkedFlagVariant can only be used when a linked_flag_id is specified")
+
+        # Block launching or updating a live tour with incomplete element targeting
+        is_launching = "start_date" in data and data["start_date"] is not None
+        is_launched = self.instance is not None and self.instance.start_date is not None
+        if is_launching or is_launched:
+            launch_content = data.get("content") or (self.instance.content if self.instance else None) or {}
+            steps = launch_content.get("steps", [])
+            _validate_launch(steps)
+
+        return data
 
     @transaction.atomic
     def create(self, validated_data):
@@ -518,7 +619,6 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
                 # Update existing survey
                 try:
                     survey = Survey.objects.get(id=linked_survey_id, team=instance.team)
-                    survey.name = survey_name
                     survey.questions = [survey_question]
                     # Ensure appearance has hideCancelButton set
                     survey.appearance = survey.appearance or {}
@@ -534,7 +634,6 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
                     survey.enable_partial_responses = False  # Single question, no partial responses
                     survey.save(
                         update_fields=[
-                            "name",
                             "questions",
                             "appearance",
                             "start_date",
@@ -562,7 +661,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
                 }
                 survey = Survey.objects.create(
                     team=instance.team,
-                    name=survey_name,
+                    name=f"{survey_name} ({str(uuid.uuid4())[:8]})",
                     type="api",  # API type since we'll trigger it programmatically
                     questions=[survey_question],
                     appearance=survey_appearance,
@@ -601,7 +700,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
 
 class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "product_tour"
-    queryset = ProductTour.objects.select_related("internal_targeting_flag", "created_by").all()
+    queryset = ProductTour.objects.select_related("internal_targeting_flag", "linked_flag", "created_by").all()
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
     authentication_classes = [TemporaryTokenAuthentication]
@@ -767,6 +866,7 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
     """
 
     internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
+    linked_flag_key = serializers.SerializerMethodField()
     steps = serializers.SerializerMethodField()
     conditions = serializers.SerializerMethodField()
     appearance = serializers.SerializerMethodField()
@@ -778,6 +878,7 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
             "id",
             "name",
             "internal_targeting_flag_key",
+            "linked_flag_key",
             "steps",
             "conditions",
             "appearance",
@@ -788,8 +889,12 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    def get_linked_flag_key(self, tour: ProductTour) -> str | None:
+        return tour.linked_flag.key if tour.linked_flag else None
+
     def get_steps(self, tour: ProductTour) -> list:
-        return tour.content.get("steps", []) if tour.content else []
+        steps = tour.content.get("steps", []) if tour.content else []
+        return [normalize_step(s) for s in steps]
 
     def get_conditions(self, tour: ProductTour) -> dict | None:
         return tour.content.get("conditions") if tour.content else None
@@ -808,7 +913,7 @@ def get_product_tours_response(team: Team) -> dict:
             team__project_id=team.project_id,
             archived=False,
             start_date__isnull=False,
-        ).select_related("internal_targeting_flag"),
+        ).select_related("internal_targeting_flag", "linked_flag"),
         many=True,
     ).data
 

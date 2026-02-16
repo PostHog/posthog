@@ -41,6 +41,10 @@ class ModelCost(TypedDict, total=False):
     """Legacy field: defaults to max_output_tokens if set, otherwise max_input_tokens."""
     litellm_provider: str
     """Provider identifier (e.g., "anthropic", "openai", "vertex_ai")."""
+    supports_vision: bool
+    """Whether the model supports image/vision input."""
+    mode: str
+    """Model mode (e.g., "chat", "completion", "embedding")."""
 
 
 class ModelCostService:
@@ -101,6 +105,10 @@ class ModelCostService:
     def get_costs(self, model: str) -> ModelCost | None:
         self._ensure_fresh()
         return self._costs.get(model)
+
+    def get_all_models(self) -> dict[str, ModelCost]:
+        self._ensure_fresh()
+        return self._costs
 
 
 def get_model_limits(model: str) -> ModelLimits:

@@ -10,9 +10,11 @@
 #
 # - frontend-build: build the frontend (static assets)
 # - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
-# - nodejs-build: build nodejs (Node.js app) & fetch its runtime dependencies
+# - node-scripts-build: build standalone Node.js scripts and their dependencies
 # - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
 # - fetch-geoip-db: fetch the GeoIP database
+#
+# Node.js services are built separately using Dockerfile.node.
 #
 # In the last stage, we import the artifacts from the previous
 # stages, add some runtime dependencies and build the final image.
@@ -80,69 +82,29 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.91-node_24.13.0 AS nodejs-build
-
-# Compile and install system dependencies
-# Add Confluent's client repository for librdkafka 2.10.1
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    "wget" \
-    "gnupg" \
-    && \
-    mkdir -p /etc/apt/keyrings && \
-    wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends --allow-downgrades \
-    "make" \
-    "g++" \
-    "gcc" \
-    "python3" \
-    "librdkafka1=2.10.1-1.cflt~deb12" \
-    "librdkafka++1=2.10.1-1.cflt~deb12" \
-    "librdkafka-dev=2.10.1-1.cflt~deb12" \
-    "libssl-dev=3.0.17-1~deb12u2" \
-    "libssl3=3.0.17-1~deb12u2" \
-    "zlib1g-dev" \
-    && \
-    rm -rf /var/lib/apt/lists/*
-
+# Build standalone Node.js scripts and their dependencies.
+# These scripts can be invoked from Python via subprocess.
+#
+FROM node:24.13.0-bookworm-slim AS node-scripts-build
 WORKDIR /code
-COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
-COPY ./bin/turbo ./bin/turbo
-COPY ./patches ./patches
-COPY ./rust ./rust
-COPY ./common/esbuilder/ ./common/esbuilder/
-COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
-COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
-COPY ./nodejs/package.json ./nodejs/tsconfig.json ./nodejs/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+# Skip Puppeteer Chromium download - we would use system Chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
-# Use system librdkafka from Confluent (2.10.1) instead of bundled version
-ENV BUILD_LIBRDKAFKA=0
+COPY nodejs/src/scripts/ nodejs/src/scripts/
+RUN cd nodejs/src/scripts && npm install --omit=dev
 
-# Compile and install Node.js dependencies.
-# NOTE: we don't actually use the plugin-transpiler with the nodejs, it's just here for the build.
+# Build plugin transpiler for site destinations/apps
+COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY bin/turbo bin/turbo
+COPY patches/ patches/
+COPY common/esbuilder/ common/esbuilder/
+COPY common/plugin_transpiler/ common/plugin_transpiler/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/nodejs... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
-    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
-    NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
+    NODE_OPTIONS="--max-old-space-size=4096" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
+    NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-transpiler build
 
-# Build the nodejs services.
-#
-# Note: we run the build as a separate action to increase
-# the cache hit ratio of the layers above.
-COPY ./nodejs/src/ ./nodejs/src/
-COPY ./nodejs/tests/ ./nodejs/tests/
-COPY ./nodejs/assets/ ./nodejs/assets/
-COPY ./nodejs/bin/ ./nodejs/bin/
-
-# Build cyclotron first
-RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
-
-# Then build the nodejs services
-RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs build
 
 #
 # ---------------------------------------------------------
@@ -233,27 +195,16 @@ ENV PYTHONUNBUFFERED 1
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
-# Add Confluent's client repository for librdkafka runtime
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    "wget" \
-    "gnupg" \
-    && \
-    mkdir -p /etc/apt/keyrings && \
-    wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
-    apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
     "chromium" \
     "chromium-driver" \
+    "gettext-base" \
     "libpq-dev" \
     "libxmlsec1=1.2.37-2" \
     "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
-    "gettext-base" \
     "ffmpeg=7:5.1.8-0+deb12u1" \
-    "librdkafka1=2.10.1-1.cflt~deb12" \
-    "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl-dev=3.0.17-1~deb12u2" \
     "libssl3=3.0.17-1~deb12u2" \
     "libjemalloc2" \
@@ -267,7 +218,7 @@ RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/truste
     ACCEPT_EULA=Y apt-get install -y msodbcsql18 && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 24.13.0 with architecture detection and verification
+# Install Node.js 24.13.0 for standalone scripts with architecture detection and verification
 ENV NODE_VERSION 24.13.0
 
 RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
@@ -319,22 +270,6 @@ USER posthog
 ARG COMMIT_HASH
 RUN echo $COMMIT_HASH > /code/commit.txt
 
-# Add in the compiled nodejs & its runtime dependencies from the nodejs-build stage.
-COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/dist /code/rust/cyclotron-node/dist
-COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/package.json /code/rust/cyclotron-node/package.json
-COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/index.node /code/rust/cyclotron-node/index.node
-COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
-COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
-COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
-COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/dist /code/common/hogvm/typescript/dist
-COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/node_modules /code/common/hogvm/typescript/node_modules
-COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/dist /code/nodejs/dist
-COPY --from=nodejs-build --chown=posthog:posthog /code/node_modules /code/node_modules
-COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/node_modules /code/nodejs/node_modules
-COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/package.json /code/nodejs/package.json
-COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/assets /code/nodejs/assets
-COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/bin /code/nodejs/bin
-
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
 COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
@@ -353,11 +288,6 @@ RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache \
     chown -R posthog:posthog /ms-playwright
 USER posthog
 
-# Validate video export dependencies
-RUN ffmpeg -version
-RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
-RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
-
 # Copy the frontend assets from the frontend-build stage.
 # TODO: this copy should not be necessary, we should remove it once we verify everything still works.
 COPY --from=frontend-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
@@ -371,6 +301,16 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.j
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
+# Copy standalone Node.js scripts and their dependencies.
+COPY --from=node-scripts-build --chown=posthog:posthog /code/nodejs/src/scripts /code/nodejs/src/scripts
+
+# Copy plugin transpiler (used by Django for site destinations/apps).
+# pnpm stores packages in node_modules/.pnpm/, workspace node_modules contain symlinks there.
+COPY --from=node-scripts-build --chown=posthog:posthog /code/node_modules /code/node_modules
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
+
 # Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/
 COPY --chown=posthog:posthog manage.py manage.py
@@ -380,13 +320,23 @@ COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 
+# Validate video export dependencies
+RUN ffmpeg -version
+RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
+RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
+RUN cd /code/nodejs/src/scripts && timeout 60s node -e "\
+  require('puppeteer'); \
+  require('puppeteer-screen-recorder'); \
+  console.log('Puppeteer and screen recorder available')"
+
 # Setup ENV.
 ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver \
-    BUILD_LIBRDKAFKA=0 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Expose container port and run entry point script.
 EXPOSE 8000

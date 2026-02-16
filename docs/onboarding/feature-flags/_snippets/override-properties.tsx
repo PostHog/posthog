@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const OverridePropertiesSnippet = memo(function OverridePropertiesSnippet({ language = 'javascript' }: { language?: string }): JSX.Element {
+export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { language?: string }): JSX.Element => {
     const { CodeBlock, dedent, Markdown } = useMDXComponents()
 
     const snippets: Record<string, string> = {

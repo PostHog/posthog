@@ -505,3 +505,60 @@ class TestFstringSafeTernary:
         ascending = False
         # ok: hogql-fstring-audit
         parse_order_expr(f"timestamp {'ASC' if ascending else 'DESC'}")
+
+
+# ============================================================================
+# clickhouse-injection-taint: SHOULD FIND (user data in f-strings to execute)
+# ============================================================================
+
+
+class TestClickhouseTaintVulnerable:
+    def test_self_field_in_fstring(self):
+        # ruleid: clickhouse-injection-taint
+        sync_execute(f"SELECT max(`{self.column}`) FROM events")
+
+    def test_self_query_field_in_fstring(self):
+        # ruleid: clickhouse-injection-taint
+        sync_execute(f"SELECT * FROM {self.query.table_name}")
+
+    def test_indirect_fstring_flow(self):
+        query = f"SELECT * FROM {self.table_name}"
+        # ruleid: clickhouse-injection-taint
+        sync_execute(query)
+
+
+def test_method_param_in_fstring(column: str):
+    # Method parameter used in f-string - not tracked by taint rule (too many false positives)
+    # ok: clickhouse-injection-taint
+    sync_execute(f"SELECT max(`{column}`) FROM events")
+
+
+def test_method_param_escaped(column: str):
+    # Method parameter escaped - safe
+    safe_col = escape_clickhouse_identifier(column)
+    # ok: clickhouse-injection-taint
+    sync_execute(f"SELECT max({safe_col}) FROM events")
+
+
+# ============================================================================
+# clickhouse-injection-taint: SHOULD NOT FIND (safe patterns)
+# ============================================================================
+
+
+class TestClickhouseTaintSafe:
+    def test_escaped_identifier(self):
+        safe_col = escape_clickhouse_identifier(self.column)
+        # ok: clickhouse-injection-taint
+        sync_execute(f"SELECT {safe_col} FROM events")
+
+    def test_constant_table(self):
+        # ok: clickhouse-injection-taint
+        sync_execute(f"SELECT * FROM {EVENTS_TABLE}")
+
+    def test_parameterized_values(self):
+        # ok: clickhouse-injection-taint
+        sync_execute("SELECT * FROM events WHERE id = %(id)s", {"id": self.query.id})
+
+    def test_no_fstring(self):
+        # ok: clickhouse-injection-taint
+        sync_execute("SELECT * FROM events")
