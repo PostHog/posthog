@@ -57,6 +57,20 @@ export function VariantsPanel({ experiment, updateFeatureFlag, disabled = false 
         loadFeatureFlagsForAutocomplete()
     }, [loadFeatureFlagsForAutocomplete])
 
+    // Sync autocomplete state when experiment has a feature flag key that isn't reflected
+    // in the autocomplete (e.g., when switching from the wizard form to the classic form)
+    useEffect(() => {
+        if (experiment.feature_flag_key && !featureFlagKeyForAutocomplete) {
+            setFeatureFlagKeyForAutocomplete(experiment.feature_flag_key)
+            debouncedValidateFeatureFlagKey(experiment.feature_flag_key)
+        }
+    }, [
+        experiment.feature_flag_key,
+        featureFlagKeyForAutocomplete,
+        setFeatureFlagKeyForAutocomplete,
+        debouncedValidateFeatureFlagKey,
+    ])
+
     const featureFlagOptions = useMemo(() => {
         return (featureFlags.results || []).map((flag) => ({
             key: flag.key,
