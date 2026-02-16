@@ -2,6 +2,7 @@ import re
 from typing import NamedTuple
 
 import structlog
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -17,7 +18,8 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.property import action_to_expr
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.models import Action, Team
 from posthog.types import AnyPropertyFilter
@@ -121,17 +123,26 @@ def poe_is_active(team: Team) -> bool:
     return team.person_on_events_mode is not None and team.person_on_events_mode != PersonsOnEventsMode.DISABLED
 
 
-def _entity_to_expr(entity: EventsNode | ActionsNode) -> ast.Expr:
+def _entity_to_expr(entity: EventsNode | ActionsNode, team: Team) -> ast.Expr:
     # KLUDGE: we should be able to use NodeKind.ActionsNode here but mypy :shrug:
     if entity.kind == "ActionsNode":
-        action = Action.objects.get(pk=entity.id)
-        return action_to_expr(action)
-    else:
-        if entity.event is None:
-            return ast.Constant(value=True)
+        # action
+        try:
+            action = Action.objects.get(pk=entity.id)
+        except Action.DoesNotExist:
+            raise ValidationError(f"Action ID {entity.id} does not exist!")
 
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value=entity.name),
-        )
+        event_expr = action_to_expr(action)
+    elif entity.event is None:
+        # all events
+        event_expr = ast.Constant(value=True)
+    else:
+        # event
+        event_expr = parse_expr("events.event = {event}", {"event": ast.Constant(value=entity.name)})
+
+    if entity.fixedProperties is not None and entity.fixedProperties != []:
+        # add property filters
+        filter_expr = property_to_expr(entity.fixedProperties, team)
+        return ast.And(exprs=[event_expr, filter_expr])
+    else:
+        return event_expr
