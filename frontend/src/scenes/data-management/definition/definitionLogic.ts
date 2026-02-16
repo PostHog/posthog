@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -155,4 +156,5 @@ export const definitionLogic = kea<definitionLogicType>([
             actions.loadMetrics(props.id)
         }
     }),
+    permanentlyMount(),
 ])
