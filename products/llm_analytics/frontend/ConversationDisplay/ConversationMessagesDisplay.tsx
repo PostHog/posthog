@@ -13,7 +13,9 @@ import { isObject } from 'lib/utils'
 
 import { LLMInputOutput } from '../LLMInputOutput'
 import { SearchHighlight } from '../SearchHighlight'
+import { MessageSentimentBar } from '../components/SentimentTag'
 import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
+import { llmSentimentLazyLoaderLogic } from '../llmSentimentLazyLoaderLogic'
 import { containsSearchQuery } from '../searchUtils'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
 import {
@@ -41,6 +43,8 @@ export function ConversationMessagesDisplay({
     raisedError,
     bordered = false,
     searchQuery,
+    traceId,
+    generationEventId,
 }: {
     inputNormalized: CompatMessage[]
     outputNormalized: CompatMessage[]
@@ -49,6 +53,8 @@ export function ConversationMessagesDisplay({
     raisedError?: boolean
     bordered?: boolean
     searchQuery?: string
+    traceId?: string
+    generationEventId?: string
 }): JSX.Element {
     const {
         inputMessageShowStates,
@@ -56,6 +62,10 @@ export function ConversationMessagesDisplay({
         searchQuery: currentSearchQuery,
         displayOption,
     } = useValues(llmAnalyticsTraceLogic)
+    const { getGenerationSentiment } = useValues(llmSentimentLazyLoaderLogic)
+
+    const generationSentiment =
+        traceId && generationEventId ? getGenerationSentiment(traceId, generationEventId) : undefined
     const { initializeMessageStates, toggleMessage, showAllMessages, hideAllMessages, applySearchResults } =
         useActions(llmAnalyticsTraceLogic)
 
@@ -139,21 +149,36 @@ export function ConversationMessagesDisplay({
             </div>
         ) : undefined
 
+    // Build a user-message index counter so we can match per-message sentiment
+    let userMessageIndex = 0
     const inputDisplay =
         inputNormalized.length > 0 ? (
-            inputNormalized.map((message, i) => (
-                <React.Fragment key={i}>
-                    <LLMMessageDisplay
-                        message={message}
-                        show={inputMessageShowStates[i] || false}
-                        onToggle={() => toggleMessage('input', i)}
-                        searchQuery={searchQuery}
-                    />
-                    {i < inputNormalized.length - 1 && (
-                        <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
-                    )}
-                </React.Fragment>
-            ))
+            inputNormalized.map((message, i) => {
+                const isUserMessage = message.role === 'user'
+                const messageSentiment =
+                    isUserMessage && generationSentiment ? generationSentiment.messages?.[userMessageIndex] : undefined
+                if (isUserMessage) {
+                    userMessageIndex++
+                }
+                return (
+                    <React.Fragment key={i}>
+                        <LLMMessageDisplay
+                            message={message}
+                            show={inputMessageShowStates[i] || false}
+                            onToggle={() => toggleMessage('input', i)}
+                            searchQuery={searchQuery}
+                            messageSentiment={
+                                messageSentiment
+                                    ? { label: messageSentiment.label, score: messageSentiment.score }
+                                    : undefined
+                            }
+                        />
+                        {i < inputNormalized.length - 1 && (
+                            <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
+                        )}
+                    </React.Fragment>
+                )
+            })
         ) : (
             <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No input</div>
         )
@@ -372,6 +397,7 @@ export const LLMMessageDisplay = React.memo(
         minimal = false,
         onToggle,
         searchQuery,
+        messageSentiment,
     }: {
         message: CompatMessage
         isOutput?: boolean
@@ -381,6 +407,7 @@ export const LLMMessageDisplay = React.memo(
         minimal?: boolean
         onToggle?: () => void
         searchQuery?: string
+        messageSentiment?: { label: string; score: number }
     }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
         let { isRenderingMarkdown, isRenderingXml } = useValues(llmAnalyticsTraceLogic)
@@ -583,7 +610,10 @@ export const LLMMessageDisplay = React.memo(
                             }
                         }}
                     >
-                        <span className="grow">{role}</span>
+                        <span className="grow flex items-center gap-1.5">
+                            {role}
+                            {messageSentiment && <MessageSentimentBar sentiment={messageSentiment} />}
+                        </span>
                         {(content || Object.keys(additionalKwargsEntries).length > 0) && (
                             <>
                                 <LemonButton

@@ -8,6 +8,7 @@ import { AIDataLoading } from './AIDataLoading'
 
 interface EventContentGenerationProps {
     eventId: string
+    traceId?: string
     rawInput: unknown
     rawOutput: unknown
     tools: unknown
@@ -19,6 +20,7 @@ interface EventContentGenerationProps {
 
 export function EventContentGeneration({
     eventId,
+    traceId,
     rawInput,
     rawOutput,
     tools,
@@ -45,6 +47,8 @@ export function EventContentGeneration({
             httpStatus={typeof httpStatus === 'number' ? httpStatus : undefined}
             raisedError={raisedError}
             searchQuery={searchQuery}
+            traceId={traceId}
+            generationEventId={eventId}
         />
     )
 }

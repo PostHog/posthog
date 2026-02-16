@@ -9,6 +9,7 @@ from posthog.temporal.llm_analytics.run_evaluation import (
     increment_trial_eval_count_activity,
     update_key_state_activity,
 )
+from posthog.temporal.llm_analytics.sentiment import OnDemandSentimentWorkflow, classify_sentiment_on_demand_activity
 from posthog.temporal.llm_analytics.shared_activities import fetch_all_clustering_filters_activity
 from posthog.temporal.llm_analytics.team_discovery import get_team_ids_for_llm_analytics
 from posthog.temporal.llm_analytics.trace_clustering import (
@@ -45,6 +46,7 @@ WORKFLOWS = [
     BatchTraceSummarizationCoordinatorWorkflow,
     DailyTraceClusteringWorkflow,
     TraceClusteringCoordinatorWorkflow,
+    OnDemandSentimentWorkflow,
     # Keep eval workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
     RunEvaluationWorkflow,
 ]
@@ -62,6 +64,8 @@ ACTIVITIES = [
     perform_clustering_compute_activity,
     generate_cluster_labels_activity,
     emit_cluster_events_activity,
+    # Sentiment activities
+    classify_sentiment_on_demand_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
