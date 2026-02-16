@@ -14,6 +14,7 @@ import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationS
 
 export function EvaluationRunsTable(): JSX.Element {
     const { filteredEvaluationRuns, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
+    const { searchParams } = useValues(router)
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
 
     const columns: LemonTableColumns<EvaluationRun> = [
@@ -31,7 +32,7 @@ export function EvaluationRunsTable(): JSX.Element {
                     <Link
                         to={
                             combineUrl(urls.llmAnalyticsTrace(run.trace_id), {
-                                ...router.values.searchParams,
+                                ...searchParams,
                                 event: run.generation_id,
                             }).url
                         }

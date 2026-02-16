@@ -105,13 +105,15 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
 
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
+    const { searchParams } = useValues(router)
     return (
         <strong>
             <Tooltip title={row.id}>
                 <Link
                     to={
                         combineUrl(urls.llmAnalyticsTrace(row.id), {
-                            ...router.values.searchParams,
+                            ...searchParams,
+                            back_to: 'traces',
                             timestamp: getTraceTimestamp(row.createdAt),
                         }).url
                     }
@@ -126,13 +128,15 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
 
 const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
+    const { searchParams } = useValues(router)
     return (
         <div className="flex items-center gap-2">
             <strong>
                 <Link
                     to={
                         combineUrl(urls.llmAnalyticsTrace(row.id), {
-                            ...router.values.searchParams,
+                            ...searchParams,
+                            back_to: 'traces',
                             timestamp: getTraceTimestamp(row.createdAt),
                         }).url
                     }

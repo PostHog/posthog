@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -15,6 +16,7 @@ export interface PatternCardProps {
 }
 
 export function PatternCard({ pattern, type, runsLookup }: PatternCardProps): JSX.Element {
+    const { searchParams } = useValues(router)
     const borderClass = type === 'pass' ? 'border-success' : type === 'fail' ? 'border-danger' : 'border-muted'
     const iconClass = type === 'pass' ? 'text-success' : type === 'fail' ? 'text-danger' : 'text-muted'
     const Icon = type === 'pass' ? IconCheck : type === 'fail' ? IconX : IconMinus
@@ -38,7 +40,7 @@ export function PatternCard({ pattern, type, runsLookup }: PatternCardProps): JS
                                     <Link
                                         to={
                                             combineUrl(urls.llmAnalyticsTrace(run.trace_id), {
-                                                ...router.values.searchParams,
+                                                ...searchParams,
                                                 event: genId,
                                                 tab: 'evals',
                                             }).url

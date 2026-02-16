@@ -327,19 +327,19 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.traceId],
-            (traceId): Breadcrumb[] => {
+            (s) => [s.traceId, router.selectors.searchParams],
+            (traceId: string, searchParams: Record<string, any>): Breadcrumb[] => {
                 return [
                     {
                         key: 'LLMAnalytics',
                         name: 'LLM analytics',
-                        path: combineUrl(urls.llmAnalyticsDashboard(), router.values.searchParams).url,
+                        path: combineUrl(urls.llmAnalyticsDashboard(), searchParams).url,
                         iconType: 'llm_analytics',
                     },
                     {
                         key: 'LLMAnalyticsTraces',
                         name: 'Traces',
-                        path: combineUrl(urls.llmAnalyticsTraces(), router.values.searchParams).url,
+                        path: combineUrl(urls.llmAnalyticsTraces(), searchParams).url,
                         iconType: 'llm_analytics',
                     },
                     {
@@ -474,13 +474,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             if (!values.traceId) {
                 return undefined
             }
-            const params: Record<string, unknown> = {
-                date_from: router.values.searchParams.date_from,
-                date_to: router.values.searchParams.date_to,
-                filters: router.values.searchParams.filters,
-                filter_test_accounts: router.values.searchParams.filter_test_accounts,
-                back_to: router.values.searchParams.back_to,
-            }
+            const params: Record<string, unknown> = { ...router.values.searchParams }
             if (values.eventId) {
                 params.event = values.eventId
             }

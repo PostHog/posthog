@@ -45,6 +45,7 @@ export function LLMAnalyticsSessionScene(): JSX.Element {
 
 function SessionSceneWrapper(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { searchParams } = useValues(router)
     const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
 
     const {
@@ -205,7 +206,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                     <Link
                                                         to={
                                                             combineUrl(urls.llmAnalyticsTrace(trace.id), {
-                                                                ...router.values.searchParams,
+                                                                ...searchParams,
                                                                 timestamp: getTraceTimestamp(trace.createdAt),
                                                             }).url
                                                         }
@@ -232,7 +233,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                             <Link
                                                                 to={
                                                                     combineUrl(urls.llmAnalyticsTrace(trace.id), {
-                                                                        ...router.values.searchParams,
+                                                                        ...searchParams,
                                                                         timestamp: getTraceTimestamp(trace.createdAt),
                                                                         tab: 'summary',
                                                                     }).url

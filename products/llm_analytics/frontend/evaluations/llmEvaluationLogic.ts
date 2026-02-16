@@ -598,11 +598,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.evaluation],
-            (evaluation): Breadcrumb[] => [
+            (s) => [s.evaluation, router.selectors.searchParams],
+            (evaluation: EvaluationConfig | null, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     name: 'Evaluations',
-                    path: combineUrl(urls.llmAnalyticsEvaluations(), router.values.searchParams).url,
+                    path: combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url,
                     key: 'LLMAnalyticsEvaluations',
                     iconType: 'llm_evaluations',
                 },

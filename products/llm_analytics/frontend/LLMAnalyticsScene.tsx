@@ -148,6 +148,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
 function LLMAnalyticsGenerations(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { searchParams } = useValues(router)
     const { setGenerationsColumns, toggleGenerationExpanded, setGenerationsSort } =
         useActions(llmAnalyticsGenerationsLogic)
     const { generationsQuery, expandedGenerationIds, loadedTraces, generationsSort } =
@@ -230,7 +231,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                         <Link
                                             to={
                                                 combineUrl(urls.llmAnalyticsTrace(ids.traceId), {
-                                                    ...router.values.searchParams,
+                                                    ...searchParams,
                                                     event: value,
                                                     back_to: 'generations',
                                                 }).url

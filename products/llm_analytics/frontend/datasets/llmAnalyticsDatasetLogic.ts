@@ -262,11 +262,11 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.dataset],
-            (dataset): Breadcrumb[] => [
+            (s) => [s.dataset, router.selectors.searchParams],
+            (dataset: Dataset | DatasetFormValues | null, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     name: 'Datasets',
-                    path: combineUrl(urls.llmAnalyticsDatasets(), router.values.searchParams).url,
+                    path: combineUrl(urls.llmAnalyticsDatasets(), searchParams).url,
                     key: 'LLMAnalyticsDatasets',
                     iconType: 'llm_datasets',
                 },
@@ -404,8 +404,7 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
 
     actionToUrl(({ values }) => ({
         closeModalAndRefetchDatasetItems: () => {
-            const searchParams = router.values.searchParams
-            const nextSearchParams = { ...searchParams, item: undefined }
+            const nextSearchParams = { ...router.values.searchParams, item: undefined }
             return [
                 urls.llmAnalyticsDataset(isDataset(values.dataset) ? values.dataset.id : 'new'),
                 nextSearchParams,

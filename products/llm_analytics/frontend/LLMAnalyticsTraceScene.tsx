@@ -89,13 +89,14 @@ import {
 function TraceNavigation(): JSX.Element {
     const { viewMode, newerTraceId, newerTimestamp, olderTraceId, olderTimestamp, neighborsLoading } =
         useValues(llmAnalyticsTraceLogic)
+    const { searchParams } = useValues(router)
 
     // Navigate to newer (more recent) or older traces
     const goToNewer = (): void => {
         if (newerTraceId) {
             router.actions.push(
                 combineUrl(urls.llmAnalyticsTrace(newerTraceId), {
-                    ...router.values.searchParams,
+                    ...searchParams,
                     timestamp: newerTimestamp ?? undefined,
                     tab: viewMode,
                 }).url
@@ -107,7 +108,7 @@ function TraceNavigation(): JSX.Element {
         if (olderTraceId) {
             router.actions.push(
                 combineUrl(urls.llmAnalyticsTrace(olderTraceId), {
-                    ...router.values.searchParams,
+                    ...searchParams,
                     timestamp: olderTimestamp ?? undefined,
                     tab: viewMode,
                 }).url
@@ -164,6 +165,7 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
 
 function TraceSceneWrapper(): JSX.Element {
     const { searchQuery, commentCount } = useValues(llmAnalyticsTraceLogic)
+    const { searchParams } = useValues(router)
     const {
         enrichedTree,
         trace,
@@ -179,21 +181,11 @@ function TraceSceneWrapper(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { showBillingInfo, markupUsd, billedTotalUsd, billedCredits } = usePosthogAIBillingCalculations(enrichedTree)
-    const backTo = router.values.searchParams.back_to
+    const backTo = searchParams.back_to
     const backPath =
         backTo === 'generations'
-            ? combineUrl(urls.llmAnalyticsGenerations(), {
-                  date_from: router.values.searchParams.date_from,
-                  date_to: router.values.searchParams.date_to,
-                  filters: router.values.searchParams.filters,
-                  filter_test_accounts: router.values.searchParams.filter_test_accounts,
-              }).url
-            : combineUrl(urls.llmAnalyticsTraces(), {
-                  date_from: router.values.searchParams.date_from,
-                  date_to: router.values.searchParams.date_to,
-                  filters: router.values.searchParams.filters,
-                  filter_test_accounts: router.values.searchParams.filter_test_accounts,
-              }).url
+            ? combineUrl(urls.llmAnalyticsGenerations(), searchParams).url
+            : combineUrl(urls.llmAnalyticsTraces(), searchParams).url
 
     return (
         <>
@@ -568,6 +560,7 @@ const TreeNode = React.memo(function TraceNode({
     const item = node.event
 
     const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
+    const { searchParams } = useValues(router)
     const eventType = getEventType(item)
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
     const isBillable =
@@ -602,7 +595,7 @@ const TreeNode = React.memo(function TraceNode({
             <Link
                 to={
                     combineUrl(urls.llmAnalyticsTrace(topLevelTrace.id), {
-                        ...router.values.searchParams,
+                        ...searchParams,
                         event: item.id,
                         timestamp: getTraceTimestamp(topLevelTrace.createdAt),
                         ...(searchQuery?.trim() && { search: searchQuery }),

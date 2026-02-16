@@ -195,11 +195,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.prompt],
-            (prompt): Breadcrumb[] => [
+            (s) => [s.prompt, router.selectors.searchParams],
+            (prompt: LLMPrompt | PromptFormValues | null, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     name: 'Prompts',
-                    path: combineUrl(urls.llmAnalyticsPrompts(), router.values.searchParams).url,
+                    path: combineUrl(urls.llmAnalyticsPrompts(), searchParams).url,
                     key: 'LLMAnalyticsPrompts',
                     iconType: 'llm_prompts',
                 },

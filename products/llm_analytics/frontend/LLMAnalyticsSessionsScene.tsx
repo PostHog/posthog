@@ -23,6 +23,7 @@ import { formatLLMCost, getTraceTimestamp } from './utils'
 export function LLMAnalyticsSessionsScene(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { dateFilter } = useValues(llmAnalyticsSharedLogic)
+    const { searchParams } = useValues(router)
 
     const { setSessionsSort, toggleSessionExpanded, toggleTraceExpanded, toggleGenerationExpanded } =
         useActions(llmAnalyticsSessionsViewLogic)
@@ -232,7 +233,7 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                                                             <Link
                                                                 to={
                                                                     combineUrl(urls.llmAnalyticsTrace(trace.id), {
-                                                                        ...router.values.searchParams,
+                                                                        ...searchParams,
                                                                         timestamp: getTraceTimestamp(trace.createdAt),
                                                                     }).url
                                                                 }
