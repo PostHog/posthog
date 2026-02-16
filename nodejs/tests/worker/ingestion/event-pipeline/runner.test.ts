@@ -22,7 +22,6 @@ import { ISOTimestamp, Person, PipelineEvent, PreIngestionEvent, ProjectId, Team
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { parseJSON } from '../../../../src/utils/json-parse'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
-import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonlessStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonlessStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
@@ -116,15 +115,17 @@ const pipelineEvent: PipelineEvent = {
 
 const pluginEvent: PluginEvent = {
     distinct_id: 'my_id',
-    ip: '127.0.0.1',
+    ip: null,
     site_url: 'http://localhost',
     team_id: 2,
     now: '2020-02-23T02:15:00.000Z',
     timestamp: '2020-02-23T02:15:00.000Z',
     event: 'default event',
-    properties: {},
+    properties: { $ip: '127.0.0.1' },
     uuid: 'uuid1',
 }
+
+const eventTimestamp = DateTime.fromISO('2020-02-23T02:15:00.000Z', { zone: 'utc' })
 
 const preIngestionEvent: PreIngestionEvent = {
     eventUuid: 'uuid1',
@@ -235,8 +236,7 @@ describe('EventPipelineRunner', () => {
 
     describe('runEventPipeline()', () => {
         it('runs steps', async () => {
-            const [normalizedEvent, timestamp] = await normalizeEventStep(pluginEvent, true)
-            await runner.runEventPipeline(normalizedEvent, timestamp, team)
+            await runner.runEventPipeline(pluginEvent, eventTimestamp, team)
 
             expect(runner.steps).toEqual(['processPersonsStep', 'prepareEventStep'])
             expect(forSnapshot(runner.stepsWithArgs)).toMatchSnapshot()
@@ -245,8 +245,7 @@ describe('EventPipelineRunner', () => {
         it('emits metrics for every step', async () => {
             const pipelineStepMsSummarySpy = jest.spyOn(metrics.pipelineStepMsSummary, 'labels')
             const pipelineStepErrorCounterSpy = jest.spyOn(metrics.pipelineStepErrorCounter, 'labels')
-            const [normalizedEvent, timestamp] = await normalizeEventStep(pluginEvent, true)
-            const result = await runner.runEventPipeline(normalizedEvent, timestamp, team)
+            const result = await runner.runEventPipeline(pluginEvent, eventTimestamp, team)
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 expect(result.value.error).toBeUndefined()
@@ -265,8 +264,7 @@ describe('EventPipelineRunner', () => {
 
                 jest.mocked(prepareEventStep).mockRejectedValue(error)
 
-                const [normalizedEvent, timestamp] = await normalizeEventStep(pluginEvent, true)
-                await runner.runEventPipeline(normalizedEvent, timestamp, team)
+                await runner.runEventPipeline(pluginEvent, eventTimestamp, team)
 
                 expect(pipelineStepMsSummarySpy).not.toHaveBeenCalledWith('prepareEventStep')
                 expect(pipelineLastStepCounterSpy).not.toHaveBeenCalled()
@@ -279,8 +277,7 @@ describe('EventPipelineRunner', () => {
                     dlq('Merge limit exceeded', new PersonMergeLimitExceededError('person_merge_move_limit_hit'))
                 )
 
-                const [normalizedEvent, timestamp] = await normalizeEventStep(pluginEvent, true)
-                const result = await runner.runEventPipeline(normalizedEvent, timestamp, team)
+                const result = await runner.runEventPipeline(pluginEvent, eventTimestamp, team)
 
                 // Verify that the pipeline returned a DLQ result
                 expect(result.type).toBe(PipelineResultType.DLQ)
@@ -296,8 +293,7 @@ describe('EventPipelineRunner', () => {
                     redirect('Event redirected to async merge topic', 'async-merge-topic')
                 )
 
-                const [normalizedEvent, timestamp] = await normalizeEventStep(pluginEvent, true)
-                const result = await runner.runEventPipeline(normalizedEvent, timestamp, team)
+                const result = await runner.runEventPipeline(pluginEvent, eventTimestamp, team)
 
                 // Verify that the pipeline returned a redirect result
                 expect(result.type).toBe(PipelineResultType.REDIRECT)
@@ -390,8 +386,7 @@ describe('EventPipelineRunner', () => {
         })
 
         it('calls processPersonlessStep when processPerson=false and forceDisablePersonProcessing=true', async () => {
-            const [normalizedEvent, timestamp] = await normalizeEventStep({ ...pipelineEvent, team_id: team.id }, false)
-            await runner.runEventPipeline(normalizedEvent, timestamp, team, false, true)
+            await runner.runEventPipeline(pluginEvent, eventTimestamp, team, false, true)
 
             expect(processPersonlessStep).toHaveBeenCalledTimes(1)
             expect(processPersonlessStep).toHaveBeenCalledWith(
@@ -405,8 +400,7 @@ describe('EventPipelineRunner', () => {
         })
 
         it('calls processPersonsStep when processPerson=true', async () => {
-            const [normalizedEvent, timestamp] = await normalizeEventStep({ ...pipelineEvent, team_id: team.id }, true)
-            await runner.runEventPipeline(normalizedEvent, timestamp, team, true, false)
+            await runner.runEventPipeline(pluginEvent, eventTimestamp, team, true, false)
 
             expect(processPersonlessStep).not.toHaveBeenCalled()
             expect(processPersonsStep).toHaveBeenCalledWith(
@@ -423,8 +417,7 @@ describe('EventPipelineRunner', () => {
         })
 
         it('calls processPersonlessStep when processPerson=false and skips processPersonsStep if no force_upgrade', async () => {
-            const [normalizedEvent, timestamp] = await normalizeEventStep({ ...pipelineEvent, team_id: team.id }, false)
-            await runner.runEventPipeline(normalizedEvent, timestamp, team, false, false)
+            await runner.runEventPipeline(pluginEvent, eventTimestamp, team, false, false)
 
             expect(processPersonlessStep).toHaveBeenCalledTimes(1)
             expect(processPersonsStep).not.toHaveBeenCalled()
@@ -434,8 +427,7 @@ describe('EventPipelineRunner', () => {
             const personWithForceUpgrade = { ...person, force_upgrade: true }
             jest.mocked(processPersonlessStep).mockResolvedValue(ok(personWithForceUpgrade))
 
-            const [normalizedEvent, timestamp] = await normalizeEventStep({ ...pipelineEvent, team_id: team.id }, false)
-            await runner.runEventPipeline(normalizedEvent, timestamp, team, false, false)
+            await runner.runEventPipeline(pluginEvent, eventTimestamp, team, false, false)
 
             expect(processPersonlessStep).toHaveBeenCalledTimes(1)
             expect(processPersonsStep).toHaveBeenCalledTimes(1)
@@ -453,8 +445,7 @@ describe('EventPipelineRunner', () => {
         })
 
         it('uses default values processPerson=true when not specified', async () => {
-            const [normalizedEvent, timestamp] = await normalizeEventStep({ ...pipelineEvent, team_id: team.id }, true)
-            await runner.runEventPipeline(normalizedEvent, timestamp, team)
+            await runner.runEventPipeline(pluginEvent, eventTimestamp, team)
 
             expect(processPersonlessStep).not.toHaveBeenCalled()
             expect(processPersonsStep).toHaveBeenCalledWith(

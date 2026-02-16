@@ -97,8 +97,10 @@ class EventBuilder {
 }
 
 let offsetIncrementer = 0
+let currentToken: string
 
-const createKafkaMessage = (event: PipelineEvent, token: string, timestamp: number = Date.now()): Message => {
+const createKafkaMessage = (event: PipelineEvent, timestamp: number = Date.now()): Message => {
+    const token = currentToken
     // TRICKY: This is the slightly different format that capture sends
     const captureEvent = {
         uuid: event.uuid,
@@ -124,8 +126,8 @@ const createKafkaMessage = (event: PipelineEvent, token: string, timestamp: numb
     }
 }
 
-const createKafkaMessages = (events: PipelineEvent[], token: string): Message[] => {
-    return events.map((e) => createKafkaMessage(e, token))
+const createKafkaMessages = (events: PipelineEvent[]): Message[] => {
+    return events.map((e) => createKafkaMessage(e))
 }
 
 const waitForKafkaMessages = async (hub: Hub) => {
@@ -215,6 +217,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             throw new Error(`Failed to fetch team ${team.id} from database`)
         }
         team = fetchedTeam
+        currentToken = team.api_token
 
         ingester = new IngestionConsumer(hub)
         ingester['kafkaConsumer'] = {
@@ -236,10 +239,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             const distinctId = new UUIDT().toString()
 
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [new EventBuilder(team, distinctId).withEvent('test_event').build()],
-                    team.api_token
-                )
+                createKafkaMessages([new EventBuilder(team, distinctId).withEvent('test_event').build()])
             )
 
             await waitForKafkaMessages(hub)
@@ -263,18 +263,15 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             // Create person with initial properties
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [
-                        new EventBuilder(team, distinctId)
-                            .withEvent('$identify')
-                            .withProperties({
-                                $set: { name: 'Initial Name', email: 'test@example.com' },
-                            })
-                            .withTimestamp(timestamp)
-                            .build(),
-                    ],
-                    team.api_token
-                )
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            $set: { name: 'Initial Name', email: 'test@example.com' },
+                        })
+                        .withTimestamp(timestamp)
+                        .build(),
+                ])
             )
 
             await waitForKafkaMessages(hub)
@@ -300,25 +297,22 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             // Send multiple events in a single batch
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [
-                        new EventBuilder(team, distinctId)
-                            .withEvent('$identify')
-                            .withProperties({
-                                $set: { prop1: 'value1' },
-                            })
-                            .withTimestamp(timestamp)
-                            .build(),
-                        new EventBuilder(team, distinctId)
-                            .withEvent('$identify')
-                            .withProperties({
-                                $set: { prop2: 'value2' },
-                            })
-                            .withTimestamp(timestamp + 1)
-                            .build(),
-                    ],
-                    team.api_token
-                )
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            $set: { prop1: 'value1' },
+                        })
+                        .withTimestamp(timestamp)
+                        .build(),
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            $set: { prop2: 'value2' },
+                        })
+                        .withTimestamp(timestamp + 1)
+                        .build(),
+                ])
             )
 
             await waitForKafkaMessages(hub)
@@ -341,18 +335,15 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             // First batch: create person
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [
-                        new EventBuilder(team, distinctId)
-                            .withEvent('$identify')
-                            .withProperties({
-                                $set: { initial_prop: 'initial_value' },
-                            })
-                            .withTimestamp(timestamp)
-                            .build(),
-                    ],
-                    team.api_token
-                )
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            $set: { initial_prop: 'initial_value' },
+                        })
+                        .withTimestamp(timestamp)
+                        .build(),
+                ])
             )
 
             await waitForKafkaMessages(hub)
@@ -370,18 +361,15 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             // Second batch: update person
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [
-                        new EventBuilder(team, distinctId)
-                            .withEvent('$identify')
-                            .withProperties({
-                                $set: { new_prop: 'new_value', updated_prop: 'updated' },
-                            })
-                            .withTimestamp(timestamp + 1000)
-                            .build(),
-                    ],
-                    team.api_token
-                )
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            $set: { new_prop: 'new_value', updated_prop: 'updated' },
+                        })
+                        .withTimestamp(timestamp + 1000)
+                        .build(),
+                ])
             )
 
             await waitForKafkaMessages(hub)
@@ -405,18 +393,15 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             // First event sets initial value
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [
-                        new EventBuilder(team, distinctId)
-                            .withEvent('$identify')
-                            .withProperties({
-                                $set_once: { first_seen: 'original_value' },
-                            })
-                            .withTimestamp(timestamp)
-                            .build(),
-                    ],
-                    team.api_token
-                )
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            $set_once: { first_seen: 'original_value' },
+                        })
+                        .withTimestamp(timestamp)
+                        .build(),
+                ])
             )
 
             await waitForKafkaMessages(hub)
@@ -433,18 +418,15 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             // Second event tries to overwrite with $set_once - should be ignored
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [
-                        new EventBuilder(team, distinctId)
-                            .withEvent('$identify')
-                            .withProperties({
-                                $set_once: { first_seen: 'should_be_ignored' },
-                            })
-                            .withTimestamp(timestamp + 1000)
-                            .build(),
-                    ],
-                    team.api_token
-                )
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            $set_once: { first_seen: 'should_be_ignored' },
+                        })
+                        .withTimestamp(timestamp + 1000)
+                        .build(),
+                ])
             )
 
             await waitForKafkaMessages(hub)
@@ -463,18 +445,15 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             // Create person with properties
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [
-                        new EventBuilder(team, distinctId)
-                            .withEvent('$identify')
-                            .withProperties({
-                                $set: { keep_prop: 'keep', remove_prop: 'remove' },
-                            })
-                            .withTimestamp(timestamp)
-                            .build(),
-                    ],
-                    team.api_token
-                )
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            $set: { keep_prop: 'keep', remove_prop: 'remove' },
+                        })
+                        .withTimestamp(timestamp)
+                        .build(),
+                ])
             )
 
             await waitForKafkaMessages(hub)
@@ -487,18 +466,15 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             // Unset a property
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [
-                        new EventBuilder(team, distinctId)
-                            .withEvent('$identify')
-                            .withProperties({
-                                $unset: ['remove_prop'],
-                            })
-                            .withTimestamp(timestamp + 1000)
-                            .build(),
-                    ],
-                    team.api_token
-                )
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            $unset: ['remove_prop'],
+                        })
+                        .withTimestamp(timestamp + 1000)
+                        .build(),
+                ])
             )
 
             await waitForKafkaMessages(hub)
@@ -521,37 +497,31 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             // Create person with initial properties
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [
-                        new EventBuilder(team, distinctId)
-                            .withEvent('$identify')
-                            .withProperties({
-                                $set: { prop1: 'value1', prop2: 'value2', prop3: 'value3' },
-                            })
-                            .withTimestamp(timestamp)
-                            .build(),
-                    ],
-                    team.api_token
-                )
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            $set: { prop1: 'value1', prop2: 'value2', prop3: 'value3' },
+                        })
+                        .withTimestamp(timestamp)
+                        .build(),
+                ])
             )
 
             await waitForKafkaMessages(hub)
 
             // Update with combined $set and $unset
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [
-                        new EventBuilder(team, distinctId)
-                            .withEvent('$identify')
-                            .withProperties({
-                                $set: { prop1: 'updated_value1', prop4: 'value4' },
-                                $unset: ['prop2'],
-                            })
-                            .withTimestamp(timestamp + 1000)
-                            .build(),
-                    ],
-                    team.api_token
-                )
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            $set: { prop1: 'updated_value1', prop4: 'value4' },
+                            $unset: ['prop2'],
+                        })
+                        .withTimestamp(timestamp + 1000)
+                        .build(),
+                ])
             )
 
             await waitForKafkaMessages(hub)
@@ -579,16 +549,13 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             // First event creates the person
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [
-                        new EventBuilder(team, distinctId)
-                            .withEvent('$identify')
-                            .withProperties({ $set: { initial: true } })
-                            .withTimestamp(firstTimestamp)
-                            .build(),
-                    ],
-                    team.api_token
-                )
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({ $set: { initial: true } })
+                        .withTimestamp(firstTimestamp)
+                        .build(),
+                ])
             )
 
             await waitForKafkaMessages(hub)
@@ -602,10 +569,9 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             // Second event 2 hours later should update last_seen_at
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [new EventBuilder(team, distinctId).withEvent('pageview').withTimestamp(secondTimestamp).build()],
-                    team.api_token
-                )
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId).withEvent('pageview').withTimestamp(secondTimestamp).build(),
+                ])
             )
 
             await waitForKafkaMessages(hub)
@@ -625,10 +591,9 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             // First, create an anonymous person
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [new EventBuilder(team, anonDistinctId).withEvent('pageview').withTimestamp(timestamp).build()],
-                    team.api_token
-                )
+                createKafkaMessages([
+                    new EventBuilder(team, anonDistinctId).withEvent('pageview').withTimestamp(timestamp).build(),
+                ])
             )
 
             await waitForKafkaMessages(hub)
@@ -641,19 +606,16 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
             // Then identify and merge via $anon_distinct_id
             await ingester.handleKafkaBatch(
-                createKafkaMessages(
-                    [
-                        new EventBuilder(team, identifiedDistinctId)
-                            .withEvent('$identify')
-                            .withProperties({
-                                $anon_distinct_id: anonDistinctId,
-                                $set: { email: 'user@example.com' },
-                            })
-                            .withTimestamp(timestamp + 1000)
-                            .build(),
-                    ],
-                    team.api_token
-                )
+                createKafkaMessages([
+                    new EventBuilder(team, identifiedDistinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            $anon_distinct_id: anonDistinctId,
+                            $set: { email: 'user@example.com' },
+                        })
+                        .withTimestamp(timestamp + 1000)
+                        .build(),
+                ])
             )
 
             await waitForKafkaMessages(hub)

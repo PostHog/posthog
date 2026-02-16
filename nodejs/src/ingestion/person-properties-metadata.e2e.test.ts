@@ -56,6 +56,7 @@ const DEFAULT_TEAM: Team = {
 }
 
 let offsetIncrementer = 0
+let currentToken: string
 
 class EventBuilder {
     private event: Partial<PipelineEvent> = {}
@@ -96,11 +97,8 @@ class EventBuilder {
     }
 }
 
-const createKafkaMessage = (
-    event: PipelineEvent,
-    token: string,
-    timestamp: number = DateTime.now().toMillis()
-): Message => {
+const createKafkaMessage = (event: PipelineEvent, timestamp: number = DateTime.now().toMillis()): Message => {
+    const token = currentToken
     const captureEvent = {
         uuid: event.uuid,
         distinct_id: event.distinct_id,
@@ -125,8 +123,8 @@ const createKafkaMessage = (
     }
 }
 
-const createKafkaMessages = (events: PipelineEvent[], token: string): Message[] => {
-    return events.map((e) => createKafkaMessage(e, token))
+const createKafkaMessages = (events: PipelineEvent[]): Message[] => {
+    return events.map((e) => createKafkaMessage(e))
 }
 
 const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {}) => {
@@ -181,6 +179,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             } as any
 
             await ingester.start()
+            currentToken = fetchedTeam.api_token
             await testFn(ingester, hub, fetchedTeam)
             await ingester.stop()
             await closeHub(hub)
@@ -219,7 +218,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(events, team.api_token))
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
@@ -266,7 +265,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(events, team.api_token))
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
@@ -313,7 +312,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(createEvents, team.api_token))
+            await ingester.handleKafkaBatch(createKafkaMessages(createEvents))
             await waitForKafkaMessages(hub)
 
             // Wait for person to be created and capture the initial timestamp
@@ -337,7 +336,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(updateEvents, team.api_token))
+            await ingester.handleKafkaBatch(createKafkaMessages(updateEvents))
             await waitForKafkaMessages(hub)
 
             // Verify property was updated but timestamp was NOT
@@ -377,7 +376,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(createEvents, team.api_token))
+            await ingester.handleKafkaBatch(createKafkaMessages(createEvents))
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
@@ -397,7 +396,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(addPropertyEvents, team.api_token))
+            await ingester.handleKafkaBatch(createKafkaMessages(addPropertyEvents))
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
@@ -439,7 +438,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(createEvents, team.api_token))
+            await ingester.handleKafkaBatch(createKafkaMessages(createEvents))
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
@@ -464,7 +463,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(updateEvents, team.api_token))
+            await ingester.handleKafkaBatch(createKafkaMessages(updateEvents))
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
@@ -506,7 +505,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(createEvents, team.api_token))
+            await ingester.handleKafkaBatch(createKafkaMessages(createEvents))
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
@@ -526,7 +525,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(addPropertyEvents, team.api_token))
+            await ingester.handleKafkaBatch(createKafkaMessages(addPropertyEvents))
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
@@ -568,7 +567,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(createEvents, team.api_token))
+            await ingester.handleKafkaBatch(createKafkaMessages(createEvents))
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
@@ -589,7 +588,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(overwriteEvents, team.api_token))
+            await ingester.handleKafkaBatch(createKafkaMessages(overwriteEvents))
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
@@ -628,7 +627,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(createEvents, team.api_token))
+            await ingester.handleKafkaBatch(createKafkaMessages(createEvents))
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
@@ -650,7 +649,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(unsetEvents, team.api_token))
+            await ingester.handleKafkaBatch(createKafkaMessages(unsetEvents))
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
