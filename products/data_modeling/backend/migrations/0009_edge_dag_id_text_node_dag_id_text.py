@@ -7,8 +7,13 @@ def backfill_dag_id_text(apps, _):
     Node = apps.get_model("data_modeling", "Node")
     Edge = apps.get_model("data_modeling", "Edge")
 
-    Node.objects.all().update(dag_id_text=models.F("dag_id"))
-    Edge.objects.all().update(dag_id_text=models.F("dag_id"))
+    batch_size = 1000
+    for Model in (Node, Edge):
+        while True:
+            ids = list(Model.objects.exclude(dag_id_text=models.F("dag_id")).values_list("id", flat=True)[:batch_size])
+            if not ids:
+                break
+            Model.objects.filter(id__in=ids).update(dag_id_text=models.F("dag_id"))
 
 
 class Migration(migrations.Migration):
