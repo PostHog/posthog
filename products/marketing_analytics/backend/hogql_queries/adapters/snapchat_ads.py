@@ -199,9 +199,7 @@ class SnapchatAdsAdapter(MarketingSourceAdapter[SnapchatAdsConfig]):
             for expr in conversion_value_exprs[2:]:
                 total_value = ast.Call(name="plus", args=[total_value, expr])
 
-        converted = self._apply_currency_conversion(
-            self.config.stats_table, stats_table_name, "currency", total_value
-        )
+        converted = self._apply_currency_conversion(self.config.stats_table, stats_table_name, "currency", total_value)
         if converted:
             return ast.Call(name="SUM", args=[converted])
 
