@@ -39,7 +39,7 @@ from products.analytics_platform.backend.lazy_computation.computation_notificati
 )
 from products.analytics_platform.backend.models import PreaggregationJob
 
-# Default TTL for precomputed data (how long before ClickHouse deletes it)
+# Default TTL for lazy computed data (how long before ClickHouse deletes it)
 DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
 # ClickHouse data outlives the PG job by this amount. This prevents races where we fetch a job in PG, use it, but while
@@ -222,8 +222,8 @@ def is_non_retryable_error(error: Exception) -> bool:
     return False
 
 
-class ComputationTable(StrEnum):
-    """Allowed target tables for precomputed results."""
+class LazyComputationTable(StrEnum):
+    """Allowed target tables for lazy-computed results."""
 
     PREAGGREGATION_RESULTS = "preaggregation_results"
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
@@ -232,12 +232,12 @@ class ComputationTable(StrEnum):
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
 # so an expires_at just after midnight would round down to a time *before* the PG
 # job expires. We add an extra day of buffer for these tables.
-_DATE_EXPIRES_AT_TABLES: set[ComputationTable] = {
-    ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+_DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
+    LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
 }
 
 
-def _get_ch_expires_at(job: "PreaggregationJob", table: ComputationTable) -> datetime:
+def _get_ch_expires_at(job: "PreaggregationJob", table: LazyComputationTable) -> datetime:
     """Compute the ClickHouse expires_at for a job, accounting for the table's column type."""
     assert job.expires_at is not None
     extra_days = 1 if table in _DATE_EXPIRES_AT_TABLES else 0
@@ -246,17 +246,17 @@ def _get_ch_expires_at(job: "PreaggregationJob", table: ComputationTable) -> dat
 
 @dataclass
 class QueryInfo:
-    """Normalized query information for computation matching."""
+    """Normalized query information for lazy computation matching."""
 
     query: ast.SelectQuery
-    table: ComputationTable
+    table: LazyComputationTable
     timezone: str = "UTC"
     breakdown_fields: list[str] = field(default_factory=list)
 
 
 @dataclass
 class ComputationResult:
-    """Result of executing computation jobs."""
+    """Result of executing lazy computation jobs."""
 
     ready: bool
     job_ids: list[uuid.UUID]
@@ -316,7 +316,7 @@ def find_existing_jobs(
     end: datetime,
 ) -> list[PreaggregationJob]:
     """
-    Find all existing computation jobs for the given team and query hash
+    Find all existing lazy computation jobs for the given team and query hash
     that overlap with the requested time range.
 
     Excludes expired jobs. ClickHouse data outlives the PG job by
@@ -437,7 +437,7 @@ def find_missing_contiguous_windows(
     return merged
 
 
-def create_computation_job(
+def create_lazy_computation_job(
     team: Team,
     query_hash: str,
     time_range_start: datetime,
@@ -456,7 +456,7 @@ def create_computation_job(
     )
 
 
-def build_computation_insert_sql(
+def build_lazy_computation_insert_sql(
     team: Team,
     job_id: str,
     select_query: ast.SelectQuery,
@@ -465,7 +465,7 @@ def build_computation_insert_sql(
     expires_at: datetime,
 ) -> tuple[str, dict]:
     """
-    Build the INSERT ... SELECT SQL for populating precomputed results.
+    Build the INSERT ... SELECT SQL for populating lazy-computed results.
 
     Takes a SelectQuery AST with 3 expressions (time_window_start, breakdown_value, uniq_exact_state)
     and prepends team_id and appends job_id and expires_at, then adds a date range filter to the WHERE clause.
@@ -539,15 +539,15 @@ def build_computation_insert_sql(
     return sql, context.values
 
 
-def run_computation_insert(
+def run_lazy_computation_insert(
     team: Team,
     job: PreaggregationJob,
     query_info: QueryInfo,
 ) -> None:
-    """Run the INSERT query to populate precomputed results in ClickHouse."""
-    ch_expires_at = _get_ch_expires_at(job, ComputationTable.PREAGGREGATION_RESULTS)
+    """Run the INSERT query to populate lazy-computed results in ClickHouse."""
+    ch_expires_at = _get_ch_expires_at(job, LazyComputationTable.PREAGGREGATION_RESULTS)
 
-    insert_sql, values = build_computation_insert_sql(
+    insert_sql, values = build_lazy_computation_insert_sql(
         team=team,
         job_id=str(job.id),
         select_query=query_info.query,
@@ -584,7 +584,7 @@ class ComputationExecutor:
     - poll_interval_seconds: Initial poll interval, doubles each iteration (default 1s)
     - max_poll_interval_seconds: Cap for exponential backoff (default 30s)
     - max_retries: Max retries for failed jobs (default 1, meaning 2 total attempts)
-    - ttl_schedule: TtlSchedule controlling how long precomputed data persists per time range
+    - ttl_schedule: TtlSchedule controlling how long lazy-computed data persists per time range
     - stale_pending_threshold_seconds: How long before a PENDING job is considered stale
     - ch_start_grace_period_seconds: Grace period before declaring "not started" as stale
     """
@@ -629,7 +629,7 @@ class ComputationExecutor:
             run_insert: Optional custom insert function. If not provided, uses the
                         default AST-based run_computation_insert with query_info.
         """
-        insert_fn = run_insert or (lambda t, j: run_computation_insert(t, j, query_info))
+        insert_fn = run_insert or (lambda t, j: run_lazy_computation_insert(t, j, query_info))
         query_hash = compute_query_hash(query_info)
 
         errors: list[str] = []
@@ -660,7 +660,7 @@ class ComputationExecutor:
                     for range_start, range_end, ttl in ttl_ranges:
                         try:
                             with transaction.atomic():
-                                new_job = create_computation_job(team, query_hash, range_start, range_end, ttl)
+                                new_job = create_lazy_computation_job(team, query_hash, range_start, range_end, ttl)
                         except IntegrityError:
                             # Another executor created a PENDING job for this range — loop will pick it up
                             did_work = True
@@ -799,7 +799,7 @@ def ensure_precomputed(
     time_range_start: datetime,
     time_range_end: datetime,
     ttl_seconds: int | dict[str, int] = DEFAULT_TTL_SECONDS,
-    table: ComputationTable = ComputationTable.PREAGGREGATION_RESULTS,
+    table: LazyComputationTable = LazyComputationTable.PREAGGREGATION_RESULTS,
     placeholders: dict[str, ast.Expr] | None = None,
 ) -> ComputationResult:
     """
@@ -909,7 +909,7 @@ def _build_manual_insert_sql(
     team: Team,
     job: PreaggregationJob,
     insert_query: str,
-    table: ComputationTable,
+    table: LazyComputationTable,
     base_placeholders: dict[str, ast.Expr] | None = None,
 ) -> tuple[str, dict]:
     """

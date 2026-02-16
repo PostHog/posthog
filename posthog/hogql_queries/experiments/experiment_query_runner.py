@@ -52,7 +52,7 @@ from posthog.models.experiment import Experiment
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     ComputationResult,
-    ComputationTable,
+    LazyComputationTable,
     ensure_precomputed,
 )
 
@@ -177,7 +177,7 @@ class ExperimentQueryRunner(QueryRunner):
             time_range_start=date_from,
             time_range_end=date_to,
             ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
-            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
 

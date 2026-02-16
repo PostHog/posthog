@@ -33,13 +33,13 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     NON_RETRYABLE_CLICKHOUSE_ERROR_CODES,
     ComputationExecutor,
     ComputationResult,
-    ComputationTable,
+    LazyComputationTable,
     QueryInfo,
     TtlSchedule,
     _build_manual_insert_sql,
-    build_computation_insert_sql,
+    build_lazy_computation_insert_sql,
     compute_query_hash,
-    create_computation_job,
+    create_lazy_computation_job,
     ensure_precomputed,
     filter_overlapping_jobs,
     find_missing_contiguous_windows,
@@ -99,8 +99,8 @@ class TestComputeQueryHash(BaseTest):
         s2 = parse_select(q2)
         assert isinstance(s1, ast.SelectQuery)
         assert isinstance(s2, ast.SelectQuery)
-        query_info1 = QueryInfo(query=s1, table=ComputationTable.PREAGGREGATION_RESULTS, timezone=t1)
-        query_info2 = QueryInfo(query=s2, table=ComputationTable.PREAGGREGATION_RESULTS, timezone=t2)
+        query_info1 = QueryInfo(query=s1, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone=t1)
+        query_info2 = QueryInfo(query=s2, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone=t2)
 
         hash1 = compute_query_hash(query_info1)
         hash2 = compute_query_hash(query_info2)
@@ -350,7 +350,7 @@ class TestBuildComputationInsertSQL(BaseTest):
         select_query = self._make_select_query()
         expires_at = datetime(2024, 1, 8, tzinfo=UTC)
 
-        sql, values = build_computation_insert_sql(
+        sql, values = build_lazy_computation_insert_sql(
             team=self.team,
             job_id=job_id,
             select_query=select_query,
@@ -370,7 +370,7 @@ class TestBuildComputationInsertSQL(BaseTest):
         select_query = self._make_select_query("event = 'test'")
         expires_at = datetime(2024, 1, 8, tzinfo=UTC)
 
-        sql, values = build_computation_insert_sql(
+        sql, values = build_lazy_computation_insert_sql(
             team=self.team,
             job_id=job_id,
             select_query=select_query,
@@ -393,7 +393,7 @@ class TestBuildComputationInsertSQL(BaseTest):
         select_query = self._make_select_query()
         expires_at = datetime(2024, 1, 8, tzinfo=UTC)
 
-        sql, values = build_computation_insert_sql(
+        sql, values = build_lazy_computation_insert_sql(
             team=self.team,
             job_id=job_id,
             select_query=select_query,
@@ -413,7 +413,7 @@ class TestBuildComputationInsertSQL(BaseTest):
         original_select_len = len(select_query.select)
         expires_at = datetime(2024, 1, 8, tzinfo=UTC)
 
-        build_computation_insert_sql(
+        build_lazy_computation_insert_sql(
             team=self.team,
             job_id=job_id,
             select_query=select_query,
@@ -479,7 +479,7 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
         result = ComputationExecutor().execute(
             team=self.team,
@@ -511,7 +511,7 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
         # First: run for Jan 1-2
         first_result = ComputationExecutor().execute(
@@ -556,7 +556,7 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
         # First: Create job for Jan 2 only
         jan2_result = ComputationExecutor().execute(
@@ -828,7 +828,7 @@ class TestBuildManualInsertSQL(BaseTest):
             team=self.team,
             job=job,
             insert_query=self.MANUAL_INSERT_QUERY,
-            table=ComputationTable.PREAGGREGATION_RESULTS,
+            table=LazyComputationTable.PREAGGREGATION_RESULTS,
         )
 
         assert "INSERT INTO preaggregation_results" in sql
@@ -851,7 +851,7 @@ class TestBuildManualInsertSQL(BaseTest):
             team=self.team,
             job=job,
             insert_query=self.MANUAL_INSERT_QUERY,
-            table=ComputationTable.PREAGGREGATION_RESULTS,
+            table=LazyComputationTable.PREAGGREGATION_RESULTS,
         )
 
         assert "2024-01-01" in sql
@@ -883,7 +883,7 @@ class TestBuildManualInsertSQL(BaseTest):
             team=self.team,
             job=job,
             insert_query=query_with_custom,
-            table=ComputationTable.PREAGGREGATION_RESULTS,
+            table=LazyComputationTable.PREAGGREGATION_RESULTS,
             base_placeholders={"event_name": ast.Constant(value="$pageleave")},
         )
 
@@ -1260,7 +1260,7 @@ class TestRaceConditionHandling(BaseTest):
 
     def test_integrity_error_on_create_loops_back_and_picks_up_pending_job(self):
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
         query_hash = compute_query_hash(query_info)
 
         executor = ComputationExecutor(wait_timeout_seconds=2.0, poll_interval_seconds=0.05)
@@ -1310,7 +1310,7 @@ class TestRaceConditionHandling(BaseTest):
 
     def test_unique_constraint_prevents_duplicate_pending_jobs(self):
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
         query_hash = compute_query_hash(query_info)
 
         # Create a PENDING job directly
@@ -1349,7 +1349,7 @@ class TestComputationExecutorExecute(BaseTest):
             """
         )
         assert isinstance(s, ast.SelectQuery)
-        qi = QueryInfo(query=s, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        qi = QueryInfo(query=s, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
         return qi, compute_query_hash(qi)
 
     # --- Happy path ---
@@ -1702,7 +1702,7 @@ class TestComputationExecutorExecute(BaseTest):
         executor = ComputationExecutor(wait_timeout_seconds=0.3, poll_interval_seconds=0.1)
         with patch(
             "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_computation_job",
-            wraps=create_computation_job,
+            wraps=create_lazy_computation_job,
         ) as mock_create:
             executor.execute(
                 team=self.team,
@@ -2154,7 +2154,7 @@ class TestPubsubAndStaleDetection(BaseTest):
                 "SELECT toStartOfDay(timestamp) as a, [] as b, uniqExactState(person_id) as c FROM events GROUP BY a"
             )
             assert isinstance(query, ast.SelectQuery)
-            query_info = QueryInfo(query=query, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+            query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
             executor = ComputationExecutor()
             result = executor.execute(
@@ -2176,7 +2176,7 @@ class TestPubsubAndStaleDetection(BaseTest):
                 "SELECT toStartOfDay(timestamp) as a, [] as b, uniqExactState(person_id) as c FROM events GROUP BY a"
             )
             assert isinstance(query, ast.SelectQuery)
-            query_info = QueryInfo(query=query, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+            query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
             executor = ComputationExecutor(max_retries=0)
             result = executor.execute(

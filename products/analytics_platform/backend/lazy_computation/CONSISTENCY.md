@@ -72,7 +72,7 @@ Controls whether multiple concurrent quorum INSERTs can proceed in parallel on t
 4. Wait for replicas to confirm — 20-100ms
 5. Quorum satisfied — **lock released**
 
-Two concurrent computation INSERTs can execute their heavy SELECT (step 1) simultaneously. They only contend if both reach step 3 within the same ~100ms window. At high INSERT throughput (see [README.md](./README.md) for load context), this is a real concern — with a ~100ms lock hold time, the lock can sustain at most ~10 non-overlapping INSERTs per second to the same table. Beyond that, INSERTs start failing with immediate errors. The executor's retry logic handles these errors (they're retryable), but at high throughput the retry rate would be significant.
+Two concurrent lazy computation INSERTs can execute their heavy SELECT (step 1) simultaneously. They only contend if both reach step 3 within the same ~100ms window. At high INSERT throughput (see [README.md](./README.md) for load context), this is a real concern — with a ~100ms lock hold time, the lock can sustain at most ~10 non-overlapping INSERTs per second to the same table. Beyond that, INSERTs start failing with immediate errors. The executor's retry logic handles these errors (they're retryable), but at high throughput the retry rate would be significant.
 
 **Why parallel was made the default**: the sequential mode was "significantly less convenient to use" because it serialized all writes to a replicated table when quorum was enabled. See [PR #17567](https://github.com/ClickHouse/ClickHouse/pull/17567) and [issue #3950](https://github.com/ClickHouse/ClickHouse/issues/3950).
 

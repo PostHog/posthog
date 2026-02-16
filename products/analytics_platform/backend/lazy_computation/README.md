@@ -49,7 +49,8 @@ The query must use `{time_window_min}` and `{time_window_max}` placeholders - th
 
 ```python
 from datetime import datetime
-from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import ensure_precomputed, ComputationTable
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import ensure_precomputed,
+    LazyComputationTable
 from posthog.hogql import ast
 
 # Ensure that the given query is precomputed with variable TTLs
@@ -70,12 +71,12 @@ result = ensure_precomputed(
     time_range_end=datetime(2025, 12, 25),
     # Variable TTL: recent data refreshes more often
     ttl_seconds={
-        "0d": 15 * 60,           # current day: 15 min
-        "1d": 60 * 60,            # previous day: 1 hour
-        "7d": 24 * 60 * 60,       # last week: 1 day
+        "0d": 15 * 60,  # current day: 15 min
+        "1d": 60 * 60,  # previous day: 1 hour
+        "7d": 24 * 60 * 60,  # last week: 1 day
         "default": 7 * 24 * 60 * 60,  # older: 7 days
     },
-    table=ComputationTable.PREAGGREGATION_RESULTS,
+    table=LazyComputationTable.PREAGGREGATION_RESULTS,
     # Custom placeholders can be passed too
     placeholders={"some_filter": ast.Constant(value="filter_value")},
 )

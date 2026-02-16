@@ -26,7 +26,7 @@ from posthog.hogql_queries.experiments.test.experiment_query_runner.base import 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
-    ComputationTable,
+    LazyComputationTable,
     ensure_precomputed,
 )
 
@@ -87,7 +87,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             insert_query=query_string,
             time_range_start=experiment.start_date,
             time_range_end=experiment.end_date,
-            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
 
@@ -228,7 +228,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             insert_query=query_string,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
-            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
 
@@ -238,7 +238,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             insert_query=query_string,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
-            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
 
@@ -332,7 +332,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             insert_query=query_string,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
-            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
         ensure_precomputed(
@@ -340,7 +340,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             insert_query=query_string,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
-            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
 
@@ -416,7 +416,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             insert_query=query_string,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
-            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
         ensure_precomputed(
@@ -424,7 +424,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             insert_query=query_string,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
-            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
 

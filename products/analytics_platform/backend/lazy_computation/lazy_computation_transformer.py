@@ -13,7 +13,7 @@ from posthog.models import Team
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     ComputationExecutor,
     ComputationResult,
-    ComputationTable,
+    LazyComputationTable,
     QueryInfo,
 )
 
@@ -467,7 +467,9 @@ def _run_daily_unique_persons_pageviews(
     2. Calls the executor to find/create preaggregation jobs
     3. Returns the result with job IDs for the combiner query
     """
-    query_info = QueryInfo(query=query_to_insert, table=ComputationTable.PREAGGREGATION_RESULTS, timezone=team.timezone)
+    query_info = QueryInfo(
+        query=query_to_insert, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone=team.timezone
+    )
 
     executor = ComputationExecutor()
     result = executor.execute(
