@@ -49,9 +49,9 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
-            - name: Start PostgreSQL with Docker Compose
+            - name: Start Docker services
               run: |
-                  docker compose -f docker-compose.dev.yml up db -d --wait
+                  docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
               uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
@@ -129,9 +129,9 @@ jobs:
               with:
                   fetch-depth: 0
 
-            - name: Start PostgreSQL with Docker Compose
+            - name: Start Docker services
               run: |
-                  docker compose -f docker-compose.dev.yml up db -d --wait
+                  docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
               uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
