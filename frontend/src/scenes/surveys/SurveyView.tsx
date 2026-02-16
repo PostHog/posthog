@@ -56,7 +56,7 @@ import {
 
 import { SurveyHeadline } from './SurveyHeadline'
 import { SurveysDisabledBanner } from './SurveySettings'
-import { getSurveyResponse, isThumbQuestion } from './utils'
+import { getSurveyRatingEmojiSvgPath, getSurveyResponse, isEmojiScaleQuestion, isThumbQuestion } from './utils'
 
 const RESOURCE_TYPE = 'survey'
 
@@ -76,6 +76,21 @@ export const getThumbIcon = (value: unknown): JSX.Element | null => {
         return <IconThumbsDown className="text-warning" />
     }
     return null
+}
+
+function SurveyRatingEmojiIcon({ svgPath, className }: { svgPath: string; className?: string }): JSX.Element {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            height="20"
+            width="20"
+            viewBox="0 -960 960 960"
+            className={className}
+            fill="currentColor"
+        >
+            <path d={svgPath} />
+        </svg>
+    )
 }
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
@@ -399,15 +414,17 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
      * custom column renderer that does:
      * - shows LLM trace button on the first question, if the event has an $ai_trace_id
      * - shows thumbs up/down icons instead of the raw '1'/'2' data for thumb questions
+     * - shows emoji icons for emoji-scale questions (3-point and 5-point scales)
      */
     const surveyColumnRenderers = useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {}
 
         survey.questions.forEach((question, index) => {
             const isThumb = isThumbQuestion(question)
+            const isEmoji = isEmojiScaleQuestion(question)
             const isFirstQuestion = index === 0
 
-            if (!isThumb && !isFirstQuestion) {
+            if (!isThumb && !isEmoji && !isFirstQuestion) {
                 return
             }
 
@@ -416,9 +433,32 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                 render: ({ value, record }) => {
                     const traceId = isFirstQuestion ? getTraceIdFromRecord(record) : null
 
+                    const renderValue = (): JSX.Element => {
+                        if (isThumb) {
+                            return (
+                                <span className="flex items-center gap-1">
+                                    {getThumbIcon(value)}
+                                    Thumbs {value == '1' ? 'up' : 'down'}
+                                </span>
+                            )
+                        }
+                        if (isEmoji && question.type === SurveyQuestionType.Rating) {
+                            const emojiSvgPath = getSurveyRatingEmojiSvgPath(value, question.scale)
+                            if (emojiSvgPath) {
+                                return (
+                                    <Tooltip title={`Rating: ${value}`}>
+                                        <span className="cursor-default">
+                                            <SurveyRatingEmojiIcon svgPath={emojiSvgPath} className="text-secondary" />
+                                        </span>
+                                    </Tooltip>
+                                )
+                            }
+                        }
+                        return <>{String(value)}</>
+                    }
+
                     return (
                         <span className="flex items-center gap-2">
-                            {/* show LLM trace button on the first question if we have $ai_trace_id */}
                             {traceId && (
                                 <Tooltip title="View LLM trace">
                                     <LemonButton
@@ -430,16 +470,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                     />
                                 </Tooltip>
                             )}
-
-                            {/* replace '1' and '2' with thumb icon+text if it's a thumb question */}
-                            {isThumb ? (
-                                <span className="flex items-center gap-1">
-                                    {getThumbIcon(value)}
-                                    Thumbs {value == '1' ? 'up' : 'down'}
-                                </span>
-                            ) : (
-                                String(value)
-                            )}
+                            {renderValue()}
                         </span>
                     )
                 },
