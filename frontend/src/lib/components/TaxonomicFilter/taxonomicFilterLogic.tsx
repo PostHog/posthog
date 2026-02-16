@@ -1391,11 +1391,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     searchQuery: values.searchQuery,
                 })
             }
-            if (activeTab === TaxonomicFilterGroupType.SuggestedFilters) {
-                posthog.capture('taxonomic_filter_suggested_filters_shown', {
-                    searchQuery: values.searchQuery,
-                })
-            }
         },
     })),
     afterMount(({ values }) => {
