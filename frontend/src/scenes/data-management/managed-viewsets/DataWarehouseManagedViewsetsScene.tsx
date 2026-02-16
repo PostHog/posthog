@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -17,17 +19,37 @@ import {
     disableDataWarehouseManagedViewsetModalLogic,
 } from './disableDataWarehouseManagedViewsetModalLogic'
 
+const PRODUCT_TITLE = 'Managed viewsets'
+const PRODUCT_DESCRIPTION =
+    'Configure automatically managed database views for analytics features. These views are created and maintained by PostHog to provide optimized data access.'
+
 const RESOURCE_TYPES_MAP: Record<DataWarehouseManagedViewsetKind, AccessControlResourceType> = {
     revenue_analytics: AccessControlResourceType.RevenueAnalytics,
 }
 
 export function DataWarehouseManagedViewsetsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { kind, views } = useValues(
         disableDataWarehouseManagedViewsetModalLogic({ type: 'DataWarehouseManagedViewsetsScene' })
     )
 
     const { loadCurrentTeam } = useActions(teamLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]) {
+        return (
+            <SceneContent>
+                <SceneTitleSection
+                    name={PRODUCT_TITLE}
+                    resourceType={{ type: 'managed_viewsets' }}
+                    description={PRODUCT_DESCRIPTION}
+                />
+                <p className="text-secondary">
+                    Managed viewsets is an upcoming feature. It will be available as part of a future product release.
+                </p>
+            </SceneContent>
+        )
+    }
 
     const managedViewsets = currentTeam!.managed_viewsets!
 
@@ -50,9 +72,9 @@ export function DataWarehouseManagedViewsetsScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Managed viewsets"
+                name={PRODUCT_TITLE}
                 resourceType={{ type: 'managed_viewsets' }}
-                description="Configure automatically managed database views for analytics features. These views are created and maintained by PostHog to provide optimized data access."
+                description={PRODUCT_DESCRIPTION}
             />
 
             <div className="space-y-4">

@@ -204,8 +204,6 @@ export const searchLogic = kea<searchLogicType>([
             false,
             {
                 setSearch: (_, { search }) => search.trim() !== '',
-                loadRecentsSuccess: () => false,
-                loadRecentsFailure: () => false,
                 loadUnifiedSearchResultsSuccess: () => false,
                 loadUnifiedSearchResultsFailure: () => false,
             },
@@ -987,7 +985,10 @@ export const searchLogic = kea<searchLogicType>([
         setSearch: async ({ search }, breakpoint) => {
             await breakpoint(150)
 
-            actions.loadRecents({ search })
+            // Always load recents on first call (e.g. when defaultSearchValue is non-empty)
+            if (search.trim() === '' || !values.recentsHasLoaded) {
+                actions.loadRecents({ search: '' })
+            }
 
             if (search.trim() !== '') {
                 actions.loadUnifiedSearchResults({ searchTerm: search })

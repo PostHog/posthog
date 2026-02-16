@@ -60,7 +60,6 @@ export interface EvaluationPattern {
     title: string
     description: string
     frequency: string
-    example_reasoning: string
     example_generation_ids: string[]
 }
 

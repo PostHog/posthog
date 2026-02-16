@@ -197,6 +197,7 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         except ImportError:
             pass
         else:
+            # nosemgrep: idor-lookup-without-org (org validation after lookup)
             roles = Role.objects.filter(id__in=role_ids)
             invalid_roles = [r for r in roles if r.organization_id != self.organization_id]
             if invalid_roles:

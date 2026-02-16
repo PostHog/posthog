@@ -399,17 +399,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 upgradedQuery = query
             }
 
-            values.insightLogicRef?.logic.actions.setInsight(
-                {
-                    ...createEmptyInsight(`new-${values.tabId}`),
-                    ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
-                    query: upgradedQuery,
-                },
-                {
-                    fromPersistentApi: false,
-                    overrideQuery: true,
-                }
-            )
+            if (values.insightId === 'new' || values.insightId?.startsWith('new-')) {
+                values.insightLogicRef?.logic.actions.setInsight(
+                    {
+                        ...createEmptyInsight(`new-${values.tabId}`),
+                        ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
+                        query: upgradedQuery,
+                    },
+                    {
+                        fromPersistentApi: false,
+                        overrideQuery: true,
+                    }
+                )
+            } else {
+                values.insightDataLogicRef?.logic.actions.setQuery(upgradedQuery)
+            }
         },
     })),
     tabAwareUrlToAction(({ actions, values }) => ({

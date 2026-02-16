@@ -5,10 +5,28 @@ use bytesize::ByteSize;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
+/// Pipeline type for the deduplicator service.
+///
+/// Each pipeline type handles a different event format:
+/// - `IngestionEvents`: Events from capture (CapturedEvent/RawEvent format)
+/// - `ClickhouseEvents`: Events from ingestion pipeline (ClickhouseEvent format)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum_macros::EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum PipelineType {
+    #[default]
+    IngestionEvents,
+    ClickhouseEvents,
+}
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
+
+    /// Pipeline type determines the event format and processing logic.
+    /// Valid values: "ingestion_events" (default), "clickhouse_events"
+    #[envconfig(default = "ingestion_events")]
+    pub pipeline_type: PipelineType,
 
     // Kafka configuration
     #[envconfig(default = "localhost:9092")]
@@ -123,6 +141,10 @@ pub struct Config {
 
     #[envconfig(default = "200")] // 200ms (reduced from 500ms for lower latency)
     pub kafka_consumer_batch_timeout_ms: u64,
+
+    // Timeout for consumer.seek_partitions() after checkpoint import (seconds)
+    #[envconfig(default = "5")]
+    pub kafka_consumer_seek_timeout_secs: u64,
 
     // Kafka consumer fetch settings for throughput optimization
     #[envconfig(default = "1048576")] // 1MB minimum fetch size
@@ -245,12 +267,12 @@ pub struct Config {
     // Limits memory usage by bounding the number of in-flight HTTP connections
     // Critical during rebalance when many partitions are assigned simultaneously
     // Higher values speed up rebalance; streaming bounds memory per download to ~8KB
-    #[envconfig(default = "50")]
+    #[envconfig(default = "100")]
     pub max_concurrent_checkpoint_file_downloads: usize,
 
     // Maximum concurrent S3 file uploads during checkpoint export
     // Less critical than downloads since uploads are bounded by max_concurrent_checkpoints
-    #[envconfig(default = "25")]
+    #[envconfig(default = "100")]
     pub max_concurrent_checkpoint_file_uploads: usize,
 
     // Maximum time allowed for a complete checkpoint import for a single partition (seconds).
@@ -285,38 +307,29 @@ impl Config {
 
     /// Validate configuration settings
     pub fn validate(&self) -> Result<()> {
-        // Check store path is writable
-        if let Err(e) = fs::create_dir_all(&self.store_path) {
-            return Err(anyhow::anyhow!(
-                "Cannot create RocksDB store directory '{}' for consumer group '{}': {}",
-                self.store_path,
-                self.kafka_consumer_group,
-                e
-            ));
-        }
+        fs::create_dir_all(&self.store_path).with_context(|| {
+            format!(
+                "Cannot create RocksDB store directory '{}' for consumer group '{}'",
+                self.store_path, self.kafka_consumer_group
+            )
+        })?;
 
-        // Check if we can write to the directory
         let test_file = self.store_path_buf().join(".write_test");
-        if let Err(e) = fs::write(&test_file, b"test") {
-            return Err(anyhow::anyhow!(
-                "RocksDB store path '{}' is not writable for consumer group '{}': {}",
-                self.store_path,
-                self.kafka_consumer_group,
-                e
-            ));
-        }
+        fs::write(&test_file, b"test").with_context(|| {
+            format!(
+                "RocksDB store path '{}' is not writable for consumer group '{}'",
+                self.store_path, self.kafka_consumer_group
+            )
+        })?;
         fs::remove_file(test_file).ok();
 
-        // Validate checkpoint path if S3 is configured
         if let Some(ref bucket) = self.s3_bucket {
-            if let Err(e) = fs::create_dir_all(&self.local_checkpoint_dir) {
-                return Err(anyhow::anyhow!(
-                    "Cannot create local checkpoint directory '{}' for S3 bucket '{}': {}",
-                    self.local_checkpoint_dir,
-                    bucket,
-                    e
-                ));
-            }
+            fs::create_dir_all(&self.local_checkpoint_dir).with_context(|| {
+                format!(
+                    "Cannot create local checkpoint directory '{}' for S3 bucket '{}'",
+                    self.local_checkpoint_dir, bucket
+                )
+            })?;
         }
 
         Ok(())
@@ -350,6 +363,11 @@ impl Config {
     /// Get kafka consumer batch timeout as Duration
     pub fn kafka_consumer_batch_timeout(&self) -> Duration {
         Duration::from_millis(self.kafka_consumer_batch_timeout_ms)
+    }
+
+    /// Get kafka consumer seek timeout as Duration (for seek_partitions after checkpoint import)
+    pub fn kafka_consumer_seek_timeout(&self) -> Duration {
+        Duration::from_secs(self.kafka_consumer_seek_timeout_secs)
     }
 
     /// Get flush interval as Duration
@@ -446,6 +464,49 @@ impl Config {
     /// Get checkpoint partition import timeout as Duration
     pub fn checkpoint_partition_import_timeout(&self) -> Duration {
         Duration::from_secs(self.checkpoint_partition_import_timeout_secs)
+    }
+
+    /// Build Kafka consumer configuration for the group-based batch consumer.
+    /// Applies all relevant env-configured settings (connection, TLS, fetch/queued,
+    /// group membership, sticky assignment, offset reset).
+    pub fn build_batch_consumer_config(&self) -> rdkafka::ClientConfig {
+        use crate::kafka::config::ConsumerConfigBuilder;
+
+        ConsumerConfigBuilder::for_batch_consumer(&self.kafka_hosts, &self.kafka_consumer_group)
+            .with_tls(self.kafka_tls)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_topic_metadata_refresh_interval_ms(self.kafka_topic_metadata_refresh_interval_ms)
+            .with_metadata_max_age_ms(self.kafka_metadata_max_age_ms)
+            .with_sticky_partition_assignment(self.pod_hostname.as_deref())
+            .with_offset_reset(&self.kafka_consumer_offset_reset)
+            .with_fetch_min_bytes(self.kafka_consumer_fetch_min_bytes)
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
+            .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
+            .with_max_poll_interval_ms(self.kafka_max_poll_interval_ms)
+            .with_session_timeout_ms(self.kafka_session_timeout_ms)
+            .with_heartbeat_interval_ms(self.kafka_heartbeat_interval_ms)
+            .build()
+    }
+
+    /// Build Kafka consumer configuration for the assign-only watermark consumer.
+    /// Applies only connection, TLS, and fetch/queued settings — no group-coordination
+    /// options (session, heartbeat, max.poll, sticky, offset reset).
+    pub fn build_watermark_consumer_config(&self, group_id: &str) -> rdkafka::ClientConfig {
+        use crate::kafka::config::ConsumerConfigBuilder;
+
+        ConsumerConfigBuilder::for_watermark_consumer(&self.kafka_hosts, group_id)
+            .with_tls(self.kafka_tls)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_topic_metadata_refresh_interval_ms(self.kafka_topic_metadata_refresh_interval_ms)
+            .with_metadata_max_age_ms(self.kafka_metadata_max_age_ms)
+            .with_fetch_min_bytes(self.kafka_consumer_fetch_min_bytes)
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
+            .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
+            .build()
     }
 
     /// Build Kafka producer configuration
