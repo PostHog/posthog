@@ -449,24 +449,6 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             }
         )
 
-    @action(methods=["POST"], detail=False)
-    def user_blast_radius_persons(self, request: Request, **kwargs):
-        if "filters" not in request.data:
-            raise exceptions.ValidationError("Missing filters for which to get blast radius")
-
-        filters = request.data.get("filters", {}) or {}
-        group_type_index = request.data.get("group_type_index", None)
-        cursor = request.data.get("cursor", None)
-
-        # TODO: Handle distinct_id and $group_key properties, which are not currently supported
-        users_affected = get_user_blast_radius_persons(self.team, filters, group_type_index, cursor)
-
-        return Response(
-            {
-                "users_affected": users_affected,
-            }
-        )
-
     @action(detail=True, methods=["GET", "POST"])
     def batch_jobs(self, request: Request, *args, **kwargs):
         try:
