@@ -13,8 +13,8 @@ use tracing::warn;
 use crate::{
     app_context::AppContext,
     error::UnhandledError,
-    stages::pipeline::ExceptionEventPipeline,
-    types::{batch::Batch, event::AnyEvent},
+    stages::http_pipeline::HttpEventPipeline,
+    types::{batch::Batch, event::AnyEvent, stage::Stage},
 };
 
 impl IntoResponse for UnhandledError {
@@ -54,8 +54,8 @@ pub async fn process_events(
     State(ctx): State<Arc<AppContext>>,
     Json(events): Json<Vec<AnyEvent>>,
 ) -> Result<Batch<AnyEvent>, UnhandledError> {
-    let pipeline = ExceptionEventPipeline::new(ctx);
+    let pipeline = HttpEventPipeline::new(ctx);
     let input = Batch::from(events);
-    let output = input.apply_stage(pipeline).await?;
+    let output = pipeline.process(input).await?;
     Ok(output)
 }

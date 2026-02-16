@@ -33,6 +33,35 @@ impl<T> Batch<T> {
         &self.0
     }
 
+    pub fn map<O, C>(self, func: impl Fn(T, &mut C) -> O, ctx: &mut C) -> Batch<O> {
+        Batch::from(
+            self.0
+                .into_iter()
+                .map(|item| func(item, ctx))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn filter_map<O>(self, func: impl FnMut(T) -> Option<O>) -> Batch<O> {
+        Batch::from(self.0.into_iter().filter_map(func).collect::<Vec<_>>())
+    }
+
+    pub fn try_filter_map<O, E, C>(
+        self,
+        mut func: impl FnMut(T, &mut C) -> Result<Option<O>, E>,
+        ctx: &mut C,
+    ) -> Result<Batch<O>, E> {
+        let mut result = Vec::with_capacity(self.0.len());
+        for item in self.0 {
+            match func(item, ctx) {
+                Ok(Some(o)) => result.push(o),
+                Ok(None) => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(Batch(result))
+    }
+
     pub fn apply_func<Ctx, O, F, Fu, E>(
         self,
         mut func: F,

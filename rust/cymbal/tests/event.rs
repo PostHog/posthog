@@ -136,12 +136,47 @@ fn frame_at(mut frame: Frame, source: &str, line: u32, column: u32) -> Frame {
 // Response structs
 
 #[derive(Deserialize)]
-struct SuccessResponse(Vec<AnyEvent>);
+#[serde(untagged)]
+enum ResponseItem {
+    #[serde(rename_all = "PascalCase")]
+    Ok { ok: AnyEvent },
+    #[serde(rename_all = "PascalCase")]
+    Err { err: serde_json::Value },
+}
+
+#[derive(Deserialize)]
+struct SuccessResponse(Vec<ResponseItem>);
 
 impl SuccessResponse {
     fn take_properties(self) -> ExceptionProperties {
-        let event = self.0.first().expect("Should have at least one event");
-        serde_json::from_value(event.properties.clone()).expect("Should deserialize properties")
+        let item = self.0.first().expect("Should have at least one event");
+        match item {
+            ResponseItem::Ok { ok: event } => serde_json::from_value(event.properties.clone())
+                .expect("Should deserialize properties"),
+            ResponseItem::Err { err: e } => {
+                panic!("Expected Ok event, got Err: {:?}", e);
+            }
+        }
+    }
+
+    fn first_event(&self) -> &AnyEvent {
+        let item = self.0.first().expect("Should have at least one event");
+        match item {
+            ResponseItem::Ok { ok: event } => event,
+            ResponseItem::Err { err: e } => {
+                panic!("Expected Ok event, got Err: {:?}", e);
+            }
+        }
+    }
+
+    fn first_error(&self) -> &serde_json::Value {
+        let item = self.0.first().expect("Should have at least one event");
+        match item {
+            ResponseItem::Err { err: e } => e,
+            ResponseItem::Ok { ok: _ } => {
+                panic!("Expected Err event, got Ok");
+            }
+        }
     }
 }
 
@@ -287,7 +322,7 @@ async fn insert_symbol_set_record(db: &PgPool, team_id: i32, chunk_id: &str) {
 
 // Helper to extract exception list from response
 fn extract_exception_list(response: &SuccessResponse) -> ExceptionList {
-    let event = response.0.first().expect("Should have at least one event");
+    let event = response.first_event();
     let props: ExceptionProperties =
         serde_json::from_value(event.properties.clone()).expect("Should deserialize properties");
     props.exception_list
@@ -319,7 +354,7 @@ async fn empty_exception_list_returns_event_with_error(db: PgPool) {
     // Empty exception list returns success with error embedded in the event
     assert!(status.is_success());
     assert_eq!(body.0.len(), 1);
-    let event = &body.0[0];
+    let event = body.first_event();
     let errors: Vec<String> =
         serde_json::from_value(event.properties.get("$cymbal_errors").unwrap().clone()).unwrap();
     assert!(errors.iter().any(|e| e.contains("Empty exception list")));
@@ -388,13 +423,16 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
 
     let (_, created): (_, SuccessResponse) = harness.post_event(&input).await;
     let body = created.take_properties();
-    harness.suppress_issue(body.issue_id.unwrap()).await;
+    let issue_id = body.issue_id.unwrap();
+    harness.suppress_issue(issue_id).await;
 
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
 
     assert!(status.is_success());
-    // exception should be suppressed
-    assert_eq!(body.0.len(), 0);
+    // exception should be returned as suppressed error
+    assert_eq!(body.0.len(), 1);
+    let err = body.first_error();
+    assert!(err.to_string().contains("Suppressed"));
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
