@@ -14,7 +14,7 @@ from typing import Any
 
 import structlog
 
-from posthog.temporal.llm_analytics.sentiment.constants import LABELS, MODEL_NAME, ONNX_CACHE_DIR
+from posthog.temporal.llm_analytics.sentiment.constants import CLASSIFY_BATCH_SIZE, LABELS, MODEL_NAME, ONNX_CACHE_DIR
 
 logger = structlog.get_logger(__name__)
 
@@ -97,32 +97,31 @@ def _load_pipeline():
         return _pipeline
 
 
-def classify(text: str) -> SentimentResult:
-    """Classify text sentiment. Returns label, top score, and all scores.
-
-    The model returns scores for three classes: negative, neutral, positive.
-    """
-    pipe = _load_pipeline()
-    results = pipe(text)
-
-    # results is [[{"label": "positive", "score": 0.87}, ...]]
-    scores_list = results[0] if results else []
-
-    scores = {}
+def _parse_single_result(scores_list: list[dict[str, Any]]) -> SentimentResult:
+    """Convert a pipeline output for one text into a SentimentResult."""
+    scores: dict[str, float] = {}
     for item in scores_list:
         scores[item["label"]] = round(item["score"], 4)
 
-    # Ensure all labels present
     for label in LABELS:
         if label not in scores:
             scores[label] = 0.0
 
-    # Find top label
     top_label = max(scores, key=scores.get)  # type: ignore
-    top_score = scores[top_label]
+    return SentimentResult(label=top_label, score=scores[top_label], scores=scores)
 
-    return SentimentResult(
-        label=top_label,
-        score=top_score,
-        scores=scores,
-    )
+
+def classify_batch(texts: list[str]) -> list[SentimentResult]:
+    """Classify a batch of texts. The pipeline handles internal chunking."""
+    if not texts:
+        return []
+
+    pipe = _load_pipeline()
+    # Pipeline with top_k=None returns list of list[dict] for batch input
+    batch_results = pipe(texts, batch_size=CLASSIFY_BATCH_SIZE)
+    return [_parse_single_result(result) for result in batch_results]
+
+
+def classify(text: str) -> SentimentResult:
+    """Classify a single text. Delegates to classify_batch."""
+    return classify_batch([text])[0]

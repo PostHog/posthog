@@ -5,6 +5,11 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { llmSentimentLazyLoaderLogicType } from './llmSentimentLazyLoaderLogicType'
 
+export interface SentimentDateRange {
+    dateFrom?: string | null
+    dateTo?: string | null
+}
+
 interface MessageSentiment {
     index: number
     label: string
@@ -55,7 +60,7 @@ export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>(
     }),
 
     actions({
-        ensureSentimentLoaded: (traceId: string) => ({ traceId }),
+        ensureSentimentLoaded: (traceId: string, dateRange?: SentimentDateRange) => ({ traceId, dateRange }),
         loadSentimentBatchSuccess: (results: Record<string, SentimentResult | null>, requestedTraceIds: string[]) => ({
             results,
             requestedTraceIds,
@@ -147,14 +152,18 @@ export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>(
     listeners(({ values, actions }) => {
         let pendingTraceIds = new Set<string>()
         let batchTimer: ReturnType<typeof setTimeout> | null = null
+        let pendingDateRange: SentimentDateRange | undefined
 
         return {
-            ensureSentimentLoaded: ({ traceId }) => {
+            ensureSentimentLoaded: ({ traceId, dateRange }) => {
                 if (values.sentimentByTraceId[traceId] !== undefined) {
                     return
                 }
 
                 pendingTraceIds.add(traceId)
+                if (dateRange) {
+                    pendingDateRange = dateRange
+                }
 
                 if (batchTimer) {
                     return
@@ -162,7 +171,9 @@ export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>(
 
                 batchTimer = setTimeout(async () => {
                     const allIds = Array.from(pendingTraceIds)
+                    const dateRangeForBatch = pendingDateRange
                     pendingTraceIds = new Set()
+                    pendingDateRange = undefined
                     batchTimer = null
 
                     if (allIds.length === 0) {
@@ -181,7 +192,11 @@ export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>(
                         try {
                             const response = await api.create<BatchSentimentResponse>(
                                 `api/environments/${teamId}/llm_analytics/sentiment/batch/`,
-                                { trace_ids: batch }
+                                {
+                                    trace_ids: batch,
+                                    date_from: dateRangeForBatch?.dateFrom || undefined,
+                                    date_to: dateRangeForBatch?.dateTo || undefined,
+                                }
                             )
 
                             const results: Record<string, SentimentResult | null> = {}

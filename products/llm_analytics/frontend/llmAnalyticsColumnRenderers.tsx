@@ -192,12 +192,13 @@ function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Eleme
 function LazySentimentColumnCell({ traceId }: { traceId: string }): JSX.Element {
     const { sentimentByTraceId, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
     const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
+    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
 
     const cached = sentimentByTraceId[traceId]
     const loading = isTraceLoading(traceId)
 
     if (cached === undefined && !loading) {
-        ensureSentimentLoaded(traceId)
+        ensureSentimentLoaded(traceId, dateFilter)
     }
 
     if (loading || cached === undefined) {

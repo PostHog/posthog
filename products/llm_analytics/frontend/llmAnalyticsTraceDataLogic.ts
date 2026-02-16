@@ -308,7 +308,9 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             }
 
             if (trace?.id) {
-                llmSentimentLazyLoaderLogic.actions.ensureSentimentLoaded(trace.id)
+                llmSentimentLazyLoaderLogic.actions.ensureSentimentLoaded(trace.id, {
+                    dateFrom: trace.createdAt,
+                })
             }
         },
     })),

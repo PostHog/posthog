@@ -28,7 +28,7 @@ from posthog.rate_limit import (
     LLMAnalyticsSentimentSustainedThrottle,
 )
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.llm_analytics.sentiment.on_demand import OnDemandSentimentInput
+from posthog.temporal.llm_analytics.sentiment.on_demand import OnDemandSentimentBatchInput, OnDemandSentimentInput
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
 
@@ -41,6 +41,8 @@ BATCH_MAX_TRACE_IDS = 25
 class SentimentRequestSerializer(serializers.Serializer):
     trace_id = serializers.CharField(required=True)
     force_refresh = serializers.BooleanField(default=False, required=False)
+    date_from = serializers.CharField(required=False, default=None, allow_null=True)
+    date_to = serializers.CharField(required=False, default=None, allow_null=True)
 
 
 class SentimentBatchRequestSerializer(serializers.Serializer):
@@ -51,6 +53,8 @@ class SentimentBatchRequestSerializer(serializers.Serializer):
         required=True,
     )
     force_refresh = serializers.BooleanField(default=False, required=False)
+    date_from = serializers.CharField(required=False, default=None, allow_null=True)
+    date_to = serializers.CharField(required=False, default=None, allow_null=True)
 
 
 class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -71,10 +75,18 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     def _get_cache_key(self, trace_id: str) -> str:
         return f"llm_sentiment:{self.team_id}:{trace_id}"
 
-    def _execute_workflow(self, client, trace_id: str) -> dict:
+    def _execute_workflow(
+        self,
+        client,
+        trace_id: str,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict:
         workflow_input = OnDemandSentimentInput(
             team_id=self.team_id,
             trace_id=trace_id,
+            date_from=date_from,
+            date_to=date_to,
         )
         workflow_id = f"llma-sentiment-{self.team_id}-{trace_id}-{int(time.time() * 1000)}"
 
@@ -99,6 +111,8 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
         trace_id = serializer.validated_data["trace_id"]
         force_refresh = serializer.validated_data["force_refresh"]
+        date_from = serializer.validated_data.get("date_from")
+        date_to = serializer.validated_data.get("date_to")
 
         cache_key = self._get_cache_key(trace_id)
         if not force_refresh:
@@ -108,7 +122,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
         try:
             client = sync_connect()
-            result = self._execute_workflow(client, trace_id)
+            result = self._execute_workflow(client, trace_id, date_from=date_from, date_to=date_to)
 
             cache.set(cache_key, result, timeout=CACHE_TTL)
 
@@ -145,6 +159,8 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
         trace_ids: list[str] = serializer.validated_data["trace_ids"]
         force_refresh: bool = serializer.validated_data["force_refresh"]
+        date_from: str | None = serializer.validated_data.get("date_from")
+        date_to: str | None = serializer.validated_data.get("date_to")
 
         results: dict[str, dict] = {}
         misses: list[str] = []
@@ -165,32 +181,41 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         if misses:
             try:
                 client = sync_connect()
+                workflow_input = OnDemandSentimentBatchInput(
+                    team_id=self.team_id,
+                    trace_ids=misses,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+                workflow_id = f"llma-sentiment-batch-{self.team_id}-{int(time.time() * 1000)}"
 
-                async def _run_all():
-                    tasks = []
-                    for tid in misses:
-                        workflow_input = OnDemandSentimentInput(
-                            team_id=self.team_id,
-                            trace_id=tid,
-                        )
-                        workflow_id = f"llma-sentiment-{self.team_id}-{tid}-{int(time.time() * 1000)}"
-                        tasks.append(
-                            client.execute_workflow(
-                                "llma-sentiment-on-demand",
-                                workflow_input,
-                                id=workflow_id,
-                                task_queue=settings.LLMA_TASK_QUEUE,
-                                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                                retry_policy=RetryPolicy(maximum_attempts=2),
-                                task_timeout=timedelta(seconds=30),
-                            )
-                        )
-                    return await asyncio.gather(*tasks, return_exceptions=True)
+                batch_results: dict[str, dict] = asyncio.run(
+                    client.execute_workflow(
+                        "llma-sentiment-on-demand-batch",
+                        workflow_input,
+                        id=workflow_id,
+                        task_queue=settings.LLMA_TASK_QUEUE,
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                        task_timeout=timedelta(seconds=60),
+                    )
+                )
 
-                workflow_results = asyncio.run(_run_all())
+                to_cache: dict[str, dict] = {}
+                for tid in misses:
+                    trace_result = batch_results.get(tid)
+                    if trace_result:
+                        results[tid] = trace_result
+                        to_cache[self._get_cache_key(tid)] = trace_result
+                    else:
+                        results[tid] = {"error": "Failed to compute sentiment"}
+
+                if to_cache:
+                    cache.set_many(to_cache, timeout=CACHE_TTL)
+
             except Exception as e:
                 logger.exception(
-                    "Failed to connect to Temporal for batch sentiment",
+                    "Failed to compute batch sentiment",
                     team_id=self.team_id,
                     trace_ids=misses,
                     error=str(e),
@@ -199,22 +224,5 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     {"error": "Failed to compute sentiment"},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
-
-            to_cache: dict[str, dict] = {}
-            for tid, result in zip(misses, workflow_results):
-                if isinstance(result, Exception):
-                    logger.exception(
-                        "Failed to compute sentiment in batch",
-                        trace_id=tid,
-                        team_id=self.team_id,
-                        error=str(result),
-                    )
-                    results[tid] = {"error": "Failed to compute sentiment"}
-                else:
-                    results[tid] = result
-                    to_cache[self._get_cache_key(tid)] = result
-
-            if to_cache:
-                cache.set_many(to_cache, timeout=CACHE_TTL)
 
         return Response({"results": results}, status=status.HTTP_200_OK)
