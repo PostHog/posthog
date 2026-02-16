@@ -6,6 +6,7 @@ from typing import Any
 from django.conf import settings
 
 import posthoganalytics
+from asgiref.sync import sync_to_async
 from google.genai import types
 from posthoganalytics.ai.gemini import genai
 from temporalio import activity
@@ -64,7 +65,8 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         )
         return {"status": "skipped", "reason": "no_config_registered", "signals_emitted": 0}
     # Check if the FF enabled to allow signals emission
-    if not await database_sync_to_async(_is_feature_flag_enabled, thread_sensitive=False)(inputs.team_id):
+    # Using regular sync to async as FF check should not close any old Django connections
+    if not await sync_to_async(_is_feature_flag_enabled, thread_sensitive=False)(inputs.team_id):
         activity.logger.warning(
             f"Feature flag {EMIT_SIGNALS_FEATURE_FLAG} not enabled for team {inputs.team_id} for emitting signals",
             extra=inputs.properties_to_log,
