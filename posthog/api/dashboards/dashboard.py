@@ -537,6 +537,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
     @staticmethod
     def _delete_related_tiles(instance: Dashboard, delete_related_insights: bool) -> None:
+        from django.db import transaction
+
         if delete_related_insights:
             # Count only non-deleted tiles. Note: deleted is nullable, so we exclude deleted=True
             # rather than filtering for deleted=False (which would miss deleted=None)
@@ -553,27 +555,37 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
             if insight_ids_to_delete:
-                # Fetch instances before .update() so we can clean up FileSystem entries
-                insights_to_delete = list(Insight.objects.filter(id__in=insight_ids_to_delete))
-
-                # nosemgrep: idor-lookup-without-team
-                Insight.objects.filter(id__in=insight_ids_to_delete).update(deleted=True)
-
-                Insight.bulk_delete_file_system_entries(instance.team, insights_to_delete)
+                with transaction.atomic():
+                    insights_to_delete = list(Insight.objects.filter(id__in=insight_ids_to_delete, team=instance.team))
+                    Insight.objects.filter(id__in=insight_ids_to_delete, team=instance.team).update(deleted=True)
+                    Insight.bulk_delete_file_system_entries(instance.team, insights_to_delete)
 
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
     @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:
-        DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=False)
-        insights_to_undelete = []
-        for tile in DashboardTile.objects.filter(dashboard__id=instance.id):
-            if tile.insight and tile.insight.deleted:
-                tile.insight.deleted = False
-                insights_to_undelete.append(tile.insight)
-        Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
+        from django.db import transaction
 
-        Insight.bulk_create_file_system_entries(instance.team, insights_to_undelete)
+        DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=False)
+
+        insight_ids = list(
+            DashboardTile.objects_including_soft_deleted.filter(
+                dashboard__id=instance.id,
+                insight__isnull=False,
+            ).values_list("insight_id", flat=True)
+        )
+
+        if insight_ids:
+            insights_to_undelete = list(
+                Insight.objects_including_soft_deleted.filter(id__in=insight_ids, team=instance.team, deleted=True)
+            )
+            with transaction.atomic():
+                for insight in insights_to_undelete:
+                    insight.deleted = False
+                Insight.objects_including_soft_deleted.filter(id__in=[i.id for i in insights_to_undelete]).update(
+                    deleted=False
+                )
+                Insight.bulk_create_file_system_entries(instance.team, insights_to_undelete)
 
     @tracer.start_as_current_span("DashboardSerializer.get_tiles")
     def get_tiles(self, dashboard: Dashboard) -> Optional[list[ReturnDict]]:

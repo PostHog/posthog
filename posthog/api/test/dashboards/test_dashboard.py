@@ -637,7 +637,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test dashboard"})
 
         insight_id, _ = self.dashboard_api.create_insight(
-            {"name": "insight on dashboard", "dashboards": [dashboard_id]}
+            {"name": "insight on dashboard", "dashboards": [dashboard_id], "saved": True}
         )
 
         # Verify insight has a FileSystem entry
@@ -659,7 +659,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test dashboard"})
 
         insight_id, _ = self.dashboard_api.create_insight(
-            {"name": "insight on dashboard", "dashboards": [dashboard_id]}
+            {"name": "insight on dashboard", "dashboards": [dashboard_id], "saved": True}
         )
 
         # Verify insight has a FileSystem entry
