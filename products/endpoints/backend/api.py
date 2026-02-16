@@ -419,6 +419,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         data = self.get_model(upgraded_query, EndpointRequest)
         self.validate_request(data, strict=True)
 
+        if Endpoint.objects.filter(team=self.team, name=data.name, deleted=False).exists():
+            raise ValidationError({"name": "An endpoint with this name already exists for this team."})
+
         try:
             query_dict = cast(Union[HogQLQuery, InsightQueryNode], data.query).model_dump()
             endpoint = Endpoint.objects.create(
