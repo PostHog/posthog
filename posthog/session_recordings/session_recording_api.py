@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import re
 import json
@@ -741,7 +743,12 @@ class SessionRecordingViewSet(
         recording.save()
 
         if self._should_use_recording_api():
-            self._delete_via_recording_api(recording.session_id)
+            if not self._delete_via_recording_api(recording.session_id):
+                logger.warning(
+                    "recording_api_delete_failed_after_db_delete",
+                    session_id=recording.session_id,
+                    team_id=self.team.id,
+                )
 
         return Response({"success": True}, status=204)
 
@@ -818,8 +825,15 @@ class SessionRecordingViewSet(
         deleted_count = len(created_records) + updated_count
 
         if self._should_use_recording_api():
-            for recording in non_deleted_recordings:
-                self._delete_via_recording_api(recording.session_id)
+            session_ids = [r.session_id for r in non_deleted_recordings]
+            failed_ids = self._bulk_delete_via_recording_api(session_ids)
+            if failed_ids:
+                logger.warning(
+                    "bulk_delete_recording_api_partial_failure",
+                    team_id=self.team.id,
+                    failed_session_ids=failed_ids,
+                    failed_count=len(failed_ids),
+                )
 
         logger.info(
             "bulk_recordings_deleted",
@@ -1343,7 +1357,7 @@ class SessionRecordingViewSet(
         if not settings.RECORDING_API_ENABLED:
             return False
 
-        return (
+        return bool(
             posthoganalytics.feature_enabled(
                 "session-replay-use-recording-api",
                 str(self.team.id),
@@ -1351,8 +1365,53 @@ class SessionRecordingViewSet(
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
-            or False
         )
+
+    def _bulk_delete_via_recording_api(self, session_ids: list[str]) -> list[str]:
+        """Delete multiple recordings via recording-api using a single HTTP session.
+
+        Returns list of session IDs that failed to delete.
+        """
+
+        async def _delete_all() -> list[str]:
+            async with encrypted_block_storage() as storage:
+
+                async def _delete_one(sid: str) -> str | None:
+                    try:
+                        await storage.delete_recording(sid, self.team.id)
+                        return None
+                    except RecordingDeletedError:
+                        return None  # Already deleted
+                    except (BlockFetchError, BlockDeletionNotSupportedError) as e:
+                        logger.warning(
+                            "recording_api_delete_failed",
+                            error=str(e),
+                            session_id=sid,
+                            team_id=self.team.id,
+                        )
+                        return sid
+                    except Exception as e:
+                        logger.exception(
+                            "recording_api_delete_error",
+                            error=str(e),
+                            session_id=sid,
+                            team_id=self.team.id,
+                        )
+                        return sid
+
+                results = await asyncio.gather(*[_delete_one(sid) for sid in session_ids])
+                return [sid for sid in results if sid is not None]
+
+        try:
+            return async_to_sync(_delete_all)()
+        except Exception as e:
+            logger.exception(
+                "recording_api_bulk_delete_error",
+                error=str(e),
+                team_id=self.team.id,
+                session_count=len(session_ids),
+            )
+            return session_ids
 
     def _delete_via_recording_api(self, session_id: str) -> bool:
         """Delete recording via recording-api. Returns True if deleted successfully."""
@@ -1365,7 +1424,13 @@ class SessionRecordingViewSet(
             return async_to_sync(_delete)()
         except RecordingDeletedError:
             return True  # Already deleted
-        except (BlockFetchError, BlockDeletionNotSupportedError):
+        except (BlockFetchError, BlockDeletionNotSupportedError) as e:
+            logger.warning(
+                "recording_api_delete_failed",
+                error=str(e),
+                session_id=session_id,
+                team_id=self.team.id,
+            )
             return False
         except Exception as e:
             logger.exception(
@@ -1434,26 +1499,18 @@ class SessionRecordingViewSet(
         timer: ServerTimingsGathered,
         decompress: bool,
     ) -> BlockList:
-        span_suffix = "decompressed" if decompress else "compressed"
+        use_recording_api = self._should_use_recording_api()
+        compress_label = "decompressed" if decompress else "compressed"
+        source_label = "recording_api" if use_recording_api else "s3"
+        span_name = f"fetch_{compress_label}_blocks_via_{source_label}"
 
-        if self._should_use_recording_api():
-            async with encrypted_block_storage() as block_storage:
-                with (
-                    timer(f"fetch_{span_suffix}_blocks_via_recording_api"),
-                    tracer.start_as_current_span(f"fetch_{span_suffix}_blocks_via_recording_api"),
-                ):
-                    return await self._fetch_blocks_parallel(
-                        blocks, min_blob_key, max_blob_key, recording, block_storage, decompress
-                    )
-        else:
-            async with cleartext_block_storage() as block_storage:
-                with (
-                    timer(f"fetch_{span_suffix}_blocks_via_s3"),
-                    tracer.start_as_current_span(f"fetch_{span_suffix}_blocks_via_s3"),
-                ):
-                    return await self._fetch_blocks_parallel(
-                        blocks, min_blob_key, max_blob_key, recording, block_storage, decompress
-                    )
+        storage_cm = encrypted_block_storage() if use_recording_api else cleartext_block_storage()
+
+        async with storage_cm as block_storage:
+            with timer(span_name), tracer.start_as_current_span(span_name):
+                return await self._fetch_blocks_parallel(
+                    blocks, min_blob_key, max_blob_key, recording, block_storage, decompress
+                )
 
     @tracer.start_as_current_span("_stream_decompressed_blocks")
     async def _stream_decompressed_blocks(
