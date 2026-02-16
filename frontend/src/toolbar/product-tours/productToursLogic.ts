@@ -22,11 +22,12 @@ import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
+import { captureAndUploadElementScreenshot } from '~/toolbar/utils/screenshot'
 import { ProductTour, ProductTourStep, ProductTourStepType, StepOrderVersion } from '~/types'
 
 import { inferSelector } from './elementInference'
 import type { productToursLogicType } from './productToursLogicType'
-import { PRODUCT_TOURS_SIDEBAR_TRANSITION_MS, captureAndUploadElementScreenshotV2 } from './utils'
+import { PRODUCT_TOURS_SIDEBAR_TRANSITION_MS } from './utils'
 
 /**
  * Editor state machine - explicit states instead of multiple boolean flags.
@@ -488,7 +489,7 @@ export const productToursLogic = kea<productToursLogicType>([
             const { stepIndex } = editorState
             const selector = elementToActionStep(element, dataAttributes).selector ?? ''
             const inferenceData = inferSelector(element)?.selector
-            const screenshot = await captureAndUploadElementScreenshotV2(element).catch((e) => {
+            const screenshot = await captureAndUploadElementScreenshot(element).catch((e) => {
                 console.warn('[Product Tours] Failed to capture element screenshot:', e)
                 return null
             })

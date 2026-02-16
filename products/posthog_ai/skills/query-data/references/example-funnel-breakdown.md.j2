@@ -1,0 +1,5 @@
+# Funnel (two steps, aggregated by unique users, $pageview -> user signed up, broken down by the person's role, sequential, 14-day conversion window)
+
+```sql
+{{ render_hogql_example({"kind": "FunnelsQuery", "filterTestAccounts": false, "series": [{"kind": "EventsNode", "event": "$pageview"}, {"kind": "EventsNode", "event": "user signed up"}], "dateRange": {"date_from": "-7d"}, "funnelsFilter": {"funnelOrderType": "ordered", "funnelWindowInterval": 14, "funnelWindowIntervalUnit": "day", "funnelVizType": "steps"}, "breakdownFilter": {"breakdown": "role", "breakdown_type": "person"}}) }}
+```
