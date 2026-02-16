@@ -13,8 +13,16 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import IconPostHogService from 'public/posthog-icon.svg'
+import IconLinearService from 'public/services/linear.svg'
+
 import { AddCustomServerModal } from './AddCustomServerModal'
 import { MCPServer, MCPServerInstallation, mcpStoreLogic } from './mcpStoreLogic'
+
+const SERVER_ICONS: Record<string, string> = {
+    'PostHog MCP': IconPostHogService,
+    Linear: IconLinearService,
+}
 
 export const scene: SceneExport = {
     component: McpStoreScene,
@@ -89,12 +97,14 @@ export function McpStoreScene(): JSX.Element {
                 columns={[
                     {
                         width: 0,
-                        render: (_: any, installation: MCPServerInstallation) =>
-                            installation.server?.icon_url ? (
-                                <img src={installation.server.icon_url} alt="" className="w-6 h-6" />
+                        render: (_: any, installation: MCPServerInstallation) => {
+                            const iconSrc = SERVER_ICONS[installation.name] || installation.server?.icon_url
+                            return iconSrc ? (
+                                <img src={iconSrc} alt="" className="w-6 h-6" />
                             ) : (
                                 <IconServer className="text-muted text-xl" />
-                            ),
+                            )
+                        },
                     },
                     {
                         title: 'Name',
@@ -176,8 +186,14 @@ export function McpStoreScene(): JSX.Element {
                         columns={[
                             {
                                 width: 0,
-                                render: (_: any, server: MCPServer) =>
-                                    server.icon_url ? <img src={server.icon_url} alt="" className="w-6 h-6" /> : null,
+                                render: (_: any, server: MCPServer) => {
+                                    const iconSrc = SERVER_ICONS[server.name] || server.icon_url
+                                    return iconSrc ? (
+                                        <img src={iconSrc} alt="" className="w-6 h-6" />
+                                    ) : (
+                                        <IconServer className="text-muted text-xl" />
+                                    )
+                                },
                             },
                             {
                                 title: 'Name',
