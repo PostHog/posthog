@@ -98,7 +98,13 @@ const MetricsTab = (): JSX.Element => {
         <>
             {usesNewQueryRunner && (
                 <div className="mt-1 mb-4 flex justify-start gap-2">
-                    {hasMinimumExposureForResults && <SummarizeExperimentButton />}
+                    <SummarizeExperimentButton
+                        disabledReason={
+                            !hasMinimumExposureForResults
+                                ? 'Experiment needs at least 50 exposures to summarize results.'
+                                : undefined
+                        }
+                    />
                     <SummarizeSessionReplaysButton experiment={experiment} />
                 </div>
             )}
