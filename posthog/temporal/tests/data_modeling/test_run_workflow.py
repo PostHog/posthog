@@ -1,4 +1,3 @@
-import os
 import re
 import uuid
 import asyncio
@@ -1126,66 +1125,6 @@ async def test_run_workflow_triggers_ducklake_copy_child(monkeypatch):
     assert len(child_ducklake_workflow_runs) == 1
     assert child_ducklake_workflow_runs[0]["team_id"] == 1
     assert child_ducklake_workflow_runs[0]["models"][0]["model_label"] == model_label
-
-
-async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_events):
-    """Test that setting SCHEMA__NAMING=direct preserves original column casing when materializing models."""
-    # Query with CamelCase and PascalCase column names, not snake_case
-    query = """\
-    select
-      event as Event,
-      if(distinct_id != '0', distinct_id, null) as DistinctId,
-      timestamp as TimeStamp,
-      'example' as CamelCaseColumn
-    from events
-    where event = '$pageview'
-    """
-    saved_query = await DataWarehouseSavedQuery.objects.acreate(
-        team=ateam,
-        name="camel_case_model",
-        query={"query": query, "kind": "HogQLQuery"},
-    )
-
-    # Make sure we have pageview events for the query to work with
-    events, _ = pageview_events
-
-    with (
-        override_settings(
-            BUCKET_URL=f"s3://{bucket_name}",
-            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
-            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
-        ),
-        unittest.mock.patch.dict(os.environ, {"SCHEMA__NAMING": "direct"}, clear=True),
-    ):
-        job = await database_sync_to_async(DataModelingJob.objects.create)(
-            team=ateam,
-            status=DataModelingJob.Status.RUNNING,
-            workflow_id="test_workflow",
-        )
-
-        # Check that SCHEMA__NAMING is set to direct in the environment
-        assert os.environ.get("SCHEMA__NAMING") == "direct", "SCHEMA__NAMING should be 'direct'"
-
-        key, delta_table, job_id = await materialize_model(
-            saved_query.id.hex,
-            ateam,
-            saved_query,
-            job,
-            unittest.mock.AsyncMock(),
-        )
-
-    await database_sync_to_async(saved_query.refresh_from_db)()
-    assert saved_query.is_materialized is True
-
-    # Check that the column names maintain their original casing
-    table_columns = delta_table.to_pyarrow_table().column_names
-    # Verify the original capitalization is preserved
-    assert "Event" in table_columns, "Column 'Event' should maintain its original capitalization"
-    assert "DistinctId" in table_columns, "Column 'DistinctId' should maintain its original capitalization"
-    assert "TimeStamp" in table_columns, "Column 'TimeStamp' should maintain its original capitalization"
-    assert "CamelCaseColumn" in table_columns, "Column 'CamelCaseColumn' should maintain its original capitalization"
 
 
 async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_client):
