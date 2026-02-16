@@ -1,6 +1,7 @@
 import { JSONContent } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Extension } from '@tiptap/react'
+import Papa from 'papaparse'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -28,40 +29,12 @@ export function isTabularData(text: string): boolean {
     return detectTabularFormat(text) !== null
 }
 
-export function parseCSVLine(line: string): string[] {
-    const fields: string[] = []
-    let current = ''
-    let inQuotes = false
-
-    for (let i = 0; i < line.length; i++) {
-        const char = line[i]
-        if (inQuotes) {
-            if (char === '"') {
-                if (i + 1 < line.length && line[i + 1] === '"') {
-                    current += '"'
-                    i++
-                } else {
-                    inQuotes = false
-                }
-            } else {
-                current += char
-            }
-        } else if (char === '"') {
-            inQuotes = true
-        } else if (char === ',') {
-            fields.push(current)
-            current = ''
-        } else {
-            current += char
-        }
-    }
-    fields.push(current)
-    return fields
-}
-
 export function parseTabularDataToTipTapTable(text: string, delimiter: string = '\t'): JSONContent {
-    const lines = text.replace(/\n+$/, '').split('\n')
-    const rows = delimiter === ',' ? lines.map(parseCSVLine) : lines.map((line) => line.split(delimiter))
+    const trimmed = text.replace(/\n+$/, '')
+    const rows: string[][] =
+        delimiter === ','
+            ? Papa.parse<string[]>(trimmed, { header: false }).data
+            : trimmed.split('\n').map((line) => line.split(delimiter))
 
     const maxCols = Math.max(...rows.map((row) => row.length))
 
