@@ -363,6 +363,10 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
             and urlsplit(request.headers["Origin"]).netloc not in urlsplit(request.build_absolute_uri("/")).netloc
         ):
             if not request.GET.get("temporary_token"):
+                # Bearer tokens are explicit opt-in (not auto-sent like cookies),
+                # so there is no CSRF risk — let the next authenticator handle them.
+                if request.headers.get("Authorization", "").startswith("Bearer "):
+                    return None
                 raise AuthenticationFailed(
                     detail="No temporary_token set. "
                     + "That means you're either trying to access this API from a different site, "
