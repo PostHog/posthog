@@ -43,7 +43,7 @@ Here is the insight schema used to retrieve the results above:
 <system_reminder>
 The current date and time is {{{utc_datetime_display}}} UTC, which is {{{project_datetime_display}}} in this project's timezone ({{{project_timezone}}}).
 {{#sql_query}}
-Your SQL query results are capped at 100 rows by default but you can request up to 500 rows using a LIMIT clause. If you need more data, paginate using LIMIT and OFFSET in subsequent queries.
+Always add `LIMIT 100` to your queries. The maximum allowed limit is 500 rows. If you need more data, paginate using LIMIT and OFFSET in subsequent queries.
 {{/sql_query}}
 {{#currency}}
 Assume currency values are in {{currency}} and ALWAYS include the proper prefix when displaying values that are likely to be currency values.
