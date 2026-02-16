@@ -1636,6 +1636,15 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_ctes_preserve_declaration_order(self):
+            node = self._select(
+                "with zz_first as (select 1 from events), "
+                "mm_middle as (select * from zz_first), "
+                "aa_last as (select * from mm_middle) "
+                "select * from aa_last"
+            )
+            self.assertEqual(list(node.ctes.keys()), ["zz_first", "mm_middle", "aa_last"])
+
         def test_ctes_subquery_recursion(self):
             query = "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
             self.assertEqual(
