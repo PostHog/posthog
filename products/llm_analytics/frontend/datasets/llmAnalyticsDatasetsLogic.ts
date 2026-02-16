@@ -11,6 +11,7 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 import { Dataset } from '~/types'
 
+import { cleanPagedSearchOrderParams } from '../utils'
 import type { llmAnalyticsDatasetsLogicType } from './llmAnalyticsDatasetsLogicType'
 
 export const DATASETS_PER_PAGE = 30
@@ -26,14 +27,6 @@ function cleanFilters(values: Partial<DatasetFilters>): DatasetFilters {
         page: parseInt(String(values.page)) || 1,
         search: String(values.search || ''),
         order_by: values.order_by || '-created_at',
-    }
-}
-
-function cleanFilterSearchParams(filters: DatasetFilters): Record<string, unknown> {
-    return {
-        page: filters.page === 1 ? undefined : filters.page,
-        search: filters.search || undefined,
-        order_by: filters.order_by === '-created_at' ? undefined : filters.order_by,
     }
 }
 
@@ -182,7 +175,7 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
                   },
               ]
             | void => {
-            const nextValues = cleanFilterSearchParams(values.filters)
+            const nextValues = cleanPagedSearchOrderParams(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(values.filters, urlValues)) {
                 return [urls.llmAnalyticsDatasets(), nextValues, {}, { replace: true }]

@@ -11,6 +11,7 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 import { LLMPrompt } from '~/types'
 
+import { cleanPagedSearchOrderParams } from '../utils'
 import type { llmPromptsLogicType } from './llmPromptsLogicType'
 
 export const PROMPTS_PER_PAGE = 30
@@ -26,14 +27,6 @@ function cleanFilters(values: Partial<PromptFilters>): PromptFilters {
         page: parseInt(String(values.page)) || 1,
         search: String(values.search || ''),
         order_by: values.order_by || '-created_at',
-    }
-}
-
-function cleanFilterSearchParams(filters: PromptFilters): Record<string, unknown> {
-    return {
-        page: filters.page === 1 ? undefined : filters.page,
-        search: filters.search || undefined,
-        order_by: filters.order_by === '-created_at' ? undefined : filters.order_by,
     }
 }
 
@@ -163,7 +156,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
 
     actionToUrl(({ values }) => {
         const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | void => {
-            const nextValues = cleanFilterSearchParams(values.filters)
+            const nextValues = cleanPagedSearchOrderParams(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
 
             if (!objectsEqual(values.filters, urlValues)) {
