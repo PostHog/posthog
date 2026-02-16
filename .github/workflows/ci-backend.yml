@@ -351,10 +351,8 @@ jobs:
                   touch frontend/dist/index.html frontend/dist/layout.html frontend/dist/exporter.html
                   ./bin/download-mmdb
 
-            - name: Wait for services
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
+            - name: Wait for Docker services
+              run: bin/wait-for-docker
 
             - name: Run product tests
               # --force: discover already decided this product needs testing, skip turbo cache
