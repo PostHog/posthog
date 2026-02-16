@@ -29,7 +29,7 @@ from posthog.models.team import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.utils import relative_date_parse_with_delta_mapping
 
-from products.analytics_platform.backend.lazy_preaggregation.preaggregation_notifications import (
+from products.analytics_platform.backend.lazy_computation.computation_notifications import (
     has_ch_query_started,
     is_ch_query_alive,
     job_channel,
@@ -39,7 +39,7 @@ from products.analytics_platform.backend.lazy_preaggregation.preaggregation_noti
 )
 from products.analytics_platform.backend.models import PreaggregationJob
 
-# Default TTL for preaggregated data (how long before ClickHouse deletes it)
+# Default TTL for precomputed data (how long before ClickHouse deletes it)
 DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
 # ClickHouse data outlives the PG job by this amount. This prevents races where we fetch a job in PG, use it, but while
@@ -222,8 +222,8 @@ def is_non_retryable_error(error: Exception) -> bool:
     return False
 
 
-class PreaggregationTable(StrEnum):
-    """Allowed target tables for preaggregation results."""
+class ComputationTable(StrEnum):
+    """Allowed target tables for precomputed results."""
 
     PREAGGREGATION_RESULTS = "preaggregation_results"
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
@@ -232,12 +232,12 @@ class PreaggregationTable(StrEnum):
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
 # so an expires_at just after midnight would round down to a time *before* the PG
 # job expires. We add an extra day of buffer for these tables.
-_DATE_EXPIRES_AT_TABLES: set[PreaggregationTable] = {
-    PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+_DATE_EXPIRES_AT_TABLES: set[ComputationTable] = {
+    ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
 }
 
 
-def _get_ch_expires_at(job: "PreaggregationJob", table: PreaggregationTable) -> datetime:
+def _get_ch_expires_at(job: "PreaggregationJob", table: ComputationTable) -> datetime:
     """Compute the ClickHouse expires_at for a job, accounting for the table's column type."""
     assert job.expires_at is not None
     extra_days = 1 if table in _DATE_EXPIRES_AT_TABLES else 0
@@ -246,17 +246,17 @@ def _get_ch_expires_at(job: "PreaggregationJob", table: PreaggregationTable) -> 
 
 @dataclass
 class QueryInfo:
-    """Normalized query information for preaggregation matching."""
+    """Normalized query information for computation matching."""
 
     query: ast.SelectQuery
-    table: PreaggregationTable
+    table: ComputationTable
     timezone: str = "UTC"
     breakdown_fields: list[str] = field(default_factory=list)
 
 
 @dataclass
-class PreaggregationResult:
-    """Result of executing preaggregation jobs."""
+class ComputationResult:
+    """Result of executing computation jobs."""
 
     ready: bool
     job_ids: list[uuid.UUID]
@@ -316,7 +316,7 @@ def find_existing_jobs(
     end: datetime,
 ) -> list[PreaggregationJob]:
     """
-    Find all existing preaggregation jobs for the given team and query hash
+    Find all existing computation jobs for the given team and query hash
     that overlap with the requested time range.
 
     Excludes expired jobs. ClickHouse data outlives the PG job by
@@ -437,14 +437,14 @@ def find_missing_contiguous_windows(
     return merged
 
 
-def create_preaggregation_job(
+def create_computation_job(
     team: Team,
     query_hash: str,
     time_range_start: datetime,
     time_range_end: datetime,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
 ) -> PreaggregationJob:
-    """Create a new preaggregation job in PENDING status with expiry time."""
+    """Create a new computation job in PENDING status with expiry time."""
     expires_at = django_timezone.now() + timedelta(seconds=ttl_seconds)
     return PreaggregationJob.objects.create(
         team=team,
@@ -456,7 +456,7 @@ def create_preaggregation_job(
     )
 
 
-def build_preaggregation_insert_sql(
+def build_computation_insert_sql(
     team: Team,
     job_id: str,
     select_query: ast.SelectQuery,
@@ -465,7 +465,7 @@ def build_preaggregation_insert_sql(
     expires_at: datetime,
 ) -> tuple[str, dict]:
     """
-    Build the INSERT ... SELECT SQL for populating preaggregation results.
+    Build the INSERT ... SELECT SQL for populating precomputed results.
 
     Takes a SelectQuery AST with 3 expressions (time_window_start, breakdown_value, uniq_exact_state)
     and prepends team_id and appends job_id and expires_at, then adds a date range filter to the WHERE clause.
@@ -539,15 +539,15 @@ def build_preaggregation_insert_sql(
     return sql, context.values
 
 
-def run_preaggregation_insert(
+def run_computation_insert(
     team: Team,
     job: PreaggregationJob,
     query_info: QueryInfo,
 ) -> None:
-    """Run the INSERT query to populate preaggregation results in ClickHouse."""
-    ch_expires_at = _get_ch_expires_at(job, PreaggregationTable.PREAGGREGATION_RESULTS)
+    """Run the INSERT query to populate precomputed results in ClickHouse."""
+    ch_expires_at = _get_ch_expires_at(job, ComputationTable.PREAGGREGATION_RESULTS)
 
-    insert_sql, values = build_preaggregation_insert_sql(
+    insert_sql, values = build_computation_insert_sql(
         team=team,
         job_id=str(job.id),
         select_query=query_info.query,
@@ -568,9 +568,9 @@ def run_preaggregation_insert(
         )
 
 
-class PreaggregationExecutor:
+class ComputationExecutor:
     """
-    Executes preaggregation jobs with configurable waiting behavior.
+    Executes computation jobs with configurable waiting behavior.
 
     When a PENDING job already exists for a requested range, the executor always
     waits for it rather than creating a duplicate. This is enforced by a partial
@@ -584,7 +584,7 @@ class PreaggregationExecutor:
     - poll_interval_seconds: Initial poll interval, doubles each iteration (default 1s)
     - max_poll_interval_seconds: Cap for exponential backoff (default 30s)
     - max_retries: Max retries for failed jobs (default 1, meaning 2 total attempts)
-    - ttl_schedule: TtlSchedule controlling how long preaggregated data persists per time range
+    - ttl_schedule: TtlSchedule controlling how long precomputed data persists per time range
     - stale_pending_threshold_seconds: How long before a PENDING job is considered stale
     - ch_start_grace_period_seconds: Grace period before declaring "not started" as stale
     """
@@ -614,9 +614,9 @@ class PreaggregationExecutor:
         start: datetime,
         end: datetime,
         run_insert: Callable[[Team, PreaggregationJob], None] | None = None,
-    ) -> PreaggregationResult:
+    ) -> ComputationResult:
         """
-        Execute preaggregation jobs for the given query and time range.
+        Execute computation jobs for the given query and time range.
 
         Runs a loop that inserts missing ranges first (doing useful work), then
         waits for any pending jobs created by other executors. The loop repeats
@@ -627,9 +627,9 @@ class PreaggregationExecutor:
 
         Args:
             run_insert: Optional custom insert function. If not provided, uses the
-                        default AST-based run_preaggregation_insert with query_info.
+                        default AST-based run_computation_insert with query_info.
         """
-        insert_fn = run_insert or (lambda t, j: run_preaggregation_insert(t, j, query_info))
+        insert_fn = run_insert or (lambda t, j: run_computation_insert(t, j, query_info))
         query_hash = compute_query_hash(query_info)
 
         errors: list[str] = []
@@ -642,8 +642,8 @@ class PreaggregationExecutor:
         try:
             while True:
                 if time.monotonic() - start_time >= self.wait_timeout_seconds:
-                    errors.append("Timeout waiting for preaggregation jobs")
-                    return PreaggregationResult(ready=False, job_ids=[], errors=errors)
+                    errors.append("Timeout waiting for computation jobs")
+                    return ComputationResult(ready=False, job_ids=[], errors=errors)
 
                 # Step 1: See what exists, filter out stale READY jobs
                 existing_jobs = find_existing_jobs(team, query_hash, start, end)
@@ -660,7 +660,7 @@ class PreaggregationExecutor:
                     for range_start, range_end, ttl in ttl_ranges:
                         try:
                             with transaction.atomic():
-                                new_job = create_preaggregation_job(team, query_hash, range_start, range_end, ttl)
+                                new_job = create_computation_job(team, query_hash, range_start, range_end, ttl)
                         except IntegrityError:
                             # Another executor created a PENDING job for this range — loop will pick it up
                             did_work = True
@@ -679,16 +679,16 @@ class PreaggregationExecutor:
                             publish_job_completion(new_job.id, "failed")
                             if is_non_retryable_error(e):
                                 errors.append(str(e))
-                                return PreaggregationResult(ready=False, job_ids=[], errors=errors)
+                                return ComputationResult(ready=False, job_ids=[], errors=errors)
                             failures += 1
                             if failures > self.max_retries:
                                 errors.append(f"Max retries ({self.max_retries}) exceeded: {e}")
-                                return PreaggregationResult(ready=False, job_ids=[], errors=errors)
+                                return ComputationResult(ready=False, job_ids=[], errors=errors)
                         did_work = True
 
                 if ttl_ranges and failures > self.max_retries:
-                    errors.append("Max retries exceeded for preaggregation")
-                    return PreaggregationResult(ready=False, job_ids=[], errors=errors)
+                    errors.append("Max retries exceeded for computation")
+                    return ComputationResult(ready=False, job_ids=[], errors=errors)
 
                 if did_work:
                     interval = self.poll_interval_seconds
@@ -730,7 +730,7 @@ class PreaggregationExecutor:
         final_jobs = find_existing_jobs(team, query_hash, start, end)
         final_fresh = self._filter_by_freshness(final_jobs)
         final_ready = filter_overlapping_jobs([j for j in final_fresh if j.status == PreaggregationJob.Status.READY])
-        return PreaggregationResult(ready=True, job_ids=[j.id for j in final_ready])
+        return ComputationResult(ready=True, job_ids=[j.id for j in final_ready])
 
     def _try_mark_stale_job_as_failed(self, job: PreaggregationJob) -> bool:
         """
@@ -793,19 +793,19 @@ class PreaggregationExecutor:
         return pubsub.get_message(timeout=timeout)
 
 
-def ensure_preaggregated(
+def ensure_precomputed(
     team: Team,
     insert_query: str,
     time_range_start: datetime,
     time_range_end: datetime,
     ttl_seconds: int | dict[str, int] = DEFAULT_TTL_SECONDS,
-    table: PreaggregationTable = PreaggregationTable.PREAGGREGATION_RESULTS,
+    table: ComputationTable = ComputationTable.PREAGGREGATION_RESULTS,
     placeholders: dict[str, ast.Expr] | None = None,
-) -> PreaggregationResult:
+) -> ComputationResult:
     """
-    Ensure preaggregated data exists for the given query and time range.
+    Ensure precomputed data exists for the given query and time range.
 
-    This is the manual API for preaggregation. Unlike the automatic transformation,
+    This is the manual API for lazy computation. Unlike the automatic transformation,
     the caller provides the INSERT SELECT query directly. The query should produce
     columns matching the target table schema.
 
@@ -821,7 +821,7 @@ def ensure_preaggregated(
     Your query MUST use these placeholders to filter data to the correct time range.
 
     Args:
-        team: The team to create preaggregation for
+        team: The team to create precomputed data for
         insert_query: A SELECT query string with placeholders. Use {time_window_min}
                       and {time_window_max} for time filtering.
         time_range_start: Start of the overall time range (inclusive)
@@ -831,15 +831,15 @@ def ensure_preaggregated(
                      - dict: maps date strings to TTL values. Keys are parsed using
                        relative_date_parse (e.g. "7d", "24h", "2026-02-15"). The
                        "default" key sets the fallback TTL. Uses team timezone.
-        table: The target preaggregation table (default "preaggregation_results")
+        table: The target computation table (default "preaggregation_results")
         placeholders: Additional placeholder values to substitute into the query.
                       time_window_min and time_window_max are added automatically.
 
     Returns:
-        PreaggregationResult with job_ids that can be used to query the data
+        ComputationResult with job_ids that can be used to query the data
 
     Example:
-        result = ensure_preaggregated(
+        result = ensure_precomputed(
             team=team,
             insert_query=\"\"\"
                 SELECT
@@ -861,7 +861,7 @@ def ensure_preaggregated(
                 "default": 7 * 24 * 60 * 60,  # older: 7 days
             },
         )
-        # Use result.job_ids to query from preaggregation_results
+        # Use result.job_ids to query from the precomputed results table
     """
     base_placeholders = placeholders or {}
     _validate_no_reserved_placeholders(base_placeholders)
@@ -901,7 +901,7 @@ def ensure_preaggregated(
             )
 
     ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)
-    executor = PreaggregationExecutor(ttl_schedule=ttl_schedule)
+    executor = ComputationExecutor(ttl_schedule=ttl_schedule)
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
 
 
@@ -909,11 +909,11 @@ def _build_manual_insert_sql(
     team: Team,
     job: PreaggregationJob,
     insert_query: str,
-    table: PreaggregationTable,
+    table: ComputationTable,
     base_placeholders: dict[str, ast.Expr] | None = None,
 ) -> tuple[str, dict]:
     """
-    Build INSERT SQL for manual preaggregation.
+    Build INSERT SQL for manual precomputation.
 
     Parses the query string with time placeholders for the job's time range,
     then adds team_id, job_id, and expires_at to the SELECT list.

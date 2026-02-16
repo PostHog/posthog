@@ -2,7 +2,7 @@
 
 ## The problem
 
-The preaggregation system INSERTs data into ClickHouse and immediately SELECTs it back. In PostHog's self-hosted distributed+replicated ClickHouse cluster, this is unreliable at two levels:
+The lazy computation system INSERTs data into ClickHouse and immediately SELECTs it back. In PostHog's self-hosted distributed+replicated ClickHouse cluster, this is unreliable at two levels:
 
 1. **Distributed table layer**: INSERT into `preaggregation_results` (distributed table) routes to `sharded_preaggregation_results` (sharded `ReplicatedAggregatingMergeTree`) via `sipHash64(job_id)`. By default this is **async** — data is written to the initiator node's local filesystem and sent to the target shard in the background. The INSERT returns before the data is queryable.
 
@@ -47,7 +47,7 @@ Sets the minimum number of replicas that must acknowledge a write before the INS
 
 Only works with ReplicatedMergeTree family tables, not Distributed tables directly. The quorum is enforced on the underlying replicated table after the distributed layer routes the data.
 
-**Availability risk with `'auto'`**: quorum = `(num_replicas / 2) + 1`, so with 2 replicas quorum is 2 (all). If one replica goes down, no quorum INSERTs can succeed — they all fail with `TOO_FEW_LIVE_REPLICAS` after `insert_quorum_timeout` (default 60s). With 3 replicas quorum is 2, so one replica can be down and INSERTs still succeed. This means quorum trades write availability for consistency: in a 2-replica setup, a single replica failure blocks all preaggregation writes (for up to 60 seconds before the timeout error). The preaggregation executor's retry logic would handle the error, but no new preaggregation data can be written until the replica recovers. Without quorum, the system degrades gracefully — writes go to the remaining replica and reads work, just without the read-your-own-writes guarantee.
+**Availability risk with `'auto'`**: quorum = `(num_replicas / 2) + 1`, so with 2 replicas quorum is 2 (all). If one replica goes down, no quorum INSERTs can succeed — they all fail with `TOO_FEW_LIVE_REPLICAS` after `insert_quorum_timeout` (default 60s). With 3 replicas quorum is 2, so one replica can be down and INSERTs still succeed. This means quorum trades write availability for consistency: in a 2-replica setup, a single replica failure blocks all computation writes (for up to 60 seconds before the timeout error). The computation executor's retry logic would handle the error, but no new preaggregation data can be written until the replica recovers. Without quorum, the system degrades gracefully — writes go to the remaining replica and reads work, just without the read-your-own-writes guarantee.
 
 Sources:
 
@@ -72,7 +72,7 @@ Controls whether multiple concurrent quorum INSERTs can proceed in parallel on t
 4. Wait for replicas to confirm — 20-100ms
 5. Quorum satisfied — **lock released**
 
-Two concurrent preaggregation INSERTs can execute their heavy SELECT (step 1) simultaneously. They only contend if both reach step 3 within the same ~100ms window. At high INSERT throughput (see [README.md](./README.md) for load context), this is a real concern — with a ~100ms lock hold time, the lock can sustain at most ~10 non-overlapping INSERTs per second to the same table. Beyond that, INSERTs start failing with immediate errors. The executor's retry logic handles these errors (they're retryable), but at high throughput the retry rate would be significant.
+Two concurrent computation INSERTs can execute their heavy SELECT (step 1) simultaneously. They only contend if both reach step 3 within the same ~100ms window. At high INSERT throughput (see [README.md](./README.md) for load context), this is a real concern — with a ~100ms lock hold time, the lock can sustain at most ~10 non-overlapping INSERTs per second to the same table. Beyond that, INSERTs start failing with immediate errors. The executor's retry logic handles these errors (they're retryable), but at high throughput the retry rate would be significant.
 
 **Why parallel was made the default**: the sequential mode was "significantly less convenient to use" because it serialized all writes to a replicated table when quorum was enabled. See [PR #17567](https://github.com/ClickHouse/ClickHouse/pull/17567) and [issue #3950](https://github.com/ClickHouse/ClickHouse/issues/3950).
 
@@ -247,7 +247,7 @@ SELECT: optimize_skip_unused_shards=1, load_balancing='in_order'
 Sentry [rejected `select_sequential_consistency`](https://blog.sentry.io/how-to-get-stronger-consistency-out-of-a-datastore/) because it _fails_ queries when a replica is behind (it's a rejection mechanism, not a routing mechanism). Instead they use `load_balancing=in_order` so both INSERT and SELECT deterministically prefer the same first replica in the config. Since `distributed_foreground_insert=1` ensures the INSERT synchronously writes to that replica, the subsequent SELECT reads from it.
 
 **Pros**: zero ZK overhead on reads, no per-table serialization, per-query settings only
-**Cons**: not formally guaranteed — if the preferred replica goes down between INSERT and SELECT, the fallback replica may be stale (see quorum hardening below). Concentrates preaggregation read/write load on one replica per shard — with 3 replicas, other queries using `random` load balancing distribute evenly across all 3 (including replica 1), so replica 1 gets a disproportionate share of total load. Acceptable when preaggregation is a small fraction of total query volume, but worth monitoring as it grows.
+**Cons**: not formally guaranteed — if the preferred replica goes down between INSERT and SELECT, the fallback replica may be stale (see quorum hardening below). Concentrates lazy computation read/write load on one replica per shard — with 3 replicas, other queries using `random` load balancing distribute evenly across all 3 (including replica 1), so replica 1 gets a disproportionate share of total load. Acceptable when lazy computation is a small fraction of total query volume, but worth monitoring as it grows.
 **INSERT latency**: none extra (already global)
 **SELECT latency**: none extra (may be slightly faster with shard pruning)
 
@@ -263,7 +263,7 @@ The choice of sharding key depends on which consistency approach is used:
 
 **For approach D (shard-local writes)**: the sharding key must localize data for read-your-own-writes. `sipHash64(query_hash)` is the better choice here — it co-locates all jobs for the same query on one shard, so the combiner query (which filters by `query_hash` and `job_id IN (...)`) reads everything it needs from a single shard with no cross-shard consistency concerns. With `sipHash64(job_id)`, you'd get shard-local consistency for the job you just wrote, but other jobs for the same query could be on different shards and might not have replicated yet — a subtle consistency gap even with shard-local writes.
 
-**For approaches A, B, C, E (settings-based consistency)**: consistency comes from ClickHouse settings (quorum, `in_order`, etc.), not shard locality. The sharding key doesn't need to localize a job's data — it could distribute it across shards for better parallelism. Sharding on something like `sipHash64(toString(breakdown_value))` would spread a single large job's rows across shards, giving better write and read parallelism for the `INSERT...SELECT` and combiner queries. The tradeoff is losing `optimize_skip_unused_shards` — every SELECT fans out to all shards — but for preaggregation queries that aggregate across many breakdown values, fanning out to parallelize is what you want anyway.
+**For approaches A, B, C, E (settings-based consistency)**: consistency comes from ClickHouse settings (quorum, `in_order`, etc.), not shard locality. The sharding key doesn't need to localize a job's data — it could distribute it across shards for better parallelism. Sharding on something like `sipHash64(toString(breakdown_value))` would spread a single large job's rows across shards, giving better write and read parallelism for the `INSERT...SELECT` and combiner queries. The tradeoff is losing `optimize_skip_unused_shards` — every SELECT fans out to all shards — but for lazy computation queries that aggregate across many breakdown values, fanning out to parallelize is what you want anyway.
 
 **Caveats for non-`job_id` sharding keys**:
 
@@ -278,7 +278,7 @@ The choice of sharding key depends on which consistency approach is used:
 - **`max_replica_delay_for_distributed_queries`**: rejects replicas lagging by N seconds, but the granularity is seconds — too coarse for sub-second read-after-write where replication lag is measured in milliseconds.
 - **`SYSTEM FLUSH DISTRIBUTED`**: forces async distributed sends to complete, but `distributed_foreground_insert=1` already solves this and is already enabled globally.
 - **`distributed_group_by_no_merge`**: performance optimization that skips coordinator-level re-aggregation for single-shard queries — not a consistency mechanism.
-- **Kafka coordination layer**: Sentry also built a `SynchronizedConsumer` that uses Kafka commit log topics as a write confirmation barrier. Not applicable to the preaggregation system's `INSERT...SELECT` workload.
+- **Kafka coordination layer**: Sentry also built a `SynchronizedConsumer` that uses Kafka commit log topics as a write confirmation barrier. Not applicable to the lazy computation system's `INSERT...SELECT` workload.
 - **ClickHouse transactions**: experimental `BEGIN TRANSACTION` / `COMMIT` support exists but is limited to single-table operations on ReplicatedMergeTree, not production-ready, and doesn't directly address read-after-write consistency.
 - **Application-level retry**: retry the SELECT if it returns empty/stale results. Probabilistic, not a guarantee — doesn't solve the consistency problem, just masks it with latency.
 - **`insert_deduplication_token`**: makes INSERTs idempotent by token, allowing safe retries. But doesn't solve the read side — a retried INSERT still races replication. Also, `INSERT...SELECT` may produce different results on retry if source data changed (new events arrived), so the deduplication token won't match and both INSERTs land.

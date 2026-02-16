@@ -21,36 +21,36 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
-from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import (
+from products.analytics_platform.backend.lazy_computation.computation_notifications import (
+    job_channel,
+    set_ch_query_started,
+)
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     DEFAULT_POLL_INTERVAL_SECONDS,
     DEFAULT_RETRIES,
     DEFAULT_TTL_SCHEDULE,
     DEFAULT_WAIT_TIMEOUT_SECONDS,
     NON_RETRYABLE_CLICKHOUSE_ERROR_CODES,
-    PreaggregationExecutor,
-    PreaggregationResult,
-    PreaggregationTable,
+    ComputationExecutor,
+    ComputationResult,
+    ComputationTable,
     QueryInfo,
     TtlSchedule,
     _build_manual_insert_sql,
-    build_preaggregation_insert_sql,
+    build_computation_insert_sql,
     compute_query_hash,
-    create_preaggregation_job,
-    ensure_preaggregated,
+    create_computation_job,
+    ensure_precomputed,
     filter_overlapping_jobs,
     find_missing_contiguous_windows,
     is_non_retryable_error,
     parse_ttl_schedule,
     split_ranges_by_ttl,
 )
-from products.analytics_platform.backend.lazy_preaggregation.preaggregation_notifications import (
-    job_channel,
-    set_ch_query_started,
-)
 from products.analytics_platform.backend.models import PreaggregationJob
 
 
-class TestPreaggregationJob(BaseTest):
+class TestComputationJob(BaseTest):
     def test_create_and_read_job_by_hash(self):
         query_hash = "abc123def456"
 
@@ -99,8 +99,8 @@ class TestComputeQueryHash(BaseTest):
         s2 = parse_select(q2)
         assert isinstance(s1, ast.SelectQuery)
         assert isinstance(s2, ast.SelectQuery)
-        query_info1 = QueryInfo(query=s1, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone=t1)
-        query_info2 = QueryInfo(query=s2, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone=t2)
+        query_info1 = QueryInfo(query=s1, table=ComputationTable.PREAGGREGATION_RESULTS, timezone=t1)
+        query_info2 = QueryInfo(query=s2, table=ComputationTable.PREAGGREGATION_RESULTS, timezone=t2)
 
         hash1 = compute_query_hash(query_info1)
         hash2 = compute_query_hash(query_info2)
@@ -337,9 +337,9 @@ class TestFilterOverlappingJobs(BaseTest):
         assert job_mid_old.id not in result_ids
 
 
-class TestBuildPreaggregationInsertSQL(BaseTest):
+class TestBuildComputationInsertSQL(BaseTest):
     def _make_select_query(self, where_clause: str = "") -> ast.SelectQuery:
-        """Create a valid preaggregation select query with 3 expressions."""
+        """Create a valid computation select query with 3 expressions."""
         where = f"WHERE {where_clause}" if where_clause else ""
         s = parse_select(f"SELECT 1 as col1, 2 as col2, 3 as col3 FROM events {where}")
         assert isinstance(s, ast.SelectQuery)
@@ -350,7 +350,7 @@ class TestBuildPreaggregationInsertSQL(BaseTest):
         select_query = self._make_select_query()
         expires_at = datetime(2024, 1, 8, tzinfo=UTC)
 
-        sql, values = build_preaggregation_insert_sql(
+        sql, values = build_computation_insert_sql(
             team=self.team,
             job_id=job_id,
             select_query=select_query,
@@ -370,7 +370,7 @@ class TestBuildPreaggregationInsertSQL(BaseTest):
         select_query = self._make_select_query("event = 'test'")
         expires_at = datetime(2024, 1, 8, tzinfo=UTC)
 
-        sql, values = build_preaggregation_insert_sql(
+        sql, values = build_computation_insert_sql(
             team=self.team,
             job_id=job_id,
             select_query=select_query,
@@ -393,7 +393,7 @@ class TestBuildPreaggregationInsertSQL(BaseTest):
         select_query = self._make_select_query()
         expires_at = datetime(2024, 1, 8, tzinfo=UTC)
 
-        sql, values = build_preaggregation_insert_sql(
+        sql, values = build_computation_insert_sql(
             team=self.team,
             job_id=job_id,
             select_query=select_query,
@@ -413,7 +413,7 @@ class TestBuildPreaggregationInsertSQL(BaseTest):
         original_select_len = len(select_query.select)
         expires_at = datetime(2024, 1, 8, tzinfo=UTC)
 
-        build_preaggregation_insert_sql(
+        build_computation_insert_sql(
             team=self.team,
             job_id=job_id,
             select_query=select_query,
@@ -426,9 +426,9 @@ class TestBuildPreaggregationInsertSQL(BaseTest):
         assert len(select_query.select) == original_select_len
 
 
-class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
-    def _make_preaggregation_query(self) -> ast.SelectQuery:
-        """Create a query that produces columns matching the preaggregation table schema."""
+class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
+    def _make_computation_query(self) -> ast.SelectQuery:
+        """Create a query that produces columns matching the computation table schema."""
         s = parse_select(
             """
             SELECT
@@ -455,8 +455,8 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
             team=self.team, event="$pageview", distinct_id="user3", timestamp=datetime(2024, 1, 3, 12, tzinfo=UTC)
         )
 
-    def _query_preaggregation_results(self, job_ids: list) -> list:
-        """Query the preaggregation results table for specific job IDs."""
+    def _query_computation_results(self, job_ids: list) -> list:
+        """Query the computation results table for specific job IDs."""
         job_id_strs = [str(job_id) for job_id in job_ids]
         result = sync_execute(
             f"""
@@ -478,17 +478,17 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
     def test_creates_single_job_for_contiguous_date_range(self):
         self._create_pageview_events()
 
-        query = self._make_preaggregation_query()
-        query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query = self._make_computation_query()
+        query_info = QueryInfo(query=query, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
-        result = PreaggregationExecutor().execute(
+        result = ComputationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 1, tzinfo=UTC),
             end=datetime(2024, 1, 4, tzinfo=UTC),
         )
 
-        assert isinstance(result, PreaggregationResult)
+        assert isinstance(result, ComputationResult)
         assert result.ready is True
         assert len(result.errors) == 0
         assert len(result.job_ids) == 1
@@ -500,7 +500,7 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         assert job.time_range_end == datetime(2024, 1, 4, tzinfo=UTC)
 
         # Verify actual data in ClickHouse
-        ch_results = self._query_preaggregation_results(result.job_ids)
+        ch_results = self._query_computation_results(result.job_ids)
         assert len(ch_results) == 3  # 3 days with events
         # Each day has 1 unique user
         assert ch_results[0][4] == 1  # Jan 1: user1
@@ -510,11 +510,11 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
     def test_reuses_existing_job(self):
         self._create_pageview_events()
 
-        query = self._make_preaggregation_query()
-        query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query = self._make_computation_query()
+        query_info = QueryInfo(query=query, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
         # First: run for Jan 1-2
-        first_result = PreaggregationExecutor().execute(
+        first_result = ComputationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -526,11 +526,11 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         first_job_id = first_result.job_ids[0]
 
         # Verify data was inserted
-        ch_results_1 = self._query_preaggregation_results([first_job_id])
+        ch_results_1 = self._query_computation_results([first_job_id])
         assert len(ch_results_1) == 1  # Jan 1
 
         # Second: run again for same range
-        second_result = PreaggregationExecutor().execute(
+        second_result = ComputationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -555,11 +555,11 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         """Test that contiguous missing ranges are created when some jobs already exist."""
         self._create_pageview_events()
 
-        query = self._make_preaggregation_query()
-        query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query = self._make_computation_query()
+        query_info = QueryInfo(query=query, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
         # First: Create job for Jan 2 only
-        jan2_result = PreaggregationExecutor().execute(
+        jan2_result = ComputationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 2, tzinfo=UTC),
@@ -570,13 +570,13 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         jan2_job_id = jan2_result.job_ids[0]
 
         # Verify Jan 2 data
-        ch_results_jan2 = self._query_preaggregation_results([jan2_job_id])
+        ch_results_jan2 = self._query_computation_results([jan2_job_id])
         assert len(ch_results_jan2) == 1
         assert ch_results_jan2[0][4] == 1  # user2
 
         # Second: Run for Jan 1-4 (Jan 2 is covered)
         # Missing: Jan 1, Jan 3 -> 2 contiguous ranges
-        result = PreaggregationExecutor().execute(
+        result = ComputationExecutor().execute(
             team=self.team,
             query_info=query_info,
             start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -605,15 +605,15 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         assert postgres_jobs[2].time_range_end == datetime(2024, 1, 4, tzinfo=UTC)
 
         # Verify all data in ClickHouse
-        ch_results = self._query_preaggregation_results(result.job_ids)
+        ch_results = self._query_computation_results(result.job_ids)
         assert len(ch_results) == 3  # 3 days total
         assert ch_results[0][4] == 1  # Jan 1: user1
         assert ch_results[1][4] == 1  # Jan 2: user2
         assert ch_results[2][4] == 1  # Jan 3: user3
 
 
-class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
-    """Test execute_hogql_query with usePreaggregatedIntermediateResults modifier."""
+class TestHogQLQueryWithPrecomputation(ClickhouseTestMixin, BaseTest):
+    """Test execute_hogql_query with usePreaggregatedIntermediateResults modifier (lazy computation)."""
 
     def _create_pageview_events(self):
         """Create pageview events for Jan 1-2, 2025."""
@@ -630,8 +630,8 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
             team=self.team, event="$pageview", distinct_id="user1", timestamp=datetime(2025, 1, 2, 16, tzinfo=UTC)
         )
 
-    def test_preaggregation_modifier_returns_same_results(self):
-        """Test that queries with and without preaggregation modifier return the same results."""
+    def test_precomputation_modifier_returns_same_results(self):
+        """Test that queries with and without precomputation modifier return the same results."""
         self._create_pageview_events()
 
         # Query must match the pattern: SELECT uniqExact(person_id), toStartOfDay(timestamp) FROM events
@@ -647,13 +647,13 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
             GROUP BY toStartOfDay(timestamp)
         """
 
-        # Run without preaggregation modifier
+        # Run without precomputation modifier
         result_without = execute_hogql_query(
             parse_select(query),
             team=self.team,
         )
 
-        # Run with preaggregation modifier
+        # Run with precomputation modifier
         result_with = execute_hogql_query(
             parse_select(query),
             team=self.team,
@@ -669,7 +669,7 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
         assert sorted_results[0][0] == 2  # 2 unique users on one day
         assert sorted_results[1][0] == 2  # 2 unique users on the other day
 
-        # Verify data exists in preaggregation table
+        # Verify data exists in precomputed table
         preagg_results = sync_execute(
             f"""
             SELECT count()
@@ -680,16 +680,16 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
         )
         assert preagg_results[0][0] > 0
 
-    def test_trends_query_dau_with_preaggregation_modifier(self):
-        """Test that TrendsQuery with DAU returns same results with and without preaggregation modifier.
+    def test_trends_query_dau_with_precomputation_modifier(self):
+        """Test that TrendsQuery with DAU returns same results with and without precomputation modifier.
 
         TrendsQuery generates a nested query with count(DISTINCT person_id) which our
-        preaggregation pattern supports. The inner query should be transformed to use
+        precomputation pattern supports. The inner query should be transformed to use
         the preaggregation_results table.
         """
         self._create_pageview_events()
 
-        # Run TrendsQuery without preaggregation modifier
+        # Run TrendsQuery without precomputation modifier
         query_without = TrendsQuery(
             series=[EventsNode(name="$pageview", event="$pageview", math=BaseMathType.DAU)],
             dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
@@ -697,7 +697,7 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
         runner_without = TrendsQueryRunner(team=self.team, query=query_without)
         response_without = runner_without.calculate()
 
-        # Run TrendsQuery with preaggregation modifier
+        # Run TrendsQuery with precomputation modifier
         query_with = TrendsQuery(
             series=[EventsNode(name="$pageview", event="$pageview", math=BaseMathType.DAU)],
             dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
@@ -722,7 +722,7 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
         # Note: TrendsQueryResponse only has `hogql` (not `clickhouse`), and `hogql` is generated
         # before execute_hogql_query runs, so it shows the original AST. The transformation happens
         # inside execute_hogql_query. To verify the transformation worked, we check that
-        # preaggregation rows were created in the table.
+        # precomputed rows were created in the table.
         preagg_results = sync_execute(
             f"""
             SELECT count()
@@ -731,7 +731,7 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
             """,
             {"team_id": self.team.id},
         )
-        assert preagg_results[0][0] > 0, "Expected preaggregation data to be created"
+        assert preagg_results[0][0] > 0, "Expected precomputed data to be created"
 
     def test_trends_line_inner_query_format(self):
         """Test the inner query format that TrendsQuery generates for DAU queries.
@@ -762,13 +762,13 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
             GROUP BY day_start
         """
 
-        # Run without preaggregation modifier
+        # Run without precomputation modifier
         result_without = execute_hogql_query(
             parse_select(query),
             team=self.team,
         )
 
-        # Run with preaggregation modifier
+        # Run with precomputation modifier
         result_with = execute_hogql_query(
             parse_select(query),
             team=self.team,
@@ -784,12 +784,12 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
         assert sorted_results[0][0] == 2  # 2 unique users on Jan 1
         assert sorted_results[1][0] == 2  # 2 unique users on Jan 2
 
-        # Verify the preaggregation table was used in the generated SQL
+        # Verify the precomputed table was used in the generated SQL
         assert result_with.clickhouse and ("preaggregation_results" in result_with.clickhouse), (
             "Expected preaggregation_results table in generated SQL"
         )
 
-        # Verify preaggregation rows were created in the table
+        # Verify precomputed rows were created in the table
         preagg_results = sync_execute(
             f"""
             SELECT count()
@@ -798,7 +798,7 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
             """,
             {"team_id": self.team.id},
         )
-        assert preagg_results[0][0] > 0, "Expected preaggregation data to be created"
+        assert preagg_results[0][0] > 0, "Expected precomputed data to be created"
 
 
 class TestBuildManualInsertSQL(BaseTest):
@@ -828,7 +828,7 @@ class TestBuildManualInsertSQL(BaseTest):
             team=self.team,
             job=job,
             insert_query=self.MANUAL_INSERT_QUERY,
-            table=PreaggregationTable.PREAGGREGATION_RESULTS,
+            table=ComputationTable.PREAGGREGATION_RESULTS,
         )
 
         assert "INSERT INTO preaggregation_results" in sql
@@ -851,7 +851,7 @@ class TestBuildManualInsertSQL(BaseTest):
             team=self.team,
             job=job,
             insert_query=self.MANUAL_INSERT_QUERY,
-            table=PreaggregationTable.PREAGGREGATION_RESULTS,
+            table=ComputationTable.PREAGGREGATION_RESULTS,
         )
 
         assert "2024-01-01" in sql
@@ -883,14 +883,14 @@ class TestBuildManualInsertSQL(BaseTest):
             team=self.team,
             job=job,
             insert_query=query_with_custom,
-            table=PreaggregationTable.PREAGGREGATION_RESULTS,
+            table=ComputationTable.PREAGGREGATION_RESULTS,
             base_placeholders={"event_name": ast.Constant(value="$pageleave")},
         )
 
         assert "$pageleave" in values.values()
 
 
-class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
+class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
     MANUAL_INSERT_QUERY = """
         SELECT
             toStartOfDay(timestamp) as time_window_start,
@@ -904,7 +904,7 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
     """
 
     def test_creates_job_and_returns_job_ids(self):
-        result = ensure_preaggregated(
+        result = ensure_precomputed(
             team=self.team,
             insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -921,7 +921,7 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
 
     def test_reuses_existing_jobs(self):
         # First call
-        first_result = ensure_preaggregated(
+        first_result = ensure_precomputed(
             team=self.team,
             insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -930,7 +930,7 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
         first_job_id = first_result.job_ids[0]
 
         # Second call with same parameters
-        second_result = ensure_preaggregated(
+        second_result = ensure_precomputed(
             team=self.team,
             insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -943,7 +943,7 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
 
     def test_creates_jobs_for_missing_ranges(self):
         # Create job for Jan 1 only
-        first_result = ensure_preaggregated(
+        first_result = ensure_precomputed(
             team=self.team,
             insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -952,7 +952,7 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
         jan1_job_id = first_result.job_ids[0]
 
         # Request Jan 1-3 (Jan 1 exists, Jan 2 missing)
-        second_result = ensure_preaggregated(
+        second_result = ensure_precomputed(
             team=self.team,
             insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -976,7 +976,7 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
             GROUP BY time_window_start
         """
 
-        result = ensure_preaggregated(
+        result = ensure_precomputed(
             team=self.team,
             insert_query=query_with_placeholder,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -995,7 +995,7 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
     )
     def test_rejects_reserved_placeholder_names(self, reserved_name):
         with pytest.raises(ValueError, match="Cannot use reserved placeholder names"):
-            ensure_preaggregated(
+            ensure_precomputed(
                 team=self.team,
                 insert_query=self.MANUAL_INSERT_QUERY,
                 time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -1007,7 +1007,7 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
         now = django_timezone.now()
         today_start = datetime(now.year, now.month, now.day, tzinfo=UTC)
 
-        result = ensure_preaggregated(
+        result = ensure_precomputed(
             team=self.team,
             insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=today_start - timedelta(days=3),
@@ -1050,7 +1050,7 @@ class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
             "default": 7 * 24 * 60 * 60,
         }
 
-        result = ensure_preaggregated(
+        result = ensure_precomputed(
             team=self.team,
             insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=today_utc - timedelta(days=10),
@@ -1221,16 +1221,16 @@ class TestSplitRangesByTtl(BaseTest):
         assert result[1] == (datetime(2024, 1, 5, tzinfo=UTC), datetime(2024, 1, 7, tzinfo=UTC), 3600)
 
 
-class TestPreaggregationExecutor(BaseTest):
+class TestComputationExecutor(BaseTest):
     def test_executor_with_custom_settings(self):
-        default_executor = PreaggregationExecutor()
+        default_executor = ComputationExecutor()
         assert default_executor.wait_timeout_seconds == DEFAULT_WAIT_TIMEOUT_SECONDS
         assert default_executor.poll_interval_seconds == DEFAULT_POLL_INTERVAL_SECONDS
         assert default_executor.max_retries == DEFAULT_RETRIES
         assert default_executor.ttl_schedule == DEFAULT_TTL_SCHEDULE
 
         custom_schedule = TtlSchedule.from_seconds(3600)
-        custom_executor = PreaggregationExecutor(
+        custom_executor = ComputationExecutor(
             wait_timeout_seconds=60.0,
             poll_interval_seconds=0.5,
             max_retries=5,
@@ -1243,7 +1243,7 @@ class TestPreaggregationExecutor(BaseTest):
 
 
 class TestRaceConditionHandling(BaseTest):
-    def _make_preaggregation_query(self) -> ast.SelectQuery:
+    def _make_computation_query(self) -> ast.SelectQuery:
         s = parse_select(
             """
             SELECT
@@ -1259,11 +1259,11 @@ class TestRaceConditionHandling(BaseTest):
         return s
 
     def test_integrity_error_on_create_loops_back_and_picks_up_pending_job(self):
-        query = self._make_preaggregation_query()
-        query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query = self._make_computation_query()
+        query_info = QueryInfo(query=query, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
         query_hash = compute_query_hash(query_info)
 
-        executor = PreaggregationExecutor(wait_timeout_seconds=2.0, poll_interval_seconds=0.05)
+        executor = ComputationExecutor(wait_timeout_seconds=2.0, poll_interval_seconds=0.05)
 
         # Another executor already created a PENDING job for this range
         existing_pending = PreaggregationJob.objects.create(
@@ -1283,11 +1283,11 @@ class TestRaceConditionHandling(BaseTest):
 
         with (
             patch(
-                "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.create_preaggregation_job",
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_computation_job",
                 side_effect=IntegrityError("duplicate key"),
             ),
             patch(
-                "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.find_existing_jobs",
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.find_existing_jobs",
                 side_effect=[
                     [],  # First call: miss the job (race window)
                     [existing_pending],  # Second call: find it as PENDING after IntegrityError loops back
@@ -1309,8 +1309,8 @@ class TestRaceConditionHandling(BaseTest):
         assert existing_pending.id in result.job_ids
 
     def test_unique_constraint_prevents_duplicate_pending_jobs(self):
-        query = self._make_preaggregation_query()
-        query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query = self._make_computation_query()
+        query_info = QueryInfo(query=query, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
         query_hash = compute_query_hash(query_info)
 
         # Create a PENDING job directly
@@ -1335,7 +1335,7 @@ class TestRaceConditionHandling(BaseTest):
             )
 
 
-class TestPreaggregationExecutorExecute(BaseTest):
+class TestComputationExecutorExecute(BaseTest):
     def _make_query_info(self) -> tuple[QueryInfo, str]:
         s = parse_select(
             """
@@ -1349,7 +1349,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
             """
         )
         assert isinstance(s, ast.SelectQuery)
-        qi = QueryInfo(query=s, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        qi = QueryInfo(query=s, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
         return qi, compute_query_hash(qi)
 
     # --- Happy path ---
@@ -1366,7 +1366,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        executor = PreaggregationExecutor()
+        executor = ComputationExecutor()
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1381,7 +1381,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
     def test_inserts_missing_ranges_and_returns_all_job_ids(self):
         query_info, query_hash = self._make_query_info()
 
-        executor = PreaggregationExecutor()
+        executor = ComputationExecutor()
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1398,7 +1398,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
         query_info, _ = self._make_query_info()
 
         one_hour = 60 * 60
-        executor = PreaggregationExecutor(ttl_schedule=TtlSchedule.from_seconds(one_hour))
+        executor = ComputationExecutor(ttl_schedule=TtlSchedule.from_seconds(one_hour))
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1416,7 +1416,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
     def test_short_ttl_does_not_infinite_loop(self):
         query_info, _ = self._make_query_info()
 
-        executor = PreaggregationExecutor(ttl_schedule=TtlSchedule.from_seconds(60), wait_timeout_seconds=5.0)
+        executor = ComputationExecutor(ttl_schedule=TtlSchedule.from_seconds(60), wait_timeout_seconds=5.0)
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1450,7 +1450,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
         )
 
         one_hour = 60 * 60
-        executor = PreaggregationExecutor(ttl_schedule=TtlSchedule.from_seconds(one_hour))
+        executor = ComputationExecutor(ttl_schedule=TtlSchedule.from_seconds(one_hour))
         insert_count = [0]
 
         def counting_insert(t, j):
@@ -1482,7 +1482,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
         )
 
         one_hour = 60 * 60
-        executor = PreaggregationExecutor(ttl_schedule=TtlSchedule.from_seconds(one_hour))
+        executor = ComputationExecutor(ttl_schedule=TtlSchedule.from_seconds(one_hour))
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1509,7 +1509,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
         range_start = today_start - timedelta(days=2)
         range_end = today_start + timedelta(days=1)
 
-        executor = PreaggregationExecutor(ttl_schedule=schedule)
+        executor = ComputationExecutor(ttl_schedule=schedule)
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1552,7 +1552,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
         now = django_timezone.now()
         today_utc = datetime(now.year, now.month, now.day, tzinfo=UTC)
 
-        executor = PreaggregationExecutor(ttl_schedule=schedule)
+        executor = ComputationExecutor(ttl_schedule=schedule)
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1593,7 +1593,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
         )
 
         one_hour = 60 * 60
-        executor = PreaggregationExecutor(
+        executor = ComputationExecutor(
             ttl_schedule=TtlSchedule.from_seconds(one_hour),
             wait_timeout_seconds=5.0,
             poll_interval_seconds=0.05,
@@ -1650,7 +1650,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
             pending_job.save()
             return {"type": b"message", "channel": job_channel(pending_job.id).encode(), "data": b"ready"}
 
-        executor = PreaggregationExecutor(wait_timeout_seconds=5.0, poll_interval_seconds=0.1)
+        executor = ComputationExecutor(wait_timeout_seconds=5.0, poll_interval_seconds=0.1)
         with patch.object(executor, "_wait_for_notification", side_effect=mock_wait):
             result = executor.execute(
                 team=self.team,
@@ -1675,7 +1675,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        executor = PreaggregationExecutor(wait_timeout_seconds=0.3, poll_interval_seconds=0.1)
+        executor = ComputationExecutor(wait_timeout_seconds=0.3, poll_interval_seconds=0.1)
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1699,10 +1699,10 @@ class TestPreaggregationExecutorExecute(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        executor = PreaggregationExecutor(wait_timeout_seconds=0.3, poll_interval_seconds=0.1)
+        executor = ComputationExecutor(wait_timeout_seconds=0.3, poll_interval_seconds=0.1)
         with patch(
-            "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.create_preaggregation_job",
-            wraps=create_preaggregation_job,
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_computation_job",
+            wraps=create_computation_job,
         ) as mock_create:
             executor.execute(
                 team=self.team,
@@ -1743,7 +1743,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
             pending_job.save()
             return {"type": b"message", "data": b"ready"}
 
-        executor = PreaggregationExecutor(wait_timeout_seconds=5.0, poll_interval_seconds=0.1)
+        executor = ComputationExecutor(wait_timeout_seconds=5.0, poll_interval_seconds=0.1)
         with patch.object(executor, "_wait_for_notification", side_effect=mock_wait):
             result = executor.execute(
                 team=self.team,
@@ -1771,7 +1771,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
             if insert_count[0] == 1:
                 raise ConnectionError("Connection refused")
 
-        executor = PreaggregationExecutor(max_retries=2)
+        executor = ComputationExecutor(max_retries=2)
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1791,7 +1791,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
             insert_count[0] += 1
             raise ConnectionError("Connection refused")
 
-        executor = PreaggregationExecutor(max_retries=2, wait_timeout_seconds=5.0)
+        executor = ComputationExecutor(max_retries=2, wait_timeout_seconds=5.0)
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1815,7 +1815,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
             insert_count[0] += 1
             raise ServerException(message="Syntax error", code=62)
 
-        executor = PreaggregationExecutor(max_retries=3)
+        executor = ComputationExecutor(max_retries=3)
         result = executor.execute(
             team=self.team,
             query_info=query_info,
@@ -1832,7 +1832,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
     def test_non_retryable_error_does_not_block_future_queries(self):
         query_info, query_hash = self._make_query_info()
 
-        executor = PreaggregationExecutor(max_retries=3)
+        executor = ComputationExecutor(max_retries=3)
 
         # First call fails with non-retryable error
         result1 = executor.execute(
@@ -1872,7 +1872,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
             created_at=django_timezone.now() - timedelta(seconds=120),
         )
 
-        executor = PreaggregationExecutor(
+        executor = ComputationExecutor(
             stale_pending_threshold_seconds=0.1,
             ch_start_grace_period_seconds=0.1,
             wait_timeout_seconds=5.0,
@@ -1905,7 +1905,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        executor = PreaggregationExecutor(
+        executor = ComputationExecutor(
             stale_pending_threshold_seconds=300,
             ch_start_grace_period_seconds=300,
             wait_timeout_seconds=0.3,
@@ -1951,7 +1951,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
                 return {"type": b"message", "data": b"ready"}
             return None
 
-        executor = PreaggregationExecutor(
+        executor = ComputationExecutor(
             wait_timeout_seconds=100.0,
             poll_interval_seconds=0.5,
             max_poll_interval_seconds=4.0,
@@ -1997,7 +1997,7 @@ class TestPreaggregationExecutorExecute(BaseTest):
                 return {"type": b"message", "data": b"ready"}
             return None
 
-        executor = PreaggregationExecutor(
+        executor = ComputationExecutor(
             wait_timeout_seconds=100.0,
             poll_interval_seconds=1.0,
             max_poll_interval_seconds=8.0,
@@ -2024,7 +2024,7 @@ class TestPubsubAndStaleDetection(BaseTest):
     # --- Stale detection with CH liveness ---
 
     def test_stale_detection_ch_not_started_within_grace(self):
-        executor = PreaggregationExecutor(
+        executor = ComputationExecutor(
             stale_pending_threshold_seconds=0.1,
             ch_start_grace_period_seconds=300,
         )
@@ -2042,7 +2042,7 @@ class TestPubsubAndStaleDetection(BaseTest):
         assert executor._is_job_stale(pending_job) is False
 
     def test_stale_detection_ch_not_started_past_grace(self):
-        executor = PreaggregationExecutor(
+        executor = ComputationExecutor(
             stale_pending_threshold_seconds=0.1,
             ch_start_grace_period_seconds=1,
         )
@@ -2063,7 +2063,7 @@ class TestPubsubAndStaleDetection(BaseTest):
         assert executor._is_job_stale(pending_job) is True
 
     def test_stale_detection_ch_started_still_running(self):
-        executor = PreaggregationExecutor(stale_pending_threshold_seconds=0.1)
+        executor = ComputationExecutor(stale_pending_threshold_seconds=0.1)
 
         pending_job = PreaggregationJob.objects.create(
             team=self.team,
@@ -2078,13 +2078,13 @@ class TestPubsubAndStaleDetection(BaseTest):
         set_ch_query_started(pending_job.id)
 
         with patch(
-            "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.is_ch_query_alive",
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.is_ch_query_alive",
             return_value=True,
         ):
             assert executor._is_job_stale(pending_job) is False
 
     def test_stale_detection_ch_started_not_running(self):
-        executor = PreaggregationExecutor(stale_pending_threshold_seconds=0.1)
+        executor = ComputationExecutor(stale_pending_threshold_seconds=0.1)
 
         pending_job = PreaggregationJob.objects.create(
             team=self.team,
@@ -2102,13 +2102,13 @@ class TestPubsubAndStaleDetection(BaseTest):
         set_ch_query_started(pending_job.id)
 
         with patch(
-            "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.is_ch_query_alive",
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.is_ch_query_alive",
             return_value=False,
         ):
             assert executor._is_job_stale(pending_job) is True
 
     def test_marks_stale_pending_job_as_failed(self):
-        executor = PreaggregationExecutor(stale_pending_threshold_seconds=0.1)
+        executor = ComputationExecutor(stale_pending_threshold_seconds=0.1)
 
         pending_job = PreaggregationJob.objects.create(
             team=self.team,
@@ -2127,7 +2127,7 @@ class TestPubsubAndStaleDetection(BaseTest):
         assert pending_job.error is not None and "stale" in pending_job.error.lower()
 
     def test_only_one_waiter_marks_stale_job(self):
-        executor = PreaggregationExecutor(stale_pending_threshold_seconds=0.1)
+        executor = ComputationExecutor(stale_pending_threshold_seconds=0.1)
 
         pending_job = PreaggregationJob.objects.create(
             team=self.team,
@@ -2148,15 +2148,15 @@ class TestPubsubAndStaleDetection(BaseTest):
 
     def test_publish_on_successful_insert(self):
         with patch(
-            "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.publish_job_completion"
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.publish_job_completion"
         ) as mock_publish:
             query = parse_select(
                 "SELECT toStartOfDay(timestamp) as a, [] as b, uniqExactState(person_id) as c FROM events GROUP BY a"
             )
             assert isinstance(query, ast.SelectQuery)
-            query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+            query_info = QueryInfo(query=query, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
-            executor = PreaggregationExecutor()
+            executor = ComputationExecutor()
             result = executor.execute(
                 team=self.team,
                 query_info=query_info,
@@ -2170,15 +2170,15 @@ class TestPubsubAndStaleDetection(BaseTest):
 
     def test_publish_on_failed_insert(self):
         with patch(
-            "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.publish_job_completion"
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.publish_job_completion"
         ) as mock_publish:
             query = parse_select(
                 "SELECT toStartOfDay(timestamp) as a, [] as b, uniqExactState(person_id) as c FROM events GROUP BY a"
             )
             assert isinstance(query, ast.SelectQuery)
-            query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+            query_info = QueryInfo(query=query, table=ComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
-            executor = PreaggregationExecutor(max_retries=0)
+            executor = ComputationExecutor(max_retries=0)
             result = executor.execute(
                 team=self.team,
                 query_info=query_info,
@@ -2192,9 +2192,9 @@ class TestPubsubAndStaleDetection(BaseTest):
 
     def test_publish_on_stale_mark(self):
         with patch(
-            "products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor.publish_job_completion"
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.publish_job_completion"
         ) as mock_publish:
-            executor = PreaggregationExecutor()
+            executor = ComputationExecutor()
             stale_job = PreaggregationJob.objects.create(
                 team=self.team,
                 query_hash="stale_hash",

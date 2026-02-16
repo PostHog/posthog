@@ -1,4 +1,4 @@
-# Exposure preaggregation
+# Exposure lazy computation
 
 Every time an experiment query runs, it scans the events table to find all users who were exposed to the experiment. This is the "exposures" CTE built by `_build_exposure_select_query()` in `experiment_query_builder.py`:
 
@@ -18,7 +18,7 @@ WHERE event = '$feature_flag_called'
 GROUP BY person_id
 ```
 
-This scans millions of events. If the experiment results page is viewed 10 times, this same scan runs 10 times. Preaggregation computes the exposures once, stores them, and subsequent queries read from the stored results.
+This scans millions of events. If the experiment results page is viewed 10 times, this same scan runs 10 times. Precomputation computes the exposures once, stores them, and subsequent queries read from the stored results.
 
 ---
 
@@ -37,35 +37,35 @@ self.date_range = get_experiment_date_range(self.experiment, self.team, self.ove
 
 ---
 
-### Step 2: Ensure exposures are preaggregated
+### Step 2: Ensure exposures are precomputed
 
-The runner calls `_ensure_exposures_preaggregated()` which gets the exposure query template from the builder and passes it to the preaggregation system:
+The runner calls `_ensure_exposures_precomputed()` which gets the exposure query template from the builder and passes it to the lazy computation system:
 
 ```python
-def _ensure_exposures_preaggregated(self, builder: ExperimentQueryBuilder) -> PreaggregationResult:
+def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> ComputationResult:
     query_string, placeholders = builder.get_exposure_query_for_preaggregation()
 
     date_from = self.experiment.start_date
     date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
 
-    return ensure_preaggregated(
+    return ensure_precomputed(
         team=self.team,
         insert_query=query_string,
         time_range_start=date_from,
         time_range_end=date_to,
         ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
-        table=PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+        table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
         placeholders=placeholders,
     )
 ```
 
-The query template uses `{time_window_min}` and `{time_window_max}` placeholders that the preaggregation system fills in for each time window. Other placeholders (entity_key, variant_expr, etc.) are returned in a dict and passed through.
+The query template uses `{time_window_min}` and `{time_window_max}` placeholders that the lazy computation system fills in for each time window. Other placeholders (entity_key, variant_expr, etc.) are returned in a dict and passed through.
 
 ---
 
 ### Step 3: Compute query hash
 
-`ensure_preaggregated()` computes a stable hash from the query structure:
+`ensure_precomputed()` computes a stable hash from the query structure:
 
 ```python
 hash_placeholders = {
@@ -122,7 +122,7 @@ PreaggregationJob.objects.create(
 
 ### Step 6: Run INSERT into ClickHouse
 
-The preaggregation system wraps the SELECT query in an INSERT and executes it:
+The lazy computation system wraps the SELECT query in an INSERT and executes it:
 
 ```sql
 INSERT INTO experiment_exposures_preaggregated (
@@ -167,7 +167,7 @@ job.save()
 ### Step 8: Return job IDs
 
 ```python
-PreaggregationResult(
+ComputationResult(
     ready=True,
     job_ids=['job-uuid-for-jan-1-10', 'job-uuid-for-jan-11-15']
 )
@@ -175,9 +175,9 @@ PreaggregationResult(
 
 ---
 
-### Step 9: Build experiment query using preaggregated data
+### Step 9: Build experiment query using precomputed data
 
-`_build_exposure_from_preaggregated(job_ids)` in the builder reads from the preaggregated table instead of scanning events:
+`_build_exposure_from_preaggregated(job_ids)` in the builder reads from the precomputed table instead of scanning events:
 
 ```sql
 SELECT
@@ -193,7 +193,7 @@ WHERE t.job_id IN ('job-uuid-for-jan-1-10', 'job-uuid-for-jan-11-15')
 GROUP BY t.entity_id
 ```
 
-The `GROUP BY` with `argMin`/`min`/`max` is needed because a user can appear in multiple jobs. For example, if exposures were preaggregated in two phases (Jan 1-10, then Jan 11-15), a user with events in both windows has a row in each job. The re-aggregation merges them into one row per user. This is cheap — the preaggregated table has one row per user per job, so even with multiple jobs the data volume is small.
+The `GROUP BY` with `argMin`/`min`/`max` is needed because a user can appear in multiple jobs. For example, if exposures were precomputed in two phases (Jan 1-10, then Jan 11-15), a user with events in both windows has a row in each job. The re-aggregation merges them into one row per user. This is cheap — the precomputed table has one row per user per job, so even with multiple jobs the data volume is small.
 
 This method returns the same columns as `_build_exposure_select_query()`, so the rest of the experiment query works unchanged regardless of which path produced the exposures.
 
@@ -205,7 +205,7 @@ Only the exposures CTE source changes. The metric_events CTE, entity_metrics CTE
 
 ```sql
 WITH exposures AS (
-    -- reads from preaggregated table (step 9)
+    -- reads from precomputed table (step 9)
     ...
 ),
 
@@ -241,24 +241,24 @@ GROUP BY variant
 
 ## Key files
 
-| File                                                          | Purpose                                                                                                                                                                                       |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `experiment_query_runner.py`                                  | Orchestrates experiment query execution, including `_ensure_exposures_preaggregated()`                                                                                                        |
-| `experiment_query_builder.py`                                 | Builds the SQL query: `_build_exposure_select_query()` (events scan), `_build_exposure_from_preaggregated()` (preaggregated read), `get_exposure_query_for_preaggregation()` (write template) |
-| `lazy_preaggregation_executor.py`                             | Core preaggregation logic: `ensure_preaggregated()`, job management                                                                                                                           |
-| `models/preaggregation_job.py`                                | PostgreSQL model for tracking preaggregation jobs                                                                                                                                             |
-| `hogql/database/schema/experiment_exposures_preaggregated.py` | HogQL schema for the preaggregated ClickHouse table                                                                                                                                           |
+| File                                                          | Purpose                                                                                                                                                                                     |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `experiment_query_runner.py`                                  | Orchestrates experiment query execution, including `_ensure_exposures_precomputed()`                                                                                                        |
+| `experiment_query_builder.py`                                 | Builds the SQL query: `_build_exposure_select_query()` (events scan), `_build_exposure_from_preaggregated()` (precomputed read), `get_exposure_query_for_preaggregation()` (write template) |
+| `lazy_computation_executor.py`                                | Core lazy computation logic: `ensure_precomputed()`, job management                                                                                                                         |
+| `models/preaggregation_job.py`                                | PostgreSQL model for tracking computation jobs                                                                                                                                              |
+| `hogql/database/schema/experiment_exposures_preaggregated.py` | HogQL schema for the precomputed ClickHouse table                                                                                                                                           |
 
 ---
 
 ## Notes
 
-1. **Time precision**: Preaggregation uses daily windows for job management, but stores full timestamp precision. The final query filters to exact experiment start/end times.
+1. **Time precision**: Lazy computation uses daily windows for job management, but stores full timestamp precision. The final query filters to exact experiment start/end times.
 
-2. **Query hash determines cache sharing**: Different feature flags, variants, or exposure criteria produce different hashes. Each experiment typically has its own preaggregated data.
+2. **Query hash determines cache sharing**: Different feature flags, variants, or exposure criteria produce different hashes. Each experiment typically has its own precomputed data.
 
 3. **TTL and expiration**: Jobs use variable TTL based on data age (current day: 15 min, yesterday: 1 hour, older: 60 days). This avoids recomputing frozen historical data. The system ignores jobs expiring within 1 hour to avoid race conditions. ClickHouse TTL automatically deletes expired rows.
 
-4. **Fallback**: If preaggregation fails or isn't ready, the query falls back to scanning the events table directly.
+4. **Fallback**: If precomputation fails or isn't ready, the query falls back to scanning the events table directly.
 
-5. **Future: GROUP BY (entity_id, variant)**: Currently the query groups by entity_id only and resolves the variant during preaggregation (e.g., argMin for first-seen). This bakes the variant handling strategy into the stored data, so switching between "first seen" and "exclude multiple" requires recomputation. A better approach is to GROUP BY (entity_id, variant) so we store one row per user-variant pair, then resolve multiple variants at query time.
+5. **Future: GROUP BY (entity_id, variant)**: Currently the query groups by entity_id only and resolves the variant during precomputation (e.g., argMin for first-seen). This bakes the variant handling strategy into the stored data, so switching between "first seen" and "exclude multiple" requires recomputation. A better approach is to GROUP BY (entity_id, variant) so we store one row per user-variant pair, then resolve multiple variants at query time.

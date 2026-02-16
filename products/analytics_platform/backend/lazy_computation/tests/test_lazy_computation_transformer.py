@@ -15,7 +15,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import SHARDED_PREAGGREGATION_RESULTS_TABLE
 
-from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_transformer import (
+from products.analytics_platform.backend.lazy_computation.lazy_computation_transformer import (
     PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME,
     Transformer,
     _extract_timestamp_range,

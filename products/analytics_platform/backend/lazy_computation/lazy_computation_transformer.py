@@ -10,10 +10,10 @@ from posthog.hogql.visitor import CloningVisitor
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.models import Team
 
-from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import (
-    PreaggregationExecutor,
-    PreaggregationResult,
-    PreaggregationTable,
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    ComputationExecutor,
+    ComputationResult,
+    ComputationTable,
     QueryInfo,
 )
 
@@ -458,7 +458,7 @@ def _run_daily_unique_persons_pageviews(
     query_to_insert: ast.SelectQuery,
     start: datetime,
     end: datetime,
-) -> PreaggregationResult:
+) -> ComputationResult:
     """
     Orchestrate preaggregation jobs for daily unique persons pageviews.
 
@@ -467,11 +467,9 @@ def _run_daily_unique_persons_pageviews(
     2. Calls the executor to find/create preaggregation jobs
     3. Returns the result with job IDs for the combiner query
     """
-    query_info = QueryInfo(
-        query=query_to_insert, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone=team.timezone
-    )
+    query_info = QueryInfo(query=query_to_insert, table=ComputationTable.PREAGGREGATION_RESULTS, timezone=team.timezone)
 
-    executor = PreaggregationExecutor()
+    executor = ComputationExecutor()
     result = executor.execute(
         team=team,
         query_info=query_info,

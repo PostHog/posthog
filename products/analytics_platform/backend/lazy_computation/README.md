@@ -1,6 +1,6 @@
-# Lazy preaggregation
+# Lazy computation
 
-Lazy preaggregation speeds up queries by saving and reusing intermediate aggregated results. Instead of scanning the raw events table on every query, we compute aggregated data once and reuse it for subsequent queries with the same shape.
+Lazy computation speeds up queries by saving and reusing intermediate computed results. Instead of scanning the raw events table on every query, we compute aggregated data once and reuse it for subsequent queries with the same shape.
 
 This is intended to be used for our most important queries by our biggest customers. It runs against our ClickHouse and Postgres databases — some of the largest in the world — and the design takes that into account.
 
@@ -15,9 +15,9 @@ There are two ways that this can work:
 
 1. **Pattern detection**: Traverse the AST, check if any SELECT clause matches a supported pattern (e.g., daily unique persons for pageviews)
 2. **Hash the query**: Compute a stable hash from the query structure, timezone, and other settings (excluding the time range for the query)
-3. **Find existing jobs**: Look up which time ranges already have preaggregated data in Postgres
-4. **Compute missing ranges**: For any missing date ranges, run INSERT queries to populate the preaggregation table in ClickHouse
-5. **Transform the query**: Rewrite the original query to read from the preaggregation table using aggregate merge functions
+3. **Find existing jobs**: Look up which time ranges already have precomputed data in Postgres
+4. **Compute missing ranges**: For any missing date ranges, run INSERT queries to populate the precomputed table in ClickHouse
+5. **Transform the query**: Rewrite the original query to read from the precomputed table using aggregate merge functions
 
 The transformation is invisible to the caller. A query like:
 
@@ -43,17 +43,17 @@ GROUP BY time_window_start
 
 ### Manual API
 
-If you are writing a query runner (e.g., for web analytics) and want to preaggregate a specific set of data which is too complex to automatically transform, you can provide the query string to the executor and have it run the necessary INSERTs to cover the time range.
+If you are writing a query runner (e.g., for web analytics) and want to precompute a specific set of data which is too complex to automatically transform, you can provide the query string to the executor and have it run the necessary INSERTs to cover the time range.
 
 The query must use `{time_window_min}` and `{time_window_max}` placeholders - these are automatically substituted with the correct time range for each job.
 
 ```python
 from datetime import datetime
-from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import ensure_preaggregated, PreaggregationTable
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import ensure_precomputed, ComputationTable
 from posthog.hogql import ast
 
-# Ensure that the given query is preaggregated with variable TTLs
-preagg_result = ensure_preaggregated(
+# Ensure that the given query is precomputed with variable TTLs
+result = ensure_precomputed(
     team=self.team,
     insert_query="""
         SELECT
@@ -75,13 +75,13 @@ preagg_result = ensure_preaggregated(
         "7d": 24 * 60 * 60,       # last week: 1 day
         "default": 7 * 24 * 60 * 60,  # older: 7 days
     },
-    table=PreaggregationTable.PREAGGREGATION_RESULTS,
+    table=ComputationTable.PREAGGREGATION_RESULTS,
     # Custom placeholders can be passed too
     placeholders={"some_filter": ast.Constant(value="filter_value")},
 )
 
 # A single int TTL still works for uniform expiry
-preagg_result = ensure_preaggregated(
+result = ensure_precomputed(
     team=self.team,
     insert_query="...",
     time_range_start=datetime(2025, 12, 18),
@@ -104,7 +104,7 @@ query = parse_select(
     GROUP BY day
     """,
     placeholders={
-        "job_ids": ast.Tuple(exprs=[ast.Constant(value=str(jid)) for jid in preagg_result.job_ids]),
+        "job_ids": ast.Tuple(exprs=[ast.Constant(value=str(jid)) for jid in result.job_ids]),
         "time_start": ast.Constant(value=datetime(2025, 12, 18)),
         "time_end": ast.Constant(value=datetime(2025, 12, 25)),
     },
@@ -128,7 +128,7 @@ Rules are matched most-specific first (shortest period wins). On the **read path
 
 ## Concurrency and race conditions
 
-The executor handles concurrent queries that need the same preaggregated data.
+The executor handles concurrent queries that need the same precomputed data.
 
 ### Waiting for pending jobs
 

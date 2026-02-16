@@ -25,9 +25,9 @@ from posthog.hogql_queries.experiments.exposure_query_logic import get_entity_ke
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
-from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import (
-    PreaggregationTable,
-    ensure_preaggregated,
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    ComputationTable,
+    ensure_precomputed,
 )
 
 
@@ -82,12 +82,12 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         # Preaggreggate exposures
         builder = self._build_preaggregation_builder(experiment, feature_flag, metric)
         query_string, placeholders = builder.get_exposure_query_for_preaggregation()
-        ensure_preaggregated(
+        ensure_precomputed(
             team=self.team,
             insert_query=query_string,
             time_range_start=experiment.start_date,
             time_range_end=experiment.end_date,
-            table=PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
 
@@ -223,22 +223,22 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         query_string, placeholders = builder.get_exposure_query_for_preaggregation()
 
         # Phase 1: preagg Jan 1-3
-        ensure_preaggregated(
+        ensure_precomputed(
             team=self.team,
             insert_query=query_string,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
-            table=PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
 
         # Phase 2: preagg Jan 1-5 (finds Jan 1-3 already covered, creates second job for Jan 3-5)
-        ensure_preaggregated(
+        ensure_precomputed(
             team=self.team,
             insert_query=query_string,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
-            table=PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
 
@@ -327,20 +327,20 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         builder = self._build_preaggregation_builder(experiment, feature_flag, metric)
         query_string, placeholders = builder.get_exposure_query_for_preaggregation()
 
-        ensure_preaggregated(
+        ensure_precomputed(
             team=self.team,
             insert_query=query_string,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
-            table=PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
-        ensure_preaggregated(
+        ensure_precomputed(
             team=self.team,
             insert_query=query_string,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
-            table=PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
 
@@ -411,20 +411,20 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         builder = self._build_preaggregation_builder(experiment, feature_flag, metric)
         query_string, placeholders = builder.get_exposure_query_for_preaggregation()
 
-        ensure_preaggregated(
+        ensure_precomputed(
             team=self.team,
             insert_query=query_string,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
-            table=PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
-        ensure_preaggregated(
+        ensure_precomputed(
             team=self.team,
             insert_query=query_string,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
-            table=PreaggregationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            table=ComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
         )
 

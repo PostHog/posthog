@@ -1223,7 +1223,7 @@ class ExperimentQueryBuilder:
         The query string uses {time_window_min} and {time_window_max} placeholders
         which are filled in by the preaggregation system for each daily bucket.
         Other placeholders are returned in the dict and should be passed to
-        ensure_preaggregated().
+        ensure_precomputed().
 
         Returns:
             Tuple of (query_string, placeholders_dict)
