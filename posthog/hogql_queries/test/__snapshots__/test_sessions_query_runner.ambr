@@ -21,7 +21,7 @@
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
   ORDER BY tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -57,7 +57,7 @@
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 07:00:05.000000', 6, 'America/Phoenix')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'America/Phoenix')), 0))
   ORDER BY tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -93,7 +93,7 @@
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 23:00:05.000000', 6, 'Asia/Tokyo')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'Asia/Tokyo')), 0))
   ORDER BY tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -129,7 +129,7 @@
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-03 23:59:59.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-02 00:00:00.000000', 6, 'UTC')), 0))
   ORDER BY tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -165,7 +165,7 @@
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-03 16:59:59.000000', 6, 'America/Phoenix')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-02 00:00:00.000000', 6, 'America/Phoenix')), 0))
   ORDER BY tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -201,7 +201,7 @@
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-04 08:59:59.000000', 6, 'Asia/Tokyo')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-02 00:00:00.000000', 6, 'Asia/Tokyo')), 0))
   ORDER BY tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -266,7 +266,7 @@
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 15:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
   GROUP BY sessions.distinct_id
   ORDER BY count() DESC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -294,7 +294,7 @@
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 15:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
   ORDER BY sessions.`$start_timestamp` ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -326,7 +326,7 @@
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
   ORDER BY sessions.`$start_timestamp` DESC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -355,7 +355,7 @@
               raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(greater(sessions.`$session_duration`, 300), 0), ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
   ORDER BY sessions.session_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,

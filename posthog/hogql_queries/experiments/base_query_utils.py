@@ -430,7 +430,7 @@ def funnel_evaluation_expr(
                     toFloat({timestamp_field}),
                     {uuid_field},
                     array(''),
-                    arrayFilter(x -> x != 0, [{step_conditions_str}])
+                    arrayFilter(x -> x > 0, [{step_conditions_str}])
                 )))
             )
         )

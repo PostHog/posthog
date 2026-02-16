@@ -69,7 +69,9 @@ rules:
                               |Comment
                               |Conversation
                               |CoreMemory
+                              |CustomerJourney
                               |CustomerProfileConfig
+                              |DAG
                               |Dashboard
                               |DashboardTemplate
                               |DataColorTheme
@@ -224,7 +226,9 @@ rules:
                         |Comment
                         |Conversation
                         |CoreMemory
+                        |CustomerJourney
                         |CustomerProfileConfig
+                        |DAG
                         |Dashboard
                         |DashboardTemplate
                         |DataColorTheme

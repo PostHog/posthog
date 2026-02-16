@@ -166,6 +166,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "UserActivity",
         "UserGroup",
         "UserGroupMembership",
+        "ResourceTransfer",
     }
 
     team_scoped: set[str] = set()

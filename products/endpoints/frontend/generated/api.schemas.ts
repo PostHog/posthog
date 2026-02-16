@@ -3236,7 +3236,12 @@ export interface WebStatsTableQueryApi {
     offset?: number | null
     /** @nullable */
     orderBy?: (typeof WebStatsTableQueryApiOrderByItem)[keyof typeof WebStatsTableQueryApiOrderByItem][] | null
-    properties: (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi)[]
+    properties: (
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | SessionPropertyFilterApi
+        | CohortPropertyFilterApi
+    )[]
     response?: WebStatsTableQueryResponseApi | null
     sampling?: WebAnalyticsSamplingApi | null
     /**
@@ -3347,7 +3352,12 @@ export interface WebOverviewQueryApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** @nullable */
     orderBy?: (typeof WebOverviewQueryApiOrderByItem)[keyof typeof WebOverviewQueryApiOrderByItem][] | null
-    properties: (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi)[]
+    properties: (
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | SessionPropertyFilterApi
+        | CohortPropertyFilterApi
+    )[]
     response?: WebOverviewQueryResponseApi | null
     sampling?: WebAnalyticsSamplingApi | null
     /**

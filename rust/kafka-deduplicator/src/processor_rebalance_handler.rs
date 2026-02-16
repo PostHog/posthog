@@ -312,7 +312,7 @@ where
                                             topic = partition.topic(),
                                             partition = partition.partition_number(),
                                             path = %path.display(),
-                                            error = %e,
+                                            error = ?e,
                                             "Failed to clean up checkpoint import, orphan cleaner will handle it"
                                         );
                                     }
@@ -350,7 +350,7 @@ where
                                 error!(
                                     topic = partition.topic(),
                                     partition = partition.partition_number(),
-                                    error = %e,
+                                    error = ?e,
                                     "Failed to restore checkpoint"
                                 );
                                 fallback_reasons.insert(partition.clone(), "import_failed");
@@ -369,7 +369,7 @@ where
                             warn!(
                                 topic = partition.topic(),
                                 partition = partition.partition_number(),
-                                error = %e,
+                                error = ?e,
                                 "Failed to import checkpoint"
                             );
                             fallback_reasons.insert(partition.clone(), "import_failed");
@@ -463,7 +463,7 @@ where
                         error!(
                             topic = partition.topic(),
                             partition = partition.partition_number(),
-                            error = %e,
+                            error = ?e,
                             "Failed to create fallback store - processor will retry on first message"
                         );
                     }
@@ -478,7 +478,7 @@ where
             .await
         {
             warn!(
-                error = %e,
+                error = ?e,
                 "Partition directory cleanup failed - orphan cleaner will handle it"
             );
         }
@@ -497,8 +497,8 @@ where
                 "Resuming all owned partitions (rebalance cycle complete)"
             );
             if let Err(e) = consumer_command_tx.send(ConsumerCommand::Resume(resume_tpl)) {
-                error!("Failed to send resume command after store setup: {}", e);
-                return Err(anyhow::anyhow!("Failed to send resume command: {}", e));
+                error!("Failed to send resume command after store setup: {e:#}");
+                return Err(anyhow::Error::from(e).context("Failed to send resume command"));
             }
         }
 
@@ -652,9 +652,17 @@ where
         // stays true during finalize. That prevents orphan/capacity cleanup from deleting dirs we're setting up.
         let is_last = self.rebalance_tracker.rebalancing_count() == 1;
         if is_last {
-            self.finalize_rebalance_cycle(consumer_command_tx, true)
-                .await?;
+            // IMPORTANT: Always call finish_rebalancing even if finalize errors, otherwise the
+            // counter leaks and is_rebalancing() returns true permanently — blocking all
+            // checkpoint exports and offset commits.
+            let result = self
+                .finalize_rebalance_cycle(consumer_command_tx, true)
+                .await;
             self.rebalance_tracker.finish_rebalancing();
+            if let Err(e) = result {
+                error!("Finalize failed after decrementing rebalance counter: {e:#}");
+                return Err(e);
+            }
         } else {
             self.rebalance_tracker.finish_rebalancing();
             if !self.rebalance_tracker.is_rebalancing() {
@@ -1166,7 +1174,7 @@ mod tests {
         // Now do async setup - should send Resume command
         handler.async_setup_assigned_partitions(&tx).await.unwrap();
 
-        // Check that Resume command was sent
+        // Check that Resume command was sent (no importer, so only Resume is sent)
         let command = rx.try_recv().expect("Should have received a command");
         match command {
             ConsumerCommand::Resume(resume_partitions) => {
@@ -1175,6 +1183,9 @@ mod tests {
                     2,
                     "Resume command should contain all assigned partitions"
                 );
+            }
+            ConsumerCommand::SeekPartitions(_) => {
+                panic!("Handler has no importer; should not send SeekPartitions");
             }
         }
 
@@ -1249,7 +1260,20 @@ mod tests {
 
         // Should have received exactly one Resume command (from the last rebalance)
         let cmd = rx.try_recv().expect("Should have received Resume command");
-        let ConsumerCommand::Resume(tpl) = cmd;
+        let tpl = match &cmd {
+            ConsumerCommand::Resume(t) => t.clone(),
+            ConsumerCommand::SeekPartitions(_) => {
+                let cmd2 = rx
+                    .try_recv()
+                    .expect("Should have received Resume after SeekPartitions");
+                match cmd2 {
+                    ConsumerCommand::Resume(t) => t,
+                    ConsumerCommand::SeekPartitions(_) => {
+                        panic!("Expected Resume, got SeekPartitions")
+                    }
+                }
+            }
+        };
         // Should resume both partitions
         assert_eq!(tpl.count(), 2, "Should resume all owned partitions");
 
@@ -1343,6 +1367,23 @@ mod tests {
                     "Partition 1 should NOT be in Resume (not owned)"
                 );
             }
+            ConsumerCommand::SeekPartitions(_) => {
+                let cmd2 = rx
+                    .try_recv()
+                    .expect("Should have received Resume after SeekPartitions");
+                let ConsumerCommand::Resume(resume_partitions) = cmd2 else {
+                    panic!("Expected Resume command, got {:?}", cmd2);
+                };
+                assert_eq!(resume_partitions.count(), 2);
+                let partition_nums: Vec<i32> = resume_partitions
+                    .elements()
+                    .iter()
+                    .map(|e| e.partition())
+                    .collect();
+                assert!(partition_nums.contains(&0));
+                assert!(partition_nums.contains(&2));
+                assert!(!partition_nums.contains(&1));
+            }
         }
 
         // Verify stores
@@ -1404,6 +1445,46 @@ mod tests {
         assert!(
             rx.try_recv().is_err(),
             "Should NOT have received a Resume command when no partitions are owned"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_counter_not_leaked_on_finalize_error() {
+        let temp_dir = TempDir::new().unwrap();
+        let store_config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1000,
+        };
+        let coordinator = create_test_tracker();
+        let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
+
+        let handler: ProcessorRebalanceHandler<String, TestProcessor> =
+            ProcessorRebalanceHandler::new(
+                store_manager,
+                coordinator.clone(),
+                offset_tracker,
+                None,
+                16,
+            );
+
+        let mut partitions = rdkafka::TopicPartitionList::new();
+        partitions
+            .add_partition_offset("test-topic", 0, Offset::Beginning)
+            .unwrap();
+        handler.setup_assigned_partitions(&partitions);
+        assert_eq!(coordinator.rebalancing_count(), 1);
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        drop(rx);
+
+        let result = handler.async_setup_assigned_partitions(&tx).await;
+        assert!(result.is_err());
+
+        assert_eq!(
+            coordinator.rebalancing_count(),
+            0,
+            "Counter must be decremented even when finalize fails (channel broken)"
         );
     }
 
@@ -1578,6 +1659,14 @@ mod tests {
                 let elements = tpl.elements();
                 assert_eq!(elements[0].partition(), 0, "Should resume partition 0");
             }
+            ConsumerCommand::SeekPartitions(_) => {
+                let cmd2 = rx.try_recv().expect("Should have received Resume");
+                let ConsumerCommand::Resume(tpl) = cmd2 else {
+                    panic!("Expected Resume command, got {:?}", cmd2);
+                };
+                assert_eq!(tpl.count(), 1);
+                assert_eq!(tpl.elements()[0].partition(), 0);
+            }
         }
 
         // Verify partition 0's store still exists after B completes
@@ -1654,6 +1743,20 @@ mod tests {
                 let topics: Vec<&str> = elements.iter().map(|e| e.topic()).collect();
                 assert!(topics.contains(&"topic-a"), "topic-a:0 should be resumed");
                 assert!(topics.contains(&"topic-b"), "topic-b:0 should be resumed");
+            }
+            ConsumerCommand::SeekPartitions(_) => {
+                let cmd2 = rx.try_recv().expect("Should have received Resume");
+                let ConsumerCommand::Resume(tpl) = cmd2 else {
+                    panic!("Expected Resume command, got {:?}", cmd2);
+                };
+                assert_eq!(tpl.count(), 2);
+                let topics: Vec<String> = tpl
+                    .elements()
+                    .iter()
+                    .map(|e| e.topic().to_string())
+                    .collect();
+                assert!(topics.contains(&"topic-a".to_string()));
+                assert!(topics.contains(&"topic-b".to_string()));
             }
         }
 

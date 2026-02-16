@@ -37,6 +37,43 @@ describe('trendsDataLogic', () => {
         await initTrendsDataLogic()
     })
 
+    describe('showMovingAverage', () => {
+        it('is true for area graph with toggle enabled', async () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsAreaGraph,
+                    showMovingAverage: true,
+                },
+            }
+
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+            }).toMatchValues({
+                showMovingAverage: true,
+            })
+        })
+
+        it('is false for area graph on non-linear scale', async () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsAreaGraph,
+                    showMovingAverage: true,
+                    yAxisScaleType: 'log10',
+                },
+            }
+
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+            }).toMatchValues({
+                showMovingAverage: false,
+            })
+        })
+    })
+
     describe('based on insightDataLogic', () => {
         describe('results', () => {
             it('for standard trend', async () => {
