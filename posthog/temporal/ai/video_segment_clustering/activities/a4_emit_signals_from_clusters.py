@@ -119,8 +119,8 @@ async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs)
     clusters_skipped = 0
 
     for cluster in inputs.clusters:
-        label = labels.get(cluster.cluster_id)
-        if not label:
+        cluster_label = labels.get(cluster.cluster_id)
+        if not cluster_label:
             clusters_skipped += 1
             continue
 
@@ -133,7 +133,7 @@ async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs)
         relevant_user_count = metrics["relevant_user_count"]
 
         # Weight: not-actionable = 0.1, actionable scales with user count
-        if not label.actionable:
+        if not cluster_label.actionable:
             weight = 0.1
         else:
             weight = min(0.5, 0.1 * math.log2(1 + relevant_user_count))
@@ -159,11 +159,11 @@ async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs)
             source_product="session_recordings",
             source_type="segment_cluster",
             source_id=f"{team.id}:{inputs.workflow_run_id}:{cluster.cluster_id}",
-            description=label.description,
+            description=cluster_label.description,
             weight=weight,
             extra={
-                "label_title": label.title,
-                "actionable": label.actionable,
+                "label_title": cluster_label.title,
+                "actionable": cluster_label.actionable,
                 "segments": segment_extras,
                 "metrics": {
                     "relevant_user_count": relevant_user_count,
@@ -177,7 +177,7 @@ async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs)
             "Emitted signal for cluster",
             cluster_id=cluster.cluster_id,
             cluster_size=cluster.size,
-            actionable=label.actionable,
+            actionable=cluster_label.actionable,
             weight=weight,
             relevant_user_count=relevant_user_count,
         )
