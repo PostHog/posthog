@@ -205,7 +205,6 @@ class CreateFeatureFlagTool(MaxTool):
         try:
             flag_schema = feature_flag
 
-            # Look up group type mapping if specified (serializer expects the index, not the name)
             aggregation_group_type_index = None
             group_type_display_name = None
             if flag_schema.group_type:
@@ -226,7 +225,6 @@ class CreateFeatureFlagTool(MaxTool):
                 aggregation_group_type_index = group_mapping.group_type_index
                 group_type_display_name = group_mapping.name_plural or flag_schema.group_type
 
-            # Build filters dict
             filters: dict[str, Any] = {}
             if aggregation_group_type_index is not None:
                 filters["aggregation_group_type_index"] = aggregation_group_type_index
