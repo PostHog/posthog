@@ -41,6 +41,7 @@ def resolve_dependency_to_node(
     team: "Team",
     dag_id: str,
     database: Database,
+    dag: DAG | None = None,
 ) -> Node:
     """
     Resolve a dependency name to a Node following HogQL's resolution priority.
@@ -93,7 +94,7 @@ def resolve_dependency_to_node(
             dag_id_text=dag_id,
             name=dependency_name,
             type=NodeType.TABLE,
-            defaults={"properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)}},
+            defaults={"dag": dag, "properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)}},
         )
         return node
     # system table
@@ -102,7 +103,7 @@ def resolve_dependency_to_node(
         dag_id_text=dag_id,
         name=dependency_name,
         type=NodeType.TABLE,
-        defaults={"properties": {"origin": "posthog"}},
+        defaults={"dag": dag, "properties": {"origin": "posthog"}},
     )
     return node
 
@@ -129,7 +130,7 @@ def sync_saved_query_to_dag(
     extra_properties = extra_properties or {}
     team = saved_query.team
     dag_id = get_dag_id(team.id)
-    DAG.objects.get_or_create(team=team, name=dag_id)
+    dag, _ = DAG.objects.get_or_create(team=team, name=dag_id)
     model_query = saved_query.query.get("query") if saved_query.query else None
     if not model_query:
         raise ValueError(f"DataWarehouseSavedQuery has no query: saved_query_id={saved_query.id}")
@@ -140,7 +141,7 @@ def sync_saved_query_to_dag(
         team=team,
         saved_query=saved_query,
         dag_id_text=dag_id,
-        defaults={"name": saved_query.name, "type": node_type, "properties": extra_properties},
+        defaults={"dag": dag, "name": saved_query.name, "type": node_type, "properties": extra_properties},
     )
     # update type (name is automatically synced from saved_query in Node.save())
     target.type = node_type
@@ -202,10 +203,11 @@ def sync_saved_query_to_dag(
     unresolved = []
     for dependency_name in dependencies:
         try:
-            source = resolve_dependency_to_node(dependency_name, team, dag_id, database)
+            source = resolve_dependency_to_node(dependency_name, team, dag_id, database, dag=dag)
             try:
                 Edge.objects.create(
                     team=team,
+                    dag=dag,
                     dag_id_text=dag_id,
                     source=source,
                     target=target,
