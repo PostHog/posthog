@@ -3580,3 +3580,4 @@ dependencies = [
  "crc32fast",
  "log",
  "simd-adler32",
+]
