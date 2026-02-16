@@ -27,6 +27,7 @@ query PaginatedIssues($pageSize: Int!, $cursor: String, $filter: IssueFilter) {
             cycle { id name number }
             creator { id name email }
             parent { id identifier }
+            relations(first: 10) { nodes { id type relatedIssue { id identifier } } }
         }
         pageInfo { hasNextPage endCursor }
     }
