@@ -19,6 +19,7 @@ export interface BackgroundTask {
     promise: Promise<void>
     createdAt: number
     offsetsStoredPromise: Promise<void>
+    partitions: Set<number>
 }
 
 export interface TaskCompletionCallback {
@@ -64,9 +65,10 @@ export class BackgroundTaskCoordinator {
      *
      * @param taskPromise - The background work promise
      * @param storeOffsets - Callback that stores offsets (called in order after predecessors complete)
+     * @param partitions - Set of partition IDs this task is processing
      * @returns The task descriptor with offsetsStoredPromise
      */
-    addTask(taskPromise: Promise<void>, storeOffsets: () => void): BackgroundTask {
+    addTask(taskPromise: Promise<void>, storeOffsets: () => void, partitions: Set<number>): BackgroundTask {
         const createdAt = Date.now()
 
         // Create the offset storage promise that chains through finally
@@ -101,6 +103,7 @@ export class BackgroundTaskCoordinator {
             promise: taskPromise,
             createdAt,
             offsetsStoredPromise,
+            partitions,
         }
 
         this.tasks.push(task)
@@ -108,15 +111,15 @@ export class BackgroundTaskCoordinator {
     }
 
     /**
-     * Waits for all current tasks' offsets to be stored, with timeout.
+     * Waits for all current tasks' offsets to be stored, with optional timeout.
      *
      * Use this during rebalance to ensure offsets are committed before partition release.
-     * For shutdown without timeout, use {@link waitForAllTasksComplete} instead.
+     * For shutdown, call without timeout to wait indefinitely.
      *
-     * @param timeoutMs - Maximum time to wait before giving up
+     * @param timeoutMs - Optional maximum time to wait before giving up. If not provided, waits indefinitely.
      * @returns Result indicating success, timeout, or error
      */
-    async waitForAllOffsetsStored(timeoutMs: number): Promise<WaitResult> {
+    async waitForAllOffsetsStored(timeoutMs?: number): Promise<WaitResult> {
         const startTime = Date.now()
 
         if (this.tasks.length === 0) {
@@ -128,6 +131,16 @@ export class BackgroundTaskCoordinator {
         const lastTask = this.tasks[this.tasks.length - 1]
         const offsetsStoredPromise = lastTask.offsetsStoredPromise
 
+        // If no timeout, just wait for completion
+        if (timeoutMs === undefined) {
+            try {
+                await offsetsStoredPromise
+                return { status: 'success', durationMs: Date.now() - startTime }
+            } catch (error) {
+                return { status: 'error', durationMs: Date.now() - startTime, error }
+            }
+        }
+
         // Create timeout promise
         let timeoutId: NodeJS.Timeout | undefined
         try {
@@ -136,6 +149,60 @@ export class BackgroundTaskCoordinator {
             })
 
             await Promise.race([offsetsStoredPromise, timeoutPromise])
+            return { status: 'success', durationMs: Date.now() - startTime }
+        } catch (error) {
+            const durationMs = Date.now() - startTime
+
+            if (error instanceof TimeoutError) {
+                return { status: 'timeout', durationMs }
+            }
+
+            return { status: 'error', durationMs, error }
+        } finally {
+            if (timeoutId) {
+                clearTimeout(timeoutId)
+            }
+        }
+    }
+
+    /**
+     * Waits for offsets to be stored for tasks processing specific partitions, with timeout.
+     *
+     * Use this during rebalance to wait only for tasks from revoked partitions.
+     * This allows continued processing of non-revoked partitions without blocking.
+     *
+     * @param partitionIds - Set of partition IDs to wait for
+     * @param timeoutMs - Maximum time to wait before giving up
+     * @returns Result indicating success, timeout, or error
+     */
+    async waitForPartitionOffsetsStored(partitionIds: Set<number>, timeoutMs: number): Promise<WaitResult> {
+        const startTime = Date.now()
+
+        // Filter tasks that touch any of the revoked partitions
+        const relevantTasks = this.tasks.filter((task) => {
+            // Task is relevant if it has any partition in common with revoked partitions
+            for (const partition of task.partitions) {
+                if (partitionIds.has(partition)) {
+                    return true
+                }
+            }
+            return false
+        })
+
+        if (relevantTasks.length === 0) {
+            return { status: 'success', durationMs: 0 }
+        }
+
+        // Wait for all relevant tasks' offsets to be stored
+        const offsetsStoredPromises = relevantTasks.map((t) => t.offsetsStoredPromise)
+
+        let timeoutId: NodeJS.Timeout | undefined
+        try {
+            const timeoutPromise = new Promise<never>((_, reject) => {
+                timeoutId = setTimeout(() => reject(new TimeoutError()), timeoutMs)
+            })
+
+            await Promise.race([Promise.all(offsetsStoredPromises), timeoutPromise])
             return { status: 'success', durationMs: Date.now() - startTime }
         } catch (error) {
             const durationMs = Date.now() - startTime

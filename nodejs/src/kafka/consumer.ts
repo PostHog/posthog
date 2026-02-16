@@ -521,12 +521,14 @@ export class KafkaConsumer {
     /**
      * Handles partition revocation when there are background tasks pending.
      * Waits for offset storage to complete, commits offsets, then releases partitions.
+     * Only waits for tasks from the revoked partitions, allowing continued processing of other partitions.
      */
     private handleRevocationWithBackgroundTasks(assignments: Assignment[], backgroundTaskCount: number): void {
         const timeoutMs = this.rebalanceCoordination.rebalanceTimeoutMs
+        const revokedPartitions = new Set(assignments.map((a) => a.partition))
 
         void this.backgroundTaskCoordinator
-            .waitForAllOffsetsStored(timeoutMs)
+            .waitForPartitionOffsetsStored(revokedPartitions, timeoutMs)
             .then((result) => {
                 this.recordWaitMetrics(result, backgroundTaskCount, timeoutMs)
                 this.commitOffsetsWithMetrics(result.status === 'success' ? 'before_revocation' : 'after_wait_failure')
@@ -747,16 +749,9 @@ export class KafkaConsumer {
                     this.lastConsumerLoopTime = Date.now()
                     logger.debug('🔁', 'main_loop_consuming')
 
-                    // If we're rebalancing and feature flag is enabled, skip consuming to avoid processing messages
-                    // during rebalancing when background tasks might be running.
-                    // Note: We don't timeout here - the rebalance callback handles its own timeout via Promise.race
-                    // and will call resetRebalanceCoordination() when complete. Forcing a reset here could cause
-                    // the consumer to fetch new batches while the rebalance callback is still waiting to commit/unassign.
-                    if (this.rebalanceCoordination.isRebalancing && this.config.waitForBackgroundTasksOnRebalance) {
-                        logger.info('🔁', 'main_loop_paused_for_rebalancing')
-                        await new Promise((resolve) => setTimeout(resolve, 10)) // Small delay to avoid busy waiting
-                        continue
-                    }
+                    // Continue consuming during rebalance to keep heartbeats alive and process non-revoked partitions.
+                    // With cooperative-sticky protocol, librdkafka will not return messages from revoked partitions
+                    // after the revoke callback fires. The rebalance callback handles offset coordination asynchronously.
 
                     const consumeStartTime = performance.now()
                     if (lastConsumeTime > 0) {
@@ -813,16 +808,23 @@ export class KafkaConsumer {
                     // Pull out the offsets to commit from the messages so we can release the messages reference
                     const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
 
-                    // Add task to coordinator - it handles ordering and offset storage coordination
-                    this.backgroundTaskCoordinator.addTask(backgroundTask, () => {
-                        // Track that we made progress
-                        this.lastBackgroundTaskCompletionTime = Date.now()
-                        stopBackgroundTaskTimer?.()
+                    // Extract partition IDs from this batch for rebalance coordination
+                    const batchPartitions = new Set(messages.map((m) => m.partition))
 
-                        if (this.config.autoCommit && this.config.autoOffsetStore) {
-                            this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
-                        }
-                    })
+                    // Add task to coordinator - it handles ordering and offset storage coordination
+                    this.backgroundTaskCoordinator.addTask(
+                        backgroundTask,
+                        () => {
+                            // Track that we made progress
+                            this.lastBackgroundTaskCompletionTime = Date.now()
+                            stopBackgroundTaskTimer?.()
+
+                            if (this.config.autoCommit && this.config.autoOffsetStore) {
+                                this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
+                            }
+                        },
+                        batchPartitions
+                    )
 
                     // Apply backpressure if we have too many concurrent tasks
                     const stopBackpressureTimer = consumedBatchBackpressureDuration.startTimer({
@@ -833,8 +835,15 @@ export class KafkaConsumer {
                     stopBackpressureTimer()
                 }
 
-                // Once we are stopping, make sure that we wait for all background work to finish
-                await this.backgroundTaskCoordinator.waitForAllTasksComplete()
+                // Once we are stopping, wait for all background work to finish and offsets to be stored
+                // No timeout during shutdown - we want to ensure all offsets are committed
+                const shutdownResult = await this.backgroundTaskCoordinator.waitForAllOffsetsStored()
+                if (shutdownResult.status !== 'success') {
+                    logger.error('🔁', 'offset_storage_incomplete_during_shutdown', {
+                        status: shutdownResult.status,
+                        durationMs: shutdownResult.durationMs,
+                    })
+                }
             } catch (error) {
                 throw error
             } finally {
@@ -866,11 +875,17 @@ export class KafkaConsumer {
         // Mark as stopping - this will also essentially stop the consumer loop
         this.isStopping = true
 
-        // Wait for background tasks to complete before disconnecting
+        // Wait for background tasks to complete and offsets to be stored before disconnecting
         logger.info('🔁', 'waiting_for_background_tasks_before_disconnect', {
             backgroundTaskCount: this.backgroundTaskCoordinator.taskCount,
         })
-        await this.backgroundTaskCoordinator.waitForAllTasksComplete()
+        const disconnectResult = await this.backgroundTaskCoordinator.waitForAllOffsetsStored()
+        if (disconnectResult.status !== 'success') {
+            logger.error('🔁', 'offset_storage_incomplete_before_disconnect', {
+                status: disconnectResult.status,
+                durationMs: disconnectResult.durationMs,
+            })
+        }
 
         logger.info('🔁', 'background_tasks_completed_proceeding_with_disconnect')
 

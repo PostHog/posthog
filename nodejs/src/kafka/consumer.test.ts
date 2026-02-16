@@ -408,8 +408,8 @@ describe('consumer', () => {
             // Use the coordinator to add tasks - this creates the offsetsStoredPromise internally
             const onOffsetsStored1 = jest.fn()
             const onOffsetsStored2 = jest.fn()
-            consumer['backgroundTaskCoordinator'].addTask(task1.promise, onOffsetsStored1)
-            consumer['backgroundTaskCoordinator'].addTask(task2.promise, onOffsetsStored2)
+            consumer['backgroundTaskCoordinator'].addTask(task1.promise, onOffsetsStored1, new Set([1]))
+            consumer['backgroundTaskCoordinator'].addTask(task2.promise, onOffsetsStored2, new Set([1]))
 
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
@@ -463,7 +463,7 @@ describe('consumer', () => {
             const mockConsumerDisabled = jest.mocked(consumerDisabled['rdKafkaConsumer'])
 
             // Add a background task using the coordinator
-            consumerDisabled['backgroundTaskCoordinator'].addTask(Promise.resolve(), jest.fn())
+            consumerDisabled['backgroundTaskCoordinator'].addTask(Promise.resolve(), jest.fn(), new Set([1]))
 
             consumerDisabled.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
@@ -488,7 +488,7 @@ describe('consumer', () => {
             })
 
             // Add a task that never completes - its offset storage will also never complete
-            consumer['backgroundTaskCoordinator'].addTask(neverResolvingTask, jest.fn())
+            consumer['backgroundTaskCoordinator'].addTask(neverResolvingTask, jest.fn(), new Set([1]))
 
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
@@ -510,9 +510,13 @@ describe('consumer', () => {
 
         it('should handle offset storage error and still proceed with revocation', async () => {
             // Add a task with a callback that throws an error
-            consumer['backgroundTaskCoordinator'].addTask(Promise.resolve(), () => {
-                throw new Error('Offset storage failed')
-            })
+            consumer['backgroundTaskCoordinator'].addTask(
+                Promise.resolve(),
+                () => {
+                    throw new Error('Offset storage failed')
+                },
+                new Set([1])
+            )
 
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
@@ -531,7 +535,7 @@ describe('consumer', () => {
         it('should handle commitSync failure and still proceed with revocation', async () => {
             // Add a task that completes successfully
             const task = triggerablePromise()
-            consumer['backgroundTaskCoordinator'].addTask(task.promise, jest.fn())
+            consumer['backgroundTaskCoordinator'].addTask(task.promise, jest.fn(), new Set([1]))
 
             // Make commitSync throw an error
             mockRdKafkaConsumer.commitSync.mockImplementationOnce(() => {
@@ -566,7 +570,7 @@ describe('consumer', () => {
 
             // Add a background task to make rebalance wait
             const task = triggerablePromise()
-            consumer['backgroundTaskCoordinator'].addTask(task.promise, jest.fn())
+            consumer['backgroundTaskCoordinator'].addTask(task.promise, jest.fn(), new Set([1]))
 
             // Trigger rebalance - this sets isRebalancing = true
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
@@ -604,7 +608,7 @@ describe('consumer', () => {
         it('should handle multiple partitions being revoked', async () => {
             const task = triggerablePromise()
             const onOffsetsStored = jest.fn()
-            consumer['backgroundTaskCoordinator'].addTask(task.promise, onOffsetsStored)
+            consumer['backgroundTaskCoordinator'].addTask(task.promise, onOffsetsStored, new Set([1]))
 
             // Revoke multiple partitions at once
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
