@@ -70,13 +70,15 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
             extra=inputs.properties_to_log,
         )
         return {"status": "skipped", "reason": "feature_flag_disabled", "signals_emitted": 0}
-    # Fetch schema and team
+    # Fetch schema and team (raises if either doesn't exist)
     schema, team = await database_sync_to_async(_fetch_schema_and_team, thread_sensitive=False)(
         inputs.schema_id, inputs.team_id
     )
-    validation_error = _validate_schema_and_team(schema, team, inputs)
-    if validation_error is not None:
-        return validation_error
+    if schema.table is None:
+        activity.logger.warning(
+            f"Schema {inputs.schema_id} has no table for emitting signals", extra=inputs.properties_to_log
+        )
+        return {"status": "skipped", "reason": "no_table", "signals_emitted": 0}
     # Query for new records
     records = await database_sync_to_async(_query_new_records, thread_sensitive=False)(
         team=team,
@@ -118,40 +120,13 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
     return {"status": "success", "signals_emitted": signals_emitted}
 
 
-def _validate_schema_and_team(
-    schema: ExternalDataSchema | None, team: Team | None, inputs: EmitSignalsActivityInputs
-) -> dict[str, Any] | None:
-    if schema is None:
-        activity.logger.warning(
-            f"Schema {inputs.schema_id} not found for emitting signals", extra=inputs.properties_to_log
-        )
-        return {"status": "error", "reason": "schema_not_found", "signals_emitted": 0}
-    if schema.table is None:
-        activity.logger.warning(
-            f"Schema {inputs.schema_id} has no table for emitting signals", extra=inputs.properties_to_log
-        )
-        return {"status": "skipped", "reason": "no_table", "signals_emitted": 0}
-    if team is None:
-        activity.logger.warning(f"Team {inputs.team_id} not found", extra=inputs.properties_to_log)
-        return {"status": "error", "reason": "team_not_found", "signals_emitted": 0}
-    return None
-
-
 def _is_feature_flag_enabled(team_id: int) -> bool:
     return posthoganalytics.feature_enabled(EMIT_SIGNALS_FEATURE_FLAG, str(team_id)) is True
 
 
-def _fetch_schema_and_team(schema_id: uuid.UUID, team_id: int) -> tuple[ExternalDataSchema | None, Team | None]:
-    schema: ExternalDataSchema | None = None
-    team: Team | None = None
-    try:
-        schema = ExternalDataSchema.objects.prefetch_related("table", "source").get(id=schema_id, team_id=team_id)
-    except ExternalDataSchema.DoesNotExist:
-        pass
-    try:
-        team = Team.objects.get(id=team_id)
-    except Team.DoesNotExist:
-        pass
+def _fetch_schema_and_team(schema_id: uuid.UUID, team_id: int) -> tuple[ExternalDataSchema, Team]:
+    schema = ExternalDataSchema.objects.prefetch_related("table", "source").get(id=schema_id, team_id=team_id)
+    team = Team.objects.get(id=team_id)
     return schema, team
 
 
