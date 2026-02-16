@@ -2006,8 +2006,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             [
                 ("person1", _date(0)),
                 ("person2", _date(0)),
-                ("person1", _date(1), {"$target_event_property": "value"}),
-                ("person2", _date(1), {"$target_event_property": "other"}),
+                ("person1", _date(1), {"$return_event_property": "value"}),
+                ("person2", _date(1), {"$return_event_property": "other"}),
             ],
         )
 
@@ -2089,8 +2089,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             [
                 ("person1", _date(0)),
                 ("person2", _date(0)),
-                ("person1", _date(1), {"$target_event_property": "value"}),
-                ("person2", _date(1), {"$target_event_property": "other"}),
+                ("person1", _date(1), {"$return_event_property": "value"}),
+                ("person2", _date(1), {"$return_event_property": "other"}),
             ],
         )
 
