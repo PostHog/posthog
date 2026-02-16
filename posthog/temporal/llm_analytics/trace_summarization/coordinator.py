@@ -44,6 +44,11 @@ from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTra
 from products.llm_analytics.backend.summarization.models import SummarizationMode
 
 with temporalio.workflow.unsafe.imports_passed_through():
+    from posthog.temporal.llm_analytics.coordinator_metrics import (
+        increment_team_failed,
+        increment_team_succeeded,
+        record_teams_discovered,
+    )
     from posthog.temporal.llm_analytics.team_discovery import (
         DISCOVERY_ACTIVITY_RETRY_POLICY,
         DISCOVERY_ACTIVITY_TIMEOUT,
@@ -125,6 +130,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             team_ids = sorted(GUARANTEED_TEAM_IDS)
 
         logger.info("Processing discovered teams", team_count=len(team_ids), team_ids=team_ids)
+        record_teams_discovered(len(team_ids), "summarization", inputs.analysis_level)
 
         # Spawn child workflows for each team with concurrency limit.
         # Uses start_child_workflow + await pattern: start all workflows in a
@@ -174,10 +180,12 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                     total_items += workflow_result.metrics.items_queried
                     total_summaries += workflow_result.metrics.summaries_generated
                     successful_teams.append(team_id)
+                    increment_team_succeeded("summarization", inputs.analysis_level)
 
                 except Exception:
                     logger.exception("Failed to process team", team_id=team_id)
                     failed_teams.append(team_id)
+                    increment_team_failed("summarization", inputs.analysis_level)
 
         logger.info(
             "Batch trace summarization coordinator completed",

@@ -14,11 +14,10 @@ import {
 } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { DataTableNode, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
@@ -35,7 +34,6 @@ export enum PromptMode {
 export interface PromptLogicProps {
     promptName: string | 'new'
     mode?: PromptMode
-    tabId?: string
 }
 
 export interface PromptFormValues {
@@ -55,7 +53,7 @@ const DEFAULT_PROMPT_FORM_VALUES: PromptFormValues = {
 export const llmPromptLogic = kea<llmPromptLogicType>([
     path(['scenes', 'llm-analytics', 'llmPromptLogic']),
     props({ promptName: 'new' } as PromptLogicProps),
-    key(({ promptName, tabId }) => `prompt-${promptName}::${tabId ?? 'default'}`),
+    key(({ promptName }) => `prompt-${promptName}`),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
     })),
@@ -356,7 +354,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         }
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         '/llm-analytics/prompts/:name': (_, __, ___, { method }) => {
             if (method === 'PUSH' && !values.isNewPrompt) {
                 actions.loadPrompt()

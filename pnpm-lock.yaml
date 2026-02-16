@@ -75,9 +75,6 @@ catalogs:
     lint-staged:
       specifier: ~15.4.3
       version: 15.4.3
-    posthog-js:
-      specifier: 1.345.2
-      version: 1.345.2
     prettier:
       specifier: ^3.6.2
       version: 3.6.2
@@ -955,8 +952,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.347.1
-        version: 1.347.1
+        specifier: 1.347.2
+        version: 1.347.2
       posthog-js-lite:
         specifier: 4.2.2
         version: 4.2.2
@@ -1309,6 +1306,9 @@ importers:
       ts-node:
         specifier: ^10.9.1
         version: 10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.4.5)
+      tsconfig-paths:
+        specifier: ^4.2.0
+        version: 4.2.0
       whatwg-fetch:
         specifier: ^3.6.2
         version: 3.6.2
@@ -1822,8 +1822,8 @@ importers:
         specifier: 'catalog:'
         version: 3.0.1(kea@4.0.0-pre.3(react@18.3.1))
       posthog-js:
-        specifier: 1.347.1
-        version: 1.347.1
+        specifier: 1.347.2
+        version: 1.347.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -1861,8 +1861,8 @@ importers:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.3(react@18.3.1))
       posthog-js:
-        specifier: 1.347.1
-        version: 1.347.1
+        specifier: 1.347.2
+        version: 1.347.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2022,8 +2022,8 @@ importers:
         specifier: 'catalog:'
         version: 3.0.1(kea@4.0.0-pre.3(react@18.3.1))
       posthog-js:
-        specifier: 1.347.1
-        version: 1.347.1
+        specifier: 1.347.2
+        version: 1.347.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2263,8 +2263,8 @@ importers:
         specifier: 'catalog:'
         version: 3.0.1(kea@4.0.0-pre.3(react@18.3.1))
       posthog-js:
-        specifier: 1.347.1
-        version: 1.347.1
+        specifier: 1.347.2
+        version: 1.347.2
       prettier:
         specifier: '*'
         version: 3.6.2
@@ -2345,8 +2345,8 @@ importers:
         specifier: '*'
         version: 5.4.1
       posthog-js:
-        specifier: 1.347.1
-        version: 1.347.1
+        specifier: 1.347.2
+        version: 1.347.2
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -2666,8 +2666,8 @@ importers:
         specifier: 'catalog:'
         version: 3.4.1(kea@4.0.0-pre.3(react@18.3.1))
       posthog-js:
-        specifier: 1.347.1
-        version: 1.347.1
+        specifier: 1.347.2
+        version: 1.347.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2738,8 +2738,8 @@ importers:
         specifier: 'catalog:'
         version: 3.0.1(kea@4.0.0-pre.3(react@18.3.1))
       posthog-js:
-        specifier: 1.347.1
-        version: 1.347.1
+        specifier: 1.347.2
+        version: 1.347.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -7431,9 +7431,6 @@ packages:
   '@poppinss/exception@1.2.3':
     resolution: {integrity: sha512-dCED+QRChTVatE9ibtoaxc+WkdzOSjYTKi/+uacHWIsfodVfpsueo3+DKpgU5Px8qXjgmXkSvhXvSCz3fnP9lw==}
 
-  '@posthog/core@1.21.0':
-    resolution: {integrity: sha512-0a2JUIX1vhduP2El/6/J8s5AeYAurIoufQGFgMiGnJE5ajd63o9LFocu2vFYYBnIOmy75y4ADNeW8zSl1keEQQ==}
-
   '@posthog/core@1.22.0':
     resolution: {integrity: sha512-WkmOnq95aAOu6yk6r5LWr5cfXsQdpVbWDCwOxQwxSne8YV6GuZET1ziO5toSQXgrgbdcjrSz2/GopAfiL6iiAA==}
 
@@ -7491,8 +7488,8 @@ packages:
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
 
-  '@posthog/types@1.347.1':
-    resolution: {integrity: sha512-ovHPNb09il/jObIfja42Ldg8des6oYqo6RwaduEHkGgpwrxWo7XmjHIoQpL0Qh7WKSnOnkE3Mm7hz9860i2REg==}
+  '@posthog/types@1.347.2':
+    resolution: {integrity: sha512-aT+r/7jXOzPmUHO6sutoWzczPcYIZyhmWt1f1OvY4zKC7Pwp/ZsJWKFTxjV02p0PZz96AE83eLTe7w7b6tjhIw==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -11059,21 +11056,12 @@ packages:
     resolution: {integrity: sha512-OPdCF6GsMIP+Az+aWfAAOEt2/+iVDKE7oy6lJ098aoe59oAmK76qV6Gw60SbZ8jHuG2wH058GF4pLFbYamYrVA==}
     engines: {node: '>=0.4.0'}
 
-  acorn-walk@8.2.0:
-    resolution: {integrity: sha512-k+iyHEuPgSw6SbuDpGQM+06HQUa04DZ3o+F6CSzXMvvI5KMvnaEqXe+YVe555R9nn6GPt404fos4wcgpw12SDA==}
-    engines: {node: '>=0.4.0'}
-
   acorn-walk@8.3.2:
     resolution: {integrity: sha512-cjkyv4OtNCIeqhHrfS81QWXoCBPExR/J62oyEqepVw8WaQeSqpW2uhuLPh1m9eWhDuOo/jUXVTlifvesOWp/4A==}
     engines: {node: '>=0.4.0'}
 
   acorn@7.4.1:
     resolution: {integrity: sha512-nQyp0o1/mNdbTO1PO6kHkwSrmgZ0MT/jCCpNiwbUjGoRN4dlBhqJtoQuCnEOKzgTVwg0ZWiCoQy6SxMebQVh8A==}
-    engines: {node: '>=0.4.0'}
-    hasBin: true
-
-  acorn@8.10.0:
-    resolution: {integrity: sha512-F0SAmZ8iUtS//m8DmCTA0jlh6TDKkHQyK6xc6V4KDTyZKA9dnvX9/3sRTVQrWm79glUAZbnmmNcdYwUIHWVybw==}
     engines: {node: '>=0.4.0'}
     hasBin: true
 
@@ -17573,8 +17561,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.347.1:
-    resolution: {integrity: sha512-PBloBIlcIPuZywJQBzSsTxY7oJYMevr2SwOa8f7T1h1YjnHN6coyh0wZMAAhqqrsVHXQj/9qaj3NOCJPHoZJEg==}
+  posthog-js@1.347.2:
+    resolution: {integrity: sha512-hDbsSU30gfNhC11cBYSPpwUYB4DglbCN2G8W8NPIR/KXhT03shmuxabra/uaoI4blkr8SSSpxwvYV4gGa3hXrA==}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -26825,7 +26813,7 @@ snapshots:
   '@opentelemetry/sql-common@0.41.0(@opentelemetry/api@1.9.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
-      '@opentelemetry/core': 2.5.0(@opentelemetry/api@1.9.0)
+      '@opentelemetry/core': 2.0.1(@opentelemetry/api@1.9.0)
 
   '@orval/angular@8.0.3(typescript@5.4.5)':
     dependencies:
@@ -27784,10 +27772,6 @@ snapshots:
 
   '@poppinss/exception@1.2.3': {}
 
-  '@posthog/core@1.21.0':
-    dependencies:
-      cross-spawn: 7.0.6
-
   '@posthog/core@1.22.0':
     dependencies:
       cross-spawn: 7.0.6
@@ -27850,7 +27834,7 @@ snapshots:
 
   '@posthog/siphash@1.1.1': {}
 
-  '@posthog/types@1.347.1': {}
+  '@posthog/types@1.347.2': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -29178,7 +29162,7 @@ snapshots:
       dayjs: 1.11.11(patch_hash=2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852)
       escape-goat: 3.0.0
       liquidjs: 10.21.1
-      lodash: 4.17.21
+      lodash: 4.17.23
     transitivePeerDependencies:
       - encoding
 
@@ -30377,7 +30361,7 @@ snapshots:
       acorn-walk: 7.2.0
       escodegen: 2.1.0
       html-tags: 3.3.1
-      lodash: 4.17.21
+      lodash: 4.17.23
       prop-types: 15.8.1
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
@@ -32237,13 +32221,9 @@ snapshots:
 
   acorn-walk@7.2.0: {}
 
-  acorn-walk@8.2.0: {}
-
   acorn-walk@8.3.2: {}
 
   acorn@7.4.1: {}
-
-  acorn@8.10.0: {}
 
   acorn@8.11.2: {}
 
@@ -33224,7 +33204,7 @@ snapshots:
 
   chalk-template@1.1.0:
     dependencies:
-      chalk: 5.4.1
+      chalk: 5.6.2
 
   chalk@2.4.2:
     dependencies:
@@ -35546,7 +35526,7 @@ snapshots:
 
   fork-ts-checker-webpack-plugin@8.0.0(typescript@5.4.5)(webpack@5.88.2):
     dependencies:
-      '@babel/code-frame': 7.26.2
+      '@babel/code-frame': 7.27.1
       chalk: 4.1.2
       chokidar: 3.6.0
       cosmiconfig: 7.1.0
@@ -39346,7 +39326,7 @@ snapshots:
 
   ora@8.2.0:
     dependencies:
-      chalk: 5.4.1
+      chalk: 5.6.2
       cli-cursor: 5.0.0
       cli-spinners: 2.9.2
       is-interactive: 2.0.0
@@ -40483,7 +40463,7 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.347.1:
+  posthog-js@1.347.2:
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/api-logs': 0.208.0
@@ -40491,7 +40471,7 @@ snapshots:
       '@opentelemetry/resources': 2.5.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
       '@posthog/core': 1.22.0
-      '@posthog/types': 1.347.1
+      '@posthog/types': 1.347.2
       core-js: 3.40.0
       dompurify: 3.3.1
       fflate: 0.4.8
@@ -43157,8 +43137,8 @@ snapshots:
       '@tsconfig/node14': 1.0.3
       '@tsconfig/node16': 1.0.3
       '@types/node': 22.18.8
-      acorn: 8.10.0
-      acorn-walk: 8.2.0
+      acorn: 8.15.0
+      acorn-walk: 8.3.2
       arg: 4.1.3
       create-require: 1.1.1
       diff: 4.0.2
@@ -43523,7 +43503,7 @@ snapshots:
 
   unplugin@1.4.0:
     dependencies:
-      acorn: 8.11.2
+      acorn: 8.15.0
       chokidar: 3.6.0
       webpack-sources: 3.2.3
       webpack-virtual-modules: 0.5.0
