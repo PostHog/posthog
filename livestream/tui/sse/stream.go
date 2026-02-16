@@ -175,10 +175,10 @@ func (s *Stream) run() {
 func (s *Stream) connectAndStream() error {
 	params := []string{}
 	if s.client.eventType != "" {
-		params = append(params, "eventType="+s.client.eventType)
+		params = append(params, "eventType="+url.QueryEscape(s.client.eventType))
 	}
 	if s.client.distinctID != "" {
-		params = append(params, "distinctId="+s.client.distinctID)
+		params = append(params, "distinctId="+url.QueryEscape(s.client.distinctID))
 	}
 	if s.geoOnly {
 		params = append(params, "geo=true")
