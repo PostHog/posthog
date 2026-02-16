@@ -220,7 +220,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 }
 
                 if (values.newActionName) {
-                    // newActionName is programmatically set, but they may already have an existing action with that name. Append an index.
                     actionToSave.name = findUniqueActionName(values.newActionName)
                 }
 
