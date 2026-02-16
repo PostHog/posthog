@@ -1,5 +1,9 @@
 from typing import Any, cast
 
+from django.core.exceptions import ObjectDoesNotExist
+from django.db.models import Q
+
+from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -7,12 +11,15 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.resource_transfer.inter_project_transferer import (
     ResourceTransferVertex,
     build_resource_duplication_graph,
     dag_sort_duplication_graph,
     duplicate_resource_to_new_team,
+    get_suggested_substitutions,
 )
+from posthog.models.resource_transfer.types import ResourceTransferKey
 from posthog.models.resource_transfer.visitors import ResourceTransferVisitor
 from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
 
@@ -24,11 +31,36 @@ class ResourceTransferRequestSerializer(serializers.Serializer):
     resource_id = serializers.CharField()
 
 
+class SubstitutionSerializer(serializers.Serializer):
+    source_resource_kind = serializers.CharField()
+    source_resource_id = serializers.CharField()
+    destination_resource_kind = serializers.CharField()
+    destination_resource_id = serializers.CharField()
+
+
+class ResourceTransferWithSubstitutionsSerializer(serializers.Serializer):
+    source_team_id = serializers.IntegerField()
+    destination_team_id = serializers.IntegerField()
+    resource_kind = serializers.CharField()
+    resource_id = serializers.CharField()
+    substitutions = SubstitutionSerializer(many=True, required=False, default=list)
+
+
+class ResourceSearchSerializer(serializers.Serializer):
+    team_id = serializers.IntegerField()
+    resource_kind = serializers.CharField()
+    q = serializers.CharField(required=False, default="", allow_blank=True)
+
+
 class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
 
     @action(detail=False, methods=["POST"])
-    def transfer(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def preview(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Build the dependency graph for a resource transfer and return it
+        along with suggested substitutions from previous transfers.
+        """
         user = cast(User, request.user)
         serializer = ResourceTransferRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -47,8 +79,108 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         self._check_access_controls(user, source_team, destination_team, dag)
 
-        duplicated = duplicate_resource_to_new_team(resource, destination_team)
+        suggested = get_suggested_substitutions(dag, destination_team)
+        suggested_map: dict[ResourceTransferKey, ResourceTransferKey] = {}
+        for source_key, dest_key in suggested:
+            suggested_map[source_key] = dest_key
+
+        resources = []
+        for vertex in dag:
+            visitor = ResourceTransferVisitor.get_visitor(vertex.model)
+            if visitor is None or visitor.is_immutable():
+                continue
+
+            entry: dict[str, Any] = {
+                "resource_kind": visitor.kind,
+                "resource_id": str(vertex.primary_key),
+                "display_name": visitor.get_display_name(vertex.source_resource),
+                "friendly_kind": visitor.friendly_name,
+                "user_facing": visitor.user_facing,
+            }
+
+            suggested_dest = suggested_map.get(vertex.key)
+            if suggested_dest is not None:
+                dest_kind, dest_pk = suggested_dest
+                dest_visitor = ResourceTransferVisitor.get_visitor(dest_kind)
+                if dest_visitor is not None:
+                    try:
+                        dest_resource = dest_visitor.get_model().objects.get(pk=dest_pk)
+                        entry["suggested_substitution"] = {
+                            "resource_kind": dest_kind,
+                            "resource_id": str(dest_pk),
+                            "display_name": dest_visitor.get_display_name(dest_resource),
+                        }
+                    except ObjectDoesNotExist:
+                        pass
+
+            resources.append(entry)
+
+        return Response({"resources": resources}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["POST"])
+    def transfer(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        user = cast(User, request.user)
+        serializer = ResourceTransferWithSubstitutionsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        source_team = self._get_team_in_org(data["source_team_id"])
+        destination_team = self._get_team_in_org(data["destination_team_id"])
+
+        if source_team.pk == destination_team.pk:
+            raise exceptions.ValidationError("Source and destination teams must be different")
+
+        resource = self._get_source_resource(data["resource_kind"], data["resource_id"], source_team)
+
+        graph = list(build_resource_duplication_graph(resource, set()))
+        dag = dag_sort_duplication_graph(graph)
+
+        self._check_access_controls(user, source_team, destination_team, dag)
+
+        for sub in data["substitutions"]:
+            if sub["source_resource_kind"] != sub["destination_resource_kind"]:
+                raise exceptions.ValidationError(
+                    f"Substitution kind mismatch: cannot substitute {sub['source_resource_kind']} "
+                    f"with {sub['destination_resource_kind']}"
+                )
+
+        substitution_pairs: list[tuple[ResourceTransferKey, ResourceTransferKey]] = [
+            (
+                (sub["source_resource_kind"], sub["source_resource_id"]),
+                (sub["destination_resource_kind"], sub["destination_resource_id"]),
+            )
+            for sub in data["substitutions"]
+        ]
+
+        try:
+            duplicated = duplicate_resource_to_new_team(resource, destination_team, substitution_pairs, created_by=user)
+        except (ValueError, TypeError) as e:
+            raise exceptions.ValidationError(str(e))
         mutable_results = [r for r in duplicated if r is not None and not _is_immutable(r)]
+
+        substituted_dest_ids = {sub["destination_resource_id"] for sub in data["substitutions"]}
+        resource_kind = data["resource_kind"]
+        was_impersonated = is_impersonated_session(request)
+
+        _log_destination_activity(
+            mutable_results,
+            substituted_dest_ids=substituted_dest_ids,
+            user=user,
+            organization_id=self.organization_id,
+            destination_team=destination_team,
+            source_team=source_team,
+            was_impersonated=was_impersonated,
+        )
+
+        _log_source_activity(
+            resource=resource,
+            resource_kind=resource_kind,
+            user=user,
+            organization_id=self.organization_id,
+            source_team=source_team,
+            destination_team=destination_team,
+            was_impersonated=was_impersonated,
+        )
 
         return Response(
             {
@@ -64,6 +196,58 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             },
             status=status.HTTP_201_CREATED,
         )
+
+    @action(detail=False, methods=["POST"])
+    def search(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Search for resources of a given kind in a target team. Used by the frontend
+        to let users pick an existing resource as a substitution.
+        """
+        user = cast(User, request.user)
+        serializer = ResourceSearchSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        team = self._get_team_in_org(data["team_id"])
+        visitor = ResourceTransferVisitor.get_visitor(data["resource_kind"])
+
+        if visitor is None:
+            raise exceptions.ValidationError(f"Unsupported resource kind: {data['resource_kind']}")
+
+        if visitor.is_immutable():
+            raise exceptions.ValidationError(f"Cannot search for immutable resource kind: {data['resource_kind']}")
+
+        model = visitor.get_model()
+
+        # model_to_resource accepts both instances and classes at runtime via _meta
+        resource_type = model_to_resource(model)  # type: ignore[arg-type]
+        if resource_type is not None:
+            ac = UserAccessControl(user=user, team=team)
+            if not ac.check_access_level_for_resource(resource_type, required_level="viewer"):
+                raise exceptions.PermissionDenied(
+                    f"You do not have read access to {visitor.kind} resources in this project"
+                )
+        qs = model.objects.filter(team=team)
+
+        query = data.get("q", "").strip()
+        if query:
+            filter_kwargs = Q()
+            if hasattr(model, "name"):
+                filter_kwargs |= Q(name__icontains=query)
+            if hasattr(model, "body"):
+                filter_kwargs |= Q(body__icontains=query)
+            qs = qs.filter(filter_kwargs)
+
+        results = [
+            {
+                "resource_kind": visitor.kind,
+                "resource_id": str(r.pk),
+                "display_name": visitor.get_display_name(r),
+            }
+            for r in qs[:25]
+        ]
+
+        return Response({"results": results}, status=status.HTTP_200_OK)
 
     def _get_team_in_org(self, team_id: int) -> Team:
         try:
@@ -82,7 +266,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         model = visitor.get_model()
         try:
             return model.objects.get(pk=resource_id, team=source_team)
-        except model.DoesNotExist:
+        except ObjectDoesNotExist:
             raise exceptions.NotFound(f"{resource_kind} with id {resource_id} not found in source team")
 
     def _check_access_controls(
@@ -127,3 +311,86 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 def _is_immutable(resource: Any) -> bool:
     visitor = ResourceTransferVisitor.get_visitor(resource)
     return visitor is not None and visitor.is_immutable()
+
+
+def _log_destination_activity(
+    mutable_results: list[Any],
+    *,
+    substituted_dest_ids: set[str],
+    user: User,
+    organization_id: Any,
+    destination_team: Team,
+    source_team: Team,
+    was_impersonated: bool,
+) -> None:
+    from posthog.models.activity_logging.model_activity import ModelActivityMixin
+
+    for duplicated_resource in mutable_results:
+        visitor = ResourceTransferVisitor.get_visitor(duplicated_resource)
+        if visitor is None or not visitor.user_facing:
+            continue
+
+        if str(duplicated_resource.pk) in substituted_dest_ids:
+            continue
+
+        # Models with ModelActivityMixin already create activity logs via
+        # signal handlers when objects.create() is called during duplication
+        if isinstance(duplicated_resource, ModelActivityMixin):
+            continue
+
+        log_activity(
+            organization_id=organization_id,
+            team_id=destination_team.pk,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=str(duplicated_resource.pk),
+            scope=visitor.kind,
+            activity="created",
+            detail=Detail(
+                name=visitor.get_display_name(duplicated_resource),
+                changes=[
+                    Change(
+                        type=visitor.kind,
+                        action="created",
+                        field="source_team_id",
+                        after=source_team.pk,
+                    )
+                ],
+            ),
+        )
+
+
+def _log_source_activity(
+    *,
+    resource: Any,
+    resource_kind: str,
+    user: User,
+    organization_id: Any,
+    source_team: Team,
+    destination_team: Team,
+    was_impersonated: bool,
+) -> None:
+    visitor = ResourceTransferVisitor.get_visitor(resource_kind)
+    if visitor is None:
+        return
+
+    log_activity(
+        organization_id=organization_id,
+        team_id=source_team.pk,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=str(resource.pk),
+        scope=visitor.kind,
+        activity="copied_to_project",
+        detail=Detail(
+            name=visitor.get_display_name(resource),
+            changes=[
+                Change(
+                    type=visitor.kind,
+                    action="changed",
+                    field="destination_team_id",
+                    after=destination_team.pk,
+                )
+            ],
+        ),
+    )

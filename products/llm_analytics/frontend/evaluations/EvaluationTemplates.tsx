@@ -43,6 +43,7 @@ function getTemplateIcon(icon: EvaluationTemplate['icon']): JSX.Element {
 
 function TemplateCard({ template }: TemplateCardProps): JSX.Element {
     const isBlank = template === 'blank'
+    const { searchParams } = useValues(router)
 
     const handleClick = (): void => {
         posthog.capture('llm evaluation template selected', {
@@ -50,9 +51,9 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
         })
 
         if (isBlank) {
-            router.actions.push(urls.llmAnalyticsEvaluation('new'))
+            router.actions.push(combineUrl(urls.llmAnalyticsEvaluation('new'), searchParams).url)
         } else {
-            const url = combineUrl(urls.llmAnalyticsEvaluation('new'), { template: template.key }).url
+            const url = combineUrl(urls.llmAnalyticsEvaluation('new'), { ...searchParams, template: template.key }).url
             router.actions.push(url)
         }
     }
@@ -106,6 +107,8 @@ function TemplateGrid({
     learnMoreUrl,
     minHeight = '60vh',
 }: TemplateGridProps): JSX.Element {
+    const { searchParams } = useValues(router)
+
     return (
         <div className="flex flex-col items-center justify-center py-8" style={{ minHeight }}>
             <div className="w-full max-w-5xl px-4">
@@ -114,7 +117,9 @@ function TemplateGrid({
                         <LemonButton
                             type="secondary"
                             icon={<IconArrowLeft />}
-                            onClick={() => router.actions.push(urls.llmAnalyticsEvaluations())}
+                            onClick={() =>
+                                router.actions.push(combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url)
+                            }
                             size="small"
                         >
                             Back to Evaluations

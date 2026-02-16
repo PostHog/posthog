@@ -89,59 +89,6 @@ function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null
                                 ]}
                             />
                         </div>
-
-                        {step.elementTargeting === 'manual' && (
-                            <div className="flex flex-col gap-1 flex-1 min-w-0">
-                                <label className="text-[0.6875rem] font-medium text-muted uppercase tracking-wide">
-                                    CSS Selector
-                                </label>
-                                <LemonInput
-                                    value={step.selector || ''}
-                                    onChange={(value) => updateSelectedStep({ selector: value })}
-                                    placeholder="#my-element"
-                                    size="small"
-                                    className="font-mono max-w-md"
-                                    autoFocus={!hasTarget}
-                                />
-                            </div>
-                        )}
-
-                        {step.elementTargeting === 'auto' && (
-                            <div className="flex flex-col gap-1">
-                                <label className="text-[0.6875rem] font-medium text-muted uppercase tracking-wide">
-                                    Element
-                                </label>
-                                <div className="flex gap-2">
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        icon={<IconCursorClick />}
-                                        onClick={() => submitAndOpenToolbar('edit')}
-                                    >
-                                        {step.inferenceData ? 'Change' : 'Select element in Toolbar'}
-                                    </LemonButton>
-                                    {step.inferenceData && (
-                                        <LemonButton
-                                            size="small"
-                                            type="secondary"
-                                            status="danger"
-                                            icon={<IconTrash />}
-                                            onClick={() =>
-                                                updateSelectedStep({
-                                                    selector: undefined,
-                                                    inferenceData: undefined,
-                                                    screenshotMediaId: undefined,
-                                                    useManualSelector: undefined,
-                                                    elementTargeting: undefined,
-                                                })
-                                            }
-                                        >
-                                            Remove
-                                        </LemonButton>
-                                    )}
-                                </div>
-                            </div>
-                        )}
                     </div>
 
                     {step.elementTargeting === 'auto' && step.inferenceData && (
@@ -215,6 +162,57 @@ function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null
                     </div>
                 )}
             </div>
+
+            {step.elementTargeting === 'manual' && (
+                <div className="flex flex-col gap-1 flex-1 min-w-0">
+                    <label className="text-[0.6875rem] font-medium text-muted uppercase tracking-wide">
+                        CSS Selector
+                    </label>
+                    <LemonInput
+                        value={step.selector || ''}
+                        onChange={(value) => updateSelectedStep({ selector: value })}
+                        placeholder="#my-element"
+                        size="small"
+                        className="font-mono max-w-md"
+                        autoFocus={!hasTarget}
+                    />
+                </div>
+            )}
+
+            {step.elementTargeting === 'auto' && (
+                <div className="flex flex-col gap-1">
+                    <label className="text-[0.6875rem] font-medium text-muted uppercase tracking-wide">Element</label>
+                    <div className="flex gap-2">
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconCursorClick />}
+                            onClick={() => submitAndOpenToolbar('edit')}
+                        >
+                            {step.inferenceData ? 'Change' : 'Select element in Toolbar'}
+                        </LemonButton>
+                        {step.inferenceData && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                status="danger"
+                                icon={<IconTrash />}
+                                onClick={() =>
+                                    updateSelectedStep({
+                                        selector: undefined,
+                                        inferenceData: undefined,
+                                        screenshotMediaId: undefined,
+                                        useManualSelector: undefined,
+                                        elementTargeting: undefined,
+                                    })
+                                }
+                            >
+                                Remove
+                            </LemonButton>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {step.elementTargeting && hasIncompleteTargeting(step) && (
                 <div className="flex flex-col items-start gap-2">

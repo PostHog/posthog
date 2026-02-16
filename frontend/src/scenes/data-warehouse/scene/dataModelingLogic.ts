@@ -31,7 +31,6 @@ import { Edge, ElkDirection, Node, NodeHandle, SearchMode, ViewMode } from './mo
 const POLL_INTERVAL_MS = 5000
 const MIN_RUNNING_DURATION_MS = 2000
 
-let pollIntervalId: ReturnType<typeof setInterval> | null = null
 const nodeStartTimes: Map<string, number> = new Map()
 
 const getEdgeId = (from: string, to: string): string => `${from}->${to}`
@@ -494,7 +493,7 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         setViewMode: ({ viewMode }) => {
             if (viewMode !== 'graph' && values.reactFlowInstance) {
                 actions.setSavedViewport(values.reactFlowInstance.getViewport())
@@ -676,19 +675,17 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
             }
         },
         startPollingRunningJobs: () => {
-            if (pollIntervalId) {
-                return
-            }
             actions.pollRunningJobs()
-            pollIntervalId = setInterval(() => {
-                actions.pollRunningJobs()
-            }, POLL_INTERVAL_MS)
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    actions.pollRunningJobs()
+                }, POLL_INTERVAL_MS)
+                return () => clearInterval(intervalId)
+            }, 'pollRunningJobs')
         },
 
         stopPollingRunningJobs: () => {
-            if (pollIntervalId) {
-                clearInterval(pollIntervalId)
-                pollIntervalId = null
+            if (cache.disposables.dispose('pollRunningJobs')) {
                 actions.loadRecentJobs()
             }
         },

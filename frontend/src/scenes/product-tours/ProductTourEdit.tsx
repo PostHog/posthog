@@ -67,6 +67,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                     }
                 />
 
+                <div data-attr="product-tours-tour-editor-banner" />
                 <ProductTourStepsEditor tourId={id} />
             </SceneContent>
         </Form>

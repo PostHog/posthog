@@ -3,7 +3,9 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -139,7 +141,12 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         })
 
         return {
-            values: [variantsPanelLogicInstance, ['featureFlagKeyValidation', 'featureFlagKeyValidationLoading']],
+            values: [
+                variantsPanelLogicInstance,
+                ['featureFlagKeyValidation', 'featureFlagKeyValidationLoading'],
+                featureFlagLogic,
+                ['featureFlags'],
+            ],
             actions: [
                 eventUsageLogic,
                 ['reportExperimentCreated', 'reportExperimentUpdated'],
@@ -416,6 +423,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     ...values.experiment,
                     scheduling_config: schedulingConfig,
                     saved_metrics_ids: savedMetrics,
+                    exposure_preaggregation_enabled:
+                        !!values.featureFlags[FEATURE_FLAGS.EXPERIMENT_QUERY_PREAGGREGATION],
                 }
 
                 let response: Experiment
