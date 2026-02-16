@@ -169,7 +169,6 @@ async def test_emit_signals_activity_calls_emit_signal(ateam, test_segments_and_
         team_id=ateam.id,
         clusters=clusters,
         segments=segments,
-        workflow_run_id="test-run-id",
     )
 
     with (

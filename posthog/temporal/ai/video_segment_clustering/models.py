@@ -133,7 +133,6 @@ class EmitSignalsActivityInputs:
     team_id: int
     clusters: list[Cluster]
     segments: list[VideoSegmentMetadata]
-    workflow_run_id: str
 
 
 @dataclass

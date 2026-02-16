@@ -158,7 +158,7 @@ async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs)
             team=team,
             source_product="session_recordings",
             source_type="segment_cluster",
-            source_id=f"{team.id}:{inputs.workflow_run_id}:{cluster.cluster_id}",
+            source_id=f"{team.id}:{activity.info().workflow_id}:{cluster.cluster_id}",
             description=cluster_label.description,
             weight=weight,
             extra={

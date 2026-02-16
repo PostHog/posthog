@@ -138,7 +138,6 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                     team_id=inputs.team_id,
                     clusters=all_clusters,
                     segments=segments,
-                    workflow_run_id=workflow.info().run_id,
                 )
             ],
             start_to_close_timeout=timedelta(seconds=300),
