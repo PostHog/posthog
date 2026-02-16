@@ -973,19 +973,87 @@ def toolbar_oauth_authorize(request):
 @session_auth_required
 def toolbar_oauth_callback(request):
     """
-    OAuth popup bridge endpoint.
+    OAuth callback endpoint (redirect_uri for toolbar OAuth).
 
-    This page only relays `code/state` (or OAuth error) to the opener window
-    via `postMessage`; token exchange stays server-side in toolbar_oauth_exchange.
+    Two modes:
+    - Toolbar flow (code_verifier in session): exchanges the code for tokens
+      server-side and postMessages them to the opener (the toolbar page).
+    - posthog-js flow (no code_verifier): relays code/state to the opener
+      for client-side exchange.
     """
+    error = request.GET.get("error")
+    if error:
+        payload = {
+            "type": "toolbar_oauth_callback",
+            "error": error,
+            "error_description": request.GET.get("error_description"),
+        }
+        return render_template(
+            "toolbar_oauth_callback.html",
+            request=request,
+            context={"payload": payload, "target_origin": settings.SITE_URL},
+        )
+
+    code = request.GET.get("code")
+    state = request.GET.get("state")
+    code_verifier = request.session.pop("toolbar_oauth_code_verifier", None)
+
+    if code_verifier and code and state:
+        # Toolbar flow: exchange code for tokens on the server
+        team = request.user.team
+        if not team:
+            payload = {"type": "toolbar_oauth_callback", "error": "no_team", "error_description": "No project found"}
+            return render_template(
+                "toolbar_oauth_callback.html",
+                request=request,
+                context={"payload": payload, "target_origin": settings.SITE_URL},
+            )
+
+        try:
+            state_payload = validate_and_consume_toolbar_oauth_state(
+                signed_state=state,
+                request_user=request.user,
+                request_team=team,
+            )
+            oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
+            token_payload = exchange_code_for_tokens(
+                client_id=oauth_app.client_id,
+                code=code,
+                code_verifier=code_verifier,
+            )
+        except ToolbarOAuthError as exc:
+            payload = {"type": "toolbar_oauth_callback", "error": exc.code, "error_description": exc.detail}
+            return render_template(
+                "toolbar_oauth_callback.html",
+                request=request,
+                context={"payload": payload, "target_origin": settings.SITE_URL},
+            )
+
+        app_url = state_payload["app_url"]
+        parsed = urllib.parse.urlparse(app_url)
+        target_origin = f"{parsed.scheme}://{parsed.netloc}"
+
+        payload = {
+            "type": "toolbar_oauth_callback",
+            "access_token": token_payload["access_token"],
+            "refresh_token": token_payload["refresh_token"],
+            "expires_in": token_payload["expires_in"],
+            "client_id": oauth_app.client_id,
+        }
+        return render_template(
+            "toolbar_oauth_callback.html",
+            request=request,
+            context={"payload": payload, "target_origin": target_origin},
+        )
+
+    # posthog-js flow: relay code/state for client-side exchange
     payload = {
         "type": "toolbar_oauth_result",
-        "code": request.GET.get("code"),
-        "state": request.GET.get("state"),
-        "error": request.GET.get("error"),
+        "code": code,
+        "state": state,
+        "error": error,
         "error_description": request.GET.get("error_description"),
     }
-
     return render_template(
         "toolbar_oauth_callback.html",
         request=request,

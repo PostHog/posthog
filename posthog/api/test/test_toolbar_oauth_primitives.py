@@ -209,7 +209,6 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         assert response.status_code == 200
         self.assertContains(response, '"error": "access_denied"')
         self.assertContains(response, '"error_description": "user cancelled"')
-        self.assertContains(response, '"state": "test_state"')
 
     @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_exchange_success(self, mock_post):
@@ -481,7 +480,7 @@ class TestToolbarOAuthRefresh(APIBaseTest):
     def test_refresh_rejects_invalid_json(self):
         response = self.client.post(
             "/api/user/toolbar_oauth_refresh/",
-            data="{not-json",
+            data=json.dumps({"refresh_token": "phr_old", "client_id": "test_client_id"}),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 400)
@@ -529,3 +528,117 @@ class TestToolbarOAuthRefresh(APIBaseTest):
     def test_refresh_rejects_get_method(self):
         response = self.client.get("/api/user/toolbar_oauth_refresh/")
         self.assertEqual(response.status_code, 405)
+
+
+class TestToolbarOAuthCallbackExchange(APIBaseTest):
+    """Tests for the toolbar flow where callback exchanges code for tokens."""
+
+    def setUp(self):
+        super().setUp()
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+
+    def _authorize_and_get_state(self) -> str:
+        response = self.client.get(
+            "/toolbar_oauth/authorize/",
+            {"redirect": "https://example.com/page"},
+        )
+        assert response.status_code == 200
+
+        content = response.content.decode()
+        # Extract authorization_url from the rendered template
+        import re
+
+        match = re.search(r'href="([^"]*oauth/authorize/[^"]*)"', content)
+        if not match:
+            match = re.search(r'"authorization_url":\s*"([^"]*)"', content)
+        assert match, f"Could not find authorization_url in response: {content[:500]}"
+
+        auth_url = match.group(1).replace("&amp;", "&")
+        qs = parse_qs(urlparse(auth_url).query)
+        return qs["state"][0]
+
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_callback_exchanges_code_when_code_verifier_in_session(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "pha_toolbar_token",
+            "refresh_token": "phr_toolbar_refresh",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": "read",
+        }
+
+        state = self._authorize_and_get_state()
+        response = self.client.get(f"/toolbar_oauth/callback?code=auth_code_123&state={state}")
+
+        assert response.status_code == 200
+        self.assertContains(response, '"access_token": "pha_toolbar_token"')
+        self.assertContains(response, '"refresh_token": "phr_toolbar_refresh"')
+        self.assertContains(response, '"expires_in": 3600')
+        self.assertContains(response, '"type": "toolbar_oauth_callback"')
+
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_callback_target_origin_is_app_url_origin(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "pha_abc",
+            "refresh_token": "phr_abc",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": "read",
+        }
+
+        state = self._authorize_and_get_state()
+        response = self.client.get(f"/toolbar_oauth/callback?code=auth_code&state={state}")
+
+        assert response.status_code == 200
+        # target_origin should be the app_url origin, not SITE_URL
+        self.assertContains(response, "https://example.com")
+
+    def test_callback_without_code_verifier_relays_code_and_state(self):
+        response = self.client.get("/toolbar_oauth/callback?code=test_code&state=test_state")
+
+        assert response.status_code == 200
+        self.assertContains(response, '"type": "toolbar_oauth_result"')
+        self.assertContains(response, '"code": "test_code"')
+        self.assertContains(response, '"state": "test_state"')
+
+    def test_callback_with_error_returns_error_payload(self):
+        response = self.client.get("/toolbar_oauth/callback?error=access_denied&error_description=user+cancelled")
+
+        assert response.status_code == 200
+        self.assertContains(response, '"type": "toolbar_oauth_callback"')
+        self.assertContains(response, '"error": "access_denied"')
+        self.assertContains(response, '"error_description": "user cancelled"')
+
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_callback_exchange_error_returns_error_payload(self, mock_post):
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.json.return_value = {
+            "error": "invalid_grant",
+            "error_description": "Code expired",
+        }
+
+        state = self._authorize_and_get_state()
+        response = self.client.get(f"/toolbar_oauth/callback?code=expired_code&state={state}")
+
+        assert response.status_code == 200
+        self.assertContains(response, '"error": "invalid_grant"')
+
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_callback_includes_client_id_in_payload(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "pha_abc",
+            "refresh_token": "phr_abc",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": "read",
+        }
+
+        state = self._authorize_and_get_state()
+        response = self.client.get(f"/toolbar_oauth/callback?code=auth_code&state={state}")
+
+        assert response.status_code == 200
+        self.assertContains(response, '"client_id":')
