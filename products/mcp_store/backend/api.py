@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import OauthIntegration
+from posthog.rate_limit import MCPOAuthBurstThrottle, MCPOAuthSustainedThrottle
 from posthog.security.url_validation import is_url_allowed
 
 from .models import OAUTH_KIND_MAP, MCPServer, MCPServerInstallation
@@ -175,7 +176,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id, user=self.request.user).order_by("-created_at")
 
-    @action(detail=False, methods=["post"], url_path="install_custom")
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="install_custom",
+        throttle_classes=[MCPOAuthBurstThrottle, MCPOAuthSustainedThrottle],
+    )
     def install_custom(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         serializer = InstallCustomSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -336,7 +342,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             created_by=request.user,
         )
 
-    @action(detail=False, methods=["get"], url_path="authorize")
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="authorize",
+        throttle_classes=[MCPOAuthBurstThrottle, MCPOAuthSustainedThrottle],
+    )
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         server_id = request.query_params.get("server_id")
         if not server_id:
@@ -432,7 +443,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         response.set_cookie("ph_pkce_verifier", code_verifier, max_age=600, httponly=True, samesite="Lax")
         return response
 
-    @action(detail=False, methods=["post"], url_path="oauth_callback")
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="oauth_callback",
+        throttle_classes=[MCPOAuthBurstThrottle, MCPOAuthSustainedThrottle],
+    )
     def oauth_callback(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         code = request.data.get("code")
         server_id = request.data.get("server_id")

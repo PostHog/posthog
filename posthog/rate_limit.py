@@ -624,3 +624,13 @@ class WidgetTeamThrottle(SimpleRateThrottle):
 class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
     scope = "symbol_set_upload_sustained"
     rate = "12000/hour"
+
+
+class MCPOAuthBurstThrottle(UserRateThrottle):
+    scope = "mcp_oauth_burst"
+    rate = "10/minute"
+
+
+class MCPOAuthSustainedThrottle(UserRateThrottle):
+    scope = "mcp_oauth_sustained"
+    rate = "50/hour"
