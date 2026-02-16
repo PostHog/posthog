@@ -13,8 +13,11 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { IconKey } from 'lib/lemon-ui/icons'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { TrialUsageMeterDisplay } from './TrialUsageMeter'
 import {
@@ -83,6 +86,8 @@ function getKeyPlaceholder(provider: LLMProvider): string {
             return 'sk-ant-...'
         case 'gemini':
             return 'Enter your Gemini API key'
+        case 'openrouter':
+            return 'Enter your OpenRouter API key'
     }
 }
 
@@ -124,7 +129,7 @@ function KeyValidationStatus({
 }
 
 function AddKeyModal(): JSX.Element {
-    const { newKeyModalOpen, providerKeysLoading, preValidationResult, preValidationResultLoading } =
+    const { newKeyModalOpen, providerKeysLoading, preValidationResult, preValidationResultLoading, evaluationConfig } =
         useValues(llmProviderKeysLogic)
     const { setNewKeyModalOpen, createProviderKey, preValidateKey, clearPreValidation } =
         useActions(llmProviderKeysLogic)
@@ -157,6 +162,7 @@ function AddKeyModal(): JSX.Element {
                         provider,
                         name,
                         api_key: apiKey,
+                        set_as_active: !evaluationConfig?.active_provider_key,
                     },
                 })
             }
@@ -175,6 +181,7 @@ function AddKeyModal(): JSX.Element {
                     provider,
                     name,
                     api_key: apiKey,
+                    set_as_active: !evaluationConfig?.active_provider_key,
                 },
             })
         } else if (apiKey.length > 0) {
@@ -234,6 +241,7 @@ function AddKeyModal(): JSX.Element {
                             { value: 'openai', label: 'OpenAI' },
                             { value: 'anthropic', label: 'Anthropic' },
                             { value: 'gemini', label: 'Google Gemini' },
+                            { value: 'openrouter', label: 'OpenRouter' },
                         ]}
                         className="mt-1"
                         fullWidth
@@ -553,26 +561,41 @@ export function LLMProviderKeysSettings(): JSX.Element {
             render: (_, key) => (
                 <div className="flex gap-1">
                     {key.state !== 'ok' && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconRefresh />}
+                                loading={validatingKeyId === key.id}
+                                onClick={() => validateProviderKey({ id: key.id })}
+                            >
+                                Validate
+                            </LemonButton>
+                        </AccessControlAction>
+                    )}
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton size="small" type="secondary" onClick={() => setEditingKey(key)}>
+                            Edit
+                        </LemonButton>
+                    </AccessControlAction>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
                         <LemonButton
                             size="small"
                             type="secondary"
-                            icon={<IconRefresh />}
-                            loading={validatingKeyId === key.id}
-                            onClick={() => validateProviderKey({ id: key.id })}
-                        >
-                            Validate
-                        </LemonButton>
-                    )}
-                    <LemonButton size="small" type="secondary" onClick={() => setEditingKey(key)}>
-                        Edit
-                    </LemonButton>
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        status="danger"
-                        icon={<IconTrash />}
-                        onClick={() => setKeyToDelete(key)}
-                    />
+                            status="danger"
+                            icon={<IconTrash />}
+                            onClick={() => setKeyToDelete(key)}
+                        />
+                    </AccessControlAction>
                 </div>
             ),
         },
@@ -592,12 +615,21 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <h2 className="text-xl font-semibold">API keys</h2>
                                 <p className="text-muted">
                                     Add your API keys to run evaluations with your own account. Supports OpenAI,
-                                    Anthropic, and Google Gemini.
+                                    Anthropic, Google Gemini, and OpenRouter.
                                 </p>
                             </div>
-                            <LemonButton type="primary" icon={<IconPlus />} onClick={() => setNewKeyModalOpen(true)}>
-                                Add API key
-                            </LemonButton>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    onClick={() => setNewKeyModalOpen(true)}
+                                >
+                                    Add API key
+                                </LemonButton>
+                            </AccessControlAction>
                         </div>
 
                         {evaluationConfig && !evaluationConfig.active_provider_key && (
@@ -611,15 +643,20 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <p className="text-muted mb-4 text-center">
                                     Add your API key to run evaluations with your own account.
                                     <br />
-                                    Supports OpenAI, Anthropic, and Google Gemini.
+                                    Supports OpenAI, Anthropic, Google Gemini, and OpenRouter.
                                 </p>
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPlus />}
-                                    onClick={() => setNewKeyModalOpen(true)}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Add API key
-                                </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconPlus />}
+                                        onClick={() => setNewKeyModalOpen(true)}
+                                    >
+                                        Add API key
+                                    </LemonButton>
+                                </AccessControlAction>
                             </div>
                         ) : (
                             <LemonTable

@@ -343,9 +343,7 @@ group3_created_at,
 group4_created_at,
 person_mode,
 _timestamp,
-_timestamp_ms,
-_offset,
-_partition
+_offset
 FROM {database}.kafka_events_recent_json
 """.format(
         target_table=target_table,

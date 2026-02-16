@@ -15,6 +15,7 @@ from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
 from ee.hogai.core.agent_modes.presets.error_tracking import chat_agent_plan_error_tracking_agent, error_tracking_agent
+from ee.hogai.core.agent_modes.presets.flags import chat_agent_plan_flags_agent, flags_agent
 from ee.hogai.core.agent_modes.presets.product_analytics import (
     chat_agent_plan_product_analytics_agent,
     product_analytics_agent,
@@ -27,6 +28,7 @@ from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
 from ee.hogai.utils.feature_flags import (
     has_error_tracking_mode_feature_flag,
+    has_flags_mode_feature_flag,
     has_plan_mode_feature_flag,
     has_survey_mode_feature_flag,
 )
@@ -116,6 +118,11 @@ class ChatAgentModeManager(AgentModeManager):
                 registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
         if has_survey_mode_feature_flag(self._team, self._user):
             registry[AgentMode.SURVEY] = survey_agent
+        if has_flags_mode_feature_flag(self._team, self._user):
+            if self._supermode == AgentMode.PLAN:
+                registry[AgentMode.FLAGS] = chat_agent_plan_flags_agent
+            else:
+                registry[AgentMode.FLAGS] = flags_agent
         return registry
 
     @property

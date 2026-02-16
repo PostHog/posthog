@@ -51,6 +51,7 @@ from .host_definition import HostDefinition
 from .hog_flow import HogFlow
 from .hog_functions import HogFunction
 from .hog_function_template import HogFunctionTemplate
+from .health_issue import HealthIssue
 from .insight import Insight, InsightViewed
 from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
@@ -78,6 +79,7 @@ from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
 from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
+from .resource_transfer.resource_transfer import ResourceTransfer
 from .scheduled_change import ScheduledChange
 from .schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 from .share_password import SharePassword
@@ -148,6 +150,7 @@ __all__ = [
     "GroupUsageMetric",
     "GroupTypeMapping",
     "HeatmapSnapshot",
+    "HealthIssue",
     "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",
@@ -199,6 +202,7 @@ __all__ = [
     "QuickFilter",
     "RetentionFilter",
     "RemoteConfig",
+    "ResourceTransfer",
     "EventSchema",
     "SavedHeatmap",
     "SchemaPropertyGroup",

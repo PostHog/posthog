@@ -367,6 +367,9 @@
     --color-brand-secondary-saturation: var(--color-posthog-brand-blue-saturation);
     --color-brand-secondary-lightness: var(--color-posthog-brand-blue-lightness);
 
+    // AI
+    --color-ai: oklch(0.67 0.26 359.84deg);
+
     // Accent colors (accents can be changed to change the brand colors)
     // Used for interactive elements and highlights, inputs, toggles, charts, etc.
     // //////////////////////////////////////////////////////////
@@ -878,6 +881,9 @@
     --color-brand-primary-hue: var(--color-posthog-brand-yellow-hue);
     --color-brand-primary-saturation: var(--color-posthog-brand-yellow-saturation);
     --color-brand-primary-lightness: var(--color-posthog-brand-yellow-lightness);
+
+    // AI colors (dark mode)
+    --color-ai: oklch(0.69 0.29 341.57deg);
 
     // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
@@ -1701,6 +1707,11 @@
         animation-fill-mode: none;
     }
 
+    .animate-pulse-glow {
+        animation: pulse-glow 2s ease-in-out forwards;
+        animation-fill-mode: none;
+    }
+
     // Highlight background blink
 
     /* stylelint-disable-next-line keyframes-name-pattern */
@@ -1736,6 +1747,19 @@
 
         100% {
             transform: rotateZ(360deg);
+        }
+    }
+
+    // Pass in a different color variable to change the color of the glow
+    // Example: <span className="[--pulse-glow-color:blue] animate-pulse-glow" />
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes pulse-glow {
+        0% {
+            box-shadow: 0 0 0 2px var(--pulse-glow-color, var(--color-accent));
+        }
+
+        100% {
+            box-shadow: 0 0 0 10px transparent;
         }
     }
 
@@ -1843,7 +1867,8 @@
     }
 
     .animate-logomark-jump {
-        --logomark-jump-magnitude: 1;
+        --logomark-jump-height-base: 12px;
+        --logomark-jump-magnitude: 1; // Overidden in code when someone wants a bigger jump
         --logomark-airtime: 0.4s; // Sync with LOGOMARK_AIRTIME_MS in Intro.tsx
 
         svg {
@@ -1874,7 +1899,7 @@
             }
 
             2% {
-                transform: translateY(calc(-200px * var(--logomark-jump-magnitude)));
+                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
             }
 
             4% {
@@ -1891,7 +1916,7 @@
             }
 
             22% {
-                transform: translateY(calc(-200px * var(--logomark-jump-magnitude)));
+                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
             }
         }
 

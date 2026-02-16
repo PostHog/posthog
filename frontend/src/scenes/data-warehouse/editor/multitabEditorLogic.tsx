@@ -1082,6 +1082,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return queryInput && (queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1)
             },
         ],
+        hasQueryInput: [(s) => [s.queryInput], (queryInput) => !!queryInput],
         dataLogicKey: [(_, p) => [p.tabId], (tabId) => `data-warehouse-editor-data-node-${tabId}`],
         isDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? !!activeTab.draft?.id : false)],
         currentDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? activeTab.draft : null)],
@@ -1281,17 +1282,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         insight.query &&
                         !searchParams.open_query
                     ) {
-                        dataNodeLogic({
-                            key: values.dataLogicKey,
-                            query: (insight.query as DataVisualizationNode).source,
-                        }).mount()
+                        const mountedDataLogic = dataNodeLogic.findMounted({ key: values.dataLogicKey })
+                        const response = mountedDataLogic?.values.response
+                        const responseLoading = mountedDataLogic?.values.responseLoading ?? false
 
-                        const response = dataNodeLogic({
-                            key: values.dataLogicKey,
-                            query: (insight.query as DataVisualizationNode).source,
-                        }).values.response
-
-                        if (!response) {
+                        if (!responseLoading && !response) {
                             actions.runQuery()
                         }
                     } else {

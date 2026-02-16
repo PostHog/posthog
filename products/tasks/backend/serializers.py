@@ -19,6 +19,8 @@ class TaskSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     title = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    origin_product = serializers.ChoiceField(choices=Task.OriginProduct.choices, required=False)
 
     class Meta:
         model = Task
@@ -265,3 +267,91 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+
+
+class RepositoryReadinessQuerySerializer(serializers.Serializer):
+    repository = serializers.CharField(required=True, help_text="Repository in org/repo format")
+    window_days = serializers.IntegerField(required=False, default=7, min_value=1, max_value=30)
+    refresh = serializers.BooleanField(required=False, default=False)
+
+    def validate_repository(self, value: str) -> str:
+        normalized = value.strip().lower()
+        parts = normalized.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return normalized
+
+
+class CapabilityStateSerializer(serializers.Serializer):
+    state = serializers.ChoiceField(
+        choices=["needs_setup", "detected", "waiting_for_data", "ready", "not_applicable", "unknown"],
+        help_text="Current state of the capability",
+    )
+    estimated = serializers.BooleanField(help_text="Whether the state is estimated from static analysis")
+    reason = serializers.CharField(help_text="Human-readable explanation")
+    evidence = serializers.DictField(required=False, default=dict, help_text="Supporting evidence")
+
+
+class ScanEvidenceSerializer(serializers.Serializer):
+    filesScanned = serializers.IntegerField(help_text="Number of files scanned")
+    detectedFilesCount = serializers.IntegerField(help_text="Total candidate files detected")
+    eventNameCount = serializers.IntegerField(help_text="Number of distinct event names found")
+    foundPosthogInit = serializers.BooleanField(help_text="Whether posthog.init() was found in scanned files")
+    foundPosthogCapture = serializers.BooleanField(help_text="Whether posthog.capture() was found in scanned files")
+    foundErrorSignal = serializers.BooleanField(help_text="Whether error tracking signals were found in scanned files")
+
+
+class RepositoryReadinessResponseSerializer(serializers.Serializer):
+    repository = serializers.CharField(help_text="Normalized repository identifier")
+    classification = serializers.CharField(help_text="Repository classification")
+    excluded = serializers.BooleanField(help_text="Whether the repository is excluded from readiness checks")
+    coreSuggestions = CapabilityStateSerializer(help_text="Tracking capability state")
+    replayInsights = CapabilityStateSerializer(help_text="Computer vision capability state")
+    errorInsights = CapabilityStateSerializer(help_text="Error tracking capability state")
+    overall = serializers.CharField(help_text="Overall readiness state")
+    evidenceTaskCount = serializers.IntegerField(help_text="Count of replay-derived evidence tasks")
+    windowDays = serializers.IntegerField(help_text="Lookback window in days")
+    generatedAt = serializers.CharField(help_text="ISO timestamp when the response was generated")
+    cacheAgeSeconds = serializers.IntegerField(help_text="Age of cached response in seconds")
+    scan = ScanEvidenceSerializer(required=False, help_text="Scan evidence details")
+
+
+class ConnectionTokenResponseSerializer(serializers.Serializer):
+    """Response containing a JWT token for direct sandbox connection"""
+
+    token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")
+
+
+class TaskRunCreateRequestSerializer(serializers.Serializer):
+    """Request body for creating a new task run"""
+
+    mode = serializers.ChoiceField(
+        choices=["interactive", "background"],
+        required=False,
+        default="background",
+        help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
+    )
+
+
+class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
+    """Query parameters for filtering task run log events"""
+
+    after = serializers.DateTimeField(
+        required=False,
+        help_text="Only return events after this ISO8601 timestamp",
+    )
+    event_types = serializers.CharField(
+        required=False,
+        help_text="Comma-separated list of event types to include",
+    )
+    exclude_types = serializers.CharField(
+        required=False,
+        help_text="Comma-separated list of event types to exclude",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=1000,
+        min_value=1,
+        max_value=5000,
+        help_text="Maximum number of entries to return (default 1000, max 5000)",
+    )

@@ -56,10 +56,10 @@ from dagster import (
     define_asset_job,
     sensor,
 )
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_fixed
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
-from posthog.clickhouse.cluster import get_cluster
+from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common.common import JobOwners, dagster_tags, settings_with_log_comment
@@ -73,6 +73,35 @@ from posthog.ducklake.models import DuckLakeCatalog
 from posthog.ducklake.storage import configure_cross_account_connection
 
 logger = structlog.get_logger(__name__)
+
+# DuckDB memory limit for Dagster pod operations.
+# The Dagster pod has 16Gi total; we cap DuckDB at 4Gi to leave headroom
+# for Python, Dagster framework, and ClickHouse client overhead.
+DUCKDB_MEMORY_LIMIT = "4GB"
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(5),
+    retry=retry_if_exception_type((TimeoutError, OSError)),
+    reraise=True,
+)
+def _get_cluster() -> ClickhouseCluster:
+    """get_cluster() with retry for transient bootstrap timeouts.
+
+    Retries the cluster discovery query only — does not affect subsequent
+    per-host query execution, avoiding stacked retries with Tenacity
+    export retry decorators.
+    """
+    return get_cluster()
+
+
+def _connect_duckdb() -> duckdb.DuckDBPyConnection:
+    """Create a DuckDB connection with memory limits appropriate for the Dagster pod."""
+    conn = duckdb.connect(config={"memory_limit": DUCKDB_MEMORY_LIMIT})
+    conn.execute("SET temp_directory = '/tmp/duckdb_temp'")
+    return conn
+
 
 # Columns to export from ClickHouse events table for duckling backfill.
 # ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
@@ -313,7 +342,7 @@ def get_earliest_event_date_for_team(team_id: int) -> datetime | None:
     Returns:
         The date of the earliest event, or None if no events exist for this team.
     """
-    cluster = get_cluster()
+    cluster = _get_cluster()
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
     def query_earliest(client: Client) -> datetime | None:
@@ -353,7 +382,7 @@ def get_earliest_person_date_for_team(team_id: int) -> datetime | None:
     Returns:
         The date of the earliest person modification, or None if no persons exist.
     """
-    cluster = get_cluster()
+    cluster = _get_cluster()
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
     def query_earliest(client: Client) -> datetime | None:
@@ -455,16 +484,18 @@ def _set_table_partitioning(
         conn.execute(f"ALTER TABLE {alias}.posthog.{table} SET PARTITIONED BY ({partition_expr})")
         context.log.info(f"Successfully set partitioning on {table} table")
         logger.info(
-            f"duckling_{table}_partitioning_set",
+            "duckling_table_partitioning_set",
             team_id=team_id,
+            table=table,
             partition_expr=partition_expr,
         )
         return True
     except Exception as exc:
         context.log.warning(f"Failed to set partitioning on {table} table: {exc}")
         logger.warning(
-            f"duckling_{table}_partitioning_failed",
+            "duckling_table_partitioning_failed",
             team_id=team_id,
+            table=table,
             partition_expr=partition_expr,
             error=str(exc),
             error_type=type(exc).__name__,
@@ -490,7 +521,7 @@ def ensure_events_table_exists(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -559,7 +590,7 @@ def ensure_persons_table_exists(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -622,7 +653,7 @@ def delete_events_table(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -660,7 +691,7 @@ def delete_persons_table(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -697,7 +728,7 @@ def validate_duckling_schema(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -746,7 +777,7 @@ def validate_duckling_persons_schema(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -827,6 +858,9 @@ def delete_events_partition_data(
     This enables idempotent re-processing of partitions by removing existing data
     before registering new files.
 
+    Includes retry logic for DuckLake transaction conflicts, which can occur when
+    multiple concurrent jobs attempt to modify the same table.
+
     Returns the number of rows deleted.
     """
     destination = catalog.to_cross_account_destination()
@@ -834,37 +868,75 @@ def delete_events_partition_data(
     alias = "ducklake"
     date_str = partition_date.strftime("%Y-%m-%d")
 
-    conn = duckdb.connect()
-    try:
-        configure_cross_account_connection(conn, destinations=[destination])
-        attach_catalog(conn, catalog_config, alias=alias)
+    # Range predicate enables DuckLake partition pruning.
+    # The table is partitioned by year(timestamp), month(timestamp), day(timestamp).
+    # A half-open range [start_of_day, start_of_next_day) allows DuckDB to prune
+    # to a single day's partition instead of scanning all data files.
+    next_date_str = (partition_date + timedelta(days=1)).strftime("%Y-%m-%d")
+    delete_sql = f"""
+    DELETE FROM {alias}.posthog.events
+    WHERE team_id = $1
+      AND timestamp >= $2
+      AND timestamp < $3
+    """
 
-        # Delete existing data for this partition (using parameterized query)
-        delete_sql = f"""
-        DELETE FROM {alias}.posthog.events
-        WHERE team_id = $1
-          AND CAST(timestamp AS DATE) = $2
-        """
-        result = conn.execute(delete_sql, [team_id, date_str]).fetchone()
-        deleted_count = result[0] if result else 0
+    last_exception: Exception | None = None
+    for attempt in range(MAX_RETRY_ATTEMPTS):
+        conn = _connect_duckdb()
+        try:
+            configure_cross_account_connection(conn, destinations=[destination])
+            attach_catalog(conn, catalog_config, alias=alias)
 
-        if deleted_count > 0:
-            context.log.info(f"Deleted {deleted_count} existing events for team_id={team_id}, date={date_str}")
-            logger.info(
-                "duckling_events_partition_deleted",
+            result = conn.execute(delete_sql, [team_id, date_str, next_date_str]).fetchone()
+            deleted_count = result[0] if result else 0
+
+            if deleted_count > 0:
+                context.log.info(f"Deleted {deleted_count} existing events for team_id={team_id}, date={date_str}")
+                logger.info(
+                    "duckling_events_partition_deleted",
+                    team_id=team_id,
+                    date=date_str,
+                    deleted_count=deleted_count,
+                )
+            return deleted_count
+
+        except duckdb.CatalogException:
+            context.log.debug(
+                f"Events table doesn't exist yet, nothing to delete for team_id={team_id}, date={date_str}"
+            )
+            return 0
+
+        except Exception as e:
+            last_exception = e
+            if _is_transaction_conflict(e) and attempt < MAX_RETRY_ATTEMPTS - 1:
+                wait_time = min(4 * (2**attempt), 60)
+                context.log.warning(
+                    f"DuckLake transaction conflict on delete attempt {attempt + 1}, retrying in {wait_time}s..."
+                )
+                logger.warning(
+                    "duckling_events_delete_transaction_conflict",
+                    team_id=team_id,
+                    date=date_str,
+                    attempt=attempt + 1,
+                    wait_time=wait_time,
+                )
+                time.sleep(wait_time)
+                continue
+
+            context.log.exception(f"Failed to delete events for team_id={team_id}, date={date_str}")
+            logger.exception(
+                "duckling_events_delete_failed",
                 team_id=team_id,
                 date=date_str,
-                deleted_count=deleted_count,
             )
-        return deleted_count
+            raise
 
-    except duckdb.CatalogException:
-        # Table doesn't exist yet, nothing to delete
-        context.log.debug(f"Events table doesn't exist yet, nothing to delete for team_id={team_id}, date={date_str}")
-        return 0
+        finally:
+            conn.close()
 
-    finally:
-        conn.close()
+    if last_exception:
+        raise last_exception
+    return 0
 
 
 def delete_persons_partition_data(
@@ -878,58 +950,90 @@ def delete_persons_partition_data(
     For full exports (partition_date=None), deletes all persons for the team.
     For daily exports, deletes persons modified on that date.
 
+    Includes retry logic for DuckLake transaction conflicts, which can occur when
+    multiple concurrent jobs attempt to modify the same table.
+
     Returns the number of rows deleted.
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
+    date_label = partition_date.strftime("%Y-%m-%d") if partition_date else "full"
 
-    conn = duckdb.connect()
-    try:
-        configure_cross_account_connection(conn, destinations=[destination])
-        attach_catalog(conn, catalog_config, alias=alias)
+    if partition_date is None:
+        delete_sql = f"""
+        DELETE FROM {alias}.posthog.persons
+        WHERE team_id = $1
+        """
+        delete_params: list[Any] = [team_id]
+    else:
+        date_str = partition_date.strftime("%Y-%m-%d")
+        next_date_str = (partition_date + timedelta(days=1)).strftime("%Y-%m-%d")
+        delete_sql = f"""
+        DELETE FROM {alias}.posthog.persons
+        WHERE team_id = $1
+          AND _timestamp >= $2
+          AND _timestamp < $3
+        """
+        delete_params = [team_id, date_str, next_date_str]
 
-        if partition_date is None:
-            # Full export - delete all persons for this team (using parameterized query)
-            delete_sql = f"""
-            DELETE FROM {alias}.posthog.persons
-            WHERE team_id = $1
-            """
-            context.log.info(f"Deleting all existing persons for team_id={team_id}")
-            result = conn.execute(delete_sql, [team_id]).fetchone()
-        else:
-            # Daily export - delete persons modified on this date (using parameterized query)
-            date_str = partition_date.strftime("%Y-%m-%d")
-            delete_sql = f"""
-            DELETE FROM {alias}.posthog.persons
-            WHERE team_id = $1
-              AND CAST(_timestamp AS DATE) = $2
-            """
-            result = conn.execute(delete_sql, [team_id, date_str]).fetchone()
-        deleted_count = result[0] if result else 0
+    last_exception: Exception | None = None
+    for attempt in range(MAX_RETRY_ATTEMPTS):
+        conn = _connect_duckdb()
+        try:
+            configure_cross_account_connection(conn, destinations=[destination])
+            attach_catalog(conn, catalog_config, alias=alias)
 
-        if deleted_count > 0:
-            if partition_date:
-                context.log.info(
-                    f"Deleted {deleted_count} existing persons for team_id={team_id}, date={partition_date.strftime('%Y-%m-%d')}"
+            if partition_date is None:
+                context.log.info(f"Deleting all existing persons for team_id={team_id}")
+            result = conn.execute(delete_sql, delete_params).fetchone()
+            deleted_count = result[0] if result else 0
+
+            if deleted_count > 0:
+                context.log.info(f"Deleted {deleted_count} existing persons for team_id={team_id}, date={date_label}")
+                logger.info(
+                    "duckling_persons_partition_deleted",
+                    team_id=team_id,
+                    date=date_label,
+                    deleted_count=deleted_count,
                 )
-            else:
-                context.log.info(f"Deleted {deleted_count} existing persons for team_id={team_id} (full)")
-            logger.info(
-                "duckling_persons_partition_deleted",
+            return deleted_count
+
+        except duckdb.CatalogException:
+            context.log.debug(f"Persons table doesn't exist yet, nothing to delete for team_id={team_id}")
+            return 0
+
+        except Exception as e:
+            last_exception = e
+            if _is_transaction_conflict(e) and attempt < MAX_RETRY_ATTEMPTS - 1:
+                wait_time = min(4 * (2**attempt), 60)
+                context.log.warning(
+                    f"DuckLake transaction conflict on delete attempt {attempt + 1}, retrying in {wait_time}s..."
+                )
+                logger.warning(
+                    "duckling_persons_delete_transaction_conflict",
+                    team_id=team_id,
+                    date=date_label,
+                    attempt=attempt + 1,
+                    wait_time=wait_time,
+                )
+                time.sleep(wait_time)
+                continue
+
+            context.log.exception(f"Failed to delete persons for team_id={team_id}, date={date_label}")
+            logger.exception(
+                "duckling_persons_delete_failed",
                 team_id=team_id,
-                date=partition_date.strftime("%Y-%m-%d") if partition_date else "full",
-                deleted_count=deleted_count,
+                date=date_label,
             )
-        return deleted_count
+            raise
 
-    except duckdb.CatalogException:
-        # Table doesn't exist yet, nothing to delete
-        context.log.debug(f"Persons table doesn't exist yet, nothing to delete for team_id={team_id}")
-        return 0
+        finally:
+            conn.close()
 
-    finally:
-        conn.close()
+    if last_exception:
+        raise last_exception
+    return 0
 
 
 def export_events_to_duckling_s3(
@@ -1044,7 +1148,7 @@ def register_file_with_duckling(
 
     last_exception: Exception | None = None
     for attempt in range(MAX_RETRY_ATTEMPTS):
-        conn = duckdb.connect()
+        conn = _connect_duckdb()
         try:
             configure_cross_account_connection(conn, destinations=[destination])
             attach_catalog(conn, catalog_config, alias=alias)
@@ -1264,7 +1368,7 @@ def register_persons_file_with_duckling(
 
     last_exception: Exception | None = None
     for attempt in range(MAX_RETRY_ATTEMPTS):
-        conn = duckdb.connect()
+        conn = _connect_duckdb()
         try:
             configure_cross_account_connection(conn, destinations=[destination])
             attach_catalog(conn, catalog_config, alias=alias)
@@ -1368,7 +1472,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         merged_settings.update(config.clickhouse_settings)
         context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
 
-    cluster = get_cluster()
+    cluster = _get_cluster()
     tags = dagster_tags(context)
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
@@ -1504,7 +1608,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         merged_settings.update(config.clickhouse_settings)
         context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
 
-    cluster = get_cluster()
+    cluster = _get_cluster()
     tags = dagster_tags(context)
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
@@ -1626,11 +1730,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
 
 @sensor(
-    name="duckling_backfill_discovery_sensor",
+    name="duckling_events_daily_backfill_sensor",
     minimum_interval_seconds=3600,  # Run hourly
     job_name="duckling_events_backfill_job",
 )
-def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> SensorResult:
+def duckling_events_daily_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
     """Discover teams with DuckLakeCatalog entries and create daily backfill partitions.
 
     This sensor runs periodically to:
@@ -1724,6 +1828,9 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
 # Number of monthly partitions to create per sensor tick (to avoid timeout)
 BACKFILL_MONTHS_PER_TICK = 3
 
+# Ignore events before this date — pre-2015 data is typically junk timestamps
+EARLIEST_BACKFILL_DATE = datetime(2015, 1, 1)
+
 
 def get_months_in_range(start_date: date, end_date: date) -> list[str]:
     """Generate list of month strings (YYYY-MM) between start and end dates."""
@@ -1743,12 +1850,12 @@ def get_months_in_range(start_date: date, end_date: date) -> list[str]:
 
 
 @sensor(
-    name="duckling_full_backfill_sensor",
-    minimum_interval_seconds=60,  # Run frequently to process backlog quickly
+    name="duckling_events_full_backfill_sensor",
+    minimum_interval_seconds=600,  # Run every 10 minutes
     job_name="duckling_events_backfill_job",
     default_status=DefaultSensorStatus.RUNNING,
 )
-def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
+def duckling_events_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
     """Full historical backfill sensor - creates MONTHLY partitions for efficiency.
 
     Uses monthly partitions (YYYY-MM) instead of daily to reduce partition count.
@@ -1761,7 +1868,7 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
 
     Manual trigger:
         To restart from scratch, reset the cursor in Dagster UI:
-        Sensors -> duckling_full_backfill_sensor -> Reset cursor
+        Sensors -> duckling_events_full_backfill_sensor -> Reset cursor
     """
     yesterday = (timezone.now() - timedelta(days=1)).date()
 
@@ -1814,6 +1921,7 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
             if earliest_dt is None:
                 context.log.info(f"No events found for team_id={team_id}, skipping")
                 continue
+            earliest_dt = max(earliest_dt, EARLIEST_BACKFILL_DATE)
             earliest_month = earliest_dt.strftime("%Y-%m")
             current_month = earliest_month
 
@@ -1898,14 +2006,14 @@ duckling_events_backfill_job = define_asset_job(
 
 
 @sensor(
-    name="duckling_persons_discovery_sensor",
+    name="duckling_persons_daily_backfill_sensor",
     minimum_interval_seconds=3600,  # Run hourly
     job_name="duckling_persons_backfill_job",
 )
-def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> SensorResult:
+def duckling_persons_daily_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
     """Discover teams with DuckLakeCatalog entries and create daily persons partitions.
 
-    Similar to duckling_backfill_discovery_sensor but for persons data.
+    Similar to duckling_events_daily_backfill_sensor but for persons data.
     Uses _timestamp (Kafka ingestion time) for date filtering.
     """
     yesterday = (timezone.now() - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -1983,7 +2091,7 @@ def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> Senso
 
 @sensor(
     name="duckling_persons_full_backfill_sensor",
-    minimum_interval_seconds=60,  # Run frequently to process backlog quickly
+    minimum_interval_seconds=600,  # Run every 10 minutes
     job_name="duckling_persons_backfill_job",
     default_status=DefaultSensorStatus.RUNNING,
 )

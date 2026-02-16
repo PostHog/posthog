@@ -12,6 +12,7 @@ import dataclasses
 import collections.abc
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 
 import pyarrow as pa
 import deltalake
@@ -21,7 +22,6 @@ import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 import temporalio.exceptions
-from deltalake import DeltaTable
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio.workflow import ParentClosePolicy
@@ -337,9 +337,10 @@ async def handle_model_ready(
 
     try:
         if model.selected is True:
+            job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
+
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
             saved_query = await get_saved_query(team, model.label)
-            job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
 
             await materialize_model(model.label, team, saved_query, job, logger)
             ducklake_model = DuckLakeCopyModelInput(
@@ -356,6 +357,21 @@ async def handle_model_ready(
     except DataModelingCancelledException as err:
         await logger.aexception("Data modeling run was cancelled for model %s", model.label, job_id=job_id)
         await handle_cancelled(job, model, queue, err, "Data modeling run was cancelled for model %s: %s", logger)
+    except ObjectDoesNotExist as err:
+        error_msg = (
+            f"Object not found (team_id={team_id}, model_label={model.label}, job_id={job_id}): {err}. "
+            "This likely indicates an orphaned Temporal schedule that should be cleaned up."
+        )
+        await logger.aerror(
+            error_msg,
+            team_id=team_id,
+            model_label=model.label,
+            job_id=job_id,
+        )
+        capture_exception(err)
+        wrapped = Exception(error_msg)
+        wrapped.__cause__ = err
+        await handle_error(job, model, queue, wrapped, error_msg, logger)
     except Exception as err:
         await logger.aexception(
             "Failed to materialize model %s due to unexpected error: %s", model.label, str(err), job_id=job_id
@@ -440,7 +456,7 @@ async def materialize_model(
     saved_query: DataWarehouseSavedQuery,
     job: DataModelingJob,
     logger: FilteringBoundLogger,
-) -> tuple[str, DeltaTable, uuid.UUID]:
+):
     """Materialize a given model by running its query and piping the results into a delta table.
 
     Arguments:
@@ -543,9 +559,8 @@ async def materialize_model(
 
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
 
-        if delta_table is None:
-            error_message = "Query returned no results. Check that the query returns data before materializing."
-            raise NonRetryableException(f"Query for model {model_label} failed: {error_message}")
+    except ObjectDoesNotExist:
+        raise
     except Exception as e:
         error_message = str(e)
         await logger.aerror(f"Error materializing model {model_label}: {error_message}")
@@ -621,6 +636,16 @@ async def materialize_model(
     if data_modeling_job.status == DataModelingJob.Status.CANCELLED:
         raise DataModelingCancelledException("Data modeling run was cancelled")
 
+    # early exit for no results
+    if delta_table is None:
+        await database_sync_to_async(job.refresh_from_db)()
+        job.rows_materialized = 0
+        job.status = DataModelingJob.Status.COMPLETED
+        job.last_run_at = dt.datetime.now(dt.UTC)
+        job.error = "Warning: query returned no results"  # we log an error to signify that this isn't an ideal result
+        await database_sync_to_async(job.save)()
+        return (saved_query.normalized_name, delta_table, job.id)
+
     await logger.adebug("Compacting delta table")
     delta_table.optimize.compact()
     await logger.adebug("Vacuuming delta table")
@@ -633,7 +658,7 @@ async def materialize_model(
         saved_query_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
 
     await logger.adebug("Copying query files in S3")
-    folder_path = prepare_s3_files_for_querying(
+    folder_path = await prepare_s3_files_for_querying(
         folder_path=saved_query.folder_path,
         table_name=saved_query.normalized_name,
         file_uris=file_uris,
@@ -663,13 +688,12 @@ async def materialize_model(
     await database_sync_to_async(job.save)()
 
     await logger.adebug("Setting DataModelingJob.Status = COMPLETED")
-
     return (saved_query.normalized_name, delta_table, job.id)
 
 
 async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: FilteringBoundLogger) -> None:
     """
-    Mark DataModelingJob as failed
+    Mark DataModelingJob as failed and send notification email if applicable.
     """
 
     await logger.aerror(f"mark_job_as_failed: {error_message}")
@@ -677,6 +701,14 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     job.status = DataModelingJob.Status.FAILED
     job.error = error_message
     await database_sync_to_async(job.save)()
+
+    if job.saved_query_id:
+        try:
+            from posthog.tasks.email import send_saved_query_materialization_failure
+
+            await database_sync_to_async(send_saved_query_materialization_failure)(str(job.saved_query_id))
+        except Exception:
+            await logger.aexception("Failed to send materialization failure notification email")
 
 
 async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
@@ -1477,6 +1509,16 @@ async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
     await mark_job_as_failed(job, inputs.error, logger)
 
 
+def _format_exception_chain(e: BaseException) -> str:
+    """Walk the exception cause chain and return a detailed error string."""
+    parts = [str(e)]
+    cause = e.__cause__
+    while cause is not None:
+        parts.append(f"Caused by {type(cause).__name__}: {cause}")
+        cause = cause.__cause__
+    return "\n".join(parts)
+
+
 @dataclasses.dataclass
 class RunWorkflowInputs:
     """Inputs to `RunWorkflow`.
@@ -1592,11 +1634,12 @@ class RunWorkflow(PostHogWorkflow):
                 raise
 
             capture_exception(e)
-            temporalio.workflow.logger.error(f"Activity failed during model run: {str(e)}")
+            error_detail = _format_exception_chain(e)
+            temporalio.workflow.logger.error(f"Activity failed during model run: {error_detail}")
 
             await temporalio.workflow.execute_activity(
                 fail_jobs_activity,
-                FailJobsActivityInputs(job_id=job_id, error=str(e), team_id=inputs.team_id),
+                FailJobsActivityInputs(job_id=job_id, error=error_detail, team_id=inputs.team_id),
                 start_to_close_timeout=dt.timedelta(minutes=20),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=3,
@@ -1604,9 +1647,10 @@ class RunWorkflow(PostHogWorkflow):
             )
             raise
         except Exception as e:
+            error_detail = _format_exception_chain(e)
             await temporalio.workflow.execute_activity(
                 fail_jobs_activity,
-                FailJobsActivityInputs(job_id=job_id, error=str(e), team_id=inputs.team_id),
+                FailJobsActivityInputs(job_id=job_id, error=error_detail, team_id=inputs.team_id),
                 start_to_close_timeout=dt.timedelta(minutes=20),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=3,

@@ -111,7 +111,7 @@ export interface ClusterMetrics {
     avgLatency: number | null // Average latency in seconds
     avgTokens: number | null // Average total tokens (input + output)
     totalCost: number | null // Total cost across all items
-    errorRate: number | null // Proportion of items with errors (0-1)
-    errorCount: number // Number of items with errors
+    errorRate: number | null // Proportion of items with at least one error (0-1)
+    errorCount: number // Number of items with at least one error
     itemCount: number // Number of items with metrics data
 }

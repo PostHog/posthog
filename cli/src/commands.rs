@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use tracing::error;
 
 use crate::{
+    dsym::DsymSubcommand,
     error::CapturedError,
     experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
     invocation_context::{context, init_context},
@@ -34,7 +35,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Interactively authenticate with PostHog, storing a personal API token locally. You can also use the
-    /// environment variables `POSTHOG_CLI_TOKEN` and `POSTHOG_CLI_ENV_ID`
+    /// environment variables `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID`
     Login,
 
     /// Experimental commands, not quite ready for prime time
@@ -86,6 +87,13 @@ pub enum ExpCommand {
         #[command(subcommand)]
         cmd: ProguardSubcommand,
     },
+
+    #[command(about = "Upload iOS/macOS dSYM files to PostHog")]
+    Dsym {
+        #[command(subcommand)]
+        cmd: DsymSubcommand,
+    },
+
     /// Download event definitions and generate typed SDK
     Schema {
         #[command(subcommand)]
@@ -181,6 +189,11 @@ impl Cli {
                 ExpCommand::Proguard { cmd } => match cmd {
                     ProguardSubcommand::Upload(args) => {
                         crate::proguard::upload::upload(&args)?;
+                    }
+                },
+                ExpCommand::Dsym { cmd } => match cmd {
+                    DsymSubcommand::Upload(args) => {
+                        crate::dsym::upload::upload(&args)?;
                     }
                 },
                 ExpCommand::Schema { cmd } => match cmd {

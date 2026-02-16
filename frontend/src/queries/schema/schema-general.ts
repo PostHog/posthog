@@ -13,6 +13,7 @@ import {
     CalendarHeatmapMathType,
     ChartDisplayCategory,
     ChartDisplayType,
+    CohortPropertyFilter,
     CountPerActorMathType,
     DataWarehouseSyncInterval,
     DataWarehouseViewLink,
@@ -1472,6 +1473,8 @@ export type FunnelsFilter = {
     resultCustomizations?: Record<string, ResultCustomizationByValue>
     /** Goal Lines */
     goalLines?: GoalLine[]
+    /** Display linear regression trend lines on the chart (only for historical trends viz) */
+    showTrendLines?: boolean
     /** @default false */
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
@@ -1525,6 +1528,11 @@ export type RetentionFilter = {
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
     /** @description Custom brackets for retention calculations */
     retentionCustomBrackets?: number[]
+    /** @description The aggregation type to use for retention
+     * @default count */
+    aggregationType?: 'count' | 'sum' | 'avg'
+    /** @description The property to aggregate when aggregationType is sum or avg */
+    aggregationProperty?: string
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -1747,25 +1755,33 @@ export interface EndpointRunRequest {
     /** @default 'cache' */
     refresh?: EndpointRefreshMode
     /**
-     * A map for overriding insight query filters.
+     * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
      *
-     * Tip: Use to get data for a specific customer or user.
-     */
-    filters_override?: DashboardFilter
-    /**
-     * A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value.
-     * Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date})
-     * For example: {"from_date": "1970-01-01"}
+     * For HogQL endpoints:
+     *   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).
+     *   Example: `{"event_name": "$pageview"}`
+     *
+     * For non-materialized insight endpoints (e.g. TrendsQuery):
+     *   - `date_from` and `date_to` are built-in variables that filter the date range.
+     *     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+     *
+     * For materialized insight endpoints:
+     *   - Use the breakdown property name as the key to filter by breakdown value.
+     *     Example: `{"$browser": "Chrome"}`
+     *   - `date_from`/`date_to` are not supported on materialized insight endpoints.
+     *
+     * Unknown variable names will return a 400 error.
      */
     variables?: Record<string, any>
     /**
-     * Map of Insight query keys to be overridden at execution time.
-     * For example:
-     *   Assuming query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]}
-     *   If query_override = {"series": [{"kind": "EventsNode","name": "$identify","event": "$identify","math": "total"}]}
-     *   The query executed will return the count of $identify events, instead of $pageview's
+     * @deprecated Use `variables` instead. Will be removed in a future release.
+     *
+     * Override dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).
+     * Not allowed for HogQL endpoints.
+     *
+     * For date filtering, use variables: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
      */
-    query_override?: Record<string, any>
+    filters_override?: DashboardFilter
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: integer
     /**
@@ -2037,7 +2053,11 @@ export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryRes
     /** Only fetch sessions that started before this timestamp (default: '+5s') */
     before?: string
 }
-export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
+export type WebAnalyticsPropertyFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | SessionPropertyFilter
+    | CohortPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 export type ActionConversionGoal = {
     actionId: integer
@@ -2864,6 +2884,7 @@ export type FileSystemIconType =
     | 'workflows'
     | 'notebook'
     | 'action'
+    | 'activity'
     | 'comment'
     | 'annotation'
     | 'event'
@@ -2893,12 +2914,14 @@ export type FileSystemIconType =
     | 'toolbar'
     | 'settings'
     | 'health'
+    | 'inbox'
     | 'sdk_doctor'
     | 'pipeline_status'
     | 'llm_evaluations'
     | 'llm_datasets'
     | 'llm_prompts'
     | 'llm_clusters'
+    | 'exports'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -3954,6 +3977,9 @@ export type AIEventType =
     | '$ai_feedback'
     | '$ai_evaluation'
     | '$ai_trace_summary'
+    | '$ai_generation_summary'
+    | '$ai_trace_clusters'
+    | '$ai_generation_clusters'
 
 export interface LLMTraceEvent {
     id: string
@@ -3966,7 +3992,7 @@ export interface LLMTraceEvent {
 export interface LLMTracePerson {
     uuid: string
     created_at: string
-    properties: Record<string, any>
+    properties: Record<string, unknown>
     distinct_id: string
 }
 
@@ -3974,7 +4000,8 @@ export interface LLMTrace {
     id: string
     aiSessionId?: string
     createdAt: string
-    person: LLMTracePerson
+    distinctId: string
+    person?: LLMTracePerson
     totalLatency?: number
     inputTokens?: number
     outputTokens?: number
@@ -4704,6 +4731,7 @@ export interface SourceFieldInputConfig {
     label: string
     required: boolean
     placeholder: string
+    caption?: string
 }
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
@@ -5343,6 +5371,8 @@ export enum ProductIntentContext {
     MARKETING_ANALYTICS_SETTINGS_UPDATED = 'marketing_analytics_settings_updated',
     MARKETING_ANALYTICS_DASHBOARD_INTERACTION = 'marketing_analytics_dashboard_interaction',
     MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED = 'marketing_analytics_ads_integration_visited',
+    MARKETING_ANALYTICS_DATA_SOURCE_CONNECTED = 'marketing_analytics_data_source_connected',
+    MARKETING_ANALYTICS_ONBOARDING_COMPLETED = 'marketing_analytics_onboarding_completed',
 
     // Customer Analytics
     CUSTOMER_ANALYTICS_DASHBOARD_BUSINESS_MODE_CHANGED = 'customer_analytics_dashboard_business_mode_changed',
@@ -5364,6 +5394,8 @@ export enum ProductIntentContext {
     // Data Pipelines
     DATA_PIPELINE_CREATED = 'data_pipeline_created',
     BATCH_EXPORT_CREATED = 'batch_export_created',
+    BATCH_EXPORT_UPDATED = 'batch_export_updated',
+    BATCH_EXPORT_BACKFILL_CREATED = 'batch_export_backfill_created',
 
     // Notebooks
     NOTEBOOK_CREATED = 'notebook_created',
@@ -5408,4 +5440,8 @@ export interface ReplayInactivityPeriod {
     active: boolean
     recording_ts_from_s?: number
     recording_ts_to_s?: number
+}
+
+export enum DomainConnectProviderName {
+    Cloudflare = 'Cloudflare',
 }

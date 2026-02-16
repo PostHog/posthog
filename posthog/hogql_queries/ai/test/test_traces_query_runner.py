@@ -17,7 +17,7 @@ from posthog.schema import (
     TracesQuery,
 )
 
-from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
 
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.models import PropertyDefinition, Team
@@ -280,7 +280,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 "totalCost": 12.0,
             },
         )
-        self.assertEqual(trace.person.distinct_id, "person1")
+        self.assertIsNone(trace.person)
+        self.assertEqual(trace.distinctId, "person1")
         # Since these generation events don't have parent_id = trace_id, they are not root-level
         self.assertEqual(len(trace.events), 0)
 
@@ -298,7 +299,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 "totalCost": 6,
             },
         )
-        self.assertEqual(trace.person.distinct_id, "person2")
+        self.assertIsNone(trace.person)
+        self.assertEqual(trace.distinctId, "person2")
         # List view only returns summary events (metrics, feedback, and root-level events)
         # Since these generation events don't have parent_id = trace_id, they are not root-level
         self.assertEqual(len(trace.events), 0)
@@ -375,7 +377,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
     @freeze_time("2025-01-01T00:00:00Z")
-    def test_person_properties(self):
+    def test_distinct_id_returned(self):
         _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "test@posthog.com"})
         _create_ai_generation_event(
             distinct_id="person1",
@@ -384,9 +386,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         )
         response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].person.created_at, "2025-01-01T00:00:00+00:00")
-        self.assertEqual(response.results[0].person.properties, {"email": "test@posthog.com"})
-        self.assertEqual(response.results[0].person.distinct_id, "person1")
+        self.assertIsNone(response.results[0].person)
+        self.assertEqual(response.results[0].distinctId, "person1")
 
     @freeze_time("2025-01-16T00:00:00Z")
     def test_date_range(self):
@@ -1442,12 +1443,12 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(person1.uuid))).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
-        self.assertEqual(response.results[0].person.uuid, str(person1.uuid))
+        self.assertEqual(response.results[0].distinctId, "user1")
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(person2.uuid))).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace2")
-        self.assertEqual(response.results[0].person.uuid, str(person2.uuid))
+        self.assertEqual(response.results[0].distinctId, "user2")
 
         response = TracesQueryRunner(team=self.team, query=TracesQuery(personId=str(uuid.uuid4()))).calculate()
         self.assertEqual(len(response.results), 0)
@@ -1586,13 +1587,13 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(runner.paginator.limit, MAX_SELECT_TRACES_LIMIT_EXPORT)
 
     def test_query_limit_uses_default_when_no_limit_specified(self):
-        """Test that query context uses default (100) when no limit is specified."""
+        """Test that query context uses default when no limit is specified."""
         runner = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(),
             limit_context=LimitContext.QUERY,
         )
-        self.assertEqual(runner.paginator.limit, 100)
+        self.assertEqual(runner.paginator.limit, DEFAULT_RETURNED_ROWS)
 
     def test_query_limit_respects_explicit_limit(self):
         """Test that query context respects explicit limits."""

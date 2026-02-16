@@ -10,6 +10,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -19,7 +20,7 @@ from posthog.schema import AttributionMode, HogQLQueryModifiers
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action, raise_if_user_provided_url_unsafe
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
@@ -1051,11 +1052,16 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         # If the request only contains config fields, require read:team scope
         # Otherwise, require write:team scope (handled by APIScopePermission)
+        # NOTE: This downgrade only applies to session-based auth (browser users).
+        # All other auth methods (API keys, OAuth tokens, etc.) must have project:write
+        # to modify any fields, preserving the semantic meaning of read-only API keys.
         if self.action == "partial_update":
-            request_fields = set(request.data.keys())
-            non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
-            if not non_team_config_fields:
-                return ["project:read"]
+            is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+            if is_session_auth:
+                request_fields = set(request.data.keys())
+                non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
+                if not non_team_config_fields:
+                    return ["project:read"]
 
         # Fall back to the default behavior
         return None
@@ -1450,6 +1456,23 @@ class RootTeamViewSet(TeamViewSet):
     # NOTE: We don't want people creating environments via the "current_organization"/"current_project" concept, but
     # rather specify the org ID and project ID in the URL - hence this is hidden from the API docs, but used in the app
     hide_api_docs = True
+
+
+@extend_schema_view(
+    list=extend_schema(deprecated=True),
+    retrieve=extend_schema(deprecated=True),
+    create=extend_schema(deprecated=True),
+    update=extend_schema(deprecated=True),
+    partial_update=extend_schema(deprecated=True),
+    destroy=extend_schema(deprecated=True),
+)
+class ProjectEnvironmentsViewSet(TeamViewSet):
+    """Deprecated: use /api/environments/{id}/ instead."""
+
+    def initial(self, request: request.Request, *args, **kwargs) -> None:
+        raise exceptions.PermissionDenied(
+            "Multiple environments per project are no longer available. Please contact support if you need assistance."
+        )
 
 
 def handle_conversations_token_on_update(

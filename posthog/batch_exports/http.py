@@ -238,6 +238,15 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         model = BatchExportDestination
         fields = ["type", "config", "integration", "integration_id"]
 
+    def get_fields(self):
+        fields = super().get_fields()
+        team_id = self.context.get("team_id")
+        if team_id:
+            fields["integration_id"].queryset = Integration.objects.filter(team_id=team_id)  # type: ignore[attr-defined]
+        else:
+            fields["integration_id"].queryset = Integration.objects.none()  # type: ignore[attr-defined]
+        return fields
+
     def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
         """Create a BatchExportDestination."""
         export_destination = BatchExportDestination.objects.create(**validated_data)
@@ -1135,6 +1144,23 @@ def create_backfill(
     Returns:
         The backfill workflow ID
     """
+    # Currently, backfills from the beginning of time usually fail due to us hitting ClickHouse memory limits.
+    # Therefore, this feature is behind a feature flag while we improve backfilling behavior.
+    if start_at_input is None:
+        if not posthoganalytics.feature_enabled(
+            "batch-export-earliest-backfill",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        ):
+            raise ValidationError("Backfilling from the beginning of time is not enabled for this team.")
+
     temporal = sync_connect()
 
     if start_at_input is not None:

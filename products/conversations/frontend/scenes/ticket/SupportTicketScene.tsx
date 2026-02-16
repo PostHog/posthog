@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -8,6 +7,7 @@ import { LemonButton, LemonCard, LemonSelect, Link, Spinner } from '@posthog/lem
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -47,14 +47,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         hasMoreMessages,
         olderMessagesLoading,
         eventsQuery,
-        personLoading,
         previousTickets,
         previousTicketsLoading,
         exceptionsQuery,
         chatPanelWidth,
+        hasUnsavedChanges,
     } = useValues(logic)
     const { setStatus, setPriority, setAssignee, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
-    const { push } = useActions(router)
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -123,6 +122,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onSendMessage={sendMessage}
                         onLoadOlderMessages={loadOlderMessages}
                         showPrivateOption
+                        unreadCustomerCount={ticket?.unread_customer_count}
+                        showDeliveryStatus={ticket?.channel_source === 'widget'}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} />
@@ -138,14 +139,36 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <div className="flex items-center justify-between mb-3">
                                     <h3 className="text-sm font-semibold">Customer</h3>
                                     <LemonButton
-                                        size="xsmall"
+                                        size="small"
                                         type="secondary"
-                                        onClick={() => push(urls.personByDistinctId(ticket.distinct_id))}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            newInternalTab(urls.personByDistinctId(ticket.distinct_id))
+                                        }}
                                     >
                                         View person
                                     </LemonButton>
                                 </div>
-                                <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
+                                <PersonDisplay
+                                    person={
+                                        ticket.person
+                                            ? {
+                                                  id: ticket.person.id,
+                                                  distinct_id: ticket.distinct_id,
+                                                  distinct_ids: ticket.person.distinct_ids,
+                                                  // Merge anonymous_traits as fallback for missing person properties
+                                                  properties: {
+                                                      ...ticket.anonymous_traits,
+                                                      ...ticket.person.properties,
+                                                  },
+                                              }
+                                            : {
+                                                  distinct_id: ticket.distinct_id,
+                                                  properties: ticket.anonymous_traits || {},
+                                              }
+                                    }
+                                    withIcon
+                                />
                                 <div className="my-3 border-t" />
                             </>
                         )}
@@ -193,7 +216,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Status</span>
                                 <LemonSelect
-                                    size="xsmall"
+                                    size="small"
                                     value={status}
                                     options={statusOptionsWithoutAll}
                                     onChange={(value: TicketStatus | null) => value && setStatus(value)}
@@ -203,7 +226,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Priority</span>
                                 <LemonSelect
-                                    size="xsmall"
+                                    size="small"
                                     value={priority}
                                     options={priorityOptions}
                                     onChange={(value: TicketPriority | null) => value && setPriority(value)}
@@ -215,7 +238,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <AssigneeSelect assignee={assignee} onChange={setAssignee}>
                                     {(resolvedAssignee, isOpen) => (
                                         <LemonButton
-                                            size="xsmall"
+                                            size="small"
                                             type="secondary"
                                             active={isOpen}
                                             sideIcon={<IconChevronDown />}
@@ -230,7 +253,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </div>
                         </div>
                         <div className="mt-3 pt-3 border-t flex justify-end">
-                            <LemonButton type="primary" size="small" onClick={() => updateTicket()}>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => updateTicket()}
+                                disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
+                            >
                                 Save changes
                             </LemonButton>
                         </div>
@@ -242,7 +270,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     {/* Recent Events Panel */}
                     <RecentEventsPanel
                         eventsQuery={eventsQuery}
-                        personLoading={personLoading}
                         distinctId={ticket?.distinct_id}
                         sessionId={ticket?.session_id}
                     />

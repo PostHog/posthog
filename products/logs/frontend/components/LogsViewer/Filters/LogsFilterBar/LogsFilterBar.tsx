@@ -29,9 +29,9 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 
-import { logsSceneLogic } from '../../../../logsSceneLogic'
 import { DateRangeFilter } from '../DateRangeFilter'
 import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
 import { LogsDateRangePicker } from '../LogsDateRangePicker/LogsDateRangePicker'
@@ -47,8 +47,12 @@ const taxonomicGroupTypes = [
 
 export const LogsFilterBar = (): JSX.Element => {
     const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
-    const { logsLoading, liveTailRunning, liveTailDisabledReason, dateRange } = useValues(logsSceneLogic)
-    const { runQuery, zoomDateRange, setLiveTailRunning, setDateRange } = useActions(logsSceneLogic)
+    const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
+    const { runQuery, setLiveTailRunning } = useActions(logsViewerDataLogic)
+    const { zoomDateRange } = useActions(logsViewerFiltersLogic)
+    const { filters } = useValues(logsViewerFiltersLogic)
+    const { setDateRange } = useActions(logsViewerFiltersLogic)
+    const { dateRange } = filters
 
     return (
         <LogsFilterGroup>
@@ -120,26 +124,24 @@ export const LogsFilterBar = (): JSX.Element => {
 }
 
 const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { filterGroup, tabId, utcDateRange, serviceNames, filterGroup: logsFilterGroup } = useValues(logsSceneLogic)
-    const { setFilterGroup } = useActions(logsSceneLogic)
-    const { setFilter } = useActions(logsViewerConfigLogic)
+    const { filters, id, utcDateRange } = useValues(logsViewerFiltersLogic)
+    const { filterGroup, serviceNames } = filters
+    const { setFilterGroup } = useActions(logsViewerFiltersLogic)
 
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-        filterGroup: logsFilterGroup,
-        serviceNames: serviceNames,
+        filterGroup,
+        serviceNames,
     }
 
     return (
         <UniversalFilters
-            rootKey={`${taxonomicFilterLogicKey}-${tabId}`}
+            rootKey={`${taxonomicFilterLogicKey}-${id}`}
             group={filterGroup.values[0] as UniversalFiltersGroup}
             taxonomicGroupTypes={taxonomicGroupTypes}
             endpointFilters={endpointFilters}
             onChange={(group) => {
-                const newFilterGroup = { type: FilterLogicalOperator.And, values: [group] }
-                setFilterGroup(newFilterGroup)
-                setFilter('filterGroup', newFilterGroup)
+                setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })
             }}
         >
             {children}
@@ -149,7 +151,7 @@ const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Eleme
 
 const LogsFilterSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
-    const { utcDateRange, serviceNames, filterGroup: logsFilterGroup } = useValues(logsSceneLogic)
+    const { utcDateRange, filters: logsFilters } = useValues(logsViewerFiltersLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 
@@ -166,8 +168,8 @@ const LogsFilterSearch = (): JSX.Element => {
         taxonomicGroupTypes,
         endpointFilters: {
             dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-            filterGroup: logsFilterGroup,
-            serviceNames: serviceNames,
+            filterGroup: logsFilters.filterGroup,
+            serviceNames: logsFilters.serviceNames,
         },
         onChange: (taxonomicGroup, value, item, originalQuery) => {
             if (item.value === undefined) {

@@ -32,6 +32,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Destinations]: () => import('./data-pipelines/DestinationsScene'),
     [Scene.DebugHog]: () => import('./debug/hog/HogRepl'),
     [Scene.DebugQuery]: () => import('./debug/DebugScene'),
+    [Scene.SignalsDebug]: () => import('./debug/SignalsDebug'),
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
@@ -49,6 +50,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.GroupsNew]: () => import('./groups/GroupsNew'),
     [Scene.Groups]: () => import('./groups/Groups'),
     [Scene.Heatmaps]: () => import('./heatmaps/scenes/heatmaps/HeatmapsScene'),
+    [Scene.Inbox]: () => import('./inbox/InboxScene'),
     [Scene.HeatmapNew]: () => import('./heatmaps/scenes/heatmap/HeatmapNewScene'),
     [Scene.HeatmapRecording]: () => import('./heatmaps/scenes/heatmap/HeatmapRecordingScene'),
     [Scene.Heatmap]: () => import('./heatmaps/scenes/heatmap/HeatmapScene'),
@@ -98,6 +100,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Health]: () => import('./health/HealthScene'),
     [Scene.PipelineStatus]: () => import('./health/pipelineStatus/PipelineStatusScene'),
     [Scene.SdkDoctor]: () => import('./onboarding/sdks/SdkDoctorScene'),
+    [Scene.Exports]: () => import('./exports/ExportsScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),

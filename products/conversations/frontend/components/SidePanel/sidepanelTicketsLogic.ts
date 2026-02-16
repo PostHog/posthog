@@ -15,9 +15,9 @@ const POLL_INTERVAL = 60 * 1000 // 60 seconds
 
 export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     path(['products', 'conversations', 'frontend', 'components', 'SidePanel', 'sidepanelTicketsLogic']),
-    connect({
+    connect(() => ({
         values: [sidePanelStateLogic, ['sidePanelOpen'], featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         loadTickets: true,
         startPolling: true,

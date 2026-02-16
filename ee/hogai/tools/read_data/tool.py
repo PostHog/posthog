@@ -21,18 +21,23 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
+from ee.hogai.context.activity_log.context import ActivityLogContext
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
+from ee.hogai.context.experiment import ExperimentContext
+from ee.hogai.context.feature_flag import FeatureFlagContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.survey import SurveyContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.tools.read_data.prompts import (
+    ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT,
     BILLING_INSUFFICIENT_ACCESS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
     INSIGHT_NOT_FOUND_PROMPT,
+    READ_DATA_ACTIVITY_LOG_PROMPT,
     READ_DATA_BILLING_PROMPT,
     READ_DATA_PROMPT,
     READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
@@ -105,6 +110,55 @@ class ReadSurvey(BaseModel):
     survey_id: str = Field(description="The UUID of the survey.")
 
 
+class ReadFeatureFlag(BaseModel):
+    """Retrieves a feature flag by its numeric ID or key (slug)."""
+
+    kind: Literal["feature_flag"] = "feature_flag"
+    id: int | None = Field(default=None, description="The numeric ID of the feature flag.")
+    key: str | None = Field(default=None, description="The key (slug) of the feature flag.")
+
+
+class ReadExperiment(BaseModel):
+    """Retrieves an experiment by its numeric ID or by its feature flag's key."""
+
+    kind: Literal["experiment"] = "experiment"
+    id: int | None = Field(default=None, description="The numeric ID of the experiment.")
+    feature_flag_key: str | None = Field(default=None, description="The key of the experiment's feature flag.")
+
+
+class ReadActivityLog(BaseModel):
+    """Retrieves recent activity log entries showing who changed what and when in this project."""
+
+    kind: Literal["activity_log"] = "activity_log"
+    scope: str | None = Field(
+        default=None,
+        description=(
+            "Filter by resource scope. Available scopes: "
+            "Action, AlertConfiguration, Annotation, BatchExport, BatchImport, Cohort, Comment, "
+            "Dashboard, DataManagement, EarlyAccessFeature, EventDefinition, Experiment, "
+            "ExternalDataSchema, ExternalDataSource, FeatureFlag, HogFlow, HogFunction, "
+            "Insight, Notebook, Organization, OrganizationDomain, OrganizationMembership, "
+            "Person, PersonalAPIKey, Plugin, PluginConfig, Project, PropertyDefinition, "
+            "Replay, SessionRecordingPlaylist, Survey, Tag, TaggedItem, Team, User, "
+            "WebAnalyticsFilterPreset."
+        ),
+    )
+    activity: str | None = Field(
+        default=None,
+        description="Filter by activity type (e.g. 'created', 'updated', 'deleted').",
+    )
+    item_id: str | None = Field(default=None, description="Filter by item ID.")
+    user_email: str | None = Field(default=None, description="Filter by user email.")
+    after: str | None = Field(
+        default=None, description="Only entries created after this ISO 8601 datetime (e.g. '2025-01-15T00:00:00Z')."
+    )
+    before: str | None = Field(
+        default=None, description="Only entries created before this ISO 8601 datetime (e.g. '2025-02-01T00:00:00Z')."
+    )
+    limit: int = Field(default=20, ge=1, le=50, description="Number of entries to return.")
+    offset: int = Field(default=0, ge=0, description="Number of entries to skip for pagination.")
+
+
 ReadDataQuery = (
     ReadDataWarehouseSchema
     | ReadDataWarehouseTableSchema
@@ -114,6 +168,9 @@ ReadDataQuery = (
     | ReadErrorTrackingIssue
     | ReadArtifact
     | ReadSurvey
+    | ReadFeatureFlag
+    | ReadExperiment
+    | ReadActivityLog
 )
 
 
@@ -157,6 +214,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             prompt_vars["billing_prompt"] = READ_DATA_BILLING_PROMPT
             kinds.append(ReadBillingInfo)
 
+        has_audit_logs_access = await context_manager.check_has_audit_logs_access()
+
+        if has_audit_logs_access:
+            prompt_vars["activity_log_prompt"] = READ_DATA_ACTIVITY_LOG_PROMPT
+            kinds.append(ReadActivityLog)
+
         base_kinds: tuple[type[BaseModel], ...] = (
             ReadDataWarehouseSchema,
             ReadDataWarehouseTableSchema,
@@ -165,6 +228,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             ReadErrorTrackingIssue,
             ReadArtifact,
             ReadSurvey,
+            ReadFeatureFlag,
+            ReadExperiment,
         )
         ReadDataKind = Union[tuple(base_kinds + tuple(kinds))]  # type: ignore[valid-type]
 
@@ -220,6 +285,23 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_error_tracking_issue(schema.issue_id), None
             case ReadSurvey() as schema:
                 return await self._read_survey(schema.survey_id), None
+            case ReadFeatureFlag() as schema:
+                return await self._read_feature_flag(schema.id, schema.key), None
+            case ReadExperiment() as schema:
+                return await self._read_experiment(schema.id, schema.feature_flag_key), None
+            case ReadActivityLog() as schema:
+                if not await self._context_manager.check_has_audit_logs_access():
+                    raise MaxToolFatalError(ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT)
+                return await self._read_activity_log(
+                    schema.scope,
+                    schema.activity,
+                    schema.item_id,
+                    schema.user_email,
+                    schema.after,
+                    schema.before,
+                    schema.limit,
+                    schema.offset,
+                ), None
 
     async def _read_insight(
         self, artifact_or_insight_id: str, execute: bool
@@ -229,6 +311,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         if result is None:
             raise MaxToolRetryableError(INSIGHT_NOT_FOUND_PROMPT.format(short_id=artifact_or_insight_id))
+
+        if isinstance(result, ModelArtifactResult):
+            await self.check_object_access(result.model, "viewer", action="read")
 
         insight_name = result.content.name or f"Insight {artifact_or_insight_id}"
 
@@ -290,6 +375,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         warehouse_tables = database.get_warehouse_table_names()
         views = database.get_view_names()
+        system_tables = database.get_system_table_names()
 
         listify = lambda items: "\n".join(f"- {item}" for item in sorted(items))
 
@@ -298,6 +384,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             template_format="mustache",
             posthog_tables="\n".join(system_table_lines),
             data_warehouse_tables=listify(warehouse_tables),
+            system_tables=listify(system_tables),
             data_warehouse_views=listify(views),
         )
 
@@ -306,6 +393,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         # Load tables on demand: warehouse first, then views, then posthog tables
         table_sources: list[Callable[[], list[str]]] = [
             database.get_warehouse_table_names,
+            database.get_system_table_names,
             database.get_view_names,
             database.get_posthog_table_names,
         ]
@@ -344,6 +432,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             )
         except (Dashboard.DoesNotExist, ValueError):
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
+
+        await self.check_object_access(dashboard, "viewer", action="read")
 
         dashboard_name = dashboard.name or f"Dashboard {dashboard_id}"
         tiles = [
@@ -418,7 +508,11 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             team=self._team,
             survey_id=survey_id,
         )
-        return await context.execute_and_format()
+        survey = await context.aget_survey()
+        if survey is None:
+            raise MaxToolRetryableError(f"Survey with id={survey_id} not found.")
+        await self.check_object_access(survey, "viewer", resource="survey", action="read")
+        return await context.execute_and_format(survey)
 
     async def _read_artifact(self, artifact_id: str) -> str:
         try:
@@ -447,3 +541,60 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return "\n\n".join(lines)
 
         raise MaxToolFatalError(f"Unknown artifact type: {type(content).__name__}")
+
+    async def _read_feature_flag(self, flag_id: int | None, flag_key: str | None) -> str:
+        if flag_id is None and flag_key is None:
+            raise MaxToolRetryableError("You must provide either 'id' or 'key' to read a feature flag.")
+
+        context = FeatureFlagContext(
+            team=self._team,
+            flag_id=flag_id,
+            flag_key=flag_key,
+        )
+
+        flag = await context.aget_feature_flag()
+        if flag is None:
+            raise MaxToolRetryableError(context.get_not_found_message())
+
+        await self.check_object_access(flag, "viewer", resource="feature flag", action="read")
+        return await context.format_feature_flag(flag)
+
+    async def _read_experiment(self, experiment_id: int | None, feature_flag_key: str | None) -> str:
+        if experiment_id is None and feature_flag_key is None:
+            raise MaxToolRetryableError("You must provide either 'id' or 'feature_flag_key' to read an experiment.")
+
+        context = ExperimentContext(
+            team=self._team,
+            experiment_id=experiment_id,
+            feature_flag_key=feature_flag_key,
+        )
+
+        experiment = await context.aget_experiment()
+        if experiment is None:
+            raise MaxToolRetryableError(context.get_not_found_message())
+
+        await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
+        return await context.format_experiment(experiment)
+
+    async def _read_activity_log(
+        self,
+        scope: str | None,
+        activity: str | None,
+        item_id: str | None,
+        user_email: str | None,
+        after: str | None,
+        before: str | None,
+        limit: int,
+        offset: int,
+    ) -> str:
+        context = ActivityLogContext(team=self._team, user=self._user)
+        return await context.fetch_and_format(
+            scope=scope,
+            activity=activity,
+            item_id=item_id,
+            user_email=user_email,
+            after=after,
+            before=before,
+            limit=limit,
+            offset=offset,
+        )
