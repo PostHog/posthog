@@ -5,7 +5,7 @@ import time
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Literal, LiteralString, Optional, cast
 
 import psycopg
@@ -33,7 +33,7 @@ from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 # Sources created after this date must use SSL/TLS connections
-SSL_REQUIRED_AFTER_DATE = datetime(2025, 1, 27, tzinfo=UTC)
+SSL_REQUIRED_AFTER_DATE = datetime(2025, 2, 16, tzinfo=UTC)
 
 
 class SSLRequiredError(Exception):
