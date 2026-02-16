@@ -1108,17 +1108,17 @@ environments_router.register(
     ["team_id"],
 )
 
-environments_router.register(
+projects_router.register(
     r"visual_review/repos",
     VisualReviewRepoViewSet,
-    "environment_visual_review_repos",
-    ["team_id"],
+    "project_visual_review_repos",
+    ["project_id"],
 )
-environments_router.register(
+projects_router.register(
     r"visual_review/runs",
     VisualReviewRunViewSet,
-    "environment_visual_review_runs",
-    ["team_id"],
+    "project_visual_review_runs",
+    ["project_id"],
 )
 
 environments_router.register(
