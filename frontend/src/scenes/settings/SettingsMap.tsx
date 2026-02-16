@@ -286,7 +286,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
                 platformSupport: FEATURE_SUPPORT.webVitals,
                 component: <WebVitalsAutocaptureSettings />,
-                keywords: ['lcp', 'cls', 'fid', 'inp', 'fcp', 'performance', 'core web vitals'],
+                keywords: ['lcp', 'cls', 'inp', 'fcp', 'performance', 'core web vitals'],
             },
             {
                 id: 'dead-clicks-autocapture',
