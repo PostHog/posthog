@@ -184,6 +184,9 @@ function createDefaultBannerContent(): ProductTourContent {
                     action: {
                         type: 'none',
                     },
+                    animation: {
+                        duration: 300,
+                    },
                 },
             },
         ],
