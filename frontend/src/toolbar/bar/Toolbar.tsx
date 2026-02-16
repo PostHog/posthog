@@ -12,6 +12,7 @@ import {
     IconCursorClick,
     IconDay,
     IconEye,
+    IconFlask,
     IconHide,
     IconLive,
     IconNight,
@@ -20,7 +21,6 @@ import {
     IconSearch,
     IconSpotlight,
     IconStethoscope,
-    IconTestTube,
     IconToggle,
     IconWarning,
     IconX,
@@ -463,7 +463,7 @@ export function Toolbar(): JSX.Element | null {
                         </ToolbarButton>
                         {showExperiments && (
                             <ToolbarButton menuId="experiments" title="Experiments">
-                                <IconTestTube />
+                                <IconFlask />
                             </ToolbarButton>
                         )}
                         {showProductTours && (

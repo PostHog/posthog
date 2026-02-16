@@ -22,7 +22,6 @@ import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 import temporalio.exceptions
-from deltalake import DeltaTable
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio.workflow import ParentClosePolicy
@@ -457,7 +456,7 @@ async def materialize_model(
     saved_query: DataWarehouseSavedQuery,
     job: DataModelingJob,
     logger: FilteringBoundLogger,
-) -> tuple[str, DeltaTable, uuid.UUID]:
+):
     """Materialize a given model by running its query and piping the results into a delta table.
 
     Arguments:
@@ -560,9 +559,6 @@ async def materialize_model(
 
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
 
-        if delta_table is None:
-            error_message = "Query returned no results. Check that the query returns data before materializing."
-            raise NonRetryableException(f"Query for model {model_label} failed: {error_message}")
     except ObjectDoesNotExist:
         raise
     except Exception as e:
@@ -640,6 +636,16 @@ async def materialize_model(
     if data_modeling_job.status == DataModelingJob.Status.CANCELLED:
         raise DataModelingCancelledException("Data modeling run was cancelled")
 
+    # early exit for no results
+    if delta_table is None:
+        await database_sync_to_async(job.refresh_from_db)()
+        job.rows_materialized = 0
+        job.status = DataModelingJob.Status.COMPLETED
+        job.last_run_at = dt.datetime.now(dt.UTC)
+        job.error = "Warning: query returned no results"  # we log an error to signify that this isn't an ideal result
+        await database_sync_to_async(job.save)()
+        return (saved_query.normalized_name, delta_table, job.id)
+
     await logger.adebug("Compacting delta table")
     delta_table.optimize.compact()
     await logger.adebug("Vacuuming delta table")
@@ -652,7 +658,7 @@ async def materialize_model(
         saved_query_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
 
     await logger.adebug("Copying query files in S3")
-    folder_path = prepare_s3_files_for_querying(
+    folder_path = await prepare_s3_files_for_querying(
         folder_path=saved_query.folder_path,
         table_name=saved_query.normalized_name,
         file_uris=file_uris,
@@ -682,7 +688,6 @@ async def materialize_model(
     await database_sync_to_async(job.save)()
 
     await logger.adebug("Setting DataModelingJob.Status = COMPLETED")
-
     return (saved_query.normalized_name, delta_table, job.id)
 
 

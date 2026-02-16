@@ -5,11 +5,12 @@ on:
         branches: [master]
     pull_request:
 
+permissions:
+    contents: read
+    pull-requests: read
+
 jobs:
     changes:
-        permissions:
-            contents: read
-            pull-requests: read
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run MCP checks
@@ -35,16 +36,32 @@ jobs:
         name: Build Package
         runs-on: ubuntu-latest
         needs: changes
-        permissions:
-            contents: read
         if: needs.changes.outputs.mcp == 'true'
 
         steps:
             - name: Checkout code
               uses: actions/checkout@v6
 
+            - name: Set up Python
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              with:
+                  python-version: 3.12.12
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              with:
+                  enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  version: 0.9.9
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
             - name: Setup pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Setup Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -61,12 +78,19 @@ jobs:
             - name: Type check
               run: cd services/mcp && pnpm typecheck
 
+            - name: Check MCP schema is up to date
+              run: |
+                  ./bin/hogli build:schema-mcp
+                  if ! git diff --exit-code services/mcp/schema/tool-inputs.json; then
+                    echo ""
+                    echo "::error::MCP tool-inputs.json is out of date. Run 'hogli build:schema-mcp' and commit the result."
+                    exit 1
+                  fi
+
     unit-tests:
         name: Unit Tests
         runs-on: ubuntu-latest
         needs: changes
-        permissions:
-            contents: read
         if: needs.changes.outputs.mcp == 'true'
         concurrency:
             group: ${{ github.workflow }}-unit-${{ github.head_ref || github.ref }}
@@ -78,6 +102,9 @@ jobs:
 
             - name: Setup pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Setup Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -93,12 +120,10 @@ jobs:
 
     integration-tests:
         name: Integration Tests
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
         needs: changes
         timeout-minutes: 30
         if: needs.changes.outputs.mcp == 'true'
-        permissions:
-            contents: read
         concurrency:
             group: ${{ github.workflow }}-integration-${{ github.head_ref || github.ref }}
             cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -106,6 +131,7 @@ jobs:
         env:
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+            PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_SECURE: 'False'
@@ -118,6 +144,7 @@ jobs:
             NO_RESTART_LOOP: 1
             DISABLE_SECURE_SSL_REDIRECT: 'True'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
+            CELERY_METRICS_PORT: 8999
 
         steps:
             - uses: actions/checkout@v6
@@ -132,9 +159,36 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               shell: bash
               run: |
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d &
+                  (
+                      max_attempts=3
+                      attempt=1
+                      delay=5
+
+                      while [ $attempt -le $max_attempts ]; do
+                          echo "Attempt $attempt of $max_attempts to start stack..."
+
+                          if docker compose -f docker-compose.dev.yml --profile '*' down && \
+                            docker compose -f docker-compose.dev.yml up -d; then
+                              echo "Stack started successfully"
+                              exit 0
+                          fi
+
+                          echo "Failed to start stack on attempt $attempt"
+
+                          if [ $attempt -lt $max_attempts ]; then
+                              sleep_time=$((delay * 2 ** (attempt - 1)))
+                              echo "Waiting ${sleep_time} seconds before retry..."
+                              sleep $sleep_time
+                          fi
+
+                          attempt=$((attempt + 1))
+                      done
+
+                      echo "Failed to start stack after $max_attempts attempts"
+                      exit 1
+                  ) &
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               shell: bash
@@ -146,7 +200,7 @@ jobs:
                   python-version: 3.12.12
 
             - name: Install uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -159,6 +213,9 @@ jobs:
 
             - name: Setup pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Setup Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -182,6 +239,23 @@ jobs:
                   touch frontend/dist/layout.html
                   touch frontend/dist/exporter.html
 
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-mcp'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install sqlx-cli
+              run: |
+                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             - name: Wait for services to be available
               shell: bash
               run: |
@@ -190,6 +264,12 @@ jobs:
 
             - name: Run migrations
               run: |
+                  # Create persons database and run sqlx migrations first
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx database create
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx migrate run --source rust/persons_migrations/
+                  # Then run Django migrations
                   python manage.py migrate --noinput
                   python manage.py migrate_clickhouse
 
@@ -234,8 +314,14 @@ jobs:
                   print(f'TEST_PROJECT_ID={team.id}')
                   " >> $GITHUB_ENV
 
-            - name: Start PostHog server
+            - name: Source celery queues
               run: |
+                  source ./bin/celery-queues.env
+                  echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
+
+            - name: Start PostHog web & Celery worker
+              run: |
+                  python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --workers 1 &> /tmp/server.log &
 
             - name: Wait for PostHog to be ready
@@ -258,7 +344,49 @@ jobs:
               if: failure()
               run: cat /tmp/server.log || true
 
+            - name: Show celery logs on failure
+              if: failure()
+              run: cat /tmp/celery.log || true
+
             - name: Show docker compose logs on failure
               if: failure()
               shell: bash
               run: docker compose -f docker-compose.dev.yml logs
+
+    # Collation job for required status check
+    mcp_tests:
+        needs: [changes, build, unit-tests, integration-tests]
+        name: MCP Tests Pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check all MCP jobs
+              run: |
+                  # Fail if change detection itself failed
+                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
+                    echo "Change detection job failed."
+                    exit 1
+                  fi
+
+                  # Pass if no MCP changes detected (jobs were skipped)
+                  if [[ "${{ needs.changes.outputs.mcp }}" != "true" ]]; then
+                    echo "MCP checks were skipped (no relevant changes)."
+                    exit 0
+                  fi
+
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                    echo "MCP build failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.unit-tests.result }}" != "success" && "${{ needs.unit-tests.result }}" != "skipped" ]]; then
+                    echo "MCP unit tests failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ]]; then
+                    echo "MCP integration tests failed."
+                    exit 1
+                  fi
+
+                  echo "All MCP checks passed."
