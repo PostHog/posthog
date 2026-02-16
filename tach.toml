@@ -47,6 +47,7 @@ depends_on = [
     "products.error_tracking",
     "products.experiments",
     "products.llm_analytics",
+    "products.logs",
 ]
 # layer intentionally omitted - core is coupled to everything
 
