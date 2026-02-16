@@ -20,6 +20,7 @@ from django.http import HttpRequest
 import requests
 import structlog
 import posthoganalytics
+from rest_framework.exceptions import APIException
 
 from posthog.utils import get_ip_address, get_short_user_agent
 
@@ -29,10 +30,11 @@ WORKOS_RADAR_API_URL = "https://api.workos.com/radar/attempts"
 WORKOS_RADAR_TIMEOUT = 5.0
 
 
-class SuspiciousAttemptBlocked(Exception):
-    """Raised when WorkOS Radar returns a BLOCK verdict for an auth attempt."""
-
-    pass
+class SuspiciousAttemptBlocked(APIException):
+    status_code = 403
+    default_detail = "Your account has been flagged for suspicious activity. Please contact support to resolve this."
+    default_code = "suspicious_attempt_blocked"
+    default_type = "authentication_error"
 
 
 class RadarAction(StrEnum):
@@ -91,8 +93,9 @@ def evaluate_auth_attempt(
         SuspiciousAttemptBlocked: When bypass=False and verdict is BLOCK and
             the email is not in the bypass list.
     """
-    if not settings.WORKOS_RADAR_ENABLED or not settings.WORKOS_RADAR_API_KEY:
-        return None
+    # TODO: remove – bypassed for local testing
+    # if not settings.WORKOS_RADAR_ENABLED or not settings.WORKOS_RADAR_API_KEY:
+    #     return None
 
     ip_address = get_ip_address(request)
     raw_user_agent = _get_raw_user_agent(request)
@@ -108,6 +111,11 @@ def evaluate_auth_attempt(
     )
     duration_ms = (time.perf_counter() - start_time) * 1000
 
+    will_block = False
+    if not bypass and verdict == RadarVerdict.BLOCK:
+        bypass_emails: list[str] = getattr(settings, "WORKOS_RADAR_BYPASS_EMAILS", [])
+        will_block = email.lower() not in bypass_emails
+
     _log_radar_event(
         email=email,
         user_id=user_id,
@@ -117,17 +125,16 @@ def evaluate_auth_attempt(
         ip_address=ip_address,
         user_agent=short_user_agent,
         duration_ms=duration_ms,
+        was_blocked=will_block,
     )
 
-    if not bypass and verdict == RadarVerdict.BLOCK:
-        bypass_emails: list[str] = getattr(settings, "WORKOS_RADAR_BYPASS_EMAILS", [])
-        if email.lower() not in bypass_emails:
-            logger.warning(
-                "workos_radar_attempt_blocked",
-                action=action.value,
-                email_hash=_hash_email(email),
-            )
-            raise SuspiciousAttemptBlocked()
+    if will_block:
+        logger.warning(
+            "workos_radar_attempt_blocked",
+            action=action.value,
+            email_hash=_hash_email(email),
+        )
+        raise SuspiciousAttemptBlocked()
 
     return verdict
 
@@ -142,6 +149,9 @@ def _call_radar_api(
     """
     Make the actual API call to WorkOS Radar.
     """
+    # TODO: remove – hardcoded BLOCK for local testing
+    return RadarVerdict.BLOCK
+
     try:
         response = requests.post(
             WORKOS_RADAR_API_URL,
@@ -209,6 +219,7 @@ def _log_radar_event(
     ip_address: str,
     user_agent: str,
     duration_ms: float,
+    was_blocked: bool = False,
 ) -> None:
     """
     Log the Radar decision as a PostHog event for analysis.
@@ -221,6 +232,7 @@ def _log_radar_event(
         "verdict": verdict.value,
         "would_challenge": verdict == RadarVerdict.CHALLENGE,
         "would_block": verdict == RadarVerdict.BLOCK,
+        "was_blocked": was_blocked,
         "is_error": verdict == RadarVerdict.ERROR,
         "ip_address_hash": hashlib.sha256(ip_address.encode()).hexdigest()[:16],
         "user_agent": user_agent,

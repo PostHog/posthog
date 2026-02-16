@@ -37,7 +37,7 @@ from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle
 from posthog.utils import get_can_create_org, is_relative_url
-from posthog.workos_radar import RadarAction, RadarAuthMethod, SuspiciousAttemptBlocked, evaluate_auth_attempt
+from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 logger = structlog.get_logger(__name__)
 
@@ -326,20 +326,6 @@ class SignupViewset(generics.CreateAPIView):
     permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (CanCreateOrg,)
     throttle_classes = [] if settings.E2E_TESTING else [SignupIPThrottle]
 
-    def create(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
-        try:
-            return super().create(request, *args, **kwargs)
-        except SuspiciousAttemptBlocked:
-            return response.Response(
-                {
-                    "type": "authentication_error",
-                    "code": "suspicious_attempt_blocked",
-                    "detail": "Your account has been flagged for suspicious activity. Please contact support to resolve this.",
-                    "attr": None,
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
 
 class InviteSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128, required=False)
@@ -510,20 +496,6 @@ class InviteSignupSerializer(serializers.Serializer):
 class InviteSignupViewset(generics.CreateAPIView):
     serializer_class = InviteSignupSerializer
     permission_classes = (permissions.AllowAny,)
-
-    def create(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
-        try:
-            return super().create(request, *args, **kwargs)
-        except SuspiciousAttemptBlocked:
-            return response.Response(
-                {
-                    "type": "authentication_error",
-                    "code": "suspicious_attempt_blocked",
-                    "detail": "Your account has been flagged for suspicious activity. Please contact support to resolve this.",
-                    "attr": None,
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
 
     def get(self, request, *args, **kwargs):
         """
