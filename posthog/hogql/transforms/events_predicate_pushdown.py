@@ -376,6 +376,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         # Set the JoinExpr type to SelectQueryAliasType so the printer knows to print
         # the subquery. Field references in the outer query still point to their original
         # types which is fine - they don't need to know about the subquery wrapper.
+        # TODO: Update field references in the outer query so metadata accurately reflects the transformed
         assert events_subquery.type is not None  # We always set the type in _build_typed_subquery
         node.select_from.type = ast.SelectQueryAliasType(
             alias=new_alias,
