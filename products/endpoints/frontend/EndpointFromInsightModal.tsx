@@ -68,8 +68,6 @@ export function EndpointFromInsightModal({
                 derived_from_insight: insightShortId,
             })
         }
-
-        closeModal()
     }
 
     const handleClose = (): void => {
