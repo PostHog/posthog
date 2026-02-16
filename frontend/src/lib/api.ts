@@ -3779,7 +3779,7 @@ const api = {
                     .withQueryString(params)
                     .getResponse({ headers })
             } catch (e) {
-                if (e instanceof ApiError && e.status === 410) {
+                if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
                     throw new RecordingDeletedError(e.data?.deleted_at ?? null)
                 }
                 throw e
