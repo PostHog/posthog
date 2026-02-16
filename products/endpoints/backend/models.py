@@ -6,6 +6,7 @@ from typing import Any
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -244,3 +245,11 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
         if latest is None:
             raise EndpointVersion.DoesNotExist("Endpoint has no versions")
         return latest
+
+    def soft_delete(self) -> None:
+        self.deleted = True
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["deleted", "deleted_at", "updated_at"])
+
+    def delete(self, *args, **kwargs):
+        raise Exception("Cannot hard delete Endpoint. Use soft_delete() instead.")

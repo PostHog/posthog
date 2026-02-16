@@ -59,7 +59,7 @@ def _check_and_cache_materialization_status(team_id: int, endpoint_name: str) ->
     from products.endpoints.backend.models import Endpoint
 
     try:
-        endpoint = Endpoint.objects.get(team_id=team_id, name=endpoint_name, is_active=True)
+        endpoint = Endpoint.objects.get(team_id=team_id, name=endpoint_name, is_active=True, deleted=False)
         version = endpoint.get_version()
 
         is_ready = (
