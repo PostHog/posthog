@@ -500,7 +500,8 @@ describe('dataNodeLogic', () => {
             expect.any(Function),
             { date_from: '2022-12-24T17:00:41.165000Z' },
             undefined,
-            false
+            false,
+            undefined
         )
     })
 
@@ -533,7 +534,8 @@ describe('dataNodeLogic', () => {
             expect.any(Function),
             undefined,
             { test_1: { code_name: 'some_name', value: 'hello world', variableId: 'some_id' } },
-            false
+            false,
+            undefined
         )
     })
 
@@ -558,7 +560,8 @@ describe('dataNodeLogic', () => {
             expect.any(Function),
             undefined,
             undefined,
-            false
+            false,
+            undefined
         )
     })
 
@@ -583,7 +586,34 @@ describe('dataNodeLogic', () => {
             expect.any(Function),
             undefined,
             undefined,
-            false
+            false,
+            undefined
+        )
+    })
+
+    it('passes limitContext to api', async () => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        })
+
+        logic = dataNodeLogic({
+            key: 'key',
+            query,
+            limitContext: 'posthog_ai',
+        })
+        logic.mount()
+
+        expect(performQuery).toHaveBeenCalledWith(
+            query,
+            expect.anything(),
+            'blocking',
+            expect.any(String),
+            expect.any(Function),
+            undefined,
+            undefined,
+            false,
+            'posthog_ai'
         )
     })
 })
