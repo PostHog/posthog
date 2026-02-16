@@ -47,10 +47,6 @@ from products.analytics_platform.backend.lazy_preaggregation.preaggregation_noti
     job_channel,
     set_ch_query_started,
 )
-from products.analytics_platform.backend.lazy_preaggregation.preaggregation_notifications import (
-    job_channel,
-    set_ch_query_started,
-)
 from products.analytics_platform.backend.models import PreaggregationJob
 
 
@@ -1647,28 +1643,6 @@ class TestPreaggregationExecutorExecute(BaseTest):
             status=PreaggregationJob.Status.PENDING,
             expires_at=django_timezone.now() + timedelta(days=7),
         )
-
-        def mock_wait(pubsub, duration):
-            pending_job.status = PreaggregationJob.Status.READY
-            pending_job.computed_at = django_timezone.now()
-            pending_job.save()
-            return {"type": b"message", "channel": job_channel(pending_job.id).encode(), "data": b"ready"}
-
-        executor = PreaggregationExecutor(wait_timeout_seconds=5.0, poll_interval_seconds=0.1)
-        with patch.object(executor, "_wait_for_notification", side_effect=mock_wait):
-            result = executor.execute(
-                team=self.team,
-                query_info=query_info,
-                start=datetime(2024, 1, 1, tzinfo=UTC),
-                end=datetime(2024, 1, 2, tzinfo=UTC),
-                run_insert=lambda t, j: None,
-            )
-
-        assert result.ready is True
-        assert pending_job.id in result.job_ids
-
-    def test_timeout_when_job_stays_pending(self):
-        query_info, query_hash = self._make_query_info()
 
         def mock_wait(pubsub, duration):
             pending_job.status = PreaggregationJob.Status.READY
