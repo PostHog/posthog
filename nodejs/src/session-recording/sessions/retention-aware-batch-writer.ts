@@ -1,6 +1,6 @@
 import { S3Client } from '@aws-sdk/client-s3'
 
-import { RetentionService } from '../../session-replay/retention/retention-service'
+import { RetentionService } from '../../session-replay/shared/retention/retention-service'
 import { ValidRetentionPeriods } from '../constants'
 import { RetentionPeriodToDaysMap } from '../constants'
 import { RetentionPeriod } from '../types'

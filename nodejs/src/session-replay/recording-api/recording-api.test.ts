@@ -4,10 +4,10 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { Hub } from '../../types'
-import { getBlockDecryptor } from '../crypto'
-import { getKeyStore } from '../keystore'
-import { RetentionService } from '../retention/retention-service'
-import { TeamService } from '../teams/team-service'
+import { getBlockDecryptor } from '../shared/crypto'
+import { getKeyStore } from '../shared/keystore'
+import { RetentionService } from '../shared/retention/retention-service'
+import { TeamService } from '../shared/teams/team-service'
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingApiHub, RecordingDecryptor } from './types'
@@ -20,16 +20,16 @@ jest.mock('@aws-sdk/client-s3', () => ({
     GetObjectCommand: jest.fn().mockImplementation((params) => params),
 }))
 
-jest.mock('../keystore', () => ({
+jest.mock('../shared/keystore', () => ({
     getKeyStore: jest.fn(),
 }))
 
-jest.mock('../keystore/cache', () => ({
+jest.mock('../shared/keystore/cache', () => ({
     MemoryCachedKeyStore: jest.fn().mockImplementation((delegate) => delegate),
     RedisCachedKeyStore: jest.fn().mockImplementation((delegate) => delegate),
 }))
 
-jest.mock('../crypto', () => ({
+jest.mock('../shared/crypto', () => ({
     getBlockDecryptor: jest.fn(),
 }))
 

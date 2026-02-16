@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
-import { SessionMetadataStore } from '../../session-replay/metadata/session-metadata-store'
-import { createMockEncryptor, createMockKeyStore } from '../../session-replay/test-helpers'
-import { KeyStore, RecordingEncryptor } from '../../session-replay/types'
+import { SessionMetadataStore } from '../../session-replay/shared/metadata/session-metadata-store'
+import { createMockEncryptor, createMockKeyStore } from '../../session-replay/shared/test-helpers'
+import { KeyStore, RecordingEncryptor } from '../../session-replay/shared/types'
 import { parseJSON } from '../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData, SnapshotEvent } from '../kafka/types'

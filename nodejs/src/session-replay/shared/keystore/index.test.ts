@@ -1,12 +1,12 @@
-import * as envUtils from '../../utils/env-utils'
+import * as envUtils from '../../../utils/env-utils'
 import { RetentionService } from '../retention/retention-service'
 import { TeamService } from '../teams/team-service'
 import { CleartextKeyStore } from './cleartext-keystore'
 import { DynamoDBKeyStore } from './dynamodb-keystore'
 import { getKeyStore } from './index'
 
-jest.mock('../../utils/env-utils', () => ({
-    ...jest.requireActual('../../utils/env-utils'),
+jest.mock('../../../utils/env-utils', () => ({
+    ...jest.requireActual('../../../utils/env-utils'),
     isCloud: jest.fn(),
 }))
 

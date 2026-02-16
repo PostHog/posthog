@@ -1,4 +1,4 @@
-import { isCloud } from '../../utils/env-utils'
+import { isCloud } from '../../../utils/env-utils'
 import { KeyStore, RecordingDecryptor, RecordingEncryptor } from '../types'
 import { CleartextRecordingDecryptor } from './cleartext-decryptor'
 import { CleartextRecordingEncryptor } from './cleartext-encryptor'

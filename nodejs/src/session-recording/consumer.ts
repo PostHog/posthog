@@ -13,14 +13,14 @@ import {
 } from '../ingestion/session_replay'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { getBlockDecryptor, getBlockEncryptor } from '../session-replay/crypto'
-import { VerifyingEncryptor } from '../session-replay/crypto/verifying-encryptor'
-import { getKeyStore } from '../session-replay/keystore'
-import { MemoryCachedKeyStore } from '../session-replay/keystore/cache'
-import { SessionMetadataStore } from '../session-replay/metadata/session-metadata-store'
-import { RetentionService } from '../session-replay/retention/retention-service'
-import { TeamService } from '../session-replay/teams/team-service'
-import { KeyStore, RecordingEncryptor } from '../session-replay/types'
+import { getBlockDecryptor, getBlockEncryptor } from '../session-replay/shared/crypto'
+import { VerifyingEncryptor } from '../session-replay/shared/crypto/verifying-encryptor'
+import { getKeyStore } from '../session-replay/shared/keystore'
+import { MemoryCachedKeyStore } from '../session-replay/shared/keystore/cache'
+import { SessionMetadataStore } from '../session-replay/shared/metadata/session-metadata-store'
+import { RetentionService } from '../session-replay/shared/retention/retention-service'
+import { TeamService } from '../session-replay/shared/teams/team-service'
+import { KeyStore, RecordingEncryptor } from '../session-replay/shared/types'
 import {
     HealthCheckResult,
     PluginServerService,

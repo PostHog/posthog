@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
-import { TeamService } from '../../session-replay/teams/team-service'
+import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { ParsedMessageData } from '../kafka/types'
 import { TeamFilter } from './team-filter'
 import { TeamForReplay } from './types'
 
-jest.mock('../../session-replay/teams/team-service')
+jest.mock('../../session-replay/shared/teams/team-service')
 
 const validTeam: TeamForReplay = {
     teamId: 1,

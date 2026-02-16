@@ -1,4 +1,4 @@
-import { parseJSON } from '../../utils/json-parse'
+import { parseJSON } from '../../../utils/json-parse'
 import { SerializedSessionKey, SessionKey } from '../types'
 
 export function serializeSessionKey(key: SessionKey): string {

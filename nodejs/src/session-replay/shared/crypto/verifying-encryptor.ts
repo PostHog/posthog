@@ -1,7 +1,7 @@
 import snappy from 'snappy'
 
-import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
+import { parseJSON } from '../../../utils/json-parse'
+import { logger } from '../../../utils/logger'
 import { RecordingDecryptor, RecordingEncryptor, SessionKey } from '../types'
 import { CryptoMetrics } from './metrics'
 

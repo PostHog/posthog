@@ -1,4 +1,4 @@
-import { RedisPool, TeamId } from '../../types'
+import { RedisPool, TeamId } from '../../../types'
 import { RetentionPeriod, RetentionPeriodToDaysMap, ValidRetentionPeriods } from '../constants'
 import { TeamService } from '../teams/team-service'
 import { RetentionServiceMetrics } from './metrics'

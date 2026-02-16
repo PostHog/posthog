@@ -12,7 +12,7 @@ export const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 90_000
 export { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW }
 
 // Re-export shared retention constants so existing recording-ingestion imports still work
-export { RetentionPeriodToDaysMap, ValidRetentionPeriods } from '../session-replay/constants'
+export { RetentionPeriodToDaysMap, ValidRetentionPeriods } from '../session-replay/shared/constants'
 
 // Maximum length of a session recording (24 hours)
 export const MAX_SESSION_LENGTH_SECONDS = 24 * 60 * 60

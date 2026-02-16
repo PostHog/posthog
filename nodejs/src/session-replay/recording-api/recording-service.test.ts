@@ -1,7 +1,7 @@
 import { S3Client } from '@aws-sdk/client-s3'
 
 import { PostgresRouter } from '../../utils/db/postgres'
-import { SessionMetadataStore } from '../metadata/session-metadata-store'
+import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingDecryptor, SessionKeyDeletedError } from './types'
 

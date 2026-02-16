@@ -1,6 +1,6 @@
 import { Redis } from 'ioredis'
 
-import { RedisPool, TeamId } from '../../types'
+import { RedisPool, TeamId } from '../../../types'
 import { TeamService } from '../teams/team-service'
 import { RetentionServiceMetrics } from './metrics'
 import { RetentionService } from './retention-service'

@@ -16,7 +16,7 @@ export {
     SessionKey,
     SessionKeyDeletedError,
     SessionState,
-} from '../types'
+} from '../shared/types'
 
 /**
  * Subset of Hub configuration required by the Recording API.

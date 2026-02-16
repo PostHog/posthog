@@ -1,4 +1,4 @@
-import { TeamId } from '../../types'
+import { TeamId } from '../../../types'
 
 export interface TeamForReplay {
     teamId: TeamId

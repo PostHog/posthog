@@ -1,4 +1,4 @@
-import { parseJSON } from '../../utils/json-parse'
+import { parseJSON } from '../../../utils/json-parse'
 import { deserializeSessionKey, serializeSessionKey } from './session-key'
 
 describe('session-key serialization', () => {

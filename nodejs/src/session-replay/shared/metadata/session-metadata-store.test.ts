@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
-import { parseJSON } from '../../utils/json-parse'
+import { KafkaProducerWrapper, TopicMessage } from '../../../kafka/producer'
+import { parseJSON } from '../../../utils/json-parse'
 import { SessionMetadataStore } from './session-metadata-store'
 
 describe('SessionMetadataStore', () => {

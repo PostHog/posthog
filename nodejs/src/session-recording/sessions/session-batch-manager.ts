@@ -1,5 +1,5 @@
-import { SessionMetadataStore } from '../../session-replay/metadata/session-metadata-store'
-import { KeyStore, RecordingEncryptor } from '../../session-replay/types'
+import { SessionMetadataStore } from '../../session-replay/shared/metadata/session-metadata-store'
+import { KeyStore, RecordingEncryptor } from '../../session-replay/shared/types'
 import { logger } from '../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage } from './session-batch-file-storage'

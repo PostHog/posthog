@@ -2,9 +2,9 @@ import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { logger } from '../../utils/logger'
-import { ValidRetentionPeriods } from '../constants'
-import { createDeletionBlockMetadata } from '../metadata/session-block-metadata'
-import { SessionMetadataStore } from '../metadata/session-metadata-store'
+import { ValidRetentionPeriods } from '../shared/constants'
+import { createDeletionBlockMetadata } from '../shared/metadata/session-block-metadata'
+import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
 import { KeyStore, RecordingDecryptor, SessionKeyDeletedError } from './types'
 
 export interface GetBlockParams {

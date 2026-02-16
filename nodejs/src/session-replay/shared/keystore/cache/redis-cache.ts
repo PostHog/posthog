@@ -1,4 +1,4 @@
-import { RedisPool } from '../../../types'
+import { RedisPool } from '../../../../types'
 import { deserializeSessionKey, serializeSessionKey } from '../../crypto/session-key'
 import { DeleteKeyResult, KeyStore, SessionKey } from '../../types'
 

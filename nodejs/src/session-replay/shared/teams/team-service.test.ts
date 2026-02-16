@@ -1,4 +1,4 @@
-import { PostgresRouter } from '../../utils/db/postgres'
+import { PostgresRouter } from '../../../utils/db/postgres'
 import { TeamService } from './team-service'
 
 describe('TeamService', () => {

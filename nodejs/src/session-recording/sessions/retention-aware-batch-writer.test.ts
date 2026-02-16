@@ -1,7 +1,7 @@
 import { S3Client } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 
-import { RetentionService } from '../../session-replay/retention/retention-service'
+import { RetentionService } from '../../session-replay/shared/retention/retention-service'
 import { TeamId } from '../../types'
 import { RetentionAwareStorage } from './retention-aware-batch-writer'
 

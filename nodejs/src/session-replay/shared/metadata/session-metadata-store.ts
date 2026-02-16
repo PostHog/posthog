@@ -1,9 +1,9 @@
 import { randomUUID } from 'crypto'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
-import { TimestampFormat } from '../../types'
-import { logger } from '../../utils/logger'
-import { castTimestampOrNow } from '../../utils/utils'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
+import { TimestampFormat } from '../../../types'
+import { logger } from '../../../utils/logger'
+import { castTimestampOrNow } from '../../../utils/utils'
 import { SessionBlockMetadata } from './session-block-metadata'
 
 export class SessionMetadataStore {

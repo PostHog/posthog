@@ -5,7 +5,7 @@ import { CryptoMetrics } from './metrics'
 import { VerifyingEncryptor } from './verifying-encryptor'
 
 jest.mock('./metrics')
-jest.mock('../../utils/logger')
+jest.mock('../../../utils/logger')
 
 function createMockEncryptor(): jest.Mocked<RecordingEncryptor> {
     return {

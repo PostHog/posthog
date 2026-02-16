@@ -1,8 +1,8 @@
 import { v7 as uuidv7 } from 'uuid'
 
-import { SessionBlockMetadata } from '../../session-replay/metadata/session-block-metadata'
-import { SessionMetadataStore } from '../../session-replay/metadata/session-metadata-store'
-import { KeyStore, RecordingEncryptor, SessionKey } from '../../session-replay/types'
+import { SessionBlockMetadata } from '../../session-replay/shared/metadata/session-block-metadata'
+import { SessionMetadataStore } from '../../session-replay/shared/metadata/session-metadata-store'
+import { KeyStore, RecordingEncryptor, SessionKey } from '../../session-replay/shared/types'
 import { logger } from '../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
