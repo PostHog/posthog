@@ -7,11 +7,13 @@ from parameterized import parameterized
 from posthog.models import Dashboard, Insight, Project, Team
 from posthog.models.dashboard_tile import DashboardTile, Text
 from posthog.models.resource_transfer.inter_project_transferer import (
+    _get_mapped_substitutions,
     build_resource_duplication_graph,
     dag_sort_duplication_graph,
     duplicate_resource_to_new_team,
 )
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
+from posthog.models.resource_transfer.types import ResourceKind
 
 
 class TestBuildResourceDuplicationGraph(BaseTest):
@@ -69,7 +71,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
 
     def test_exclude_set_prevents_revisiting_resources(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My insight")
-        exclude: set[tuple[type, Any]] = {(Insight, insight.pk)}
+        exclude: set[tuple[ResourceKind, Any]] = {("Insight", insight.pk)}
 
         graph = list(build_resource_duplication_graph(insight, exclude))
         assert len(graph) == 0
@@ -256,4 +258,63 @@ class TestResourceTransferRecordCreation(BaseTest):
             destination_team=dest_team,
             resource_kind=type(resource).__name__,
         )
-        assert transfer.resource_id == str(new_resource.pk)
+        assert transfer.resource_id == str(resource.pk)
+        assert transfer.duplicated_resource_id == str(new_resource.pk)
+
+
+class TestSubstitutionTeamValidation(BaseTest):
+    def _create_destination_team(self) -> Team:
+        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=self.organization)
+        return Team.objects.create(id=project.id, project=project, organization=self.organization)
+
+    def test_substitution_accepted_when_resource_belongs_to_target_team(self) -> None:
+        dest_team = self._create_destination_team()
+        source_insight = Insight.objects.create(team=self.team, name="Source")
+        dest_insight = Insight.objects.create(team=dest_team, name="Dest")
+
+        result = _get_mapped_substitutions(
+            [(("Insight", source_insight.pk), ("Insight", dest_insight.pk))],
+            target_team=dest_team,
+        )
+
+        assert result[("Insight", source_insight.pk)] == dest_insight
+
+    def test_substitution_rejected_when_resource_belongs_to_wrong_team(self) -> None:
+        dest_team = self._create_destination_team()
+        other_team = self._create_destination_team()
+        source_insight = Insight.objects.create(team=self.team, name="Source")
+        wrong_insight = Insight.objects.create(team=other_team, name="Wrong team")
+
+        with self.assertRaises(ValueError, msg="should reject substitution belonging to wrong team"):
+            _get_mapped_substitutions(
+                [(("Insight", source_insight.pk), ("Insight", wrong_insight.pk))],
+                target_team=dest_team,
+            )
+
+    def test_substitution_skips_team_check_when_no_target_team(self) -> None:
+        other_team = self._create_destination_team()
+        source_insight = Insight.objects.create(team=self.team, name="Source")
+        other_insight = Insight.objects.create(team=other_team, name="Other")
+
+        result = _get_mapped_substitutions(
+            [(("Insight", source_insight.pk), ("Insight", other_insight.pk))],
+        )
+
+        assert result[("Insight", source_insight.pk)] == other_insight
+
+    def test_duplicate_resource_rejects_substitution_from_wrong_team(self) -> None:
+        dest_team = self._create_destination_team()
+        other_team = self._create_destination_team()
+
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        wrong_insight = Insight.objects.create(team=other_team, name="Wrong team insight")
+
+        with self.assertRaises(ValueError, msg="should reject substitution belonging to wrong team"):
+            duplicate_resource_to_new_team(
+                dashboard,
+                dest_team,
+                substitutions=[(("Insight", insight.pk), ("Insight", wrong_insight.pk))],
+            )
