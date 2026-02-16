@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconExternal, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
+import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import {
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
@@ -11,23 +13,31 @@ import {
 } from 'lib/utils/alertUtils'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType } from '~/types'
+import { HogFunctionType, SlackChannelType } from '~/types'
 
 import { ALERT_NOTIFICATION_TYPE_OPTIONS, alertNotificationLogic } from '../alertNotificationLogic'
 
-function getHogFunctionDestination(hf: HogFunctionType): { type: string; detail: string | null } {
+function resolveSlackChannelName(channelValue: string, slackChannels: SlackChannelType[]): string | null {
+    const parts = channelValue.split('|')
+    const namePart = parts[1]?.replace('#', '')
+    if (namePart) {
+        return namePart
+    }
+    const channelId = parts[0]
+    return slackChannels.find((c) => c.id === channelId)?.name ?? null
+}
+
+function getHogFunctionDestination(
+    hf: HogFunctionType,
+    slackChannels: SlackChannelType[]
+): { type: string; detail: string | null } {
     const channelValue = hf.inputs?.channel?.value
-    if (channelValue) {
-        let channelName: string | null = null
-        if (typeof channelValue === 'string') {
-            const parts = channelValue.split('|')
-            channelName = parts[1]?.replace('#', '') ?? null
-        }
-        if (!channelName) {
-            const match = hf.name?.match(/Slack #(.+)$/)
-            channelName = match?.[1] ?? null
-        }
+    if (channelValue && typeof channelValue === 'string') {
+        const channelName = resolveSlackChannelName(channelValue, slackChannels)
         return { type: 'Slack', detail: channelName ? `#${channelName}` : null }
+    }
+    if (channelValue) {
+        return { type: 'Slack', detail: null }
     }
     const urlValue = hf.inputs?.url?.value
     if (urlValue && typeof urlValue === 'string') {
@@ -60,17 +70,29 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         setWebhookUrl,
     } = useActions(logic)
 
+    const slackLogic = slackIntegrationLogic({ id: firstSlackIntegration?.id ?? 0 })
+    const { slackChannels } = useValues(slackLogic)
+    const { loadAllSlackChannels } = useActions(slackLogic)
+
+    useEffect(() => {
+        if (firstSlackIntegration && existingHogFunctions.length > 0) {
+            loadAllSlackChannels()
+        }
+    }, [firstSlackIntegration?.id, existingHogFunctions.length])
+
     const handleAdd = (): void => {
         if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
             if (!slackChannelValue || !firstSlackIntegration) {
                 return
             }
-            const channelName = slackChannelValue.split('|')[1]?.replace('#', '') ?? slackChannelValue
+            const parts = slackChannelValue.split('|')
+            const channelId = parts[0]
+            const channelName = parts[1]?.replace('#', '') ?? channelId
 
             const notification: PendingAlertNotification = {
                 type: ALERT_NOTIFICATION_TYPE_SLACK,
                 slackWorkspaceId: firstSlackIntegration.id,
-                slackChannelId: slackChannelValue,
+                slackChannelId: channelId,
                 slackChannelName: channelName,
             }
             addPendingNotification(notification)
@@ -100,7 +122,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                     ) : existingHogFunctions.length > 0 ? (
                         <div className="space-y-2">
                             {existingHogFunctions.map((hf) => {
-                                const { type: destType, detail } = getHogFunctionDestination(hf)
+                                const { type: destType, detail } = getHogFunctionDestination(hf, slackChannels)
                                 return (
                                     <div
                                         key={hf.id}
