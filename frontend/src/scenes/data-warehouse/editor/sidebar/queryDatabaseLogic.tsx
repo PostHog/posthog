@@ -21,6 +21,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import {
+    DataWarehouseSavedQueryOrigin,
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaEndpointTable,
     DatabaseSchemaField,
@@ -1071,6 +1072,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'viewsMapById',
                 'managedViews',
                 'endpointTables',
+                'endpointTablesMapById',
                 'databaseLoading',
                 'systemTables',
                 'systemTablesMap',
@@ -1251,12 +1253,16 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
                 searchTerm: string
             ): [DataWarehouseSavedQuery, FuseSearchMatch[] | null][] => {
+                const nonEndpointQueries = dataWarehouseSavedQueries.filter(
+                    (query) => query.origin !== DataWarehouseSavedQueryOrigin.ENDPOINT
+                )
                 if (searchTerm) {
                     return savedQueriesFuse
                         .search(searchTerm)
+                        .filter((result) => result.item.origin !== DataWarehouseSavedQueryOrigin.ENDPOINT)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
-                return dataWarehouseSavedQueries.map((query) => [query, null])
+                return nonEndpointQueries.map((query) => [query, null])
             },
         ],
         relevantManagedViews: [
@@ -1613,13 +1619,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         })
                     }
                 } else {
-                    // Add saved queries
-                    dataWarehouseSavedQueries.forEach((view) => {
-                        const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
-                        viewsChildren.push(
-                            createViewNode(view, null, false, tableLookup, tableNodeOptions, schemaTable)
-                        )
-                    })
+                    // Add saved queries (exclude endpoint-origin ones — they show in the Endpoints section)
+                    dataWarehouseSavedQueries
+                        .filter((view) => view.origin !== DataWarehouseSavedQueryOrigin.ENDPOINT)
+                        .forEach((view) => {
+                            const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
+                            viewsChildren.push(
+                                createViewNode(view, null, false, tableLookup, tableNodeOptions, schemaTable)
+                            )
+                        })
 
                     // Add managed views
                     managedViews.forEach((view) => {
@@ -1752,6 +1760,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.dataWarehouseTablesMap,
                 s.dataWarehouseSavedQueryMapById,
                 s.viewsMapById,
+                s.endpointTablesMapById,
                 s.joinsByFieldName,
             ],
             (
@@ -1761,6 +1770,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 dataWarehouseTablesMap,
                 dataWarehouseSavedQueryMapById,
                 viewsMapById,
+                endpointTablesMapById,
                 joinsByFieldName
             ): TreeItem[] => {
                 if (selectedSchema === null) {
@@ -1781,7 +1791,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 }
 
                 if (isEndpointTable(selectedSchema)) {
-                    table = viewsMapById[selectedSchema.id]
+                    table = endpointTablesMapById[selectedSchema.id]
                 }
 
                 if (table == null) {

@@ -158,23 +158,27 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         viewsMap: [
-            (s) => [s.views, s.managedViews, s.endpointTables],
+            (s) => [s.views, s.managedViews],
             (
                 views: DatabaseSchemaViewTable[],
-                managedViews: DatabaseSchemaManagedViewTable[],
-                endpointTables: DatabaseSchemaEndpointTable[]
-            ): Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable | DatabaseSchemaEndpointTable> =>
-                toMapByName([...views, ...managedViews, ...endpointTables]),
+                managedViews: DatabaseSchemaManagedViewTable[]
+            ): Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable> =>
+                toMapByName([...views, ...managedViews]),
             { resultEqualityCheck: objectsEqual },
         ],
         viewsMapById: [
-            (s) => [s.views, s.managedViews, s.endpointTables],
+            (s) => [s.views, s.managedViews],
             (
                 views: DatabaseSchemaViewTable[],
-                managedViews: DatabaseSchemaManagedViewTable[],
-                endpointTables: DatabaseSchemaEndpointTable[]
-            ): Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable | DatabaseSchemaEndpointTable> =>
-                toMapById([...views, ...managedViews, ...endpointTables]),
+                managedViews: DatabaseSchemaManagedViewTable[]
+            ): Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable> =>
+                toMapById([...views, ...managedViews]),
+            { resultEqualityCheck: objectsEqual },
+        ],
+        endpointTablesMapById: [
+            (s) => [s.endpointTables],
+            (endpointTables: DatabaseSchemaEndpointTable[]): Record<string, DatabaseSchemaEndpointTable> =>
+                toMapById(endpointTables),
             { resultEqualityCheck: objectsEqual },
         ],
     }),
