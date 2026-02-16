@@ -189,6 +189,7 @@ urlpatterns = [
     opt_slash_path("api/user/get_toolbar_preloaded_flags", user.get_toolbar_preloaded_flags),
     opt_slash_path("api/user/toolbar_oauth_start", user.toolbar_oauth_start),
     opt_slash_path("api/user/toolbar_oauth_exchange", user.toolbar_oauth_exchange),
+    opt_slash_path("api/user/toolbar_oauth_refresh", user.toolbar_oauth_refresh),
     path("toolbar_oauth/callback", login_required(user.toolbar_oauth_callback)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
