@@ -62,7 +62,7 @@ import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
-import { SENTIMENT_BAR_COLOR } from './components/SentimentTag'
+import { SENTIMENT_BAR_COLOR, SentimentBar } from './components/SentimentTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
@@ -417,14 +417,13 @@ function TraceMetadata({
                 <FeedbackTag key={feedback.id} properties={feedback.properties} />
             ))}
             {(() => {
-                const sentiment = getTraceSentiment(trace.id)
-                const sentimentLoading = isTraceLoading(trace.id)
-                if (sentiment === undefined || sentiment === null) {
+                if (sentimentResult === undefined || sentimentResult === null) {
                     return null
                 }
                 if (sentimentLoading) {
                     return null
                 }
+                const sentiment = sentimentResult
                 const label = (sentiment?.label ?? 'neutral') as SentimentLabel
                 const score = sentiment?.score ?? 0
                 const widthPercent = Math.round(score * 100)
@@ -705,21 +704,11 @@ const TreeNode = React.memo(function TraceNode({
                         </span>
                     )}
                     {genSentiment && (
-                        <Tooltip
-                            title={`${genSentiment.label[0].toUpperCase()}${genSentiment.label.slice(1)}: ${Math.round(genSentiment.score * 100)}%`}
-                        >
-                            <span className="relative w-10 my-0.5 shrink-0">
-                                <span className="block h-1.5 bg-border-light rounded-full overflow-hidden">
-                                    <span
-                                        className={`block h-full rounded-full ${SENTIMENT_BAR_COLOR[genSentiment.label as SentimentLabel] ?? 'bg-border'}`}
-                                        // eslint-disable-next-line react/forbid-dom-props
-                                        style={{
-                                            width: `${Math.round(genSentiment.score * 100)}%`,
-                                        }}
-                                    />
-                                </span>
-                            </span>
-                        </Tooltip>
+                        <SentimentBar
+                            label={genSentiment.label}
+                            score={genSentiment.score}
+                            scores={genSentiment.scores}
+                        />
                     )}
                     {!isCollapsedDueToFilter && (
                         <Tooltip title={formatLLMEventTitle(item)}>

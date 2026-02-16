@@ -163,30 +163,42 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             misses = list(trace_ids)
 
         if misses:
-            client = sync_connect()
+            try:
+                client = sync_connect()
 
-            async def _run_all():
-                tasks = []
-                for tid in misses:
-                    workflow_input = OnDemandSentimentInput(
-                        team_id=self.team_id,
-                        trace_id=tid,
-                    )
-                    workflow_id = f"llma-sentiment-{self.team_id}-{tid}-{int(time.time() * 1000)}"
-                    tasks.append(
-                        client.execute_workflow(
-                            "llma-sentiment-on-demand",
-                            workflow_input,
-                            id=workflow_id,
-                            task_queue=settings.LLMA_TASK_QUEUE,
-                            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                            retry_policy=RetryPolicy(maximum_attempts=2),
-                            task_timeout=timedelta(seconds=30),
+                async def _run_all():
+                    tasks = []
+                    for tid in misses:
+                        workflow_input = OnDemandSentimentInput(
+                            team_id=self.team_id,
+                            trace_id=tid,
                         )
-                    )
-                return await asyncio.gather(*tasks, return_exceptions=True)
+                        workflow_id = f"llma-sentiment-{self.team_id}-{tid}-{int(time.time() * 1000)}"
+                        tasks.append(
+                            client.execute_workflow(
+                                "llma-sentiment-on-demand",
+                                workflow_input,
+                                id=workflow_id,
+                                task_queue=settings.LLMA_TASK_QUEUE,
+                                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                                retry_policy=RetryPolicy(maximum_attempts=2),
+                                task_timeout=timedelta(seconds=30),
+                            )
+                        )
+                    return await asyncio.gather(*tasks, return_exceptions=True)
 
-            workflow_results = asyncio.run(_run_all())
+                workflow_results = asyncio.run(_run_all())
+            except Exception as e:
+                logger.exception(
+                    "Failed to connect to Temporal for batch sentiment",
+                    team_id=self.team_id,
+                    trace_ids=misses,
+                    error=str(e),
+                )
+                return Response(
+                    {"error": "Failed to compute sentiment"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
             to_cache: dict[str, dict] = {}
             for tid, result in zip(misses, workflow_results):
