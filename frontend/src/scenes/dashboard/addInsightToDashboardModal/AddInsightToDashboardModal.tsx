@@ -23,7 +23,7 @@ const QUICK_CREATE_TYPES = [
     { type: InsightType.RETENTION, icon: IconRetention, label: 'Retention' },
 ]
 
-export function AddInsightToDashboardModalNew(): JSX.Element {
+export function AddInsightToDashboardModal(): JSX.Element {
     const { hideAddInsightToDashboardModal, toggleShowMoreInsightTypes } = useActions(addInsightToDashboardLogic)
     const { addInsightToDashboardModalVisible, showMoreInsightTypes } = useValues(addInsightToDashboardLogic)
     const { dashboard } = useValues(dashboardLogic)
@@ -31,12 +31,6 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
     const handleClose = (): void => {
         posthog.capture('insight dashboard modal - closed')
         hideAddInsightToDashboardModal()
-    }
-
-    const handleNewInsightClicked = (insightType: string): void => {
-        posthog.capture('insight dashboard modal - new insight clicked', {
-            insight_type: insightType,
-        })
     }
 
     const additionalTypes = Object.entries(INSIGHT_TYPES_METADATA).filter(
@@ -56,15 +50,15 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
                 width={860}
             >
                 <div className="space-y-4">
-                    <div className="flex items-center gap-3 p-4 bg-surface-secondary rounded-lg">
+                    <div className="flex flex-wrap items-center gap-3 p-4 bg-surface-secondary rounded-lg">
                         <IconPlus className="text-2xl text-secondary shrink-0" />
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-[200px]">
                             <div className="font-semibold text-base">Create a new insight</div>
                             <div className="text-sm text-secondary">
                                 Build a new insight and add it to this dashboard
                             </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             {QUICK_CREATE_TYPES.map(({ type, icon: Icon, label }) => (
                                 <LemonButton
                                     key={type}
@@ -73,7 +67,11 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
                                     to={urls.insightNew({ type: type, dashboardId: dashboard?.id })}
                                     tooltip={INSIGHT_TYPES_METADATA[type]?.description}
                                     data-attr={`quick-create-${type.toLowerCase()}`}
-                                    onClick={() => handleNewInsightClicked(type)}
+                                    onClick={() =>
+                                        posthog.capture('insight dashboard modal - new insight clicked', {
+                                            insight_type: type,
+                                        })
+                                    }
                                 >
                                     {label}
                                 </LemonButton>
@@ -96,7 +94,14 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
                                                         dashboardId: dashboard?.id,
                                                     })}
                                                     data-attr={`create-${type.toLowerCase()}`}
-                                                    onClick={() => handleNewInsightClicked(type)}
+                                                    onClick={() =>
+                                                        posthog.capture(
+                                                            'insight dashboard modal - new insight clicked',
+                                                            {
+                                                                insight_type: type,
+                                                            }
+                                                        )
+                                                    }
                                                 >
                                                     {metadata.name}
                                                 </LemonButton>
