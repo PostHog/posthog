@@ -27,6 +27,9 @@ export const getMaximumAccessLevel = (resource: APIScopeObject): AccessControlLe
     if (resource === AccessControlResourceType.ActivityLog) {
         return AccessControlLevel.Viewer
     }
+    if (resource === AccessControlResourceType.SqlEditor) {
+        return AccessControlLevel.Editor
+    }
     return null
 }
 
@@ -48,6 +51,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'activity logs'
     } else if (resource === AccessControlResourceType.ExternalDataSource) {
         return 'data warehouse sources'
+    } else if (resource === AccessControlResourceType.SqlEditor) {
+        return 'SQL editor'
     }
 
     return resource.replace(/_/g, ' ') + 's'
@@ -66,6 +71,9 @@ export const orderedAccessLevels = (resourceType: AccessControlResourceType): Ac
     }
     if (resourceType === AccessControlResourceType.ActivityLog) {
         return [AccessControlLevel.None, AccessControlLevel.Viewer]
+    }
+    if (resourceType === AccessControlResourceType.SqlEditor) {
+        return [AccessControlLevel.None, AccessControlLevel.Viewer, AccessControlLevel.Editor]
     }
     return [AccessControlLevel.None, AccessControlLevel.Viewer, AccessControlLevel.Editor, AccessControlLevel.Manager]
 }
@@ -86,6 +94,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'web analytics resource'
     } else if (resourceType === AccessControlResourceType.ExternalDataSource) {
         return 'data warehouse source'
+    } else if (resourceType === AccessControlResourceType.SqlEditor) {
+        return 'SQL editor'
     }
 
     return resourceType.replace(/_/g, ' ')
@@ -173,6 +183,9 @@ export const userHasAccess = (
 export const getAccessControlTooltip = (resource: APIScopeObject): string | null => {
     if (resource === AccessControlResourceType.ExternalDataSource) {
         return 'Access control only applies to managed sources (Stripe, Postgres, etc.) and covers CRUD operations on the source configuration. It does not restrict querying data from those sources.'
+    }
+    if (resource === AccessControlResourceType.SqlEditor) {
+        return 'Viewers can see the SQL editor page and existing queries but cannot execute queries. Editors can execute queries. Existing insights are not affected by this setting.'
     }
     return null
 }

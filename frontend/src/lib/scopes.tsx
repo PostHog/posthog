@@ -87,6 +87,7 @@ export const API_SCOPES: APIScope[] = [
         objectPlural: 'session recording playlists',
     },
     { key: 'sharing_configuration', objectName: 'Sharing configuration', objectPlural: 'sharing configurations' },
+    { key: 'sql_editor', objectName: 'SQL editor', objectPlural: 'SQL editor' },
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
     { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
