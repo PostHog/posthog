@@ -7,7 +7,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
@@ -41,42 +40,17 @@ export function DefaultEvaluationContexts(): JSX.Element | null {
 
     return (
         <div className="space-y-4">
-            <div className="space-y-2">
-                <h3 className="min-w-[25rem]">Default Evaluation Contexts</h3>
-
-                <p>
-                    Configure default{' '}
-                    <Link
-                        to="https://posthog.com/docs/feature-flags/evaluation-contexts"
-                        target="_blank"
-                        disableDocsPanel
-                    >
-                        evaluation contexts
-                    </Link>{' '}
-                    that will be automatically applied to new feature flags. When enabled, these tags will be set on
-                    newly created flags.
-                </p>
-
-                <LemonSwitch
-                    data-attr="default-evaluation-contexts-switch"
-                    onChange={toggleEnabled}
-                    label="Apply default evaluation contexts to new flags"
-                    bordered
-                    checked={isEnabled}
-                    disabled={defaultEvaluationContextsLoading}
-                />
-            </div>
+            <LemonSwitch
+                data-attr="default-evaluation-contexts-switch"
+                onChange={toggleEnabled}
+                label="Apply default evaluation contexts to new flags"
+                bordered
+                checked={isEnabled}
+                disabled={defaultEvaluationContextsLoading}
+            />
 
             {isEnabled && (
                 <div className="space-y-3">
-                    <div>
-                        <h4 className="text-sm font-semibold mb-2">Default Evaluation Tags</h4>
-                        <p className="text-xs text-muted mb-3">
-                            These tags will be automatically added as evaluation constraints to all new feature flags.
-                            Users can still modify or remove them from individual flags during creation.
-                        </p>
-                    </div>
-
                     <div className="flex flex-wrap gap-2 items-center">
                         {tags.map((tag: { id: number; name: string }) => (
                             <LemonTag
