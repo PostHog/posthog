@@ -858,6 +858,8 @@ export enum PropertyOperator {
     SemverTilde = 'semver_tilde',
     SemverCaret = 'semver_caret',
     SemverWildcard = 'semver_wildcard',
+    IContainsMulti = 'icontains_multi',
+    NotIContainsMulti = 'not_icontains_multi',
 }
 
 export enum SavedInsightsTabs {
@@ -4085,10 +4087,20 @@ export interface EventDefinition {
     is_action?: boolean
     hidden?: boolean
     default_columns?: string[]
+    media_preview_urls?: string[]
 }
 
 export interface EventDefinitionMetrics {
     query_usage_30_day: number
+}
+
+export interface ObjectMediaPreview {
+    id: string
+    created_at: string
+    updated_at: string
+    media_url: string
+    media_type: 'uploaded' | 'exported'
+    metadata?: Record<string, any>
 }
 
 export enum PropertyType {
@@ -4267,6 +4279,7 @@ export interface Experiment {
     scheduling_config?: {
         timeseries?: boolean
     }
+    exposure_preaggregation_enabled?: boolean
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
@@ -4945,6 +4958,7 @@ export type APIScopeObject =
     | 'export'
     | 'feature_flag'
     | 'group'
+    | 'health_issue'
     | 'hog_function'
     | 'insight'
     | 'insight_variable'
@@ -6022,6 +6036,8 @@ export type HogFunctionType = {
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
     batch_export_id?: string | null
+    template_id?: string
+    deleted?: boolean
 }
 
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'

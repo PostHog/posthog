@@ -104,7 +104,7 @@ jobs:
               run: pnpm run lint:css
 
             - name: Lint with Oxlint
-              run: pnpm --filter=@posthog/frontend lint:js -f github
+              run: pnpm run lint:js -f github
 
             - name: Check markdown formatting with prettier
               run: pnpm exec prettier --check "**/*.{md,mdx}"

@@ -26,10 +26,10 @@ export function ChartFilter(): JSX.Element {
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { isTrends, isSingleSeries, formula, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
+    const { isTrends, isSingleSeriesOutput, formula, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
 
     const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
-    const singleSeriesOnlyDisabledReason = !isSingleSeries
+    const singleSeriesOnlyDisabledReason = !isSingleSeriesOutput
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
         : undefined
 

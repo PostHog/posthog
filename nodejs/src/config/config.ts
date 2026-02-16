@@ -293,6 +293,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_SESSION_FILTER_ENABLED: true, // When false, skip all Redis calls for session filtering
         SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
         SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
+        SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: 0.01, // 1% of encrypted blocks
 
         // Session replay ingestion consumer config
         INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
