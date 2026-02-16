@@ -79,6 +79,7 @@ from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
 from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
+from .resource_transfer.resource_transfer import ResourceTransfer
 from .scheduled_change import ScheduledChange
 from .schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 from .share_password import SharePassword
@@ -201,6 +202,7 @@ __all__ = [
     "QuickFilter",
     "RetentionFilter",
     "RemoteConfig",
+    "ResourceTransfer",
     "EventSchema",
     "SavedHeatmap",
     "SchemaPropertyGroup",
