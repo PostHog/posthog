@@ -30,6 +30,11 @@ from posthog.temporal.ai.slack_conversation import (
     process_slack_conversation_activity,
 )
 
+from products.signals.backend.temporal import (
+    ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
+    WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
+)
+
 from .llm_traces_summaries.summarize_traces import (
     SummarizeLLMTracesInputs,
     SummarizeLLMTracesWorkflow,
@@ -95,6 +100,7 @@ SIGNALS_WORKFLOWS = [
     SummarizeSessionGroupWorkflow,
     VideoSegmentClusteringWorkflow,
     VideoSegmentClusteringCoordinatorWorkflow,
+    *SIGNALS_PRODUCT_WORKFLOWS,
 ]
 
 SIGNALS_ACTIVITIES = [
@@ -121,6 +127,7 @@ SIGNALS_ACTIVITIES = [
     label_clusters_activity,
     persist_reports_activity,
     get_proactive_tasks_enabled_team_ids_activity,
+    *SIGNALS_PRODUCT_ACTIVITIES,
 ]
 
 __all__ = [

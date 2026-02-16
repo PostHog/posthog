@@ -1,4 +1,5 @@
 import json
+import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -19,17 +20,22 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 
 from products.signals.backend.models import SignalReport
-from products.signals.backend.temporal.llm import summarize_signals
+from products.signals.backend.temporal.actionability_judge import (
+    ActionabilityChoice,
+    ActionabilityJudgeInput,
+    actionability_judge_activity,
+)
+from products.signals.backend.temporal.safety_judge import SafetyJudgeInput, safety_judge_activity
+from products.signals.backend.temporal.summarize_signals import (
+    SummarizeSignalsInput,
+    SummarizeSignalsOutput,
+    summarize_signals_activity,
+)
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
 
 logger = structlog.get_logger(__name__)
 
 EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
-
-
-# ============================================================================
-# Activities
-# ============================================================================
 
 
 @dataclass
@@ -153,38 +159,6 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
 
 
 @dataclass
-class SummarizeSignalsInput:
-    report_id: str
-    signals: list[SignalData]
-
-
-@dataclass
-class SummarizeSignalsOutput:
-    title: str
-    summary: str
-
-
-@temporalio.activity.defn
-async def summarize_signals_activity(input: SummarizeSignalsInput) -> SummarizeSignalsOutput:
-    """Summarize signals into a title and summary for the report."""
-    try:
-        title, summary = await summarize_signals(input.signals)
-        logger.debug(
-            f"Summarized {len(input.signals)} signals for report {input.report_id}",
-            report_id=input.report_id,
-            signal_count=len(input.signals),
-            title=title,
-        )
-        return SummarizeSignalsOutput(title=title, summary=summary)
-    except Exception as e:
-        logger.exception(
-            f"Failed to summarize signals for report {input.report_id}: {e}",
-            report_id=input.report_id,
-        )
-        raise
-
-
-@dataclass
 class MarkReportReadyInput:
     report_id: str
     title: str
@@ -193,7 +167,7 @@ class MarkReportReadyInput:
 
 @temporalio.activity.defn
 async def mark_report_ready_activity(input: MarkReportReadyInput) -> None:
-    """Mark a report as ready after successful summarization."""
+    """Mark a report as ready after successful summarization and judge checks."""
     try:
 
         @transaction.atomic
@@ -251,29 +225,90 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         raise
 
 
-# ============================================================================
-# Workflow
-# ============================================================================
+@dataclass
+class MarkReportPendingInputInput:
+    report_id: str
+    title: str
+    summary: str
+    reason: str
+
+
+@temporalio.activity.defn
+async def mark_report_pending_input_activity(input: MarkReportPendingInputInput) -> None:
+    """Mark a report as pending human input, storing the draft title/summary for human review."""
+    try:
+
+        @transaction.atomic
+        def do_update():
+            report = SignalReport.objects.select_for_update().get(id=input.report_id)
+            report.status = SignalReport.Status.PENDING_INPUT
+            report.title = input.title
+            report.summary = input.summary
+            report.error = input.reason
+            report.save(update_fields=["status", "title", "summary", "error", "updated_at"])
+
+        await sync_to_async(do_update, thread_sensitive=False)()
+        logger.debug(
+            f"Marked report {input.report_id} as pending_input",
+            report_id=input.report_id,
+            reason=input.reason,
+        )
+    except Exception as e:
+        logger.exception(
+            f"Failed to mark report {input.report_id} as pending_input: {e}",
+            report_id=input.report_id,
+        )
+        raise
+
+
+@dataclass
+class ResetReportToPotentialInput:
+    report_id: str
+    reason: str
+
+
+@temporalio.activity.defn
+async def reset_report_to_potential_activity(input: ResetReportToPotentialInput) -> None:
+    """Reset a report's weight to 0 and status to potential (e.g. when deemed not actionable)."""
+    try:
+
+        @transaction.atomic
+        def do_update():
+            report = SignalReport.objects.select_for_update().get(id=input.report_id)
+            report.status = SignalReport.Status.POTENTIAL
+            report.total_weight = 0.0
+            report.promoted_at = None
+            report.error = input.reason
+            report.save(update_fields=["status", "total_weight", "promoted_at", "error", "updated_at"])
+
+        await sync_to_async(do_update, thread_sensitive=False)()
+        logger.debug(
+            f"Reset report {input.report_id} to potential",
+            report_id=input.report_id,
+            reason=input.reason,
+        )
+    except Exception as e:
+        logger.exception(
+            f"Failed to reset report {input.report_id} to potential: {e}",
+            report_id=input.report_id,
+        )
+        raise
 
 
 @temporalio.workflow.defn(name="signal-report-summary")
 class SignalReportSummaryWorkflow:
     """
-    Very simple "testing" workflow. The final step here /will/ be to spawn a new
-    cloud task in twig, but that infra isn't quite there yet (and even if it was, I'd
-    make that a new PR). For now, it just grabs the full signal group, summarizes it,
-    and updates the report.
-
-    TODO - one interesting thing we could do here is let the summarising LLM decide
-    "no, this isn't actually actionable yet", or even "no, these aren't actually a real
-    signal group", and then either reset the report to a `POTENTIAL` status, or even
-    delete it and then re-run the signals themselves through the grouping workflow.
+    Workflow that runs when a signal report is promoted to candidate status.
 
     Flow:
     1. Fetch all signals for the report from ClickHouse
     2. Mark report as in_progress
-    3. Summarize signals with a single LLM pass
-    4. Update report with title/summary and mark as ready (or failed)
+    3. Summarize signals into a title + summary via LLM
+    4. Safety judge: assess the report for prompt injection / manipulation attempts
+       - If unsafe → mark report as failed, stop
+    5. Actionability judge: assess whether the report is actionable by a coding agent
+       - If not actionable → reset report weight to 0 and status to potential, stop
+    6. Mark report as ready with the generated title and summary
     """
 
     @staticmethod
@@ -287,6 +322,7 @@ class SignalReportSummaryWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        # 1. Fetch signals
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
             FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
@@ -295,7 +331,6 @@ class SignalReportSummaryWorkflow:
         )
 
         if not fetch_result.signals:
-            # mark the report as failed, and log an error
             workflow.logger.error(f"No signals found for report {inputs.report_id}, marking as failed")
             await workflow.execute_activity(
                 mark_report_failed_activity,
@@ -305,6 +340,7 @@ class SignalReportSummaryWorkflow:
             )
             return
 
+        # 2. Mark in-progress
         await workflow.execute_activity(
             mark_report_in_progress_activity,
             MarkReportInProgressInput(report_id=inputs.report_id, signal_count=len(fetch_result.signals)),
@@ -313,6 +349,7 @@ class SignalReportSummaryWorkflow:
         )
 
         try:
+            # 3. Summarize
             summarize_result: SummarizeSignalsOutput = await workflow.execute_activity(
                 summarize_signals_activity,
                 SummarizeSignalsInput(report_id=inputs.report_id, signals=fetch_result.signals),
@@ -320,6 +357,81 @@ class SignalReportSummaryWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
+            # 4+5. Safety and actionability judges (concurrent)
+            safety_result, actionability_result = await asyncio.gather(
+                workflow.execute_activity(
+                    safety_judge_activity,
+                    SafetyJudgeInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        title=summarize_result.title,
+                        summary=summarize_result.summary,
+                        signals=fetch_result.signals,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                ),
+                workflow.execute_activity(
+                    actionability_judge_activity,
+                    ActionabilityJudgeInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        title=summarize_result.title,
+                        summary=summarize_result.summary,
+                        signals=fetch_result.signals,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                ),
+            )
+
+            # Check safety first — override actionability if unsafe
+            if not safety_result.safe:
+                workflow.logger.warning(f"Report {inputs.report_id} failed safety review: {safety_result.explanation}")
+                await workflow.execute_activity(
+                    mark_report_failed_activity,
+                    MarkReportFailedInput(
+                        report_id=inputs.report_id,
+                        error=f"Failed safety review: {safety_result.explanation}",
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                return
+
+            if actionability_result.choice == ActionabilityChoice.NOT_ACTIONABLE.value:
+                workflow.logger.info(
+                    f"Report {inputs.report_id} deemed not actionable: {actionability_result.explanation}"
+                )
+                await workflow.execute_activity(
+                    reset_report_to_potential_activity,
+                    ResetReportToPotentialInput(
+                        report_id=inputs.report_id,
+                        reason=f"Not actionable: {actionability_result.explanation}",
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                return
+
+            if actionability_result.choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT.value:
+                workflow.logger.info(
+                    f"Report {inputs.report_id} requires human input: {actionability_result.explanation}"
+                )
+                await workflow.execute_activity(
+                    mark_report_pending_input_activity,
+                    MarkReportPendingInputInput(
+                        report_id=inputs.report_id,
+                        title=summarize_result.title,
+                        summary=summarize_result.summary,
+                        reason=f"Requires human input: {actionability_result.explanation}",
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                return
+
+            # 6. Mark ready (immediately_actionable)
             await workflow.execute_activity(
                 mark_report_ready_activity,
                 MarkReportReadyInput(

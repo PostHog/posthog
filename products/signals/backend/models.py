@@ -9,6 +9,7 @@ class SignalReport(UUIDModel):
         POTENTIAL = "potential"
         CANDIDATE = "candidate"
         IN_PROGRESS = "in_progress"
+        PENDING_INPUT = "pending_input"
         READY = "ready"
         FAILED = "failed"
 
@@ -49,8 +50,13 @@ class SignalReport(UUIDModel):
 
 
 class SignalReportArtefact(UUIDModel):
+    class ArtefactType(models.TextChoices):
+        VIDEO_SEGMENT = "video_segment"
+        SAFETY_JUDGMENT = "safety_judgment"
+        ACTIONABILITY_JUDGMENT = "actionability_judgment"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")
-    type = models.CharField(max_length=100)
+    type = models.CharField(max_length=100, choices=ArtefactType.choices)
     content = models.BinaryField()
     created_at = models.DateTimeField(auto_now_add=True)

@@ -20,7 +20,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
 from products.signals.backend.api import emit_signal
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.serializers import SignalReportArtefactSerializer, SignalReportSerializer
 from products.tasks.backend.temporal.client import execute_video_segment_clustering_workflow
 
@@ -150,7 +150,9 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["signal_report:read"])
     def artefacts(self, request, pk=None, **kwargs):
         report = cast(SignalReport, self.get_object())
-        artefacts = report.artefacts.filter(type="video_segment").order_by("-created_at")
+        artefacts = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.VIDEO_SEGMENT).order_by(
+            "-created_at"
+        )
         serializer = SignalReportArtefactSerializer(artefacts, many=True)
         return Response(
             {

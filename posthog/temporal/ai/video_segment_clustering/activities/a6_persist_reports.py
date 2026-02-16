@@ -123,7 +123,7 @@ async def persist_reports_activity(inputs: PersistReportsActivityInputs) -> Pers
                 existing_artefacts = [
                     artefact
                     async for artefact in SignalReportArtefact.objects.filter(
-                        report_id=match.report_id, type="video_segment"
+                        report_id=match.report_id, type=SignalReportArtefact.ArtefactType.VIDEO_SEGMENT
                     ).only("content")
                 ]
                 existing_refs: set[str] = set()
@@ -219,7 +219,7 @@ async def persist_reports_activity(inputs: PersistReportsActivityInputs) -> Pers
                 SignalReportArtefact(
                     team=team,
                     report_id=report_id,
-                    type="video_segment",
+                    type=SignalReportArtefact.ArtefactType.VIDEO_SEGMENT,
                     content=artefact_content,
                 )
             )

@@ -13,7 +13,7 @@ import structlog
 import temporalio
 from asgiref.sync import sync_to_async
 from temporalio import workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.schema import EmbeddingModelName
@@ -39,11 +39,6 @@ logger = structlog.get_logger(__name__)
 
 EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 WEIGHT_THRESHOLD = float(os.getenv("SIGNAL_WEIGHT_THRESHOLD", "1.0"))
-
-
-# ============================================================================
-# Activities
-# ============================================================================
 
 
 @dataclass
@@ -449,11 +444,6 @@ async def emit_to_clickhouse_activity(input: EmitToClickHouseInput) -> None:
         raise
 
 
-# ============================================================================
-# Workflow
-# ============================================================================
-
-
 # TODO: Not idempotent on source_id - re-running with the same source_id will create duplicate signals.
 # Need to check ClickHouse for existing signal before processing.
 @temporalio.workflow.defn(name="emit-signal")
@@ -600,13 +590,17 @@ class EmitSignalWorkflow:
         if assign_result.promoted:
             from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
 
-            await workflow.start_child_workflow(
-                SignalReportSummaryWorkflow.run,
-                SignalReportSummaryWorkflowInputs(team_id=inputs.team_id, report_id=assign_result.report_id),
-                id=SignalReportSummaryWorkflow.workflow_id_for(inputs.team_id, assign_result.report_id),
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                parent_close_policy=ParentClosePolicy.ABANDON,
-                execution_timeout=timedelta(minutes=30),
-            )
+            try:
+                await workflow.start_child_workflow(
+                    SignalReportSummaryWorkflow.run,
+                    SignalReportSummaryWorkflowInputs(team_id=inputs.team_id, report_id=assign_result.report_id),
+                    id=SignalReportSummaryWorkflow.workflow_id_for(inputs.team_id, assign_result.report_id),
+                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    execution_timeout=timedelta(minutes=30),
+                )
+            except temporalio.exceptions.WorkflowAlreadyStartedError:
+                pass
 
         return signal_id
