@@ -64,20 +64,22 @@ export function FunnelStepsTable(): JSX.Element | null {
                     title: isOnlySeries ? (
                         'Breakdown'
                     ) : (
-                        <LemonCheckbox
-                            checked={allChecked ? true : someChecked ? 'indeterminate' : false}
-                            onChange={() => {
-                                // Either toggle all breakdowns on or off
-                                setHiddenLegendBreakdowns(
-                                    allChecked
-                                        ? flattenedBreakdowns.map((b) => getVisibilityKey(b.breakdown_value))
-                                        : []
-                                )
-                            }}
-                            label={<span className="font-bold">Breakdown</span>}
-                            size="small"
-                            disabledReason={editingDisabledReason}
-                        />
+                        <span className="inline-flex items-center gap-1">
+                            <LemonCheckbox
+                                checked={allChecked ? true : someChecked ? 'indeterminate' : false}
+                                onChange={() => {
+                                    // Either toggle all breakdowns on or off
+                                    setHiddenLegendBreakdowns(
+                                        allChecked
+                                            ? flattenedBreakdowns.map((b) => getVisibilityKey(b.breakdown_value))
+                                            : []
+                                    )
+                                }}
+                                size="small"
+                                disabledReason={editingDisabledReason}
+                            />
+                            <span className="font-bold">Breakdown</span>
+                        </span>
                     ),
                     dataIndex: 'breakdown_value',
                     sorter: (a: FlattenedFunnelStepByBreakdown, b: FlattenedFunnelStepByBreakdown) => {
