@@ -328,7 +328,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
     def _build_step_query(
         self,
-        step_entity: EntityNode | ExclusionEntityNode | GroupNode,
+        step_entity: EntityNode | ExclusionEntityNode,
         table_entity: DataWarehouseNode | None,
     ) -> ast.Expr:
         filters: list[ast.Expr] = []
