@@ -127,8 +127,12 @@ export class GeoIPService {
 
         geoipBackgroundRefreshCounter.inc({ result: 'refreshing' })
         const mmdb = await this.loadMmdb('background refresh')
-        this._mmdb = mmdb
-        this._mmdbMetadata = metadata
+        if (mmdb) {
+            this._mmdb = mmdb
+            this._mmdbMetadata = metadata
+        } else {
+            logger.warn('🌎', 'Background MMDB refresh failed, keeping existing MMDB')
+        }
     }
 
     async get(): Promise<GeoIp> {
