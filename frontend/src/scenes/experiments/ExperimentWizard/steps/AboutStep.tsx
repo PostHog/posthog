@@ -106,8 +106,9 @@ export function AboutStep(): JSX.Element {
                         placeholder="e.g., new-checkout-flow-test"
                         value={experiment.feature_flag_key ?? ''}
                         onChange={(value) => {
-                            setExperimentValue('feature_flag_key', value)
-                            debouncedValidateFeatureFlagKey(value)
+                            const normalizedValue = slugify(value, { trimBothEnds: false })
+                            setExperimentValue('feature_flag_key', normalizedValue)
+                            debouncedValidateFeatureFlagKey(normalizedValue)
                         }}
                         suffix={featureFlagKeyValidationLoading ? <Spinner className="text-xl" /> : undefined}
                         data-attr="experiment-wizard-flag-key"
