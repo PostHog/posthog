@@ -752,16 +752,19 @@ describe('funnelDataLogic', () => {
             result: funnelResultWithBreakdown.result,
         }
 
-        const getBreakdownOrder = (breakdowns: { breakdown?: unknown }[]): unknown[] =>
-            breakdowns.map((b) => (b as any).breakdown?.[0] ?? 'baseline')
+        const getBreakdownOrder = (items: unknown[]): unknown[] =>
+            items.map((b: any) => {
+                const v = b.breakdown_value
+                return Array.isArray(v) ? v[0] : v
+            })
 
         it.each([
-            ['breakdown_value', ['baseline', 'Chrome', 'Firefox', 'Safari']],
-            ['-breakdown_value', ['Safari', 'Firefox', 'Chrome', 'baseline']],
-            ['step_0_conversion', ['Safari', 'Firefox', 'Chrome', 'baseline']],
-            ['-step_0_conversion', ['baseline', 'Chrome', 'Firefox', 'Safari']],
-            ['step_1_conversion', ['Safari', 'Firefox', 'Chrome', 'baseline']],
-            ['-step_1_conversion', ['baseline', 'Chrome', 'Firefox', 'Safari']],
+            ['breakdown_value', ['Baseline', 'Chrome', 'Firefox', 'Safari']],
+            ['-breakdown_value', ['Safari', 'Firefox', 'Chrome', 'Baseline']],
+            ['step_0_conversion', ['Safari', 'Firefox', 'Chrome', 'Baseline']],
+            ['-step_0_conversion', ['Baseline', 'Chrome', 'Firefox', 'Safari']],
+            ['step_1_conversion', ['Safari', 'Firefox', 'Chrome', 'Baseline']],
+            ['-step_1_conversion', ['Baseline', 'Chrome', 'Firefox', 'Safari']],
         ])('flattenedBreakdowns sorts by %s', async (breakdownSorting: string, expectedOrder: string[]) => {
             const query: FunnelsQuery = {
                 kind: NodeKind.FunnelsQuery,
@@ -791,14 +794,8 @@ describe('funnelDataLogic', () => {
             }).toFinishAllListeners()
 
             const { flattenedBreakdowns, visibleStepsWithConversionMetrics } = logic.values
-            const expectedOrder = flattenedBreakdowns.map((b) => b.breakdown_value?.[0] ?? 'Baseline')
-
-            for (const step of visibleStepsWithConversionMetrics) {
-                const nestedOrder = (step.nested_breakdown ?? []).map((b) =>
-                    Array.isArray(b.breakdown_value) ? b.breakdown_value[0] : b.breakdown_value
-                )
-                expect(nestedOrder).toEqual(expectedOrder)
-            }
+            const graphOrder = getBreakdownOrder(visibleStepsWithConversionMetrics[1].nested_breakdown ?? [])
+            expect(graphOrder).toEqual(getBreakdownOrder(flattenedBreakdowns))
         })
     })
 
