@@ -206,7 +206,6 @@ function MoreMenu(): JSX.Element {
     const {
         setHedgehogModeEnabled,
         toggleTheme,
-        setVisibleMenu,
         togglePiiMasking,
         setPiiMaskingColor,
         startGracefulExit,
@@ -240,12 +239,12 @@ function MoreMenu(): JSX.Element {
                     [
                         {
                             icon: <>🦔</>,
-                            label: hedgehogMode ? 'Disable hedgehog mode' : 'Hedgehog mode',
+                            label: hedgehogModeEnabled ? 'Disable hedgehog mode' : 'Hedgehog mode',
                             onClick: () => {
                                 setHedgehogModeEnabled(!hedgehogModeEnabled)
                             },
                         },
-                        hedgehogMode
+                        hedgehogModeEnabled
                             ? {
                                   icon: <IconFlare />,
                                   label: 'Hedgehog options',
