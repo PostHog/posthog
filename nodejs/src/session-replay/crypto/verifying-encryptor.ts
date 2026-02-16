@@ -19,8 +19,9 @@ export class VerifyingEncryptor implements RecordingEncryptor {
         private checkRate: number = 0
     ) {}
 
-    start(): Promise<void> {
-        return this.encryptor.start()
+    async start(): Promise<void> {
+        await this.encryptor.start()
+        await this.decryptor.start()
     }
 
     encryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer> {

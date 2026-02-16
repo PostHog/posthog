@@ -50,10 +50,11 @@ describe('VerifyingEncryptor', () => {
         mockDecryptor = createMockDecryptor()
     })
 
-    it('delegates start() to the wrapped encryptor', async () => {
+    it('delegates start() to both encryptor and decryptor', async () => {
         const verifier = new VerifyingEncryptor(mockEncryptor, mockDecryptor, 0)
         await verifier.start()
         expect(mockEncryptor.start).toHaveBeenCalled()
+        expect(mockDecryptor.start).toHaveBeenCalled()
     })
 
     it('delegates encryptBlock() to the wrapped encryptor', async () => {
