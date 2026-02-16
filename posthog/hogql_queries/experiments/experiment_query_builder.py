@@ -1221,7 +1221,7 @@ class ExperimentQueryBuilder:
         Returns the exposure query and placeholders for preaggregation.
 
         The query string uses {time_window_min} and {time_window_max} placeholders
-        which are filled in by the preaggregation system for each daily bucket.
+        which are filled in by the lazy computation system for each daily bucket.
         Other placeholders are returned in the dict and should be passed to
         ensure_precomputed().
 
