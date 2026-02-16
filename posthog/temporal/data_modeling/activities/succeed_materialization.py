@@ -9,6 +9,7 @@ from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.models import Node
 from products.data_warehouse.backend.models import DataModelingJob
+from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobStatus
 
 from .utils import update_node_system_properties
 
@@ -28,9 +29,10 @@ class SucceedMaterializationInputs:
 @database_sync_to_async
 def _succeed_node_and_data_modeling_job(inputs: SucceedMaterializationInputs):
     node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+    status = DataModelingJobStatus.COMPLETED
     update_node_system_properties(
         node,
-        status="completed",
+        status=status,
         job_id=inputs.job_id,
         rows=inputs.row_count,
         duration_seconds=inputs.duration_seconds,
@@ -38,7 +40,7 @@ def _succeed_node_and_data_modeling_job(inputs: SucceedMaterializationInputs):
     node.save()
 
     job = DataModelingJob.objects.get(id=inputs.job_id)
-    job.status = DataModelingJob.Status.COMPLETED
+    job.status = status
     job.last_run_at = dt.datetime.now(dt.UTC)
     job.error = None
     job.save()
