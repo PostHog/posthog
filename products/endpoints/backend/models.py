@@ -5,10 +5,11 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 
 
 def validate_endpoint_name(value: str) -> None:
@@ -135,7 +136,7 @@ class EndpointVersion(models.Model):
         return True, ""
 
 
-class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
+class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTModel):
     """Model for storing endpoints that can be accessed via API endpoints.
 
     Endpoints allow creating reusable query endpoints like:
@@ -176,7 +177,8 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "name"],
-                name="unique_team_endpoint_name",
+                condition=Q(deleted=False) | Q(deleted__isnull=True),
+                name="unique_team_endpoint_name_active",
             )
         ]
         indexes = [
