@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -23,6 +25,13 @@ export function SpikeDetectionSettings(): JSX.Element {
 
     return (
         <Form logic={spikeDetectionConfigLogic} formKey="configForm" enableFormOnSubmit className="space-y-4">
+            <LemonBanner type="info" action={{ children: 'Send feedback', id: 'spike-detection-feedback-button' }}>
+                <p>
+                    Spike detection is in alpha. We may make changes to the defaults or replace these serrings as we
+                    iterate. We'd love your feedback!
+                </p>
+            </LemonBanner>
+
             <p className="text-muted-foreground">
                 Configure spike detection settings for error tracking alerts. When an issue receives significantly more
                 exceptions than its baseline, a spike alert will be triggered.

@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { ErrorTrackingSpikeDetectionConfig } from 'lib/components/Errors/types'
@@ -71,6 +72,11 @@ export const spikeDetectionConfigLogic = kea<spikeDetectionConfigLogicType>([
                         threshold: formValues.threshold,
                     })
                     actions.loadConfigSuccess(updated)
+                    posthog.capture('error_tracking_spike_detection_settings_updated', {
+                        snooze_duration_minutes: formValues.snooze_duration_minutes,
+                        multiplier: formValues.multiplier,
+                        threshold: formValues.threshold,
+                    })
                     lemonToast.success('Spike detection settings saved')
                 } catch (e) {
                     lemonToast.error('Failed to save spike detection settings')
