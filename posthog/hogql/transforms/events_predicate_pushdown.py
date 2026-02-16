@@ -138,11 +138,6 @@ class EventsFieldCollector(TraversingVisitor):
         self.collected_fields: dict[str, ast.FieldType] = {}
         self.has_non_direct_fields = False
 
-    @property
-    def database_columns(self) -> set[str]:
-        """For backward compatibility - returns just the column names."""
-        return set(self.collected_fields.keys())
-
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
         field_type = node.type
@@ -432,11 +427,6 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             return None
 
         return collector.collected_fields
-
-    def _build_select_fields(self, columns: set[str]) -> list[ast.Expr]:
-        """Build untyped Field nodes for the needed columns."""
-        # Sort for deterministic output
-        return [ast.Field(chain=[col_name]) for col_name in sorted(columns)]
 
     def _build_typed_subquery(
         self, collected_fields: dict[str, ast.FieldType], where_clause: ast.Expr

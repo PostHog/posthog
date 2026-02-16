@@ -695,49 +695,6 @@ def references_joined_table(
     return finder.found_joined_reference
 
 
-class TableAliasUnwrapper(CloningVisitor):
-    """
-    Clones an expression and unwraps TableAliasType references to use the underlying TableType.
-
-    This is needed for predicate pushdown: when we push predicates into a subquery like
-    (SELECT * FROM events WHERE ...), the fields should reference 'events' not the alias
-    that's defined outside the subquery.
-    """
-
-    def visit_field(self, node: ast.Field):
-        # Clone the field and fix up its type if needed
-        new_type = node.type
-        if isinstance(node.type, ast.FieldType):
-            if isinstance(node.type.table_type, ast.TableAliasType):
-                # Unwrap the alias to get the underlying table type
-                new_type = ast.FieldType(
-                    name=node.type.name,
-                    table_type=node.type.table_type.table_type,
-                )
-        elif isinstance(node.type, ast.PropertyType):
-            # Handle PropertyType which wraps a FieldType
-            inner_field_type = node.type.field_type
-            if isinstance(inner_field_type.table_type, ast.TableAliasType):
-                # Unwrap the alias in the inner FieldType
-                new_inner_field_type = ast.FieldType(
-                    name=inner_field_type.name,
-                    table_type=inner_field_type.table_type.table_type,
-                )
-                new_type = ast.PropertyType(
-                    chain=node.type.chain.copy(),
-                    field_type=new_inner_field_type,
-                )
-        return ast.Field(
-            chain=node.chain.copy(),
-            type=new_type,
-        )
-
-
-def unwrap_table_aliases(expr: ast.Expr) -> ast.Expr:
-    """Clone an expression and unwrap TableAliasType references to use the underlying TableType."""
-    return TableAliasUnwrapper().visit(expr)
-
-
 class EventsPredicatePushdownExtractor:
     """
     Extracts predicates from a WHERE clause that can be pushed down into an events subquery.

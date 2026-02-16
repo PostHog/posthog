@@ -436,9 +436,9 @@ class TestEventsFieldCollector(BaseTest):
         collector = EventsFieldCollector(events_table_type, self.context)
         collector.visit(node)
 
-        assert "event" in collector.database_columns
-        assert "timestamp" in collector.database_columns
-        assert "distinct_id" in collector.database_columns
+        assert "event" in collector.collected_fields
+        assert "timestamp" in collector.collected_fields
+        assert "distinct_id" in collector.collected_fields
         assert collector.has_non_direct_fields is False
 
     def test_property_access_triggers_non_direct_flag(self):
@@ -467,7 +467,7 @@ class TestEventsFieldCollector(BaseTest):
         collector.visit(node)
 
         # $session_id is a direct column on events table
-        assert "$session_id" in collector.database_columns
+        assert "$session_id" in collector.collected_fields
         assert collector.has_non_direct_fields is False
 
     def test_poe_properties_collected_as_person_properties(self):
@@ -477,7 +477,7 @@ class TestEventsFieldCollector(BaseTest):
         collector = EventsFieldCollector(events_table_type, self.context)
         collector.visit(node)
 
-        assert "person_properties" in collector.database_columns
+        assert "person_properties" in collector.collected_fields
         assert collector.has_non_direct_fields is False
 
     def test_poe_id_collected_as_person_id(self):
@@ -487,7 +487,7 @@ class TestEventsFieldCollector(BaseTest):
         collector = EventsFieldCollector(events_table_type, self.context)
         collector.visit(node)
 
-        assert "person_id" in collector.database_columns
+        assert "person_id" in collector.collected_fields
         assert collector.has_non_direct_fields is False
 
     def test_poe_created_at_collected_as_person_created_at(self):
@@ -497,7 +497,7 @@ class TestEventsFieldCollector(BaseTest):
         collector = EventsFieldCollector(events_table_type, self.context)
         collector.visit(node)
 
-        assert "person_created_at" in collector.database_columns
+        assert "person_created_at" in collector.collected_fields
         assert collector.has_non_direct_fields is False
 
     def test_poe_field_type_has_virtual_table_type(self):
@@ -517,9 +517,9 @@ class TestEventsFieldCollector(BaseTest):
         collector = EventsFieldCollector(events_table_type, self.context)
         collector.visit(node)
 
-        assert "event" in collector.database_columns
-        assert "person_id" in collector.database_columns
-        assert "timestamp" in collector.database_columns
+        assert "event" in collector.collected_fields
+        assert "person_id" in collector.collected_fields
+        assert "timestamp" in collector.collected_fields
         assert collector.has_non_direct_fields is False
 
     def test_poe_revenue_analytics_lazy_join_triggers_non_direct(self):
