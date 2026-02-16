@@ -28,7 +28,13 @@ import {
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseViewLink, QueryTabState } from '~/types'
+import {
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryDraft,
+    DataWarehouseViewLink,
+    EndpointType,
+    QueryTabState,
+} from '~/types'
 
 import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
@@ -109,7 +115,7 @@ const systemTablesFuse = new Fuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
 const dataWarehouseTablesFuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], FUSE_OPTIONS)
 const savedQueriesFuse = new Fuse<DataWarehouseSavedQuery>([], FUSE_OPTIONS)
 const managedViewsFuse = new Fuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIONS)
-const endpointTablesFuse = new Fuse<DatabaseSchemaEndpointTable>([], FUSE_OPTIONS)
+const endpointsFuse = new Fuse<EndpointType>([], FUSE_OPTIONS)
 const draftsFuse = new Fuse<DataWarehouseSavedQueryDraft>([], FUSE_OPTIONS)
 // Factory functions for creating tree nodes
 type TableLookupEntry = {
@@ -869,7 +875,8 @@ const createManagedViewNode = (
 }
 
 const createEndpointNode = (
-    endpoint: DatabaseSchemaEndpointTable,
+    endpoint: EndpointType,
+    schemaTable: DatabaseSchemaEndpointTable | undefined,
     matches: FuseSearchMatch[] | null = null,
     isSearch = false,
     tableLookup?: TableLookup,
@@ -879,15 +886,17 @@ const createEndpointNode = (
 ): TreeDataItem => {
     const endpointChildren: TreeDataItem[] = []
 
-    sortFieldsWithPrimary(endpoint.name, Object.values(endpoint.fields))
-        .filter((field) => !shouldHideField(field))
-        .forEach((field: DatabaseSchemaField) => {
-            endpointChildren.push(
-                createFieldNode(endpoint.name, field, isSearch, field.name, tableLookup, {
-                    expandedLazyNodeIds: options?.expandedLazyNodeIds,
-                })
-            )
-        })
+    if (schemaTable) {
+        sortFieldsWithPrimary(schemaTable.name, Object.values(schemaTable.fields))
+            .filter((field) => !shouldHideField(field))
+            .forEach((field: DatabaseSchemaField) => {
+                endpointChildren.push(
+                    createFieldNode(schemaTable.name, field, isSearch, field.name, tableLookup, {
+                        expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                    })
+                )
+            })
+    }
 
     const endpointId = `${isSearch ? 'search-' : ''}endpoint-${endpoint.id}`
 
@@ -1155,6 +1164,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         ],
     }),
     loaders(({ values }) => ({
+        allEndpoints: [
+            [] as EndpointType[],
+            {
+                loadAllEndpoints: async () => {
+                    const response = await api.endpoint.list()
+                    return response.results || []
+                },
+            },
+        ],
         queryTabState: [
             null as QueryTabState | null,
             {
@@ -1279,18 +1297,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 return managedViews.map((view) => [view, null])
             },
         ],
-        relevantEndpointTables: [
-            (s) => [s.endpointTables, s.searchTerm],
-            (
-                endpointTables: DatabaseSchemaEndpointTable[],
-                searchTerm: string
-            ): [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][] => {
+        relevantEndpoints: [
+            (s) => [s.allEndpoints, s.searchTerm],
+            (allEndpoints: EndpointType[], searchTerm: string): [EndpointType, FuseSearchMatch[] | null][] => {
                 if (searchTerm) {
-                    return endpointTablesFuse
+                    return endpointsFuse
                         .search(searchTerm)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
-                return endpointTables.map((table) => [table, null])
+                return allEndpoints.map((endpoint) => [endpoint, null])
             },
         ],
         relevantDrafts: [
@@ -1319,12 +1334,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.relevantDataWarehouseTables,
                 s.relevantSavedQueries,
                 s.relevantManagedViews,
-                s.relevantEndpointTables,
+                s.relevantEndpoints,
                 s.relevantDrafts,
                 s.searchTerm,
                 s.featureFlags,
                 s.expandedSearchFolders,
                 s.allTablesMap,
+                s.endpointTables,
             ],
             (
                 allPosthogTables: DatabaseSchemaTable[],
@@ -1337,12 +1353,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][],
                 relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][],
                 relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][],
-                relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][],
+                relevantEndpoints: [EndpointType, FuseSearchMatch[] | null][],
                 relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][],
                 searchTerm: string,
                 featureFlags: FeatureFlagsSet,
                 expandedSearchFolders: string[],
-                allTablesMap: Record<string, DatabaseSchemaTable>
+                allTablesMap: Record<string, DatabaseSchemaTable>,
+                endpointTables: DatabaseSchemaEndpointTable[]
             ): TreeDataItem[] => {
                 if (!searchTerm) {
                     return []
@@ -1426,9 +1443,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 // Add endpoints
                 if (featureFlags[FEATURE_FLAGS.ENDPOINTS]) {
-                    relevantEndpointTables.forEach(([endpoint, matches]) => {
+                    const endpointSchemaByName = Object.fromEntries(endpointTables.map((t) => [t.name, t]))
+                    relevantEndpoints.forEach(([endpoint, matches]) => {
+                        const schemaTable = endpointSchemaByName[`${endpoint.name}_v${endpoint.current_version}`]
                         endpointChildren.push(
-                            createEndpointNode(endpoint, matches, true, tableLookup, tableNodeOptions)
+                            createEndpointNode(endpoint, schemaTable, matches, true, tableLookup, tableNodeOptions)
                         )
                     })
                 }
@@ -1492,6 +1511,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.dataWarehouseSavedQueries,
                 s.managedViews,
                 s.endpointTables,
+                s.allEndpoints,
                 s.databaseLoading,
                 s.dataWarehouseSavedQueriesLoading,
                 s.drafts,
@@ -1510,6 +1530,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
                 managedViews: DatabaseSchemaManagedViewTable[],
                 endpointTables: DatabaseSchemaEndpointTable[],
+                allEndpoints: EndpointType[],
                 databaseLoading: boolean,
                 dataWarehouseSavedQueriesLoading: boolean,
                 drafts: DataWarehouseSavedQueryDraft[],
@@ -1589,7 +1610,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     dataWarehouseSavedQueriesLoading &&
                     dataWarehouseSavedQueries.length === 0 &&
                     managedViews.length === 0 &&
-                    endpointTables.length === 0
+                    allEndpoints.length === 0
                 ) {
                     viewsChildren.push({
                         id: 'views-loading/',
@@ -1636,11 +1657,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         )
                     })
 
-                    // Add endpoints
+                    // Add endpoints (from the endpoints API, not the schema — so all endpoints show, not just materialized ones)
                     if (featureFlags[FEATURE_FLAGS.ENDPOINTS]) {
-                        endpointTables.forEach((endpoint) => {
+                        const endpointSchemaByName = Object.fromEntries(endpointTables.map((t) => [t.name, t]))
+                        allEndpoints.forEach((endpoint) => {
+                            const schemaTable = endpointSchemaByName[`${endpoint.name}_v${endpoint.current_version}`]
                             endpointChildren.push(
-                                createEndpointNode(endpoint, null, false, tableLookup, tableNodeOptions)
+                                createEndpointNode(endpoint, schemaTable, null, false, tableLookup, tableNodeOptions)
                             )
                         })
                     }
@@ -1884,8 +1907,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         managedViews: (managedViews: DatabaseSchemaManagedViewTable[]) => {
             managedViewsFuse.setCollection(managedViews)
         },
-        endpointTables: (endpointTables: DatabaseSchemaEndpointTable[]) => {
-            endpointTablesFuse.setCollection(endpointTables)
+        allEndpoints: (allEndpoints: EndpointType[]) => {
+            endpointsFuse.setCollection(allEndpoints)
         },
         drafts: (drafts: DataWarehouseSavedQueryDraft[]) => {
             draftsFuse.setCollection(drafts)
@@ -1895,6 +1918,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         afterMount: () => {
             if (values.featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
                 actions.loadDrafts()
+            }
+            if (values.featureFlags[FEATURE_FLAGS.ENDPOINTS]) {
+                actions.loadAllEndpoints()
             }
             actions.loadQueryTabState()
         },
