@@ -2,9 +2,9 @@ import { MessageHeader } from 'node-rdkafka'
 
 import { eventDroppedCounter } from '~/common/metrics'
 
+import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { logger } from '../../utils/logger'
 import { ParsedMessageData } from '../kafka/types'
-import { TeamService } from './team-service'
 import { MessageWithTeam, TeamForReplay } from './types'
 
 export class TeamFilter {
