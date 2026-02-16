@@ -18,7 +18,7 @@ from posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini im
 )
 from posthog.temporal.ai.session_summary.activities.tests.conftest import create_video_summary_inputs
 
-from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_EXPORT_MIME_TYPE
+from ee.hogai.session_summaries.constants import FULL_VIDEO_EXPORT_FORMAT
 
 pytestmark = pytest.mark.django_db
 
@@ -57,7 +57,7 @@ class TestUploadVideoToGeminiActivity:
             result = await upload_video_to_gemini_activity(inputs, mock_exported_asset.id)
 
             assert result["uploaded_video"].file_uri == mock_gemini_file_response.uri
-            assert result["uploaded_video"].mime_type == DEFAULT_VIDEO_EXPORT_MIME_TYPE
+            assert result["uploaded_video"].mime_type == FULL_VIDEO_EXPORT_FORMAT
             assert result["uploaded_video"].duration == 120
             assert result["team_name"] == ateam.name
 
@@ -221,7 +221,7 @@ class TestUploadVideoToGeminiActivity:
         # Create asset with no content
         asset = await ExportedAsset.objects.acreate(
             team_id=ateam.id,
-            export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+            export_format=FULL_VIDEO_EXPORT_FORMAT,
             export_context={"session_recording_id": mock_video_session_id},
             created_by_id=auser.id,
             created_at=datetime.now(UTC),

@@ -19,10 +19,7 @@ from posthog.temporal.ai.session_summary.activities.a1_export_session_video impo
 )
 from posthog.temporal.ai.session_summary.activities.tests.conftest import create_video_summary_inputs
 
-from ee.hogai.session_summaries.constants import (
-    DEFAULT_VIDEO_EXPORT_MIME_TYPE,
-    MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S,
-)
+from ee.hogai.session_summaries.constants import FULL_VIDEO_EXPORT_FORMAT, MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S
 
 pytestmark = pytest.mark.django_db
 
@@ -69,7 +66,7 @@ class TestExportSessionVideoActivity:
             assert result is not None
             asset = await ExportedAsset.objects.aget(id=result)
             assert asset.team_id == ateam.id
-            assert asset.export_format == DEFAULT_VIDEO_EXPORT_MIME_TYPE
+            assert asset.export_format == FULL_VIDEO_EXPORT_FORMAT
             assert asset.export_context is not None
             assert asset.export_context["session_recording_id"] == mock_video_session_id
             assert asset.export_context["timestamp"] == 0
@@ -142,7 +139,7 @@ class TestExportSessionVideoActivity:
                 # Create asset with short duration
                 short_asset = await ExportedAsset.objects.acreate(
                     team_id=ateam.id,
-                    export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+                    export_format=FULL_VIDEO_EXPORT_FORMAT,
                     export_context={
                         "session_recording_id": short_session_id,
                         "duration": MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S - 1,

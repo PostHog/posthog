@@ -29,7 +29,7 @@ from posthog.temporal.ai.session_summary.types.video import (
     VideoSummarySingleSessionInputs,
 )
 
-from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_EXPORT_MIME_TYPE, DEFAULT_VIDEO_UNDERSTANDING_MODEL
+from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL, FULL_VIDEO_EXPORT_FORMAT
 
 # Re-use the fixtures of session summaries tests for convenience
 from ee.hogai.session_summaries.tests.conftest import *  # noqa: F401, F403
@@ -118,7 +118,7 @@ def mock_uploaded_video() -> UploadedVideo:
     """Mock Gemini uploaded video reference."""
     return UploadedVideo(
         file_uri="https://generativelanguage.googleapis.com/v1beta/files/abc123",
-        mime_type=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+        mime_type=FULL_VIDEO_EXPORT_FORMAT,
         duration=120,  # 2 minutes
     )
 
@@ -226,7 +226,7 @@ def mock_gemini_file_response() -> MagicMock:
     mock_file = MagicMock()
     mock_file.name = "files/abc123"
     mock_file.uri = "https://generativelanguage.googleapis.com/v1beta/files/abc123"
-    mock_file.mime_type = DEFAULT_VIDEO_EXPORT_MIME_TYPE
+    mock_file.mime_type = FULL_VIDEO_EXPORT_FORMAT
     mock_file.state = MagicMock()
     mock_file.state.name = "ACTIVE"
     return mock_file
@@ -238,7 +238,7 @@ def mock_gemini_processing_file_response() -> MagicMock:
     mock_file = MagicMock()
     mock_file.name = "files/abc123"
     mock_file.uri = None
-    mock_file.mime_type = DEFAULT_VIDEO_EXPORT_MIME_TYPE
+    mock_file.mime_type = FULL_VIDEO_EXPORT_FORMAT
     mock_file.state = MagicMock()
     mock_file.state.name = "PROCESSING"
     return mock_file
@@ -269,7 +269,7 @@ async def mock_exported_asset(ateam, auser, mock_video_session_id: str):
     """Create test ExportedAsset with video content."""
     asset = await ExportedAsset.objects.acreate(
         team_id=ateam.id,
-        export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+        export_format=FULL_VIDEO_EXPORT_FORMAT,
         export_context={
             "session_recording_id": mock_video_session_id,
             "timestamp": 0,
