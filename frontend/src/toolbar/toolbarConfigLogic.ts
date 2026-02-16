@@ -200,6 +200,16 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             }
         }
 
+        // Migrate users from temporary tokens to OAuth.
+        // Temporary tokens are less secure (long-lived, stored in URL hash).
+        // Clear the token so the toolbar shows the Authenticate button.
+        if (values.temporaryToken && !values.accessToken) {
+            actions.tokenExpired()
+            lemonToast.info(
+                'We are upgrading the security of the Toolbar, so we kindly ask that you re-authenticate. We apologize for the inconvenience.'
+            )
+        }
+
         if (props.instrument) {
             const distinctId = props.distinctId
 
