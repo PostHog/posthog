@@ -10,11 +10,10 @@ def backfill_dag_fks(apps, _):
 
     batch_size = 1000
     dag_lookup = {}
-    for dag in DAG.objects.values_list("team_id", "name", "id"):
-        dag_lookup[(dag[0], dag[1])] = dag[2]
+    for dag in DAG.objects.all():
+        dag_lookup[(dag.team_id, dag.name)] = dag.id
 
-    default_dag = "posthog"
-    nodes = Node.objects.filter(dag_id_text=default_dag)
+    nodes = Node.objects.all()
     node_updates = []
     for node in nodes.iterator(chunk_size=batch_size):
         dag_id = dag_lookup.get((node.team_id, node.dag_id_text))
@@ -26,7 +25,7 @@ def backfill_dag_fks(apps, _):
         Node.objects.bulk_update(node_updates, ["dag_id"], batch_size=batch_size)
 
     # edges must use save() since bulk_update is disabled
-    edges = Edge.objects.filter(dag_id_text=default_dag)
+    edges = Edge.objects.all()
     for edge in edges.iterator(chunk_size=batch_size):
         dag_id = dag_lookup.get((edge.team_id, edge.dag_id_text))
         if dag_id is None:
