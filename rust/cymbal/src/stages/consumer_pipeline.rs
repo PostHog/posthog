@@ -90,7 +90,7 @@ async fn handle_results(
                     .remove(&err.uuid)
                     .ok_or(UnhandledError::Other("Missing event".into()))?;
                 original_evt.attach_error(evt_err.to_string())?;
-                Ok(original_evt.clone())
+                Ok(original_evt)
             }
         },
     };
