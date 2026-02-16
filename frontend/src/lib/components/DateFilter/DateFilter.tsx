@@ -26,6 +26,7 @@ import { DateMappingOption, PropertyOperator } from '~/types'
 
 import { PropertyFilterDatePicker } from '../PropertyFilters/components/PropertyFilterDatePicker'
 import { FixedRangeWithTimePicker } from './FixedRangeWithTimePicker'
+import { JumpToTimestampPicker } from './JumpToTimestampPicker'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 import { dateFilterLogic } from './dateFilterLogic'
 import { DateOption } from './rollingDateRangeFilterLogic'
@@ -48,6 +49,7 @@ export interface DateFilterProps {
     placeholder?: string
     fullWidth?: boolean
     resolvedDateRange?: ResolvedDateRangeResponse
+    showJumpToTimestamp?: boolean
 }
 
 interface RawDateFilterProps extends DateFilterProps {
@@ -96,6 +98,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         explicitDate,
         showExplicitDateToggle = false,
         resolvedDateRange,
+        showJumpToTimestamp = false,
     },
     ref
 ) {
@@ -117,6 +120,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         openFixedRange,
         openDateToNow,
         openFixedDate,
+        openJumpToTimestamp,
         close,
         setRangeDateFrom,
         setExplicitDate,
@@ -209,6 +213,8 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                     setDate(String(date), '')
                 }}
             />
+        ) : view === DateFilterView.JumpToTimestamp ? (
+            <JumpToTimestampPicker onApply={(dateFrom, dateTo) => setDate(dateFrom, dateTo)} onClose={open} />
         ) : (
             <div className="deprecated-space-y-px" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
                 {dateOptions.map(({ key, values, inactive }) => {
@@ -321,6 +327,14 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                                 }}
                             />
                         </div>
+                    </>
+                )}
+                {showJumpToTimestamp && (
+                    <>
+                        <LemonDivider />
+                        <LemonButton onClick={openJumpToTimestamp} fullWidth data-attr="jump-to-timestamp-option">
+                            Jump to timestamp…
+                        </LemonButton>
                     </>
                 )}
             </div>
