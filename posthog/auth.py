@@ -617,7 +617,7 @@ class InternalAPIUser:
     """Synthetic user for internal API authentication."""
 
     is_authenticated = True
-    is_anonymous = True
+    is_anonymous = False
     is_active = True
     pk = -2
 
