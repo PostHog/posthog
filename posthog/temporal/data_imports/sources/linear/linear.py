@@ -143,6 +143,7 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
                 "Content-Type": "application/json",
             },
             json={"query": VIEWER_QUERY},
+            timeout=10,
         )
         response.raise_for_status()
         data = response.json()
