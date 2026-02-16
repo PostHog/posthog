@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Wait until Docker Compose services pass their health checks.
+# Read-only: does not start, stop, or recreate any containers.
+# Used by mprocs processes to block until infrastructure is ready.
+#
+# Always checks core services (db, redis7, kafka, clickhouse).
+# Pass extra service names as arguments, e.g.: bin/wait-for-docker temporal
+
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.dev.yml}"
+TIMEOUT="${WAIT_FOR_DOCKER_TIMEOUT:-300}"
+
+SERVICES=(db redis7 kafka clickhouse)
+SERVICES+=("$@")
+
+SECONDS=0
+for svc in "${SERVICES[@]}"; do
+    while true; do
+        if [ "$SECONDS" -ge "$TIMEOUT" ]; then
+            echo "Timed out after ${TIMEOUT}s waiting for $svc to become healthy."
+            exit 1
+        fi
+        container_id=$(docker compose -f "$COMPOSE_FILE" ps -q "$svc" 2>/dev/null || true)
+        if [ -n "$container_id" ]; then
+            status=$(docker inspect --format='{{.State.Health.Status}}' "$container_id" 2>/dev/null || echo "starting")
+            if [ "$status" = "healthy" ]; then
+                break
+            fi
+        fi
+        echo "Waiting for $svc... (${SECONDS}s)"
+        sleep 1
+    done
+done
+
+echo "All services healthy in ${SECONDS}s."

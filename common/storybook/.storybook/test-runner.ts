@@ -198,6 +198,19 @@ async function expectStoryToMatchSnapshot(
         void document.body.offsetHeight
     }, storyContext.parameters?.layout || 'padded')
 
+    // Trigger ResizeObserver callbacks to ensure layout-dependent state (e.g. CardMeta's
+    // showControlsLabels) has settled before taking snapshots. ResizeObserver fires
+    // asynchronously after render, so without this nudge the observer may not have reported
+    // dimensions yet, causing non-deterministic button labels in dashboard stories.
+    await page.evaluate(() => {
+        // Force a reflow so ResizeObserver has up-to-date geometry to report
+        void document.body.offsetHeight
+        // Dispatch a resize event to trigger any observers that key off window size
+        window.dispatchEvent(new Event('resize'))
+    })
+    // Allow ResizeObserver callbacks to fire and React to re-render with updated dimensions
+    await page.waitForTimeout(300)
+
     const { waitForLoadersToDisappear = true, waitForSelector } = storyContext.parameters?.testOptions ?? {}
 
     if (waitForLoadersToDisappear) {
