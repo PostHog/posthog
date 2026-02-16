@@ -440,7 +440,7 @@ services:
     temporal:
         restart: on-failure
         healthcheck:
-            test: ['CMD', 'nc', '-z', 'localhost', '7233']
+            test: ['CMD-SHELL', 'nc -z $(hostname) 7233']
             interval: 5s
             timeout: 5s
             retries: 30
