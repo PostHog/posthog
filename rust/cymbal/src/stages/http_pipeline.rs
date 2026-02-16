@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::{
     app_context::AppContext,
     error::{EventError, UnhandledError},
-    metric_consts::CONSUMER_EXCEPTION_PIPELINE,
+    metric_consts::HTTP_EXCEPTION_PIPELINE,
     stages::pipeline::{ExceptionEventHandledError, ExceptionEventPipeline},
     types::{
         batch::Batch,
@@ -31,7 +31,7 @@ impl Stage for HttpEventPipeline {
     type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
-        CONSUMER_EXCEPTION_PIPELINE
+        HTTP_EXCEPTION_PIPELINE
     }
 
     async fn process(
