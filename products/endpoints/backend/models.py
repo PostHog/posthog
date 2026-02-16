@@ -87,7 +87,7 @@ class EndpointVersion(models.Model):
     @property
     def is_materialized(self) -> bool:
         """Derived from saved_query.table_id — True only when materialization is complete."""
-        if self.saved_query_id is None:
+        if self.saved_query is None:
             return False
         try:
             return self.saved_query.table_id is not None
