@@ -9,6 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDependencies,
+    DataWarehouseSavedQueryOrigin,
     DataWarehouseSavedQueryRunHistory,
 } from '~/types'
 
@@ -161,7 +162,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                 runHistoryMap: Record<string, DataWarehouseSavedQueryRunHistory[]>
             ): DataWarehouseSavedQuery[] => {
                 return queries
-                    .filter((q) => q.is_materialized)
+                    .filter((q) => q.is_materialized && q.origin !== DataWarehouseSavedQueryOrigin.ENDPOINT)
                     .map((query) => ({
                         ...query,
                         upstream_dependency_count: dependenciesMap[query.id]?.upstream_count,
@@ -177,7 +178,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                 dependenciesMap: Record<string, DataWarehouseSavedQueryDependencies>
             ): DataWarehouseSavedQuery[] => {
                 return queries
-                    .filter((q) => !q.is_materialized)
+                    .filter((q) => !q.is_materialized && q.origin !== DataWarehouseSavedQueryOrigin.ENDPOINT)
                     .map((query) => ({
                         ...query,
                         upstream_dependency_count: dependenciesMap[query.id]?.upstream_count,
