@@ -43,6 +43,7 @@ from posthog.api.oauth.toolbar_service import (
     build_authorization_url,
     build_toolbar_oauth_state,
     exchange_code_for_tokens,
+    generate_pkce_pair,
     get_or_create_toolbar_oauth_application,
     new_state_nonce,
     normalize_and_validate_app_url,
@@ -916,6 +917,57 @@ def toolbar_oauth_exchange(request):
         )
     except ToolbarOAuthError as exc:
         return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
+
+
+@session_auth_required
+def toolbar_oauth_authorize(request):
+    """
+    Consent page for toolbar OAuth.
+
+    Renders a page where the user confirms toolbar access, then redirects
+    to the OAuth authorization endpoint with PKCE and signed state.
+    """
+    redirect_url = request.GET.get("redirect")
+    if not redirect_url:
+        return HttpResponse("You need to pass a url to ?redirect=", status=400)
+
+    team = request.user.team
+    if not team:
+        return HttpResponse("No project found", status=400)
+
+    try:
+        app_url = normalize_and_validate_app_url(team, redirect_url)
+        code_verifier, code_challenge = generate_pkce_pair()
+
+        oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
+
+        signed_state, _expires_at = build_toolbar_oauth_state(
+            ToolbarOAuthState(
+                nonce=new_state_nonce(),
+                user_id=request.user.id,
+                team_id=team.id,
+                app_url=app_url,
+            )
+        )
+
+        authorization_url = build_authorization_url(
+            application=oauth_app, state=signed_state, code_challenge=code_challenge
+        )
+    except ToolbarOAuthError as exc:
+        return HttpResponse(exc.detail, status=exc.status_code)
+
+    request.session["toolbar_oauth_code_verifier"] = code_verifier
+
+    return render_template(
+        "authorize_and_redirect.html",
+        request=request,
+        context={
+            "email": request.user,
+            "domain": urllib.parse.urlparse(redirect_url).hostname,
+            "redirect_url": redirect_url,
+            "authorization_url": authorization_url,
+        },
+    )
 
 
 @session_auth_required

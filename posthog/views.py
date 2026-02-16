@@ -136,6 +136,7 @@ Disallow: /*@*
 # Block authentication paths
 Disallow: /verify_email/
 Disallow: /authorize_and_redirect
+Disallow: /toolbar_oauth/
 
 # Block ingestion paths
 Disallow: /e/

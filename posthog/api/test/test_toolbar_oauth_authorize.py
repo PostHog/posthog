@@ -1,10 +1,7 @@
 from posthog.test.base import APIBaseTest
 
-from django.test import override_settings
 
-
-@override_settings(TOOLBAR_OAUTH_ENABLED=True)
-class TestAuthorizeAndRedirectOAuth(APIBaseTest):
+class TestToolbarOAuthAuthorize(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.team.app_urls = ["https://mysite.com"]
@@ -14,38 +11,32 @@ class TestAuthorizeAndRedirectOAuth(APIBaseTest):
         self.client.force_login(self.user)
 
     def _get_authorize(self, redirect_url: str = "https://mysite.com/page"):
-        return self.client.get(f"/authorize_and_redirect/?redirect={redirect_url}", HTTP_REFERER=redirect_url)
+        return self.client.get(f"/toolbar_oauth/authorize/?redirect={redirect_url}")
 
     def _assert_authorize_ok(self, response):
         assert response.status_code == 200, (
-            f"Expected 200 from authorize_and_redirect, got {response.status_code}. Body: {response.content[:500]!r}"
+            f"Expected 200 from toolbar_oauth/authorize, got {response.status_code}. Body: {response.content[:500]!r}"
         )
 
-    def test_renders_oauth_authorize_url_when_enabled(self):
+    def test_renders_oauth_authorize_url(self):
         response = self._get_authorize()
         self._assert_authorize_ok(response)
         content = response.content.decode()
         assert "/oauth/authorize" in content
         assert "code_challenge" in content
-        assert "/api/user/redirect_to_site" not in content
 
-    @override_settings(TOOLBAR_OAUTH_ENABLED=False)
-    def test_renders_legacy_redirect_when_disabled(self):
-        response = self._get_authorize()
-        self._assert_authorize_ok(response)
-        content = response.content.decode()
-        assert "/api/user/redirect_to_site" in content
-        assert "/oauth/authorize" not in content
+    def test_rejects_missing_redirect(self):
+        response = self.client.get("/toolbar_oauth/authorize/")
+        assert response.status_code == 400
 
-    def test_still_rejects_disallowed_domain(self):
+    def test_rejects_disallowed_domain(self):
         response = self._get_authorize(redirect_url="https://evil.com/page")
-
         assert response.status_code == 403
 
-    def test_still_requires_referrer_header(self):
-        response = self.client.get("/authorize_and_redirect/?redirect=https://mysite.com/page")
-
-        assert response.status_code == 400
+    def test_requires_authentication(self):
+        self.client.logout()
+        response = self._get_authorize()
+        assert response.status_code == 302
 
     def test_oauth_url_contains_state_and_pkce_params(self):
         response = self._get_authorize()

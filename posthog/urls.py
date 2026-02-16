@@ -31,16 +31,6 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.oauth.toolbar_service import (
-    ToolbarOAuthError,
-    ToolbarOAuthState,
-    build_authorization_url,
-    build_toolbar_oauth_state,
-    generate_pkce_pair,
-    get_or_create_toolbar_oauth_application,
-    new_state_nonce,
-    normalize_and_validate_app_url,
-)
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.slack import slack_interactivity_callback
@@ -149,46 +139,6 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
             status=403,
         )
 
-    # Toolbar OAuth
-    if settings.TOOLBAR_OAUTH_ENABLED and not is_forum_login:
-        try:
-            app_url = normalize_and_validate_app_url(current_team, request.GET["redirect"])
-            base_url = request.build_absolute_uri("/").rstrip("/")
-            code_verifier, code_challenge = generate_pkce_pair()
-
-            user = cast(User, request.user)
-            oauth_app = get_or_create_toolbar_oauth_application(base_url=base_url, user=user)
-
-            signed_state, expires_at = build_toolbar_oauth_state(
-                ToolbarOAuthState(
-                    nonce=new_state_nonce(),
-                    user_id=cast(int, request.user.pk),
-                    team_id=cast(int, current_team.pk),
-                    app_url=app_url,
-                )
-            )
-
-            authorization_url = build_authorization_url(
-                base_url=base_url, application=oauth_app, state=signed_state, code_challenge=code_challenge
-            )
-        except ToolbarOAuthError as exc:
-            return HttpResponse(exc.detail, status=exc.status_code)
-
-        # TODO: Session code_verifier is not yet consumed in this flow; token exchange
-        # uses code_verifier from the client (toolbar_oauth_exchange request body).
-        request.session["toolbar_oauth_code_verifier"] = code_verifier
-
-        return render_template(
-            "authorize_and_redirect.html",
-            request=request,
-            context={
-                "email": request.user,
-                "domain": redirect_url.hostname,
-                "redirect_url": request.GET["redirect"],
-                "authorization_url": authorization_url,
-            },
-        )
-
     return render_template(
         "authorize_and_link.html" if is_forum_login else "authorize_and_redirect.html",
         request=request,
@@ -196,6 +146,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
             "email": request.user,
             "domain": redirect_url.hostname,
             "redirect_url": request.GET["redirect"],
+            "authorization_url": f"/api/user/redirect_to_site/?appUrl={request.GET['redirect']}",
         },
     )
 
@@ -240,6 +191,7 @@ urlpatterns = [
     opt_slash_path("api/user/toolbar_oauth_start", user.toolbar_oauth_start),
     opt_slash_path("api/user/toolbar_oauth_exchange", user.toolbar_oauth_exchange),
     opt_slash_path("api/user/toolbar_oauth_refresh", user.toolbar_oauth_refresh),
+    path("toolbar_oauth/authorize/", login_required(user.toolbar_oauth_authorize)),
     path("toolbar_oauth/callback", user.toolbar_oauth_callback),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
