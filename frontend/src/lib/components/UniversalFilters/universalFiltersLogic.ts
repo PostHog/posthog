@@ -7,6 +7,7 @@ import {
 import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { EntityTypes } from '~/types'
 import {
     ActionFilter,
     FeaturePropertyFilter,
@@ -17,7 +18,13 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
-import { TaxonomicFilterGroup, TaxonomicFilterGroupType, TaxonomicFilterValue } from '../TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
+    isQuickFilterItem,
+    quickFilterToPropertyFilters,
+} from '../TaxonomicFilter/types'
 import type { universalFiltersLogicType } from './universalFiltersLogicType'
 
 export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {
@@ -132,6 +139,24 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
 
         addGroupFilter: ({ taxonomicGroup, propertyKey, item, originalQuery }) => {
             const newValues = [...values.filterGroup.values]
+
+            if (isQuickFilterItem(item)) {
+                if (item.eventName) {
+                    const eventFilter: ActionFilter = {
+                        id: item.eventName,
+                        name: item.eventName,
+                        type: EntityTypes.EVENTS,
+                        properties: quickFilterToPropertyFilters(item),
+                    }
+                    newValues.push(eventFilter)
+                } else {
+                    for (const propertyFilter of quickFilterToPropertyFilters(item)) {
+                        newValues.push(propertyFilter)
+                    }
+                }
+                actions.setGroupValues(newValues)
+                return
+            }
 
             if (taxonomicGroup.type === TaxonomicFilterGroupType.FeatureFlags) {
                 if (!item.key) {
