@@ -260,6 +260,34 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             return self._get_campaign_id_field()
         return self._get_campaign_name_field()
 
+    def _apply_currency_conversion(
+        self,
+        table: DataWarehouseTable,
+        table_name: str,
+        currency_column: str,
+        value_expr: ast.Expr,
+    ) -> ast.Expr | None:
+        """Wrap value_expr with currency conversion if the currency column exists in the table.
+
+        Returns toFloat(convertCurrency(coalesce(currency_col, base_currency), base_currency, value_expr))
+        or None if the column doesn't exist or can't be checked.
+        """
+        try:
+            columns = getattr(table, "columns", None)
+            if columns and hasattr(columns, "__contains__") and currency_column in columns:
+                currency_field = ast.Field(chain=[table_name, currency_column])
+                currency_with_fallback = ast.Call(
+                    name="coalesce", args=[currency_field, ast.Constant(value=self.context.base_currency)]
+                )
+                converted = ast.Call(
+                    name="convertCurrency",
+                    args=[currency_with_fallback, ast.Constant(value=self.context.base_currency), value_expr],
+                )
+                return ast.Call(name="toFloat", args=[converted])
+        except (TypeError, AttributeError, KeyError):
+            pass
+        return None
+
     def _log_validation_errors(self, errors: list[str]):
         """Helper to log validation issues"""
         if errors:
