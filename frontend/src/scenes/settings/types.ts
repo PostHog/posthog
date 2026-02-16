@@ -106,6 +106,7 @@ export type SettingId =
     | 'error-tracking-alerting'
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'
+    | 'error-tracking-spike-detection'
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-error-tracking'
