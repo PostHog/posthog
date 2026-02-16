@@ -62,7 +62,7 @@ class CallMCPServerTool(MaxTool):
         if not installations:
             description = "No MCP servers are installed. This tool is not available."
         else:
-            server_lines = "\n".join(f"- {inst['server__name']}: {inst['server__url']}" for inst in installations)
+            server_lines = "\n".join(f"- {inst['display_name']}: {inst['url']}" for inst in installations)
             description = (
                 "Call a tool on a user-installed MCP server. "
                 "The user has the following MCP servers installed:\n"
@@ -71,7 +71,7 @@ class CallMCPServerTool(MaxTool):
                 "and the server_url. Then use the returned tool definitions to make actual tool calls."
             )
 
-        allowed_urls = {inst["server__url"] for inst in installations}
+        allowed_urls = {inst["url"] for inst in installations}
         server_headers = _build_server_headers(installations)
 
         instance = cls(
@@ -85,7 +85,7 @@ class CallMCPServerTool(MaxTool):
         )
         instance._allowed_server_urls = allowed_urls
         instance._installations = installations
-        instance._installations_by_url = {inst["server__url"]: inst for inst in installations}
+        instance._installations_by_url = {inst["url"]: inst for inst in installations}
         instance._server_headers = server_headers
         instance._session_cache: dict[str, str] = {}
         return instance
@@ -283,9 +283,9 @@ def _get_installations(team: Team, user: User) -> list[dict]:
         .select_related("server")
         .values(
             "id",
-            "server__name",
-            "server__url",
-            "server__auth_type",
+            "display_name",
+            "url",
+            "auth_type",
             "server__oauth_metadata",
             "server__oauth_client_id",
             "configuration",
@@ -320,7 +320,7 @@ def _refresh_token_sync(installation: dict) -> dict:
     if not refresh_token:
         raise TokenRefreshError("No refresh token available")
 
-    server_url = installation["server__url"]
+    server_url = installation["url"]
     kind = OAUTH_KIND_MAP.get(server_url)
 
     if kind:
@@ -365,17 +365,15 @@ def _refresh_token_sync(installation: dict) -> dict:
 
 
 def _build_server_headers(installations: list[dict]) -> dict[str, dict[str, str]]:
-    """Build auth headers for each server URL from installation configuration."""
     headers: dict[str, dict[str, str]] = {}
     for inst in installations:
-        url = inst["server__url"]
-        auth_type = inst.get("server__auth_type", "none")
+        url = inst["url"]
+        auth_type = inst.get("auth_type", "none")
         sensitive = inst.get("sensitive_configuration") or {}
 
         if auth_type == "api_key":
             api_key = sensitive.get("api_key")
             if not api_key:
-                # Fallback for pre-migration installations
                 config = inst.get("configuration") or {}
                 api_key = config.get("api_key")
             if api_key:

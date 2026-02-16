@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPlus, IconTrash, IconWarning } from '@posthog/icons'
+import { IconPlug, IconPlus, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -49,6 +50,37 @@ function ServerConfigRow({ server }: { server: MCPServer }): JSX.Element {
     )
 }
 
+function ConnectButton({ installation }: { installation: MCPServerInstallation }): JSX.Element {
+    const [loading, setLoading] = useState(false)
+
+    return (
+        <LemonButton
+            type="primary"
+            size="small"
+            icon={<IconPlug />}
+            loading={loading}
+            onClick={async () => {
+                setLoading(true)
+                try {
+                    const result = await api.mcpServerInstallations.installCustom({
+                        name: installation.display_name || installation.name,
+                        url: installation.url,
+                        auth_type: 'oauth',
+                        description: installation.description,
+                    })
+                    if (result?.redirect_url) {
+                        window.location.href = result.redirect_url
+                    }
+                } catch {
+                    setLoading(false)
+                }
+            }}
+        >
+            Connect
+        </LemonButton>
+    )
+}
+
 export function McpStoreScene(): JSX.Element {
     const { installations, installationsLoading, recommendedServers, serversLoading, configuringServerId } =
         useValues(mcpStoreLogic)
@@ -78,36 +110,41 @@ export function McpStoreScene(): JSX.Element {
                     {
                         title: 'Name',
                         render: (_: any, installation: MCPServerInstallation) => (
-                            <span className="font-semibold">{installation.server.name}</span>
+                            <span className="font-semibold">{installation.name}</span>
                         ),
                     },
                     {
                         title: 'URL',
                         render: (_: any, installation: MCPServerInstallation) => (
-                            <span className="text-muted">{installation.server.url}</span>
+                            <span className="text-muted">{installation.url}</span>
                         ),
                     },
                     {
                         title: 'Auth',
                         render: (_: any, installation: MCPServerInstallation) =>
-                            installation.needs_reauth ? (
+                            installation.pending_oauth ? (
+                                <LemonTag type="warning" icon={<IconWarning />}>
+                                    Not connected
+                                </LemonTag>
+                            ) : installation.needs_reauth ? (
                                 <LemonTag type="warning" icon={<IconWarning />}>
                                     Needs reconnection
                                 </LemonTag>
                             ) : (
-                                <LemonTag>{installation.server.auth_type}</LemonTag>
+                                <LemonTag>{installation.auth_type}</LemonTag>
                             ),
                     },
                     {
                         width: 0,
                         render: (_: any, installation: MCPServerInstallation) => (
                             <div className="flex items-center gap-1">
-                                {installation.needs_reauth && (
+                                {installation.pending_oauth && <ConnectButton installation={installation} />}
+                                {!installation.pending_oauth && installation.needs_reauth && installation.server && (
                                     <LemonButton
                                         type="primary"
                                         size="small"
                                         onClick={() => {
-                                            window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${installation.server.id}`
+                                            window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${installation.server!.id}`
                                         }}
                                     >
                                         Reconnect

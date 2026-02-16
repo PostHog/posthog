@@ -28,14 +28,21 @@ class TestCallMCPServerTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.context_manager = AssistantContextManager(self.team, self.user, {})
         self.node_path = (NodePath(name="test_node", tool_call_id="test_call", message_id="test"),)
 
-    def _install_server(self, name="Test Server", url="https://mcp.example.com/mcp"):
+    def _install_server(self, name="Test Server", url="https://mcp.example.com/mcp", auth_type="none"):
         server = MCPServer.objects.create(name=name, url=url)
-        return MCPServerInstallation.objects.create(team=self.team, user=self.user, server=server)
+        return MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            server=server,
+            display_name=name,
+            url=url,
+            auth_type=auth_type,
+        )
 
     def _create_tool(self, installations: list[dict] | None = None, conversation_id: str | None = None):
         if installations is None:
             installations = []
-        allowed_urls = {inst["server__url"] for inst in installations}
+        allowed_urls = {inst["url"] for inst in installations}
         server_headers = _build_server_headers(installations)
         description = "test"
         config = RunnableConfig(configurable={"thread_id": conversation_id}) if conversation_id else None
@@ -50,7 +57,7 @@ class TestCallMCPServerTool(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         tool._allowed_server_urls = allowed_urls
         tool._installations = installations
-        tool._installations_by_url = {inst["server__url"]: inst for inst in installations}
+        tool._installations_by_url = {inst["url"]: inst for inst in installations}
         tool._server_headers = server_headers
         tool._session_cache = {}
         return tool
@@ -92,7 +99,13 @@ class TestCreateToolClass(TestCallMCPServerTool):
             self.organization, "other@example.com", "password"
         )
         server = await sync_to_async(MCPServer.objects.create)(name="Other Server", url="https://mcp.other.com")
-        await sync_to_async(MCPServerInstallation.objects.create)(team=self.team, user=other_user, server=server)
+        await sync_to_async(MCPServerInstallation.objects.create)(
+            team=self.team,
+            user=other_user,
+            server=server,
+            display_name="Other Server",
+            url="https://mcp.other.com",
+        )
 
         tool = await CallMCPServerTool.create_tool_class(
             team=self.team, user=self.user, state=self.state, context_manager=self.context_manager
@@ -102,13 +115,13 @@ class TestCreateToolClass(TestCallMCPServerTool):
 
 class TestSSRFPrevention(TestCallMCPServerTool):
     async def test_rejects_url_not_in_installations(self):
-        tool = self._create_tool(installations=[{"server__name": "Linear", "server__url": "https://mcp.linear.app"}])
+        tool = self._create_tool(installations=[{"display_name": "Linear", "url": "https://mcp.linear.app"}])
         with self.assertRaises(MaxToolRetryableError) as ctx:
             await tool._arun_impl(server_url="https://evil.com/mcp", tool_name="__list_tools__")
         self.assertIn("not in the user's installed MCP servers", str(ctx.exception))
 
     async def test_allows_installed_url(self):
-        tool = self._create_tool(installations=[{"server__name": "Linear", "server__url": "https://mcp.linear.app"}])
+        tool = self._create_tool(installations=[{"display_name": "Linear", "url": "https://mcp.linear.app"}])
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             MockClient.return_value = self._make_mock_client()
 
@@ -118,7 +131,7 @@ class TestSSRFPrevention(TestCallMCPServerTool):
 
 class TestListTools(TestCallMCPServerTool):
     async def test_list_tools_returns_formatted_output(self):
-        tool = self._create_tool(installations=[{"server__name": "Linear", "server__url": "https://mcp.linear.app"}])
+        tool = self._create_tool(installations=[{"display_name": "Linear", "url": "https://mcp.linear.app"}])
         mock_tools = [
             {
                 "name": "create_issue",
@@ -147,7 +160,7 @@ class TestListTools(TestCallMCPServerTool):
             self.assertIsNone(artifact)
 
     async def test_list_tools_empty_server(self):
-        tool = self._create_tool(installations=[{"server__name": "Empty", "server__url": "https://mcp.empty.com"}])
+        tool = self._create_tool(installations=[{"display_name": "Empty", "url": "https://mcp.empty.com"}])
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             MockClient.return_value = self._make_mock_client()
 
@@ -157,7 +170,7 @@ class TestListTools(TestCallMCPServerTool):
 
 class TestCallTool(TestCallMCPServerTool):
     async def test_call_tool_returns_result(self):
-        tool = self._create_tool(installations=[{"server__name": "Linear", "server__url": "https://mcp.linear.app"}])
+        tool = self._create_tool(installations=[{"display_name": "Linear", "url": "https://mcp.linear.app"}])
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             mock_instance = self._make_mock_client()
             mock_instance.call_tool = AsyncMock(return_value="Issue LIN-123 created successfully")
@@ -173,7 +186,7 @@ class TestCallTool(TestCallMCPServerTool):
             mock_instance.call_tool.assert_called_once_with("create_issue", {"title": "Fix bug"})
 
     async def test_mcp_client_error_becomes_retryable(self):
-        tool = self._create_tool(installations=[{"server__name": "Linear", "server__url": "https://mcp.linear.app"}])
+        tool = self._create_tool(installations=[{"display_name": "Linear", "url": "https://mcp.linear.app"}])
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             mock_instance = self._make_mock_client()
             mock_instance.initialize = AsyncMock(side_effect=MCPClientError("Connection refused"))
@@ -184,7 +197,7 @@ class TestCallTool(TestCallMCPServerTool):
             self.assertIn("MCP server error", str(ctx.exception))
 
     async def test_timeout_becomes_retryable(self):
-        tool = self._create_tool(installations=[{"server__name": "Slow", "server__url": "https://mcp.slow.com"}])
+        tool = self._create_tool(installations=[{"display_name": "Slow", "url": "https://mcp.slow.com"}])
         import httpx as _httpx
 
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
@@ -199,7 +212,7 @@ class TestCallTool(TestCallMCPServerTool):
 
 class TestSessionCaching(TestCallMCPServerTool):
     SERVER_URL = "https://mcp.linear.app"
-    INSTALLATIONS = [{"server__name": "Linear", "server__url": "https://mcp.linear.app"}]
+    INSTALLATIONS = [{"display_name": "Linear", "url": "https://mcp.linear.app"}]
 
     async def test_first_call_initializes_and_caches_session(self):
         tool = self._create_tool(installations=self.INSTALLATIONS, conversation_id="conv-1")
@@ -324,8 +337,8 @@ class TestGetInstallations(TestCallMCPServerTool):
         self._install_server(name="Linear", url="https://mcp.linear.app")
         result = _get_installations(self.team, self.user)
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["server__name"], "Linear")
-        self.assertEqual(result[0]["server__url"], "https://mcp.linear.app")
+        self.assertEqual(result[0]["display_name"], "Linear")
+        self.assertEqual(result[0]["url"], "https://mcp.linear.app")
 
     def test_returns_empty_when_none_installed(self):
         result = _get_installations(self.team, self.user)
@@ -353,9 +366,9 @@ def _make_oauth_installation(
         sensitive["expires_in"] = expires_in
     return {
         "id": installation_id or str(uuid.uuid4()),
-        "server__name": server_name,
-        "server__url": server_url,
-        "server__auth_type": "oauth",
+        "display_name": server_name,
+        "url": server_url,
+        "auth_type": "oauth",
         "server__oauth_metadata": oauth_metadata or {},
         "server__oauth_client_id": oauth_client_id,
         "configuration": {},
@@ -395,9 +408,9 @@ class TestSSRFProtection(TestCallMCPServerTool):
     async def test_ssrf_blocked_url_raises_fatal_error(self):
         inst = {
             "id": str(uuid.uuid4()),
-            "server__name": "Evil",
-            "server__url": "http://169.254.169.254/latest/meta-data/",
-            "server__auth_type": "none",
+            "display_name": "Evil",
+            "url": "http://169.254.169.254/latest/meta-data/",
+            "auth_type": "none",
             "server__oauth_metadata": {},
             "server__oauth_client_id": "",
             "configuration": {},
@@ -561,6 +574,9 @@ class TestRefreshTokenPersistence(TestCallMCPServerTool):
             team=self.team,
             user=self.user,
             server=server,
+            display_name="DCR Server",
+            url=self.SERVER_URL,
+            auth_type="oauth",
             sensitive_configuration=sensitive_config or {},
         )
 

@@ -5,7 +5,6 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { mcpStoreLogic } from './mcpStoreLogic'
 
@@ -17,8 +16,7 @@ const AUTH_TYPE_OPTIONS = [
 
 export function AddCustomServerModal(): JSX.Element {
     const { addCustomServerModalVisible } = useValues(mcpStoreLogic)
-    const { closeAddCustomServerModal, loadServers, loadInstallations } = useActions(mcpStoreLogic)
-    const { currentTeamId } = useValues(teamLogic)
+    const { closeAddCustomServerModal, loadInstallations } = useActions(mcpStoreLogic)
 
     const [name, setName] = useState('')
     const [url, setUrl] = useState('')
@@ -30,23 +28,20 @@ export function AddCustomServerModal(): JSX.Element {
     const handleSubmit = async (): Promise<void> => {
         setSaving(true)
         try {
-            const server = await api.mcpServers.create({ name, url, description, auth_type: authType })
+            const result = await api.mcpServerInstallations.installCustom({
+                name,
+                url,
+                auth_type: authType,
+                api_key: apiKey,
+                description,
+            })
 
-            if (authType === 'oauth') {
-                window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${server.id}`
+            if (result?.redirect_url) {
+                window.location.href = result.redirect_url
                 return
             }
 
-            const configuration: Record<string, any> = {}
-            if (authType === 'api_key' && apiKey) {
-                configuration.api_key = apiKey
-            }
-            await api.mcpServerInstallations.create({
-                server_id: server.id,
-                ...(Object.keys(configuration).length > 0 ? { configuration } : {}),
-            })
             lemonToast.success('Server added and installed')
-            loadServers()
             loadInstallations()
             closeAddCustomServerModal()
             setName('')
@@ -55,6 +50,9 @@ export function AddCustomServerModal(): JSX.Element {
             setAuthType('none')
             setApiKey('')
         } catch (e: any) {
+            if (e.status === 302 || e.detail?.includes?.('redirect')) {
+                return
+            }
             lemonToast.error(e.detail || 'Failed to add server')
         } finally {
             setSaving(false)

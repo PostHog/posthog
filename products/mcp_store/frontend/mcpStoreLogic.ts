@@ -24,9 +24,15 @@ export interface MCPServer {
 
 export interface MCPServerInstallation {
     id: string
-    server: MCPServer
+    server: MCPServer | null
+    name: string
+    display_name: string
+    url: string
+    description: string
+    auth_type: 'none' | 'api_key' | 'oauth'
     configuration: Record<string, any>
     needs_reauth: boolean
+    pending_oauth: boolean
     created_at: string
     updated_at: string
 }
@@ -91,25 +97,42 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 uninstallServer: async (installationId: string) => {
                     await api.mcpServerInstallations.delete(installationId)
                     lemonToast.success('Server uninstalled')
-                    return values.installations.filter((i) => i.id !== installationId)
+                    return values.installations.filter((i: MCPServerInstallation) => i.id !== installationId)
                 },
                 completeOAuthInstall: async ({
                     code,
                     serverId,
                     stateToken,
+                    mcpUrl,
+                    displayName,
+                    description,
                 }: {
                     code: string
                     serverId: string
                     stateToken: string
+                    mcpUrl?: string
+                    displayName?: string
+                    description?: string
                 }) => {
                     try {
                         const installation = await api.mcpServerInstallations.oauthCallback({
                             code,
                             server_id: serverId,
                             state_token: stateToken,
+                            mcp_url: mcpUrl || '',
+                            display_name: displayName || '',
+                            description: description || '',
                         })
                         lemonToast.success('Server connected')
                         actions.loadServers()
+                        const existing = values.installations.find(
+                            (i: MCPServerInstallation) => i.id === installation.id
+                        )
+                        if (existing) {
+                            return values.installations.map((i: MCPServerInstallation) =>
+                                i.id === installation.id ? installation : i
+                            )
+                        }
                         return [...values.installations, installation]
                     } catch (e: any) {
                         lemonToast.error(e.detail || 'Failed to complete OAuth connection')
@@ -123,7 +146,12 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
     selectors({
         installedServerIds: [
             (s) => [s.installations],
-            (installations: MCPServerInstallation[]): Set<string> => new Set(installations.map((i) => i.server.id)),
+            (installations: MCPServerInstallation[]): Set<string> =>
+                new Set(installations.filter((i) => i.server).map((i) => i.server!.id)),
+        ],
+        installedServerUrls: [
+            (s) => [s.installations],
+            (installations: MCPServerInstallation[]): Set<string> => new Set(installations.map((i) => i.url)),
         ],
         recommendedServers: [
             (s) => [s.servers, s.installedServerIds],
@@ -136,12 +164,17 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         '/mcp-store': (_, searchParams) => {
             const { code, state, server_id, state_token } = searchParams
             if (code && state) {
-                // DCR OAuth callback: code + state (contains token + server_id)
                 const parsed = fromParamsGivenUrl(`?${state}`)
-                actions.completeOAuthInstall({ code, serverId: parsed.server_id, stateToken: parsed.token })
+                actions.completeOAuthInstall({
+                    code,
+                    serverId: parsed.server_id,
+                    stateToken: parsed.token,
+                    mcpUrl: parsed.mcp_url,
+                    displayName: parsed.display_name,
+                    description: parsed.description,
+                })
                 router.actions.replace('/mcp-store')
             } else if (code && server_id) {
-                // Known-provider OAuth callback: code + server_id + state_token
                 actions.completeOAuthInstall({ code, serverId: server_id, stateToken: state_token })
                 router.actions.replace('/mcp-store')
             }

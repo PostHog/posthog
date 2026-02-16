@@ -55,10 +55,15 @@ class MCPServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="mcp_server_installations")
-    server = models.ForeignKey(MCPServer, on_delete=models.CASCADE, related_name="installations")
+    server = models.ForeignKey(MCPServer, on_delete=models.CASCADE, related_name="installations", null=True, blank=True)
+    display_name = models.CharField(max_length=200, blank=True, default="")
+    url = models.URLField(max_length=2048, default="")
+    description = models.TextField(blank=True, default="")
+    is_signal_source = models.BooleanField(default=False)
+    auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="none")
     configuration = models.JSONField(default=dict, blank=True)
     sensitive_configuration = EncryptedJSONField(default=dict, blank=True)
 
     class Meta:
         db_table = "mcp_store_mcpserverinstallation"
-        unique_together = [("team", "user", "server")]
+        unique_together = [("team", "user", "url")]
