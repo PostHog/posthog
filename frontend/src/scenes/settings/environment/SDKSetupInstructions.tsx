@@ -37,6 +37,7 @@ import {
     VueInstallation,
     WebflowInstallation,
 } from '@posthog/shared-onboarding/product-analytics'
+import type { StepDefinition } from '@posthog/shared-onboarding/steps'
 
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { Link } from 'lib/lemon-ui/Link'
@@ -45,8 +46,6 @@ import SetupWizardBanner from 'scenes/onboarding/sdks/sdk-install-instructions/c
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SDKKey } from '~/types'
-
-import type { StepDefinition } from '../../../../../docs/onboarding/steps'
 
 const JS_WEB_SNIPPETS = { JSEventCapture }
 const NODE_SNIPPETS = { NodeEventCapture }
