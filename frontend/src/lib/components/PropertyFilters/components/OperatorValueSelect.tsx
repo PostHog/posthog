@@ -16,6 +16,7 @@ import {
     isOperatorCohort,
     isOperatorFlag,
     isOperatorMulti,
+    isOperatorDate,
     isOperatorRange,
     isOperatorRegex,
     isOperatorSemver,
@@ -217,6 +218,13 @@ export function OperatorValueSelect({
                             setCurrentOperator(newOperator)
                             if (isOperatorCohort(newOperator)) {
                                 onChange(newOperator, value || null)
+                            } else if (
+                                isOperatorDate(newOperator) !==
+                                isOperatorDate(currentOperator || PropertyOperator.Exact)
+                            ) {
+                                // Clear value when switching between date and non-date operators
+                                // since string values are not valid dates and vice versa
+                                onChange(newOperator, null)
                             } else if (isOperatorRange(newOperator) && isNaN(value as any)) {
                                 // If the new operator is range and the value is not a number, we want to set the new value to null
                                 onChange(newOperator, null)
