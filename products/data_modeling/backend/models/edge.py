@@ -5,7 +5,7 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from .node import Node
 
-DISALLOWED_UPDATE_FIELDS = ("dag_id", "dag_id_text", "source", "source_id", "target", "target_id", "team", "team_id")
+DISALLOWED_UPDATE_FIELDS = ("dag_id_text", "source", "source_id", "target", "target_id", "team", "team_id")
 
 
 class CycleDetectionError(Exception):
@@ -57,20 +57,16 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     source = models.ForeignKey(Node, related_name="outgoing_edges", on_delete=models.CASCADE, editable=False)
     # the target node of the edge (i.e. the node this edge is pointed toward)
     target = models.ForeignKey(Node, related_name="incoming_edges", on_delete=models.CASCADE, editable=False)
-    # the name of the DAG this edge belongs to
-    dag_id = models.TextField(max_length=256, default="posthog", db_index=True, editable=False)
-    # duplicate of dag_id, will replace it after code refs are migrated
     dag_id_text = models.TextField(max_length=256, default="posthog", editable=False)
     properties = models.JSONField(default=dict)
 
     class Meta:
         db_table = "posthog_datamodelingedge"
         constraints = [
-            models.UniqueConstraint(fields=["dag_id", "source", "target"], name="unique_within_dag"),
+            models.UniqueConstraint(fields=["dag_id_text", "source", "target"], name="unique_within_dag_text"),
         ]
 
     def save(self, *args, skip_validation: bool = False, **kwargs):
-        self.dag_id = self.dag_id_text
         if skip_validation:
             super().save(*args, **kwargs)
             return
