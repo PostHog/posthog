@@ -79,8 +79,10 @@ function compareBreakdownsByColumnKey(
     columnKey: string
 ): number {
     if (columnKey === 'breakdown_value') {
-        const aVal = Array.isArray(a.breakdown_value) && a.breakdown_value.length > 0 ? a.breakdown_value[0] : a.breakdown_value
-        const bVal = Array.isArray(b.breakdown_value) && b.breakdown_value.length > 0 ? b.breakdown_value[0] : b.breakdown_value
+        const aVal =
+            Array.isArray(a.breakdown_value) && a.breakdown_value.length > 0 ? a.breakdown_value[0] : a.breakdown_value
+        const bVal =
+            Array.isArray(b.breakdown_value) && b.breakdown_value.length > 0 ? b.breakdown_value[0] : b.breakdown_value
         if (typeof aVal === 'number' && typeof bVal === 'number') {
             return aVal - bVal
         }
