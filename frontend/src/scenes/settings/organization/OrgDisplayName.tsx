@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconUpload, IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, lemonToast } from '@posthog/lemon-ui'
@@ -16,6 +16,12 @@ export function OrganizationDisplayName(): JSX.Element {
 
     const [name, setName] = useState(currentOrganization?.name || '')
     const [logoMediaId, setLogoMediaId] = useState(currentOrganization?.logo_media_id || null)
+
+    // Keep these in sync in case it changes outside of this component
+    useEffect(() => {
+        setName(currentOrganization?.name || '')
+        setLogoMediaId(currentOrganization?.logo_media_id || null)
+    }, [currentOrganization?.name, currentOrganization?.logo_media_id])
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (_, __, id) => {

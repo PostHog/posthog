@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
@@ -67,6 +67,9 @@ export function TeamSettingRadio<T extends string>({
     })()
 
     const [value, setValue] = useState<T>(savedValue)
+    useEffect(() => {
+        setValue(savedValue)
+    }, [savedValue])
 
     const handleSave = (): void => {
         const update = buildNestedUpdate(field, value, currentTeamRecord)
