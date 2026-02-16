@@ -121,6 +121,7 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
 
     def _get_reported_conversion_value_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
+        base_currency = self.context.base_currency
 
         # Check if conversion_value_in_local_currency column exists
         try:
@@ -137,6 +138,16 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
                     ],
                 )
                 sum = ast.Call(name="SUM", args=[field_as_float])
+
+                # LinkedIn Ads conversion values are in USD (matching cost currency), convert to base currency if not USD
+                if base_currency.upper() != "USD":
+                    usd_currency = ast.Constant(value="USD")
+                    convert_currency = ast.Call(
+                        name="convertCurrency", args=[usd_currency, ast.Constant(value=base_currency), sum]
+                    )
+                    return ast.Call(name="toFloat", args=[convert_currency])
+
+                # Base currency is already USD, no conversion needed
                 return ast.Call(name="toFloat", args=[sum])
         except (TypeError, AttributeError, KeyError):
             pass
