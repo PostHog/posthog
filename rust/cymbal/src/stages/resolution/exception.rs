@@ -166,8 +166,8 @@ mod test {
 
         let resolver = LocalSymbolResolver::new(&config, Arc::new(c), db);
         let exception = Exception {
-            exception_type: "a1".to_string(),
-            module: Some("c".to_string()),
+            exception_type: "c".to_string(),
+            module: Some("a1".to_string()),
             exception_message: "Exception message".to_string(),
             exception_id: None,
             mechanism: None,
@@ -183,12 +183,11 @@ mod test {
             .unwrap();
 
         assert_eq!(
-            (result.module, result.exception_type),
-            (
-                Some("com.posthog.android.sample".to_string()),
-                "MyCustomException3".to_string()
-            )
+            result.module,
+            Some("com.posthog.android.sample".to_string()),
         );
+
+        assert_eq!(result.exception_type, "MyCustomException3".to_string(),);
     }
 
     fn get_symbol_data_bytes() -> Vec<u8> {
