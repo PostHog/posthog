@@ -90,7 +90,7 @@ describe('VerifyingEncryptor', () => {
         jest.spyOn(Math, 'random').mockRestore()
     })
 
-    it('verifies on sampled blocks and increments check counter', () => {
+    it('verifies on sampled blocks and increments success counter', () => {
         jest.spyOn(Math, 'random').mockReturnValue(0)
         const block = makeValidBlock()
         mockDecryptor.decryptBlockWithKey.mockReturnValue(block)
@@ -100,6 +100,7 @@ describe('VerifyingEncryptor', () => {
 
         expect(mockDecryptor.decryptBlockWithKey).toHaveBeenCalled()
         expect(CryptoMetrics.incrementCryptoIntegrityChecks).toHaveBeenCalled()
+        expect(CryptoMetrics.incrementCryptoIntegritySuccesses).toHaveBeenCalled()
         expect(CryptoMetrics.incrementCryptoIntegrityFailures).not.toHaveBeenCalled()
         jest.spyOn(Math, 'random').mockRestore()
     })
@@ -108,6 +109,7 @@ describe('VerifyingEncryptor', () => {
         {
             name: 'decrypted bytes differ from original',
             block: makeValidBlock(),
+            expectedType: 'mismatch',
             setup: (dec: jest.Mocked<RecordingDecryptor>) => {
                 dec.decryptBlockWithKey.mockReturnValue(Buffer.from('wrong'))
             },
@@ -115,23 +117,26 @@ describe('VerifyingEncryptor', () => {
         {
             name: 'decrypted block is not valid snappy',
             block: Buffer.from('not-valid-snappy'),
+            expectedType: 'decompression',
             setup: () => {},
         },
         {
             name: 'decrypted block contains invalid JSONL',
             block: snappy.compressSync(Buffer.from('not json\n')),
+            expectedType: 'json_parse',
             setup: () => {},
         },
         {
             name: 'decryptor throws',
             block: makeValidBlock(),
+            expectedType: 'exception',
             setup: (dec: jest.Mocked<RecordingDecryptor>) => {
                 dec.decryptBlockWithKey.mockImplementation(() => {
                     throw new Error('decryption failed')
                 })
             },
         },
-    ])('increments failure counter when $name', ({ block, setup }) => {
+    ])('increments failure counter with type=$expectedType when $name', ({ block, expectedType, setup }) => {
         jest.spyOn(Math, 'random').mockReturnValue(0)
         setup(mockDecryptor)
         const verifier = new VerifyingEncryptor(mockEncryptor, mockDecryptor, 1.0)
@@ -139,7 +144,8 @@ describe('VerifyingEncryptor', () => {
         verifier.encryptBlockWithKey('s1', 1, block, ciphertextKey)
 
         expect(CryptoMetrics.incrementCryptoIntegrityChecks).toHaveBeenCalled()
-        expect(CryptoMetrics.incrementCryptoIntegrityFailures).toHaveBeenCalled()
+        expect(CryptoMetrics.incrementCryptoIntegrityFailures).toHaveBeenCalledWith(expectedType)
+        expect(CryptoMetrics.incrementCryptoIntegritySuccesses).not.toHaveBeenCalled()
         jest.spyOn(Math, 'random').mockRestore()
     })
 

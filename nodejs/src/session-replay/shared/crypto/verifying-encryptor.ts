@@ -47,28 +47,50 @@ export class VerifyingEncryptor implements RecordingEncryptor {
     ): void {
         CryptoMetrics.incrementCryptoIntegrityChecks()
 
+        const logFailure = (type: string, error?: unknown): void => {
+            logger.error('[VerifyingEncryptor] Crypto integrity check failed', {
+                sessionId,
+                teamId,
+                type,
+                originalSize: originalBlock.length,
+                encryptedSize: encryptedBlock.length,
+                ...(error !== undefined ? { error: String(error) } : {}),
+            })
+        }
+
         try {
             const decrypted = this.decryptor.decryptBlockWithKey(sessionId, teamId, encryptedBlock, sessionKey)
 
             if (!Buffer.from(decrypted).equals(originalBlock)) {
-                throw new Error('Decrypted block does not match original')
+                CryptoMetrics.incrementCryptoIntegrityFailures('mismatch')
+                logFailure('mismatch')
+                return
             }
 
-            const decompressed = snappy.uncompressSync(decrypted)
-
-            const lines = decompressed.toString('utf-8').trim().split('\n')
-            for (const line of lines) {
-                parseJSON(line)
+            let decompressed: Buffer
+            try {
+                decompressed = snappy.uncompressSync(decrypted) as Buffer
+            } catch (error) {
+                CryptoMetrics.incrementCryptoIntegrityFailures('decompression')
+                logFailure('decompression', error)
+                return
             }
+
+            try {
+                const lines = decompressed.toString('utf-8').trim().split('\n')
+                for (const line of lines) {
+                    parseJSON(line)
+                }
+            } catch (error) {
+                CryptoMetrics.incrementCryptoIntegrityFailures('json_parse')
+                logFailure('json_parse', error)
+                return
+            }
+
+            CryptoMetrics.incrementCryptoIntegritySuccesses()
         } catch (error) {
-            CryptoMetrics.incrementCryptoIntegrityFailures()
-            logger.error('[VerifyingEncryptor] Crypto integrity check failed', {
-                sessionId,
-                teamId,
-                originalSize: originalBlock.length,
-                encryptedSize: encryptedBlock.length,
-                error: String(error),
-            })
+            CryptoMetrics.incrementCryptoIntegrityFailures('exception')
+            logFailure('exception', error)
         }
     }
 }
