@@ -1558,8 +1558,8 @@ jobs:
         name: Calculate running time
         needs: [django_tests, async-migrations]
         runs-on: ubuntu-latest
-        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
-            always() && (
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
+            always() && github.actor != 'dependabot[bot]' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:

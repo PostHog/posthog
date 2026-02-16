@@ -7,7 +7,8 @@
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
-        "kea-test-utils": "catalog:"
+        "kea-test-utils": "catalog:",
+        "posthog-js": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "*",

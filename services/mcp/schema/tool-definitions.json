@@ -404,6 +404,36 @@
             "readOnlyHint": false
         }
     },
+    "query-run": {
+        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel or HogQL query. Where possible, use a trend or funnel rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.).",
+        "category": "Insights & analytics",
+        "summary": "Run a trend, funnel or HogQL query.",
+        "feature": "insights",
+        "title": "Run query",
+        "required_scopes": ["query:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-generate-hogql-from-question": {
+        "description": "This is a slow tool, and you should only use it once you have tried to create a query using the 'query-run' tool, or the query is too complicated to create a trend / funnel. Queries project's PostHog data based on a provided natural language question - don't provide SQL query as input but describe the output you want. When giving the results back to the user, first show the SQL query that was used, then provide results in easily readable format. You should also offer to save the query as an insight if the user wants to.",
+        "category": "Insights & analytics",
+        "summary": "Queries project's PostHog data based on a provided natural language question.",
+        "feature": "insights",
+        "title": "Generate SQL",
+        "required_scopes": ["query:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "get-llm-total-costs-for-project": {
         "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
         "category": "LLM analytics",

@@ -1178,17 +1178,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     ? makeLogger(actions.incrementWarningCount)
                     : makeNoOpLogger()
 
-            cache.disposables.add(() => {
-                return () => {
-                    Object.values(logging.timers as BuiltLogging['timers']).forEach((timer) => {
-                        if (timer) {
-                            clearTimeout(timer)
-                        }
-                    })
-                    ;(window as any)[`__posthog_player_logs`] = undefined
-                    ;(window as any)[`__posthog_player_warnings`] = undefined
-                }
-            }, 'consoleTimers')
+            cache.disposables.add(
+                () => {
+                    return () => {
+                        Object.values(logging.timers as BuiltLogging['timers']).forEach((timer) => {
+                            if (timer) {
+                                clearTimeout(timer)
+                            }
+                        })
+                        ;(window as any)[`__posthog_player_logs`] = undefined
+                        ;(window as any)[`__posthog_player_warnings`] = undefined
+                    }
+                },
+                'consoleTimers',
+                { pauseOnPageHidden: false }
+            )
 
             const config: Partial<playerConfig> & { onError: (error: any) => void } = {
                 root: values.rootFrame,
@@ -1204,103 +1208,136 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 logger: logging.logger,
             }
 
-            cache.disposables.add(() => {
-                const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
-                const iframeCleanups: (() => void)[] = []
+            cache.disposables.add(
+                () => {
+                    const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
+                    const iframeCleanups: (() => void)[] = []
 
-                replayer.on('fullsnapshot-rebuilded', () => {
-                    const iframeContentWindow = replayer.iframe.contentWindow
-                    const iframeDocument = iframeContentWindow?.document
-                    const iframeFetch = iframeContentWindow?.fetch
+                    replayer.on('fullsnapshot-rebuilded', () => {
+                        const iframeContentWindow = replayer.iframe.contentWindow
+                        const iframeDocument = iframeContentWindow?.document
+                        const iframeFetch = iframeContentWindow?.fetch
 
-                    const setupErrorHandlers = (): void => {
-                        if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting && iframeContentWindow) {
-                            const originalFetch = iframeFetch
-                            const windowRef = new WeakRef(iframeContentWindow)
+                        const setupErrorHandlers = (): void => {
+                            if (
+                                iframeFetch &&
+                                !(iframeFetch as any).__isWrappedForErrorReporting &&
+                                iframeContentWindow
+                            ) {
+                                const originalFetch = iframeFetch
+                                const windowRef = new WeakRef(iframeContentWindow)
 
-                            iframeContentWindow.fetch = wrapFetchAndReport({
-                                fetch: iframeFetch,
-                                onError: (errorDetails: ResourceErrorDetails) => {
-                                    actions.caughtAssetErrorFromIframe(errorDetails)
-                                },
-                            })
-                            ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+                                iframeContentWindow.fetch = wrapFetchAndReport({
+                                    fetch: iframeFetch,
+                                    onError: (errorDetails: ResourceErrorDetails) => {
+                                        actions.caughtAssetErrorFromIframe(errorDetails)
+                                    },
+                                })
+                                ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+
+                                iframeCleanups.push(() => {
+                                    const window = windowRef.deref()
+                                    if (window && window.fetch) {
+                                        window.fetch = originalFetch
+                                        delete (window.fetch as any).__isWrappedForErrorReporting
+                                    }
+                                })
+                            }
+
+                            if (iframeContentWindow) {
+                                iframeCleanups.push(
+                                    registerErrorListeners({
+                                        iframeWindow: iframeContentWindow,
+                                        onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                                    })
+                                )
+                            }
+                        }
+
+                        if (
+                            values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_IFRAME_READY] &&
+                            iframeDocument &&
+                            iframeDocument.readyState === 'loading'
+                        ) {
+                            let pauseTimeoutId: ReturnType<typeof setTimeout> | null = null
+
+                            const onReady = (): void => {
+                                setupErrorHandlers()
+
+                                if (
+                                    replayer &&
+                                    values.currentTimestamp !== undefined &&
+                                    values.sessionPlayerData.start
+                                ) {
+                                    const currentTime =
+                                        values.currentTimestamp - values.sessionPlayerData.start.valueOf()
+                                    replayer.pause(currentTime)
+                                    pauseTimeoutId = setTimeout(() => {
+                                        if (replayer) {
+                                            replayer.pause(currentTime)
+                                        }
+                                    }, 0)
+                                }
+
+                                iframeDocument.removeEventListener('DOMContentLoaded', onReady)
+                            }
+                            iframeDocument.addEventListener('DOMContentLoaded', onReady)
 
                             iframeCleanups.push(() => {
-                                const window = windowRef.deref()
-                                if (window && window.fetch) {
-                                    window.fetch = originalFetch
-                                    delete (window.fetch as any).__isWrappedForErrorReporting
+                                iframeDocument.removeEventListener('DOMContentLoaded', onReady)
+                                if (pauseTimeoutId !== null) {
+                                    clearTimeout(pauseTimeoutId)
                                 }
                             })
-                        }
-
-                        if (iframeContentWindow) {
-                            iframeCleanups.push(
-                                registerErrorListeners({
-                                    iframeWindow: iframeContentWindow,
-                                    onError: (error) => actions.caughtAssetErrorFromIframe(error),
-                                })
-                            )
-                        }
-                    }
-
-                    if (
-                        values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_IFRAME_READY] &&
-                        iframeDocument &&
-                        iframeDocument.readyState === 'loading'
-                    ) {
-                        let pauseTimeoutId: ReturnType<typeof setTimeout> | null = null
-
-                        const onReady = (): void => {
+                        } else {
                             setupErrorHandlers()
+                        }
+                    })
 
-                            if (replayer && values.currentTimestamp !== undefined && values.sessionPlayerData.start) {
-                                const currentTime = values.currentTimestamp - values.sessionPlayerData.start.valueOf()
-                                replayer.pause(currentTime)
-                                pauseTimeoutId = setTimeout(() => {
-                                    if (replayer) {
-                                        replayer.pause(currentTime)
-                                    }
-                                }, 0)
+                    actions.setPlayer({ replayer, windowId })
+
+                    return () => {
+                        if (replayer) {
+                            for (const cleanup of iframeCleanups) {
+                                cleanup()
                             }
+                            iframeCleanups.length = 0
 
-                            iframeDocument.removeEventListener('DOMContentLoaded', onReady)
-                        }
-                        iframeDocument.addEventListener('DOMContentLoaded', onReady)
+                            const iframe = replayer.iframe
+                            replayer.destroy()
 
-                        iframeCleanups.push(() => {
-                            iframeDocument.removeEventListener('DOMContentLoaded', onReady)
-                            if (pauseTimeoutId !== null) {
-                                clearTimeout(pauseTimeoutId)
+                            if (iframe?.contentDocument?.body) {
+                                iframe.contentDocument.body.innerHTML = ''
                             }
-                        })
-                    } else {
-                        setupErrorHandlers()
-                    }
-                })
-
-                actions.setPlayer({ replayer, windowId })
-
-                return () => {
-                    if (replayer) {
-                        for (const cleanup of iframeCleanups) {
-                            cleanup()
-                        }
-                        iframeCleanups.length = 0
-
-                        const iframe = replayer.iframe
-                        replayer.destroy()
-
-                        if (iframe?.contentDocument?.body) {
-                            iframe.contentDocument.body.innerHTML = ''
-                        }
-                        if (iframe?.contentDocument?.head) {
-                            iframe.contentDocument.head.innerHTML = ''
+                            if (iframe?.contentDocument?.head) {
+                                iframe.contentDocument.head.innerHTML = ''
+                            }
                         }
                     }
-                }
-            }, `replayer-${props.mode}`)
+                },
+                `replayer-${props.mode}`,
+                { pauseOnPageHidden: false }
+            )
+
+            // Manually handle visibility: dispose replayer on hide (frees memory),
+            // call tryInitReplayer on visible (uses fresh state, no stale closures)
+            cache.disposables.add(
+                () => {
+                    const handleVisibilityChange = (): void => {
+                        if (document.hidden) {
+                            cache.disposables.dispose(`replayer-${props.mode}`)
+                            cache.disposables.dispose('consoleTimers')
+                            actions.setPlayer(null)
+                        } else {
+                            actions.tryInitReplayer()
+                        }
+                    }
+                    document.addEventListener('visibilitychange', handleVisibilityChange)
+                    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+                },
+                'replayerVisibilityHandler',
+                { pauseOnPageHidden: false }
+            )
         },
         setPlayer: ({ player }) => {
             if (player) {
@@ -1348,7 +1385,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Otherwise keep existing player visible (last valid frame)
             }
             if (values.currentTimestamp !== undefined) {
-                actions.seekToTimestamp(values.currentTimestamp)
+                // Preserve play intent so playback resumes after segment transitions (e.g. after buffering)
+                const shouldPlay = values.playingState === SessionPlayerState.PLAY
+                actions.seekToTimestamp(values.currentTimestamp, shouldPlay)
             }
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
@@ -1374,8 +1413,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const isBuffering = isBufferingSegment || values.isWaitingForPlayableFullSnapshot
 
             if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
+                // Preserve the playing intent so seekToTimestamp resumes playback
+                const shouldPlay = values.playingState === SessionPlayerState.PLAY
                 actions.endBuffer()
-                actions.seekToTimestamp(values.currentTimestamp)
+                actions.seekToTimestamp(values.currentTimestamp, shouldPlay)
             }
         },
         initializePlayerFromStart: () => {

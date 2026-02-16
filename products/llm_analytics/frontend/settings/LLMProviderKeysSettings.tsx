@@ -129,7 +129,7 @@ function KeyValidationStatus({
 }
 
 function AddKeyModal(): JSX.Element {
-    const { newKeyModalOpen, providerKeysLoading, preValidationResult, preValidationResultLoading } =
+    const { newKeyModalOpen, providerKeysLoading, preValidationResult, preValidationResultLoading, evaluationConfig } =
         useValues(llmProviderKeysLogic)
     const { setNewKeyModalOpen, createProviderKey, preValidateKey, clearPreValidation } =
         useActions(llmProviderKeysLogic)
@@ -162,6 +162,7 @@ function AddKeyModal(): JSX.Element {
                         provider,
                         name,
                         api_key: apiKey,
+                        set_as_active: !evaluationConfig?.active_provider_key,
                     },
                 })
             }
@@ -180,6 +181,7 @@ function AddKeyModal(): JSX.Element {
                     provider,
                     name,
                     api_key: apiKey,
+                    set_as_active: !evaluationConfig?.active_provider_key,
                 },
             })
         } else if (apiKey.length > 0) {

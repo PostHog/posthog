@@ -11,6 +11,14 @@ export function getAppContext(): AppContext | undefined {
     return window.POSTHOG_APP_CONTEXT || undefined
 }
 
+export function getProjectEventExistence(): { hasPageview: boolean; hasScreen: boolean } {
+    const ctx = getAppContext()
+    return {
+        hasPageview: ctx?.has_pageview ?? true,
+        hasScreen: ctx?.has_screen ?? true,
+    }
+}
+
 export function getDefaultEventName(): string | null {
     const context = getAppContext()
     // If context exists but default_event_name is explicitly null, return null (all events)
