@@ -75,7 +75,6 @@ class ClusteringResult:
     clusters: list[Cluster]
     noise_segment_ids: list[str]  # Segments that didn't fit any cluster (label=-1)
     labels: list[int]  # Cluster assignment for each segment
-    segment_to_cluster: dict[str, int]  # document_id -> cluster_id
 
 
 class ClusterLabel(BaseModel):
@@ -134,7 +133,6 @@ class EmitSignalsActivityInputs:
     team_id: int
     clusters: list[Cluster]
     segments: list[VideoSegmentMetadata]
-    segment_to_cluster: dict[str, int]  # document_id -> cluster_id
     workflow_run_id: str
 
 

@@ -157,9 +157,6 @@ def _perform_clustering(segments: list[VideoSegment]) -> _ClusteringResultWithCe
         # Update result in place
         result.clusters += noise_result.clusters
         result.noise_segment_ids = []
-        for cluster in noise_result.clusters:
-            for doc_id in cluster.segment_ids:
-                result.segment_to_cluster[doc_id] = cluster.cluster_id
         # Merge centroids
         centroids.update(noise_result.centroids)
 
@@ -191,7 +188,6 @@ def _perform_iterative_kmeans_clustering(
                 clusters=[],
                 noise_segment_ids=[],
                 labels=[],
-                segment_to_cluster={},
             ),
             centroids={},
         )
@@ -364,7 +360,6 @@ def _perform_iterative_kmeans_clustering(
             clusters=final_clusters,
             noise_segment_ids=list(remaining_doc_ids),
             labels=labels_list,
-            segment_to_cluster=segment_to_cluster,
         ),
         centroids=centroids,
     )
@@ -414,7 +409,6 @@ def _perform_agglomerative_clustering(
                 clusters=[],
                 noise_segment_ids=[],
                 labels=[],
-                segment_to_cluster={},
             ),
             centroids={},
         )
@@ -441,7 +435,6 @@ def _perform_agglomerative_clustering(
     # Build clusters
     clusters: list[Cluster] = []
     centroids: dict[int, list[float]] = {}
-    segment_to_cluster: dict[str, int] = {}
 
     unique_labels = set(labels)
     for label in unique_labels:
@@ -462,9 +455,6 @@ def _perform_agglomerative_clustering(
         )
         centroids[cluster_id] = centroid.tolist()
 
-        for doc_id in cluster_doc_ids:
-            segment_to_cluster[doc_id] = cluster_id
-
     # Build labels list in original order
     labels_list = [int(labels[i]) for i in range(len(all_document_ids))]
 
@@ -473,7 +463,6 @@ def _perform_agglomerative_clustering(
             clusters=clusters,
             noise_segment_ids=[],  # Agglomerative assigns all segments to clusters
             labels=labels_list,
-            segment_to_cluster=segment_to_cluster,
         ),
         centroids=centroids,
     )

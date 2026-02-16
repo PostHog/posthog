@@ -164,14 +164,11 @@ async def test_emit_signals_activity_calls_emit_signal(ateam, test_segments_and_
         Cluster(cluster_id=0, segment_ids=[s.document_id for s in segments[:3]], size=3),
         Cluster(cluster_id=1, segment_ids=[s.document_id for s in segments[3:6]], size=3),
     ]
-    segment_to_cluster = {s.document_id: 0 for s in segments[:3]}
-    segment_to_cluster.update({s.document_id: 1 for s in segments[3:6]})
 
     inputs = EmitSignalsActivityInputs(
         team_id=ateam.id,
         clusters=clusters,
         segments=segments,
-        segment_to_cluster=segment_to_cluster,
         workflow_run_id="test-run-id",
     )
 

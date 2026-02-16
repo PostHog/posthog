@@ -138,7 +138,6 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                     team_id=inputs.team_id,
                     clusters=all_clusters,
                     segments=segments,
-                    segment_to_cluster=clustering_result.segment_to_cluster,
                     workflow_run_id=workflow.info().run_id,
                 )
             ],
