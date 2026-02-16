@@ -234,7 +234,7 @@ class OauthIntegration:
                 token_url="https://slack.com/api/oauth.v2.access",
                 client_id=from_settings["SLACK_APP_CLIENT_ID"],
                 client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
-                scope="channels:read,groups:read,chat:write,chat:write.customize",
+                scope="channels:read,groups:read,chat:write,chat:write.customize,channels:history,groups:history,users:read,users:read.email,reactions:read",
                 id_path="team.id",
                 name_path="team.name",
             )
