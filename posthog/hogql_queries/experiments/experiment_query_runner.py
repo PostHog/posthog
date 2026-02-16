@@ -161,9 +161,9 @@ class ExperimentQueryRunner(QueryRunner):
         system, which will compute and store the exposure data if not already cached.
 
         Returns:
-            ComputationResult with job_ids that can be used to query the data
+            LazyComputationResult with job_ids that can be used to query the data
         """
-        query_string, placeholders = builder.get_exposure_query_for_preaggregation()
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
         if not self.experiment.start_date:
             raise ValidationError("Experiment must have a start date for precomputation")

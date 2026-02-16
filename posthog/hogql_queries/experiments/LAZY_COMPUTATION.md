@@ -42,8 +42,8 @@ self.date_range = get_experiment_date_range(self.experiment, self.team, self.ove
 The runner calls `_ensure_exposures_precomputed()` which gets the exposure query template from the builder and passes it to the lazy computation system:
 
 ```python
-def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> ComputationResult:
-    query_string, placeholders = builder.get_exposure_query_for_preaggregation()
+def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
+    query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
     date_from = self.experiment.start_date
     date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
@@ -177,7 +177,7 @@ LazyComputationResult(
 
 ### Step 9: Build experiment query using precomputed data
 
-`_build_exposure_from_preaggregated(job_ids)` in the builder reads from the precomputed table instead of scanning events:
+`_build_exposure_from_precomputed(job_ids)` in the builder reads from the precomputed table instead of scanning events:
 
 ```sql
 SELECT
@@ -241,13 +241,13 @@ GROUP BY variant
 
 ## Key files
 
-| File                                                          | Purpose                                                                                                                                                                                     |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `experiment_query_runner.py`                                  | Orchestrates experiment query execution, including `_ensure_exposures_precomputed()`                                                                                                        |
-| `experiment_query_builder.py`                                 | Builds the SQL query: `_build_exposure_select_query()` (events scan), `_build_exposure_from_preaggregated()` (precomputed read), `get_exposure_query_for_preaggregation()` (write template) |
-| `lazy_computation_executor.py`                                | Core lazy computation logic: `ensure_precomputed()`, job management                                                                                                                         |
-| `models/preaggregation_job.py`                                | PostgreSQL model for tracking computation jobs                                                                                                                                              |
-| `hogql/database/schema/experiment_exposures_preaggregated.py` | HogQL schema for the precomputed ClickHouse table                                                                                                                                           |
+| File                                                          | Purpose                                                                                                                                                                                   |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `experiment_query_runner.py`                                  | Orchestrates experiment query execution, including `_ensure_exposures_precomputed()`                                                                                                      |
+| `experiment_query_builder.py`                                 | Builds the SQL query: `_build_exposure_select_query()` (events scan), `_build_exposure_from_precomputed()` (precomputed read), `get_exposure_query_for_precomputation()` (write template) |
+| `lazy_computation_executor.py`                                | Core lazy computation logic: `ensure_precomputed()`, job management                                                                                                                       |
+| `models/preaggregation_job.py`                                | PostgreSQL model for tracking computation jobs                                                                                                                                            |
+| `hogql/database/schema/experiment_exposures_preaggregated.py` | HogQL schema for the precomputed ClickHouse table                                                                                                                                         |
 
 ---
 

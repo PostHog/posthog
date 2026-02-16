@@ -1076,7 +1076,7 @@ class ExperimentQueryBuilder:
         - Custom exposure events via event_or_action_to_filter
         - Special $feature_flag_called filtering (matching the flag key)
 
-        Used by both _build_exposure_predicate() and get_exposure_query_for_preaggregation().
+        Used by both _build_exposure_predicate() and get_exposure_query_for_precomputation().
         """
         event_predicate = event_or_action_to_filter(self.team, self.exposure_config)
 
@@ -1128,7 +1128,7 @@ class ExperimentQueryBuilder:
 
     def _get_exposure_query(self) -> ast.SelectQuery:
         if self.preaggregation_job_ids and not self.breakdowns:
-            return self._build_exposure_from_preaggregated(self.preaggregation_job_ids)
+            return self._build_exposure_from_precomputed(self.preaggregation_job_ids)
         return self._build_exposure_select_query()
 
     def _build_exposure_select_query(self) -> ast.SelectQuery:
@@ -1171,7 +1171,7 @@ class ExperimentQueryBuilder:
 
         return exposure_query
 
-    def _build_exposure_from_preaggregated(self, job_ids: list[str]) -> ast.SelectQuery:
+    def _build_exposure_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
         """
         Builds the exposure CTE by reading from the preaggregated table instead of scanning events.
 
@@ -1216,7 +1216,7 @@ class ExperimentQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def get_exposure_query_for_preaggregation(self) -> tuple[str, dict[str, ast.Expr]]:
+    def get_exposure_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
         Returns the exposure query and placeholders for preaggregation.
 

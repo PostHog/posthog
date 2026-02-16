@@ -81,7 +81,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
 
         # Preaggreggate exposures
         builder = self._build_preaggregation_builder(experiment, feature_flag, metric)
-        query_string, placeholders = builder.get_exposure_query_for_preaggregation()
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
         ensure_precomputed(
             team=self.team,
             insert_query=query_string,
@@ -220,7 +220,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
 
         # Preaggregating in two phases forces multiple jobs
         builder = self._build_preaggregation_builder(experiment, feature_flag, metric)
-        query_string, placeholders = builder.get_exposure_query_for_preaggregation()
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
         # Phase 1: preagg Jan 1-3
         ensure_precomputed(
@@ -325,7 +325,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
 
         # Preaggreggate in two phases so "switcher" ends up in two separate jobs with different variants
         builder = self._build_preaggregation_builder(experiment, feature_flag, metric)
-        query_string, placeholders = builder.get_exposure_query_for_preaggregation()
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
         ensure_precomputed(
             team=self.team,
@@ -409,7 +409,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
 
         # Preaggreggate in two phases so "switcher" ends up in two separate jobs with different variants
         builder = self._build_preaggregation_builder(experiment, feature_flag, metric)
-        query_string, placeholders = builder.get_exposure_query_for_preaggregation()
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
         ensure_precomputed(
             team=self.team,

@@ -49,8 +49,10 @@ The query must use `{time_window_min}` and `{time_window_max}` placeholders - th
 
 ```python
 from datetime import datetime
-from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import ensure_precomputed,
-    LazyComputationTable
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    ensure_precomputed,
+    LazyComputationTable,
+)
 from posthog.hogql import ast
 
 # Ensure that the given query is precomputed with variable TTLs
