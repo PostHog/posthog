@@ -1310,9 +1310,9 @@
         "model": "deepseek/deepseek-v3.2",
         "cost": {
             "default": {
-                "prompt_token": 2.5e-7,
+                "prompt_token": 2.6e-7,
                 "completion_token": 3.8e-7,
-                "cache_read_token": 1.25e-7
+                "cache_read_token": 1.3e-7
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 2.6e-7,
@@ -1320,9 +1320,9 @@
                 "cache_read_token": 1.5e-7
             },
             "chutes-fp8": {
-                "prompt_token": 2.5e-7,
-                "completion_token": 3.8e-7,
-                "cache_read_token": 1.25e-7
+                "prompt_token": 2.8e-7,
+                "completion_token": 4.2e-7,
+                "cache_read_token": 1.4e-7
             },
             "deepinfra-fp4": {
                 "prompt_token": 2.6e-7,
