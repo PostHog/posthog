@@ -63,6 +63,9 @@ UNDERLYING SIGNALS:
 {render_signals_to_text(signals)}"""
 
 
+# One thing I'd like to be doing here, or maybe on the signal-ingestion side, is compare each signals embedding
+# to the average embedding for all signals of the same type - if it's some enormous outlier, it's probably a warning
+# that it's a bit odd (but the mechanics of exactly how that comparison should work are TBD).
 async def judge_report_safety(
     title: str,
     summary: str,

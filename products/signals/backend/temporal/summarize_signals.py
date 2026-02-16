@@ -16,6 +16,7 @@ class SummarizeSignalsResponse(BaseModel):
     summary: str = Field(description="A 2-4 sentence summary of the key findings")
 
 
+# This prompt is also biased towards actionability quite a bit. I think thats ok, for now.
 SUMMARIZE_SYSTEM_PROMPT = """You are a product analytics assistant. Your job is to summarize a collection of related signals into a concise report.
 
 Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.

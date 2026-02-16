@@ -27,6 +27,9 @@ class ActionabilityJudgeResponse(BaseModel):
     )
 
 
+# This is biased /in favour/ of kicking off coding agent runs, quite a bit. In (admittedly brief) testing, I found the model very hesitant to take autonomous actions,
+# deferring to human input far too often, so pushed a bit in the other direction. We can dial it in over time. I expect, right now, it's far too biased /against/
+# returning reports to the potential pool to be read over.
 ACTIONABILITY_JUDGE_SYSTEM_PROMPT = """You are an actionability judge reviewing a signal report to determine whether it can be acted on by an autonomous coding agent.
 
 The coding agent that would receive this report has:

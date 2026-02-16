@@ -114,6 +114,7 @@ def _extract_text_content(response) -> str:
     raise ValueError("No text content in response")
 
 
+# I could not for the life of me get thinking claude to stop outputting markdown.
 def _strip_markdown_json_fences(text: str) -> str:
     """Strip ```json ... ``` markdown fences that Claude sometimes wraps around JSON output."""
     stripped = text.strip()
@@ -127,6 +128,7 @@ def _strip_markdown_json_fences(text: str) -> str:
 T = TypeVar("T")
 
 
+# I reached doing ~the same thing in 3 or 4 places and decided to abstract it.
 async def call_llm(
     *,
     system_prompt: str,
@@ -136,13 +138,16 @@ async def call_llm(
     temperature: Optional[float] = 0.2,
     retries: int = MAX_RETRIES,
 ) -> T:
+    # Worth noting a lot of this code only really works for the Anthropic API, I think (prefilling and thinking in particular). Haven't
+    # looked into the OpenAI SDK yet - that'll be for the switch to the LLM gateway.
     client = get_async_anthropic_client()
 
     messages: list[MessageParam] = [
         {"role": "user", "content": user_prompt},
     ]
 
-    # For non-thinking calls, pre-fill the assistant response with `{` to prevent markdown fences
+    # For non-thinking calls, pre-fill the assistant response with `{` to prevent markdown fences. Pre-filling seems to work
+    # well, but isn't supported for thinking modes.
     if not thinking:
         messages.append({"role": "assistant", "content": "{"})
 
@@ -181,6 +186,8 @@ async def call_llm(
                 attempt=attempt + 1,
                 retries=retries,
             )
+            # This is expected to contain pretty sensitive and/or large amounts of data, so for real only
+            # log it in local dev
             if settings.DEBUG:
                 logger.warning(
                     f"LLM response that failed validation:\n{text_content}",

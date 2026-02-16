@@ -51,10 +51,6 @@ class FetchSignalsForReportOutput:
 
 @temporalio.activity.defn
 async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
-    """
-    Fetch all signals associated with a report from ClickHouse.
-    Note: fetches 100 signals at most. This may exceed useful LLM input size - we should consider limiting it in the future.
-    """
     try:
         team = await Team.objects.aget(pk=input.team_id)
 
@@ -322,7 +318,6 @@ class SignalReportSummaryWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
-        # 1. Fetch signals
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
             FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
@@ -340,7 +335,6 @@ class SignalReportSummaryWorkflow:
             )
             return
 
-        # 2. Mark in-progress
         await workflow.execute_activity(
             mark_report_in_progress_activity,
             MarkReportInProgressInput(report_id=inputs.report_id, signal_count=len(fetch_result.signals)),
@@ -349,7 +343,6 @@ class SignalReportSummaryWorkflow:
         )
 
         try:
-            # 3. Summarize
             summarize_result: SummarizeSignalsOutput = await workflow.execute_activity(
                 summarize_signals_activity,
                 SummarizeSignalsInput(report_id=inputs.report_id, signals=fetch_result.signals),
@@ -357,7 +350,6 @@ class SignalReportSummaryWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-            # 4+5. Safety and actionability judges (concurrent)
             safety_result, actionability_result = await asyncio.gather(
                 workflow.execute_activity(
                     safety_judge_activity,
@@ -385,7 +377,6 @@ class SignalReportSummaryWorkflow:
                 ),
             )
 
-            # Check safety first — override actionability if unsafe
             if not safety_result.safe:
                 workflow.logger.warning(f"Report {inputs.report_id} failed safety review: {safety_result.explanation}")
                 await workflow.execute_activity(
@@ -431,7 +422,6 @@ class SignalReportSummaryWorkflow:
                 )
                 return
 
-            # 6. Mark ready (immediately_actionable)
             await workflow.execute_activity(
                 mark_report_ready_activity,
                 MarkReportReadyInput(
