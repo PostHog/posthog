@@ -320,12 +320,12 @@ function TraceMetadata({
     const { personsCache, isDistinctIdLoading } = useValues(llmPersonsLazyLoaderLogic)
     const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
     const { getTraceSentiment, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
-    const { loadSentiment } = useActions(llmSentimentLazyLoaderLogic)
+    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
 
     const sentimentResult = getTraceSentiment(trace.id)
     const sentimentLoading = isTraceLoading(trace.id)
-    if (!sentimentResult && !sentimentLoading) {
-        loadSentiment(trace.id)
+    if (sentimentResult === undefined && !sentimentLoading) {
+        ensureSentimentLoaded(trace.id)
     }
 
     const cached = personsCache[trace.distinctId]
@@ -419,7 +419,7 @@ function TraceMetadata({
             {(() => {
                 const sentiment = getTraceSentiment(trace.id)
                 const sentimentLoading = isTraceLoading(trace.id)
-                if (!sentiment && !sentimentLoading) {
+                if (sentiment === undefined || sentiment === null) {
                     return null
                 }
                 if (sentimentLoading) {

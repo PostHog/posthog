@@ -475,6 +475,16 @@ class LLMAnalyticsSentimentSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "200/hour"
 
 
+class LLMAnalyticsSentimentBatchBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_sentiment_batch_burst"
+    rate = "10/minute"
+
+
+class LLMAnalyticsSentimentBatchSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_sentiment_batch_sustained"
+    rate = "60/hour"
+
+
 class LLMAnalyticsSummarizationBurstThrottle(PersonalApiKeyRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
