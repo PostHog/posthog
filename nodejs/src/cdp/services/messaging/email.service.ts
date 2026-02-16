@@ -25,15 +25,17 @@ export type EmailServiceHub = Pick<
 >
 
 export class EmailService {
-    sesV2Client: SESv2Client
+    sesV2Client: SESv2Client | null
 
     private recipientTokensService: RecipientTokensService
 
     constructor(private hub: EmailServiceHub) {
-        this.sesV2Client = new SESv2Client({
-            region: this.hub.SES_REGION,
-            endpoint: this.hub.SES_ENDPOINT || undefined,
-        })
+        this.sesV2Client = this.hub.SES_REGION
+            ? new SESv2Client({
+                  region: this.hub.SES_REGION,
+                  endpoint: this.hub.SES_ENDPOINT || undefined,
+              })
+            : null
         this.recipientTokensService = new RecipientTokensService(hub)
     }
 

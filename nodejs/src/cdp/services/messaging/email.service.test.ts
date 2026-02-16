@@ -87,7 +87,7 @@ describe('EmailService', () => {
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
 
             // Mock SES v2 send to avoid actual AWS calls
-            sendEmailSpy = jest.spyOn(service.sesV2Client, 'send') as any
+            sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send') as any
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
         })
         describe('integration validation', () => {
@@ -276,7 +276,7 @@ describe('EmailService', () => {
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1, email: 'test@posthog-test.com' },
             })
-            sendEmailSpy = jest.spyOn(service.sesV2Client, 'send')
+            sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send')
         })
 
         it('should error if not verified', async () => {
