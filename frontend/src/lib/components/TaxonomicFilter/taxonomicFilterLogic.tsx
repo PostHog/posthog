@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
-import { BuiltLogic, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { BuiltLogic, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -1382,6 +1382,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     searchQuery: values.searchQuery,
                 })
             }
+            if (activeTab === TaxonomicFilterGroupType.SuggestedFilters) {
+                posthog.capture('taxonomic_filter_suggested_filters_shown', {
+                    searchQuery: values.searchQuery,
+                })
+            }
         },
     })),
+    afterMount(({ values }) => {
+        if (values.activeTab === TaxonomicFilterGroupType.SuggestedFilters) {
+            posthog.capture('taxonomic_filter_suggested_filters_shown', {
+                searchQuery: values.searchQuery,
+            })
+        }
+    }),
 ])
