@@ -132,6 +132,44 @@ procs:
             bin/start-rust-service batch-import-worker
         capability: batch_imports
 
+    ingestion-consumer:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service ingestion-consumer
+        capability: multi_thread_ingestion
+
+    ingestion-1:
+        shell: |-
+            bin/wait-for-docker && bin/check_ducklake_up && \
+            PLUGIN_SERVER_MODE=ingestion-api \
+            INGESTION_API_PORT=3400 \
+            ./bin/posthog-node
+        capability: multi_thread_ingestion
+
+    ingestion-2:
+        shell: |-
+            bin/wait-for-docker && bin/check_ducklake_up && \
+            PLUGIN_SERVER_MODE=ingestion-api \
+            INGESTION_API_PORT=3401 \
+            ./bin/posthog-node
+        capability: multi_thread_ingestion
+
+    ingestion-3:
+        shell: |-
+            bin/wait-for-docker && bin/check_ducklake_up && \
+            PLUGIN_SERVER_MODE=ingestion-api \
+            INGESTION_API_PORT=3402 \
+            ./bin/posthog-node
+        capability: multi_thread_ingestion
+
+    ingestion-4:
+        shell: |-
+            bin/wait-for-docker && bin/check_ducklake_up && \
+            PLUGIN_SERVER_MODE=ingestion-api \
+            INGESTION_API_PORT=3403 \
+            ./bin/posthog-node
+        capability: multi_thread_ingestion
+
     llm-gateway:
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
         autostart: true

@@ -124,6 +124,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    multi_thread_ingestion:
+        description: 'Multi-threaded ingestion via Rust consumer routing to Node.js API processes'
+        requires: [event_ingestion]
+        docker_profiles: []
+
     observability:
         description: 'OpenTelemetry tracing with Jaeger'
         requires: [core_infra]
@@ -217,6 +222,10 @@ intents:
     mcp:
         description: 'MCP server for AI assistant integration'
         capabilities: [mcp_server]
+
+    multi_thread_ingestion:
+        description: 'Multi-threaded ingestion prototype (Rust consumer + 4 Node.js API workers)'
+        capabilities: [multi_thread_ingestion, event_ingestion, property_definitions]
 
     dagster:
         description: 'Dagster for clickhouse maintenance, system workflows'
