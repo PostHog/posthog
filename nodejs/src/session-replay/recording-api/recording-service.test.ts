@@ -272,8 +272,7 @@ describe('RecordingService', () => {
 
         it('returns cleanup_failed when postgres fails after key deletion', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({ deleted: true })
-            const pgError = new Error('Postgres connection lost')
-            mockPostgres.query.mockRejectedValue(pgError)
+            mockPostgres.query.mockRejectedValue(new Error('Postgres connection lost'))
 
             const result = await service.deleteRecording('session-123', 1)
 
@@ -281,7 +280,9 @@ describe('RecordingService', () => {
                 ok: false,
                 error: 'cleanup_failed',
                 metadataError: undefined,
-                postgresError: pgError,
+                postgresError: expect.objectContaining({
+                    message: expect.stringContaining('Failed to delete from:'),
+                }),
             })
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalled()
         })
