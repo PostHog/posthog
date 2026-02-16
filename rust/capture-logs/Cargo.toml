@@ -18,7 +18,7 @@ limiters = { path = "../common/limiters" }
 capture = { path = "../capture" }
 opentelemetry-proto = { workspace = true }
 tonic = { workspace = true }
-jsonwebtoken = "8.3"
+jsonwebtoken = "10.3"
 serde = { workspace = true }
 serde_derive = { workspace = true }
 anyhow = { workspace = true }
