@@ -412,6 +412,9 @@ export const sceneLogic = kea<sceneLogicType>([
         pinTab: (tabId: string) => ({ tabId }),
         unpinTab: (tabId: string) => ({ tabId }),
         setTabScrollDepth: (tabId: string, scrollTop: number) => ({ tabId, scrollTop }),
+        setFrozenWidths: (widths: Record<string, number> | null) => ({ widths }),
+        clearFrozenWidths: true,
+        freezeTabWidths: true,
     }),
     reducers({
         // We store all state in "tabs". This allows us to have multiple tabs open, each with its own scene and parameters.
@@ -657,6 +660,13 @@ export const sceneLogic = kea<sceneLogicType>([
                 },
             },
         ],
+        frozenWidths: [
+            null as Record<string, number> | null,
+            {
+                setFrozenWidths: (_, { widths }) => widths,
+                clearFrozenWidths: () => null,
+            },
+        ],
     }),
     reducers({
         homepage: [
@@ -841,6 +851,20 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
+        freezeTabWidths: () => {
+            const tabRow = document.querySelector('.scene-tab-row')
+            if (!tabRow) {
+                return
+            }
+            const widths: Record<string, number> = {}
+            tabRow.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => {
+                const id = el.getAttribute('data-tab-id')
+                if (id) {
+                    widths[id] = el.getBoundingClientRect().width
+                }
+            })
+            actions.setFrozenWidths(widths)
+        },
         [NEW_INTERNAL_TAB]: (payload) => {
             actions.newTab(payload.path, { source: payload?.source ?? 'internal_link' })
         },
