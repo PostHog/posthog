@@ -143,6 +143,7 @@ services:
             CLICKHOUSE_SKIP_USER_SETUP: 1
             KAFKA_HOSTS: 'kafka:9092'
         healthcheck:
+            # nosemgrep: trailofbits.generic.wget-unencrypted-url (localhost-only health check, curl not available in image)
             test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1']
             interval: 3s
             timeout: 10s
