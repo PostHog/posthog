@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPlug, IconPlus, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCheck, IconPlus, IconServer, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -21,52 +21,32 @@ export const scene: SceneExport = {
     logic: mcpStoreLogic,
 }
 
-function ServerConfigRow({ server }: { server: MCPServer }): JSX.Element {
-    const { installServer, setConfiguringServerId } = useActions(mcpStoreLogic)
-    const [apiKey, setApiKey] = useState('')
-
-    return (
-        <div className="flex items-center gap-2 py-1">
-            <LemonInput
-                value={apiKey}
-                onChange={setApiKey}
-                placeholder="Enter API key"
-                type="password"
-                fullWidth
-                size="small"
-            />
-            <LemonButton
-                type="primary"
-                size="small"
-                disabledReason={!apiKey ? 'API key is required' : undefined}
-                onClick={() => installServer({ serverId: server.id, configuration: { api_key: apiKey } })}
-            >
-                Install
-            </LemonButton>
-            <LemonButton type="secondary" size="small" onClick={() => setConfiguringServerId(null)}>
-                Cancel
-            </LemonButton>
-        </div>
-    )
-}
-
-function ConnectButton({ installation }: { installation: MCPServerInstallation }): JSX.Element {
+function ConnectOAuthButton({
+    name,
+    url,
+    description,
+    type = 'primary',
+}: {
+    name: string
+    url: string
+    description: string
+    type?: 'primary' | 'secondary'
+}): JSX.Element {
     const [loading, setLoading] = useState(false)
 
     return (
         <LemonButton
-            type="primary"
+            type={type}
             size="small"
-            icon={<IconPlug />}
             loading={loading}
             onClick={async () => {
                 setLoading(true)
                 try {
                     const result = await api.mcpServerInstallations.installCustom({
-                        name: installation.display_name || installation.name,
-                        url: installation.url,
+                        name,
+                        url,
                         auth_type: 'oauth',
-                        description: installation.description,
+                        description,
                     })
                     if (result?.redirect_url) {
                         window.location.href = result.redirect_url
@@ -82,16 +62,16 @@ function ConnectButton({ installation }: { installation: MCPServerInstallation }
 }
 
 export function McpStoreScene(): JSX.Element {
-    const { installations, installationsLoading, recommendedServers, serversLoading, configuringServerId } =
+    const { installations, installationsLoading, installedServerUrls, recommendedServers, serversLoading } =
         useValues(mcpStoreLogic)
-    const { installServer, uninstallServer, openAddCustomServerModal, setConfiguringServerId } =
-        useActions(mcpStoreLogic)
+    const { uninstallServer, openAddCustomServerModal } = useActions(mcpStoreLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const [searchTerm, setSearchTerm] = useState('')
 
     return (
         <SceneContent>
             <SceneTitleSection
-                name="MCP store"
+                name="MCP servers"
                 description="Manage MCP servers for your AI agents."
                 resourceType={{ type: 'mcp_store' }}
                 actions={
@@ -101,70 +81,74 @@ export function McpStoreScene(): JSX.Element {
                 }
             />
 
-            <h3 className="mt-4">Installed servers</h3>
+            <h3>Installed servers</h3>
             <LemonTable
                 loading={installationsLoading}
                 dataSource={installations}
                 emptyState="No servers installed yet. Browse recommended servers below or add a custom one."
                 columns={[
                     {
+                        width: 0,
+                        render: (_: any, installation: MCPServerInstallation) =>
+                            installation.server?.icon_url ? (
+                                <img src={installation.server.icon_url} alt="" className="w-6 h-6" />
+                            ) : (
+                                <IconServer className="text-muted text-xl" />
+                            ),
+                    },
+                    {
                         title: 'Name',
                         render: (_: any, installation: MCPServerInstallation) => (
-                            <span className="font-semibold">{installation.name}</span>
+                            <div>
+                                <span className="font-semibold">{installation.name}</span>
+                                {installation.description && (
+                                    <div className="text-muted text-xs">{installation.description}</div>
+                                )}
+                            </div>
                         ),
                     },
                     {
-                        title: 'URL',
-                        render: (_: any, installation: MCPServerInstallation) => (
-                            <span className="text-muted">{installation.url}</span>
-                        ),
-                    },
-                    {
-                        title: 'Auth',
+                        width: 0,
                         render: (_: any, installation: MCPServerInstallation) =>
                             installation.pending_oauth ? (
-                                <LemonTag type="warning" icon={<IconWarning />}>
-                                    Not connected
-                                </LemonTag>
-                            ) : installation.needs_reauth ? (
-                                <LemonTag type="warning" icon={<IconWarning />}>
-                                    Needs reconnection
-                                </LemonTag>
+                                <ConnectOAuthButton
+                                    name={installation.display_name || installation.name}
+                                    url={installation.url}
+                                    description={installation.description}
+                                />
+                            ) : installation.needs_reauth && installation.server ? (
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={() => {
+                                        window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${installation.server!.id}`
+                                    }}
+                                >
+                                    Reconnect
+                                </LemonButton>
                             ) : (
-                                <LemonTag>{installation.auth_type}</LemonTag>
+                                <LemonTag type="success" icon={<IconCheck />}>
+                                    Active
+                                </LemonTag>
                             ),
                     },
                     {
                         width: 0,
                         render: (_: any, installation: MCPServerInstallation) => (
-                            <div className="flex items-center gap-1">
-                                {installation.pending_oauth && <ConnectButton installation={installation} />}
-                                {!installation.pending_oauth && installation.needs_reauth && installation.server && (
-                                    <LemonButton
-                                        type="primary"
-                                        size="small"
-                                        onClick={() => {
-                                            window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${installation.server!.id}`
-                                        }}
-                                    >
-                                        Reconnect
-                                    </LemonButton>
-                                )}
-                                <More
-                                    overlay={
-                                        <LemonMenuOverlay
-                                            items={[
-                                                {
-                                                    label: 'Uninstall',
-                                                    status: 'danger' as const,
-                                                    icon: <IconTrash />,
-                                                    onClick: () => uninstallServer(installation.id),
-                                                },
-                                            ]}
-                                        />
-                                    }
-                                />
-                            </div>
+                            <More
+                                overlay={
+                                    <LemonMenuOverlay
+                                        items={[
+                                            {
+                                                label: 'Uninstall',
+                                                status: 'danger' as const,
+                                                icon: <IconTrash />,
+                                                onClick: () => uninstallServer(installation.id),
+                                            },
+                                        ]}
+                                    />
+                                }
+                            />
                         ),
                     },
                 ]}
@@ -172,54 +156,59 @@ export function McpStoreScene(): JSX.Element {
 
             {recommendedServers.length > 0 && (
                 <>
-                    <h3 className="mt-4">Recommended servers</h3>
+                    <div className="flex-col items-center justify-between mt-4">
+                        <h3 className="mb-4">Recommended servers</h3>
+                        <LemonInput
+                            type="search"
+                            placeholder="Search MCP servers..."
+                            value={searchTerm}
+                            onChange={setSearchTerm}
+                        />
+                    </div>
                     <LemonTable
                         loading={serversLoading}
-                        dataSource={recommendedServers}
+                        dataSource={recommendedServers.filter(
+                            (s: MCPServer) =>
+                                !searchTerm ||
+                                s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                s.description.toLowerCase().includes(searchTerm.toLowerCase())
+                        )}
                         columns={[
                             {
+                                width: 0,
+                                render: (_: any, server: MCPServer) =>
+                                    server.icon_url ? <img src={server.icon_url} alt="" className="w-6 h-6" /> : null,
+                            },
+                            {
                                 title: 'Name',
+                                key: 'name',
+                                sorter: (a: MCPServer, b: MCPServer) => a.name.localeCompare(b.name),
                                 render: (_: any, server: MCPServer) => (
-                                    <span className="font-semibold">{server.name}</span>
+                                    <div>
+                                        <span className="font-semibold">{server.name}</span>
+                                        {server.description && (
+                                            <div className="text-muted text-xs">{server.description}</div>
+                                        )}
+                                    </div>
                                 ),
-                            },
-                            {
-                                title: 'Description',
-                                render: (_: any, server: MCPServer) => (
-                                    <span className="text-muted">{server.description}</span>
-                                ),
-                            },
-                            {
-                                title: 'Auth',
-                                render: (_: any, server: MCPServer) => <LemonTag>{server.auth_type}</LemonTag>,
                             },
                             {
                                 width: 0,
                                 render: (_: any, server: MCPServer) =>
-                                    configuringServerId === server.id ? null : (
-                                        <LemonButton
+                                    installedServerUrls.has(server.url) ? (
+                                        <LemonTag type="success" icon={<IconCheck />}>
+                                            Active
+                                        </LemonTag>
+                                    ) : (
+                                        <ConnectOAuthButton
+                                            name={server.name}
+                                            url={server.url}
+                                            description={server.description}
                                             type="secondary"
-                                            size="small"
-                                            onClick={() => {
-                                                if (server.auth_type === 'oauth') {
-                                                    window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${server.id}`
-                                                } else if (server.auth_type === 'api_key') {
-                                                    setConfiguringServerId(server.id)
-                                                } else {
-                                                    installServer({ serverId: server.id })
-                                                }
-                                            }}
-                                        >
-                                            {server.auth_type === 'oauth' ? 'Connect' : 'Install'}
-                                        </LemonButton>
+                                        />
                                     ),
                             },
                         ]}
-                        expandable={{
-                            isRowExpanded: (server) => configuringServerId === server.id,
-                            expandedRowRender: (server) => <ServerConfigRow server={server} />,
-                            noIndent: true,
-                        }}
                     />
                 </>
             )}

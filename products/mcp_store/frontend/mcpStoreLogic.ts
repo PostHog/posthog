@@ -43,7 +43,6 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
     actions({
         openAddCustomServerModal: true,
         closeAddCustomServerModal: true,
-        setConfiguringServerId: (serverId: string | null) => ({ serverId }),
     }),
 
     reducers({
@@ -52,12 +51,6 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             {
                 openAddCustomServerModal: () => true,
                 closeAddCustomServerModal: () => false,
-            },
-        ],
-        configuringServerId: [
-            null as string | null,
-            {
-                setConfiguringServerId: (_, { serverId }) => serverId,
             },
         ],
     }),
@@ -91,7 +84,6 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                         ...(configuration ? { configuration } : {}),
                     })
                     lemonToast.success('Server installed')
-                    actions.setConfiguringServerId(null)
                     return [...values.installations, installation]
                 },
                 uninstallServer: async (installationId: string) => {
@@ -153,15 +145,11 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             (s) => [s.installations],
             (installations: MCPServerInstallation[]): Set<string> => new Set(installations.map((i) => i.url)),
         ],
-        recommendedServers: [
-            (s) => [s.servers, s.installedServerIds],
-            (servers: MCPServer[], installedServerIds: Set<string>): MCPServer[] =>
-                servers.filter((s) => !installedServerIds.has(s.id)),
-        ],
+        recommendedServers: [(s) => [s.servers], (servers: MCPServer[]): MCPServer[] => servers],
     }),
 
     urlToAction(({ actions }) => ({
-        '/mcp-store': (_, searchParams) => {
+        '/mcp-servers': (_, searchParams) => {
             const { code, state, server_id, state_token } = searchParams
             if (code && state) {
                 const parsed = fromParamsGivenUrl(`?${state}`)
@@ -173,10 +161,10 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     displayName: parsed.display_name,
                     description: parsed.description,
                 })
-                router.actions.replace('/mcp-store')
+                router.actions.replace('/mcp-servers')
             } else if (code && server_id) {
                 actions.completeOAuthInstall({ code, serverId: server_id, stateToken: state_token })
-                router.actions.replace('/mcp-store')
+                router.actions.replace('/mcp-servers')
             }
         },
     })),

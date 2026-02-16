@@ -1,7 +1,7 @@
 import time
 import secrets
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from django.db.models import QuerySet
 from django.http import HttpResponse
@@ -219,7 +219,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def _authorize_for_custom(self, request: Request, *, name: str, mcp_url: str, description: str) -> HttpResponse:
         from django.conf import settings
 
-        redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/mcp-store"
+        redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/mcp-servers"
 
         # 1. Create installation first (user's intent to connect)
         installation, _ = MCPServerInstallation.objects.get_or_create(
@@ -273,7 +273,8 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "mcp_url": mcp_url,
                 "display_name": name,
                 "description": description,
-            }
+            },
+            quote_via=quote,
         )
 
         query_params = {
@@ -373,7 +374,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         token = secrets.token_urlsafe(32)
         state_params = urlencode(
             {
-                "next": "/mcp-store",
+                "next": "/mcp-servers",
                 "token": token,
                 "source": "mcp_store",
                 "server_id": str(server_id),
@@ -399,7 +400,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def _authorize_dcr(self, server: MCPServer, server_id: str) -> HttpResponse:
         from django.conf import settings
 
-        redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/mcp-store"
+        redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/mcp-servers"
 
         cached_redirect_uri = server.oauth_metadata.get("dcr_redirect_uri", "") if server.oauth_metadata else ""
         needs_registration = (
@@ -544,7 +545,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if not server.oauth_metadata or not server.oauth_client_id:
             return Response({"detail": "Server missing OAuth configuration"}, status=status.HTTP_400_BAD_REQUEST)
 
-        redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/mcp-store"
+        redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/mcp-servers"
         token_response = requests.post(
             server.oauth_metadata["token_endpoint"],
             data={

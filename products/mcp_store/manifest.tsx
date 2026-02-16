@@ -1,10 +1,10 @@
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
-    name: 'MCP store',
+    name: 'MCP servers',
     scenes: {
         McpStore: {
-            name: 'MCP store',
+            name: 'MCP servers',
             import: () => import('./frontend/McpStoreScene'),
             projectBased: true,
             activityScope: 'McpStore',
@@ -12,10 +12,10 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/mcp-store': ['McpStore', 'mcpStore'],
+        '/mcp-servers': ['McpStore', 'mcpStore'],
     },
     urls: {
-        mcpStore: (): string => '/mcp-store',
+        mcpStore: (): string => '/mcp-servers',
     },
     treeItemsNew: [],
     treeItemsProducts: [],
