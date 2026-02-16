@@ -1,15 +1,11 @@
 import gzip
 import json
-import asyncio
-from typing import Any, Optional
+from typing import Any
 
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_async_client
-from posthog.temporal.common.logger import get_logger
 
-from .constants import REDIS_TTL_SECONDS, SALESFORCE_ACCOUNTS_CACHE_KEY
-
-LOGGER = get_logger(__name__)
+from .constants import REDIS_TTL_SECONDS, SALESFORCE_ACCOUNTS_CACHE_KEY, SALESFORCE_ORG_MAPPINGS_CACHE_KEY
 
 
 def _compress_redis_data(input_data: str) -> bytes:
@@ -18,6 +14,27 @@ def _compress_redis_data(input_data: str) -> bytes:
 
 def _decompress_redis_data(raw_redis_data: bytes) -> str:
     return gzip.decompress(raw_redis_data).decode("utf-8")
+
+
+async def _get_cached_list(cache_key: str) -> list[dict[str, Any]] | None:
+    """Retrieve and decompress a cached list from Redis.
+
+    Returns:
+        Parsed list, or None if cache miss/error
+    """
+    try:
+        redis_client = get_async_client()
+        raw_redis_data = await redis_client.get(cache_key)
+
+        if not raw_redis_data:
+            return None
+
+        data_json = _decompress_redis_data(raw_redis_data)
+        return json.loads(data_json)
+
+    except Exception as e:
+        capture_exception(e)
+        return None
 
 
 async def store_accounts_in_redis(
@@ -36,7 +53,7 @@ async def store_accounts_in_redis(
 async def get_accounts_from_redis(
     offset: int = 0,
     limit: int = 1000,
-) -> Optional[list[dict[str, Any]]]:
+) -> list[dict[str, Any]] | None:
     """Retrieve accounts chunk from global Redis cache.
 
     Args:
@@ -46,55 +63,53 @@ async def get_accounts_from_redis(
     Returns:
         List of account dictionaries, or None if cache miss/error
     """
-    try:
-        redis_client = get_async_client()
-        raw_redis_data = await redis_client.get(SALESFORCE_ACCOUNTS_CACHE_KEY)
-
-        if not raw_redis_data:
-            return None
-
-        accounts_json = _decompress_redis_data(raw_redis_data)
-        all_accounts = json.loads(accounts_json)
-
-        if offset >= len(all_accounts):
-            return []
-
-        return all_accounts[offset : offset + limit]
-
-    except Exception as e:
-        capture_exception(e)
+    all_accounts = await _get_cached_list(SALESFORCE_ACCOUNTS_CACHE_KEY)
+    if all_accounts is None:
         return None
 
+    if offset >= len(all_accounts):
+        return []
 
-async def get_cached_accounts_count() -> Optional[int]:
-    """Get the total count of cached accounts without fetching the data.
+    return all_accounts[offset : offset + limit]
+
+
+async def get_cached_accounts_count() -> int | None:
+    """Get the total count of cached accounts.
 
     Returns:
         Total number of cached accounts, or None if cache miss/error
     """
-    logger = LOGGER.bind()
+    all_accounts = await _get_cached_list(SALESFORCE_ACCOUNTS_CACHE_KEY)
+    return len(all_accounts) if all_accounts is not None else None
 
-    try:
-        logger.info("Getting Redis client")
-        redis_client = get_async_client()
 
-        logger.info("Fetching Redis data")
-        raw_redis_data = await asyncio.wait_for(redis_client.get(SALESFORCE_ACCOUNTS_CACHE_KEY), timeout=30.0)
+async def store_org_mappings_in_redis(
+    mappings_data: list[dict[str, Any]],
+    ttl: int = REDIS_TTL_SECONDS,
+) -> None:
+    """Store Salesforce org mappings in Redis with gzip compression."""
+    redis_client = get_async_client()
 
-        if not raw_redis_data:
-            logger.info("No cached data found")
-            return None
+    mappings_json = json.dumps(mappings_data, default=str)
+    compressed_data = _compress_redis_data(mappings_json)
 
-        accounts_json = _decompress_redis_data(raw_redis_data)
-        all_accounts = json.loads(accounts_json)
-        count = len(all_accounts)
-        logger.info(f"Found {count} cached accounts")
-        return count
+    await redis_client.setex(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, ttl, compressed_data)
 
-    except TimeoutError:
-        logger.exception("Redis operation timed out after 30 seconds")
-        return None
-    except Exception as e:
-        logger.exception(f"Redis error: {str(e)}")
-        capture_exception(e)
-        return None
+
+async def get_org_mappings_from_redis() -> list[dict[str, Any]] | None:
+    """Retrieve all org mappings from Redis cache.
+
+    Returns:
+        List of mapping dictionaries, or None if cache miss/error
+    """
+    return await _get_cached_list(SALESFORCE_ORG_MAPPINGS_CACHE_KEY)
+
+
+async def get_cached_org_mappings_count() -> int | None:
+    """Get the total count of cached org mappings.
+
+    Returns:
+        Total number of cached mappings, or None if cache miss/error
+    """
+    all_mappings = await _get_cached_list(SALESFORCE_ORG_MAPPINGS_CACHE_KEY)
+    return len(all_mappings) if all_mappings is not None else None
