@@ -38,6 +38,7 @@ export function DateRange<
                     setQuery?.(newQuery)
                 }}
                 allowFixedRangeWithTime
+                showJumpToTimestamp
             />
         )
     }
