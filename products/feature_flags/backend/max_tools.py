@@ -1,13 +1,14 @@
-import re
 from textwrap import dedent
+from types import SimpleNamespace
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from posthog.schema import FeatureFlagGroupType
 
+from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.exceptions_capture import capture_exception
-from posthog.models import FeatureFlag, GroupTypeMapping, Tag, TaggedItem
+from posthog.models import FeatureFlag, GroupTypeMapping
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.tool import MaxTool
@@ -200,18 +201,11 @@ class CreateFeatureFlagTool(MaxTool):
         return [("feature_flag", "editor")]
 
     async def _arun_impl(self, feature_flag: FeatureFlagCreationSchema) -> tuple[str, dict[str, Any]]:
-        """Create feature flag from the structured configuration."""
+        """Create feature flag"""
         try:
             flag_schema = feature_flag
 
-            # Validate feature flag key format
-            if not re.match(r"^[a-zA-Z0-9_-]+$", flag_schema.key):
-                return (
-                    f"Invalid feature flag key '{flag_schema.key}'. Keys must contain only letters, numbers, underscores, and hyphens (matching pattern: ^[a-zA-Z0-9_-]+$)",
-                    {"error": "invalid_key", "key": flag_schema.key},
-                )
-
-            # Validate and enrich group type if specified
+            # Look up group type mapping if specified (serializer expects the index, not the name)
             aggregation_group_type_index = None
             group_type_display_name = None
             if flag_schema.group_type:
@@ -232,69 +226,80 @@ class CreateFeatureFlagTool(MaxTool):
                 aggregation_group_type_index = group_mapping.group_type_index
                 group_type_display_name = group_mapping.name_plural or flag_schema.group_type
 
-            # Build filters dict using native PostHog schema
+            # Build filters dict
             filters: dict[str, Any] = {}
             if aggregation_group_type_index is not None:
                 filters["aggregation_group_type_index"] = aggregation_group_type_index
-
-            # Convert Pydantic models to dicts for JSON storage
             filters["groups"] = [group.model_dump(exclude_none=True) for group in flag_schema.groups]
-
-            # Add multivariate configuration if variants are specified
             if flag_schema.variants:
-                # Validate that variant percentages sum to 100
-                total_percentage = sum(v.rollout_percentage for v in flag_schema.variants)
-                if total_percentage != 100:
-                    return (
-                        f"Variant rollout percentages must sum to 100, but got {total_percentage}. "
-                        f"Please adjust the percentages.",
-                        {"error": "invalid_variant_percentages"},
-                    )
-
                 filters["multivariate"] = {
                     "variants": [variant.model_dump(exclude_none=True) for variant in flag_schema.variants]
                 }
 
-            # Create the flag
+            serializer_data: dict[str, Any] = {
+                "key": flag_schema.key,
+                "name": flag_schema.name,
+                "active": flag_schema.active,
+                "filters": filters,
+                "tags": flag_schema.tags,
+                "_should_create_usage_dashboard": False,
+            }
+
+            # Mock request following established patterns
+            mock_request = SimpleNamespace(
+                user=self._user,
+                method="POST",
+                successful_authenticator=None,
+                session={},
+                data=serializer_data,
+            )
+            team = self._team
+            context = {
+                "request": mock_request,
+                "team_id": team.id,
+                "project_id": team.project_id,
+                "get_team": lambda: team,
+            }
+
             @database_sync_to_async
-            def create_flag():
-                # Check if flag already exists
-                existing = FeatureFlag.objects.filter(team=self._team, key=flag_schema.key, deleted=False).first()
-                if existing:
-                    return None, existing  # Return None to indicate flag exists
+            def create_flag_via_serializer():
+                serializer = FeatureFlagSerializer(data=serializer_data, context=context)
+                if not serializer.is_valid():
+                    return None, serializer.errors
+                return serializer.save(), None
 
-                flag = FeatureFlag.objects.create(
-                    team=self._team,
-                    created_by=self._user,
-                    key=flag_schema.key,
-                    name=flag_schema.name,  # name field stores the description/display name
-                    active=flag_schema.active,
-                    filters=filters,
-                )
+            flag, errors = await create_flag_via_serializer()
 
-                # Add tags
-                if flag_schema.tags:
-                    for tag_name in flag_schema.tags:
-                        tag, _ = Tag.objects.get_or_create(name=tag_name.strip(), team_id=self._team.id)
-                        TaggedItem.objects.create(tag=tag, feature_flag=flag)
+            if errors:
+                # Provide a helpful message with URL for duplicate key errors
+                if "key" in errors:
+                    key_errors = errors["key"]
+                    if any("already" in str(e).lower() for e in key_errors):
 
-                return flag, None
+                        @database_sync_to_async
+                        def get_existing_flag():
+                            return FeatureFlag.objects.filter(
+                                team=self._team, key=flag_schema.key, deleted=False
+                            ).first()
 
-            flag, existing_flag = await create_flag()
+                        existing = await get_existing_flag()
+                        if existing:
+                            flag_url = f"/project/{self._team.project_id}/feature_flags/{existing.id}"
+                            return (
+                                f"A feature flag with key '{flag_schema.key}' already exists. You can view it at {flag_url}",
+                                {"flag_id": existing.id},
+                            )
 
-            # Handle case where flag already exists
-            if existing_flag:
-                flag_url = f"/project/{self._team.project_id}/feature_flags/{existing_flag.id}"
+                error_messages = []
+                for field, field_errors in errors.items():
+                    for error in field_errors if isinstance(field_errors, list) else [field_errors]:
+                        error_messages.append(f"{field}: {error}")
                 return (
-                    f"A feature flag with key '{flag_schema.key}' already exists. You can view it at {flag_url}",
-                    {
-                        "flag_id": existing_flag.id,
-                    },
+                    f"Failed to create feature flag: {'; '.join(error_messages)}",
+                    {"error": "validation_error", "details": errors},
                 )
 
             flag_url = f"/project/{self._team.project_id}/feature_flags/{flag.id}"
-
-            # Build success message
             targeting_info = self._format_targeting_info(flag_schema, group_type_display_name)
 
             return (
