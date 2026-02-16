@@ -142,6 +142,11 @@ services:
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
             KAFKA_HOSTS: 'kafka:9092'
+        healthcheck:
+            test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1'] # nosemgrep: trailofbits.generic.wget-unencrypted-url.wget-unencrypted-url
+            interval: 3s
+            timeout: 10s
+            retries: 10
 
     zookeeper:
         image: zookeeper:3.7.0
@@ -343,6 +348,12 @@ services:
             args:
                 BIN: feature-flags
         restart: on-failure
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:3001/_readiness']
+            interval: 5s
+            timeout: 5s
+            retries: 12
+            start_period: 10s
         volumes:
             - ./share:/share
         environment:
@@ -428,6 +439,12 @@ services:
             - /var/lib/elasticsearch/data
     temporal:
         restart: on-failure
+        healthcheck:
+            test: ['CMD', 'nc', '-z', 'localhost', '7233']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 300s
         environment:
             - DB=postgresql
             - DB_PORT=5432
