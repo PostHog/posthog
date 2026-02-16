@@ -99,7 +99,7 @@ class TestSlackImageOutbound(SimpleTestCase):
     @patch("products.conversations.backend.tasks.Team.objects.get")
     @patch("products.conversations.backend.tasks._upload_image_to_slack_thread")
     @patch("products.conversations.backend.tasks._read_image_bytes_for_slack_upload")
-    @patch("products.conversations.backend.slack.get_slack_client")
+    @patch("products.conversations.backend.tasks.get_slack_client")
     def test_post_reply_to_slack_uploads_rich_images(
         self,
         mock_get_client: MagicMock,
@@ -143,7 +143,7 @@ class TestSlackImageOutbound(SimpleTestCase):
     @patch("products.conversations.backend.tasks.Team.objects.get")
     @patch("products.conversations.backend.tasks._upload_image_to_slack_thread")
     @patch("products.conversations.backend.tasks._read_image_bytes_for_slack_upload")
-    @patch("products.conversations.backend.slack.get_slack_client")
+    @patch("products.conversations.backend.tasks.get_slack_client")
     def test_post_reply_to_slack_continues_when_image_upload_fails(
         self,
         mock_get_client: MagicMock,
