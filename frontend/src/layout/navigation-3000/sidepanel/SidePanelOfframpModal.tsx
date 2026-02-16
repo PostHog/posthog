@@ -5,10 +5,9 @@ import { useEffect, useRef, useState } from 'react'
 import { IconArrowLeft, IconArrowRight, IconSidePanel } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { StopSignHog } from 'lib/components/hedgehogs'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
+import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
 import sidepanelNewImage from './images/sidepanel-new.gif'
@@ -33,21 +32,6 @@ export function SidePanelOfframpModal(): JSX.Element {
     const { dismissOfframpModal } = useActions(sidePanelOfframpLogic)
     const contentRef = useRef<HTMLDivElement>(null)
     const steps: OfframpStep[] = [
-        {
-            id: 'oh-boy',
-            title: "We've made some changes!",
-            description: "Some text you probably won't read, and if you don't that's totally fine!",
-            action: {
-                label: "Naw, I'll figure it out thanks",
-                onClick: () => dismissOfframpModal(),
-                type: 'tertiary',
-            },
-            icon: (
-                <div aria-hidden="true" className="size-8 opacity-0 p-1">
-                    <IconBlank />
-                </div>
-            ),
-        },
         {
             id: 'side-panel',
             title: 'Goodbye side panel...',
@@ -91,21 +75,14 @@ export function SidePanelOfframpModal(): JSX.Element {
     return (
         <DialogPrimitive
             open={shouldShowOfframpModal}
-            onOpenChange={(open, event) => {
-                if (event?.reason === 'escape-key') {
-                    event.cancel()
-                    return
-                }
-                if (event?.reason === 'outside-press') {
-                    event.cancel()
-                    return
-                }
+            onOpenChange={(open) => {
                 if (!open) {
                     dismissOfframpModal()
                 }
             }}
-            className="group bg-surface-popover w-[300px] md:w-[640px] max-h-[none] has-[:focus-visible]:outline-2 outline-transparent has-[:focus-visible]:outline-accent outline-inset"
+            className="group bg-surface-popover w-[300px] md:w-[640px] max-h-[none]"
         >
+            <DialogClose className="absolute right-1 top-1" />
             <DialogPrimitiveTitle>Hey there, we've changed some things!</DialogPrimitiveTitle>
             <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
                 <Tabs.List className="sr-only">
@@ -136,29 +113,12 @@ export function SidePanelOfframpModal(): JSX.Element {
                                     'overflow-hidden bg-fill-tertiary @md:rounded-bl-lg shrink-0 h-[300px] w-full @md:w-1/2'
                                 )}
                             >
-                                {!isFirstStep && step.image && (
-                                    <img src={step.image} alt={step.title} className="w-full h-full" />
-                                )}
-                                {isFirstStep && (
-                                    <div className="mx-auto w-32 h-full flex items-center justify-center">
-                                        <StopSignHog />
-                                    </div>
-                                )}
+                                {step.image && <img src={step.image} alt={step.title} className="w-full h-full" />}
                             </div>
                             <div className="flex flex-col gap-3 p-6 flex-1 @md:pt-14 text-left items-start">
                                 {step.icon && step.icon}
                                 <h3 className="text-lg font-semibold m-0">{step.title}</h3>
                                 <p className="text-sm text-secondary m-0">{step.description}</p>
-                                {isFirstStep && (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        className={cn('self-left mt-2', step.image && 'self-start')}
-                                        onClick={dismissOfframpModal}
-                                    >
-                                        Naw, I'll figure it out thanks
-                                    </LemonButton>
-                                )}
                             </div>
                         </div>
                     </Tabs.Panel>
