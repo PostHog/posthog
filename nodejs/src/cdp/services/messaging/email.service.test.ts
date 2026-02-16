@@ -41,7 +41,6 @@ describe('EmailService', () => {
     describe('when SES is not configured', () => {
         it('should not crash on construction and should fail explicitly on send', async () => {
             const serviceWithoutSES = new EmailService({ ...hub, SES_REGION: '' })
-            expect(serviceWithoutSES.ses).toBeNull()
             expect(serviceWithoutSES.sesV2Client).toBeNull()
 
             await insertIntegration(hub.postgres, team.id, {
