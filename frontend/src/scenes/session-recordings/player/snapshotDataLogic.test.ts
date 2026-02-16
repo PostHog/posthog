@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { EventType, IncrementalSource, NodeType, mutationData } from '@posthog/rrweb-types'
 
+import { RecordingDeletedError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
@@ -120,6 +121,36 @@ describe('snapshotDataLogic', () => {
                     action.payload.sources?.[1]?.source === 'blob_v2',
                 'loadSnapshotsForSourceSuccess',
             ])
+        })
+    })
+
+    describe('recording deleted selectors', () => {
+        it('isRecordingDeleted is false when no error', () => {
+            expect(logic.values.isRecordingDeleted).toBe(false)
+            expect(logic.values.recordingDeletedAt).toBe(null)
+        })
+
+        it('isRecordingDeleted is true when snapshotLoadError is RecordingDeletedError', () => {
+            const error = new RecordingDeletedError(1700000000)
+            logic.actions.loadSnapshotsForSourceFailure('Recording deleted', error)
+
+            expect(logic.values.isRecordingDeleted).toBe(true)
+            expect(logic.values.recordingDeletedAt).toBe(1700000000)
+        })
+
+        it('isRecordingDeleted is false for non-deleted errors', () => {
+            logic.actions.loadSnapshotsForSourceFailure('some error', new Error('some other error'))
+
+            expect(logic.values.isRecordingDeleted).toBe(false)
+            expect(logic.values.recordingDeletedAt).toBe(null)
+        })
+
+        it('recordingDeletedAt is null when deleted_at is not provided', () => {
+            const error = new RecordingDeletedError(null)
+            logic.actions.loadSnapshotsForSourceFailure('Recording deleted', error)
+
+            expect(logic.values.isRecordingDeleted).toBe(true)
+            expect(logic.values.recordingDeletedAt).toBe(null)
         })
     })
 
