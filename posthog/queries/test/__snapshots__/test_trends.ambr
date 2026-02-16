@@ -55,11 +55,17 @@
         WHERE team_id = 99999
           AND ((event = 'sign up'
                 AND (if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) IN
-                       (SELECT DISTINCT person_id
-                        FROM cohortpeople
+                       (SELECT id
+                        FROM person
                         WHERE team_id = 99999
-                          AND cohort_id = 99999
-                          AND version = 2 ))))
+                          AND id IN
+                            (SELECT id
+                             FROM person
+                             WHERE team_id = 99999
+                               AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '')))) )
+                        GROUP BY id
+                        HAVING max(is_deleted) = 0
+                        AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_property'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
         GROUP BY date)
@@ -172,11 +178,17 @@
         WHERE team_id = 99999
           AND ((event = 'sign up'
                 AND (if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) IN
-                       (SELECT DISTINCT person_id
-                        FROM cohortpeople
+                       (SELECT id
+                        FROM person
                         WHERE team_id = 99999
-                          AND cohort_id = 99999
-                          AND version = 2 ))))
+                          AND id IN
+                            (SELECT id
+                             FROM person
+                             WHERE team_id = 99999
+                               AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '')))) )
+                        GROUP BY id
+                        HAVING max(is_deleted) = 0
+                        AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_property'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
           AND (has(['x'], replaceRegexpAll(JSONExtractRaw(e.person_properties, '$bool_prop'), '^"|"$', '')))
