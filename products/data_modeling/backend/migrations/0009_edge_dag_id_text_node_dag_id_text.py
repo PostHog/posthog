@@ -3,19 +3,6 @@
 from django.db import migrations, models
 
 
-def backfill_dag_id_text(apps, _):
-    Node = apps.get_model("data_modeling", "Node")
-    Edge = apps.get_model("data_modeling", "Edge")
-
-    batch_size = 1000
-    for Model in (Node, Edge):
-        while True:
-            ids = list(Model.objects.exclude(dag_id_text=models.F("dag_id")).values_list("id", flat=True)[:batch_size])
-            if not ids:
-                break
-            Model.objects.filter(id__in=ids).update(dag_id_text=models.F("dag_id"))
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("data_modeling", "0008_backfill_dags"),
@@ -32,5 +19,4 @@ class Migration(migrations.Migration):
             name="dag_id_text",
             field=models.TextField(default="posthog", max_length=256),
         ),
-        migrations.RunPython(backfill_dag_id_text, migrations.RunPython.noop),
     ]
