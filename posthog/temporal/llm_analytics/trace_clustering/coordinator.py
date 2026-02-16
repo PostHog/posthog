@@ -48,10 +48,13 @@ logger = structlog.get_logger(__name__)
 
 # Per-team trace filters to scope which traces are included in clustering.
 # team_id=2 (PostHog internal): only cluster posthog_ai traces, excluding
-# summarization LLM calls, playground, and other internal noise.
+# summarization LLM calls, playground, batch action summarization, and other internal noise.
 # TODO: generalize via FF payload config so any team can define filters without code changes.
 PER_TEAM_TRACE_FILTERS: dict[int, list[dict[str, Any]]] = {
-    2: [{"key": "ai_product", "value": "posthog_ai", "operator": "exact", "type": "event"}],
+    2: [
+        {"key": "ai_product", "value": "posthog_ai", "operator": "exact", "type": "event"},
+        {"key": "$ai_trace_id", "value": "batch_actions_", "operator": "not_icontains", "type": "event"},
+    ],
 }
 
 
