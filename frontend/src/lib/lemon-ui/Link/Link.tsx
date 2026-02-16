@@ -6,6 +6,7 @@ import React from 'react'
 import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -147,6 +148,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         },
         ref
     ) => {
+        const isRemovingSidePanel = useFeatureFlag('UX_REMOVE_SIDEPANEL')
         const externalLink = isExternalLink(to)
         const { elementProps: draggableProps } = useNotebookDrag({
             href: typeof to === 'string' ? to : undefined,
@@ -245,11 +247,11 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             >
                 {children}
                 {targetBlankIcon &&
-                    (shouldOpenInDocsPanel && sidePanelStateLogic.isMounted() ? (
+                    (shouldOpenInDocsPanel && sidePanelStateLogic.isMounted() && !isRemovingSidePanel ? (
                         <IconOpenSidebar />
                     ) : href?.startsWith('mailto:') ? (
                         <IconSend />
-                    ) : target === '_blank' ? (
+                    ) : target === '_blank' || (shouldOpenInDocsPanel && isRemovingSidePanel) ? (
                         <IconExternal className={buttonProps ? 'size-3' : ''} />
                     ) : null)}
             </a>
