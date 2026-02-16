@@ -295,8 +295,8 @@ jobs:
               env:
                   RUST_BACKTRACE: 1
                   # Set up dual database environment for feature-flags service
-                  PERSONS_READ_DATABASE_URL: ${{ contains(matrix.packages, 'feature-flags') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
-                  PERSONS_WRITE_DATABASE_URL: ${{ contains(matrix.packages, 'feature-flags') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
+                  PERSONS_READ_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
+                  PERSONS_WRITE_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
               run: |
                   for pkg in ${{ matrix.packages }}; do
                       echo "::group::Testing $pkg"
