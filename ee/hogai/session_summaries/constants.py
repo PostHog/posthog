@@ -22,6 +22,7 @@ SESSION_EVENTS_REPLAY_CUTOFF_MS = 5000
 MIN_SESSION_DURATION_FOR_SUMMARY_MS = 2 * SESSION_EVENTS_REPLAY_CUTOFF_MS + 1
 # Minimum session duration for video-based summarization, where we don't need (or want) to cut off anything
 MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S = 15
+MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S = 5  # Sessions below this activity threshold don't show much
 
 # Temporal
 SESSION_SUMMARIES_DB_DATA_REDIS_TTL = 60 * 60 * 24  # How long to store the DB data in Redis within Temporal jobs
@@ -50,5 +51,6 @@ SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED = (
 )
 FAILED_MOMENTS_MIN_RATIO = 0.5  # If less than 50% of moments failed to generate videos, fail the analysis
 EXPIRES_AFTER_DAYS = 90  # How long to store the videos used for validation
-DEFAULT_VIDEO_EXPORT_MIME_TYPE = "video/webm"
+MOMENT_VIDEO_EXPORT_FORMAT = "video/webm"
+FULL_VIDEO_EXPORT_FORMAT = "video/mp4"
 DEFAULT_VIDEO_UNDERSTANDING_MODEL = "gemini-3-flash-preview"

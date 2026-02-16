@@ -114,6 +114,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             name: formValues.name,
                             prompt: formValues.prompt,
                         })
+                        llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                         lemonToast.success('Prompt created successfully')
                         router.actions.replace(urls.llmAnalyticsPrompt(savedPrompt.name))
 

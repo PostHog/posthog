@@ -6,13 +6,18 @@ and spawns child workflows to process traces for each team.
 
 Per-team child workflows handle the case where a team has no traces
 gracefully (returning empty results).
+
+Teams are processed in parallel batches (default 3 at a time) using
+start_child_workflow + await pattern for controlled concurrency.
 """
 
 import dataclasses
 from datetime import timedelta
+from typing import Any
 
 import structlog
 import temporalio
+from temporalio.workflow import ChildWorkflowHandle
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_summarization import constants
@@ -20,6 +25,7 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     CHILD_WORKFLOW_ID_PREFIX,
     COORDINATOR_WORKFLOW_NAME,
     DEFAULT_BATCH_SIZE,
+    DEFAULT_MAX_CONCURRENT_TEAMS,
     DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_MODEL,
@@ -30,6 +36,7 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
 from posthog.temporal.llm_analytics.trace_summarization.models import (
     AnalysisLevel,
     BatchSummarizationInputs,
+    BatchSummarizationResult,
     CoordinatorResult,
 )
 from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
@@ -37,6 +44,15 @@ from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTra
 from products.llm_analytics.backend.summarization.models import SummarizationMode
 
 with temporalio.workflow.unsafe.imports_passed_through():
+    from posthog.temporal.llm_analytics.coordinator_metrics import (
+        increment_team_failed,
+        increment_team_succeeded,
+        record_teams_discovered,
+    )
+    from posthog.temporal.llm_analytics.shared_activities import (
+        FetchAllClusteringFiltersInput,
+        fetch_all_clustering_filters_activity,
+    )
     from posthog.temporal.llm_analytics.team_discovery import (
         DISCOVERY_ACTIVITY_RETRY_POLICY,
         DISCOVERY_ACTIVITY_TIMEOUT,
@@ -59,6 +75,7 @@ class BatchTraceSummarizationCoordinatorInputs:
     mode: SummarizationMode = DEFAULT_MODE
     window_minutes: int = DEFAULT_WINDOW_MINUTES
     model: str = DEFAULT_MODEL
+    max_concurrent_teams: int = DEFAULT_MAX_CONCURRENT_TEAMS
 
 
 @temporalio.workflow.defn(name=COORDINATOR_WORKFLOW_NAME)
@@ -67,6 +84,10 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
     Coordinator workflow that discovers teams dynamically and spawns child
     workflows for each team. Teams with no traces will complete quickly
     with empty results.
+
+    Teams are processed in parallel batches for controlled concurrency,
+    using start_child_workflow + await to start all workflows in a batch
+    before waiting for results.
     """
 
     @staticmethod
@@ -105,18 +126,43 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             team_ids = sorted(GUARANTEED_TEAM_IDS)
 
         logger.info("Processing discovered teams", team_count=len(team_ids), team_ids=team_ids)
+        record_teams_discovered(len(team_ids), "summarization", inputs.analysis_level)
 
-        # Spawn child workflows for each team
+        # Fetch user-configured event filters for all teams
+        try:
+            per_team_filters: dict[int, list[dict[str, Any]]] = await temporalio.workflow.execute_activity(
+                fetch_all_clustering_filters_activity,
+                FetchAllClusteringFiltersInput(team_ids=team_ids),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
+            )
+        except Exception:
+            logger.warning("Failed to fetch clustering filters, proceeding without filters", exc_info=True)
+            per_team_filters = {}
+
+        # Spawn child workflows for each team with concurrency limit.
+        # Uses start_child_workflow + await pattern: start all workflows in a
+        # batch first, then await results. This runs teams in parallel within
+        # each batch instead of sequentially.
         total_items = 0
         total_summaries = 0
-        failed_teams = []
+        failed_teams: list[int] = []
+        successful_teams: list[int] = []
         child_id_prefix = (
             GENERATION_CHILD_WORKFLOW_ID_PREFIX if inputs.analysis_level == "generation" else CHILD_WORKFLOW_ID_PREFIX
         )
 
-        for team_id in team_ids:
-            try:
-                workflow_result = await temporalio.workflow.execute_child_workflow(
+        max_concurrent = inputs.max_concurrent_teams
+        for batch_start in range(0, len(team_ids), max_concurrent):
+            batch = team_ids[batch_start : batch_start + max_concurrent]
+
+            # Start all workflows in batch concurrently
+            workflow_handles: list[
+                tuple[int, ChildWorkflowHandle[BatchTraceSummarizationWorkflow, BatchSummarizationResult]]
+            ] = []
+            for team_id in batch:
+                event_filters = per_team_filters.get(team_id, [])
+                handle = await temporalio.workflow.start_child_workflow(
                     BatchTraceSummarizationWorkflow.run,
                     BatchSummarizationInputs(
                         team_id=team_id,
@@ -126,19 +172,37 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                         mode=inputs.mode,
                         window_minutes=inputs.window_minutes,
                         model=inputs.model,
+                        event_filters=event_filters,
                     ),
                     id=f"{child_id_prefix}-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.TERMINATE,
                 )
+                workflow_handles.append((team_id, handle))
 
-                total_items += workflow_result.metrics.items_queried
-                total_summaries += workflow_result.metrics.summaries_generated
+            # Wait for all workflows in batch to complete
+            for team_id, handle in workflow_handles:
+                try:
+                    workflow_result: BatchSummarizationResult = await handle
+                    total_items += workflow_result.metrics.items_queried
+                    total_summaries += workflow_result.metrics.summaries_generated
+                    successful_teams.append(team_id)
+                    increment_team_succeeded("summarization", inputs.analysis_level)
 
-            except Exception as e:
-                logger.exception("Failed to process team", team_id=team_id, error=str(e))
-                failed_teams.append(team_id)
-                # Continue with other teams
+                except Exception:
+                    logger.exception("Failed to process team", team_id=team_id)
+                    failed_teams.append(team_id)
+                    increment_team_failed("summarization", inputs.analysis_level)
+
+        logger.info(
+            "Batch trace summarization coordinator completed",
+            teams_processed=len(team_ids),
+            teams_succeeded=len(successful_teams),
+            teams_failed=len(failed_teams),
+            total_items=total_items,
+            total_summaries=total_summaries,
+        )
 
         return CoordinatorResult(
             teams_processed=len(team_ids),

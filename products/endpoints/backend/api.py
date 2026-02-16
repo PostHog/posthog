@@ -1,4 +1,5 @@
 import re
+import uuid
 import builtins
 import dataclasses
 from datetime import timedelta
@@ -61,6 +62,7 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
+from posthog.models.insight_variable import InsightVariable
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
 
@@ -70,6 +72,7 @@ from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_to_sync_frequency_interval,
 )
 from products.endpoints.backend.materialization import (
+    VariablePlaceholderFinder,
     analyze_variables_for_materialization,
     convert_insight_query_to_hogql,
     transform_query_for_materialization,
@@ -313,15 +316,77 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     }
                 )
 
-    def _validate_hogql_query(self, query_string: str) -> None:
-        """Validate that a HogQL query string is syntactically valid."""
+    def _validate_hogql_query(self, query: HogQLQuery) -> None:
+        """Validate that a HogQL query can be parsed and the variables are valid."""
         try:
-            parse_select(query_string)
+            ast_node = parse_select(query.query)
         except ExposedHogQLError as e:
             raise ValidationError({"query": f"Invalid HogQL query: {e}"}) from e
         except ResolutionError as e:
             capture_exception(e)
             raise ValidationError({"query": "Invalid HogQL query: unable to resolve table or field references."})
+        except Exception as e:
+            capture_exception(e)
+            raise ValidationError({"query": "Unknown error occurred parsing the query."})
+
+        self._validate_variable_placeholders(ast_node, query.variables or {})
+
+    def _validate_variable_placeholders(self, node: ast.AST, variables: Optional[dict[str, HogQLVariable]]) -> None:
+        """Validate that every {variables.X} placeholder in the query has a matching variable definition."""
+        finder = VariablePlaceholderFinder()
+        finder.visit(node)
+
+        if not finder.variable_placeholders:
+            return
+
+        placeholder_names = {str(p.chain[1]) for p in finder.variable_placeholders if p.chain and len(p.chain) > 1}
+
+        defined_code_names: set[str] = set()
+        if variables:
+            defined_code_names = {v.code_name for v in variables.values() if v.code_name}
+            variable_ids = set(variables.keys())
+
+        undefined: list[str] = sorted(placeholder_names - defined_code_names)
+        if undefined:
+            raise ValidationError(
+                {
+                    "query": f"Query references undefined variable(s): {', '.join(undefined)}. "
+                    "See https://posthog.com/docs/endpoints/variables for detail."
+                }
+            )
+
+        if variable_ids:
+            valid_uuids: set[str] = set()
+            invalid_uuids: set[str] = set()
+            invalid_ids: set[str] = set()
+            for vid in variable_ids:
+                try:
+                    uuid.UUID(vid)
+                    valid_uuids.add(vid)
+                except ValueError:
+                    invalid_uuids.add(vid)
+
+            if invalid_uuids:
+                raise ValidationError(
+                    {"query": f"Variable ID(s) not valid UUIDs: {', '.join(sorted(invalid_uuids))}. "}
+                )
+
+            if valid_uuids:
+                existing_ids = {
+                    str(id)
+                    for id in InsightVariable.objects.filter(team=self.team, id__in=valid_uuids).values_list(
+                        "id", flat=True
+                    )
+                }
+                invalid_ids = valid_uuids - existing_ids
+
+            if invalid_ids:
+                raise ValidationError(
+                    {
+                        "query": f"Variable ID(s) not found: {', '.join(sorted(invalid_ids))}. "
+                        "Make sure the variables exist in https://app.posthog.com/data-management/variables."
+                    }
+                )
 
     def validate_request(self, data: EndpointRequest, strict: bool = True) -> None:
         query = data.query
@@ -340,7 +405,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
 
         if query and isinstance(query, HogQLQuery) and query.query:
-            self._validate_hogql_query(query.query)
+            self._validate_hogql_query(query)
 
         self._validate_cache_age_seconds(data.cache_age_seconds)
 
@@ -450,7 +515,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             raise ValidationError({"sync_frequency": "Cannot set sync_frequency when disabling materialization."})
 
         if data.query and isinstance(data.query, HogQLQuery) and data.query.query:
-            self._validate_hogql_query(data.query.query)
+            self._validate_hogql_query(data.query)
 
     @extend_schema(
         request=EndpointRequest,
@@ -686,12 +751,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         hogql_query = convert_insight_query_to_hogql(version.query, self.team)
 
-        variable_info = None
+        variable_infos: list = []
         if version.query.get("variables"):
-            can_materialize, reason, variable_info = analyze_variables_for_materialization(version.query)
+            can_materialize, reason, variable_infos = analyze_variables_for_materialization(version.query)
 
-            if can_materialize and variable_info is not None:
-                hogql_query = transform_query_for_materialization(hogql_query, variable_info, self.team)
+            if can_materialize and variable_infos:
+                hogql_query = transform_query_for_materialization(hogql_query, variable_infos, self.team)
 
         saved_query.query = hogql_query
         saved_query.external_tables = saved_query.s3_tables
@@ -787,15 +852,14 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             query_kind = query.get("kind")
 
             if query_kind == "HogQLQuery":
-                # HogQL: check if the variable matches the materialized variable
-                materialized_var = self._get_materialized_variable(version)
-                if not materialized_var:
-                    # Variables in request but none materialized
+                # HogQL: check if request variables are a subset of materialized variables
+                materialized_vars = self._get_materialized_variables(version)
+                if not materialized_vars:
                     return False
 
+                materialized_codes = {v.code_name for v in materialized_vars}
                 request_var_codes = set(data.variables.keys())
-                if request_var_codes != {materialized_var.code_name}:
-                    # Different variable or multiple variables
+                if not request_var_codes.issubset(materialized_codes):
                     return False
             else:
                 # Materialized insight: only breakdown property allowed
@@ -810,17 +874,38 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return True
 
-    def _get_materialized_variable(self, version: EndpointVersion):
-        """Return the materializable variable info for an endpoint query, if any."""
+    def _get_materialized_variables(self, version: EndpointVersion) -> builtins.list:
+        """Return the materializable variable infos for an endpoint query."""
         if not version.query or not version.query.get("variables"):
+            return []
+
+        try:
+            can_materialize, _, variable_infos = analyze_variables_for_materialization(version.query)
+            return variable_infos if can_materialize else []
+        except Exception:
+            logger.debug("Failed to analyze variables for materialization", exc_info=True)
+            return []
+
+    def _get_original_select_columns(self, query: dict, version: EndpointVersion) -> builtins.list[ast.Expr] | None:
+        """Parse the original HogQL query and return SELECT columns as materialized field references.
+
+        Returns field references for only the original SELECT expressions (not variable columns).
+        Returns None if parsing fails, so the caller can fall back to SELECT *.
+        """
+        from products.endpoints.backend.materialization import transform_select_for_materialized_table
+
+        query_str = query.get("query")
+        if not query_str:
             return None
 
         try:
-            can_materialize, _, variable_info = analyze_variables_for_materialization(version.query)
-            return variable_info if can_materialize else None
+            parsed = parse_select(query_str)
+            if isinstance(parsed, ast.SelectQuery) and parsed.select:
+                return transform_select_for_materialized_table(list(parsed.select), self.team)
         except Exception:
-            logger.debug("Failed to analyze variables for materialization", exc_info=True)
-            return None
+            logger.debug("Failed to parse original query for SELECT columns", exc_info=True)
+
+        return None
 
     # Query types that support user-configurable breakdown filtering
     BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "FunnelsQuery", "RetentionQuery"}
@@ -832,7 +917,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if query_kind == "HogQLQuery":
             # HogQL: allowed variables are code_names from query["variables"]
             variables = query.get("variables", {})
-            return {v.get("code_name") for v in variables.values() if v.get("code_name")}
+            return {v.get("code_name") for v in variables.values() if v.get("code_name")} if variables else set()
 
         # Insight queries
         allowed: set[str] = set()
@@ -850,32 +935,42 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return allowed
 
-    def _get_required_variable_for_materialized(self, query: dict, version: EndpointVersion) -> str | None:
-        """Get the required variable name for a materialized endpoint, if any.
+    def _get_required_variables_for_materialized(self, query: dict, version: EndpointVersion) -> set[str]:
+        """Get the required variable names for a materialized endpoint.
 
         SECURITY: This prevents data leakage by ensuring that materialized endpoints
-        with variables cannot be called without providing the variable value.
+        with variables cannot be called without providing all variable values.
         """
         query_kind = query.get("kind")
 
         if query_kind == "HogQLQuery":
-            # HogQL: the materialized variable is required
-            materialized_var = self._get_materialized_variable(version)
-            return materialized_var.code_name if materialized_var else None
+            materialized_vars = self._get_materialized_variables(version)
+            return {v.code_name for v in materialized_vars}
 
         # Insight queries: breakdown property is required if present
         if query_kind in self.BREAKDOWN_SUPPORTED_QUERY_TYPES:
             breakdown_filter = query.get("breakdownFilter") or {}
-            return _get_single_breakdown_property(breakdown_filter)
+            prop = _get_single_breakdown_property(breakdown_filter)
+            return {prop} if prop else set()
 
-        return None
+        return set()
 
-    def _apply_where_filter(self, select_query: ast.SelectQuery, column: str, value: str) -> None:
-        """Add equality filter to WHERE clause."""
+    def _apply_where_filter(
+        self,
+        select_query: ast.SelectQuery,
+        column: str,
+        value: str,
+        op: ast.CompareOperationOp = ast.CompareOperationOp.Eq,
+        value_wrapper_fns: builtins.list[str] | None = None,
+    ) -> None:
+        """Add a comparison filter to WHERE clause."""
+        right_expr: ast.Expr = ast.Constant(value=value)
+        for fn in reversed(value_wrapper_fns or []):
+            right_expr = ast.Call(name=fn, args=[right_expr])
         condition = ast.CompareOperation(
             left=ast.Field(chain=[column]),
-            op=ast.CompareOperationOp.Eq,
-            right=ast.Constant(value=value),
+            op=op,
+            right=right_expr,
         )
         if select_query.where:
             select_query.where = ast.And(exprs=[select_query.where, condition])
@@ -1016,15 +1111,22 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 raise ValidationError("No materialized query found for this endpoint")
             saved_query = version.saved_query
 
+            query = version.query
+            query_kind = query.get("kind")
+
+            select_columns: list[ast.Expr] = [ast.Field(chain=["*"])]
+            if query_kind == "HogQLQuery" and query.get("variables"):
+                original_select = self._get_original_select_columns(query, version)
+                if original_select:
+                    select_columns = original_select
+
             select_query = ast.SelectQuery(
-                select=[ast.Field(chain=["*"])],
+                select=select_columns,
                 select_from=ast.JoinExpr(table=ast.Field(chain=[saved_query.name])),
             )
 
             if limit is not None:
                 select_query.limit = ast.Constant(value=limit)
-            query = version.query
-            query_kind = query.get("kind")
 
             deprecation_headers: dict[str, str] | None = None
 
@@ -1048,12 +1150,18 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                             break  # Only use first property filter for materialized
             elif data.variables:
                 if query_kind == "HogQLQuery":
-                    # HogQL: filter by the materialized variable column
-                    materialized_var = self._get_materialized_variable(version)
-                    if materialized_var:
-                        var_value = data.variables.get(materialized_var.code_name)
+                    # HogQL: filter by all materialized variable columns
+                    materialized_vars = self._get_materialized_variables(version)
+                    for mat_var in materialized_vars:
+                        var_value = data.variables.get(mat_var.code_name)
                         if var_value is not None:
-                            self._apply_where_filter(select_query, materialized_var.code_name, var_value)
+                            self._apply_where_filter(
+                                select_query,
+                                mat_var.code_name,
+                                var_value,
+                                op=mat_var.operator,
+                                value_wrapper_fns=mat_var.value_wrapper_fns,
+                            )
                 else:
                     # Insight: filter by breakdown property name
                     breakdown_filter = query.get("breakdownFilter") or {}
@@ -1446,13 +1554,17 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             unknown_vars = set(data.variables.keys()) - allowed_vars
             if unknown_vars:
                 raise ValidationError(f"Unknown variable(s): {', '.join(sorted(unknown_vars))}")
-        else:
-            # SECURITY: For materialized endpoints with required variables, those variables MUST be provided.
-            # Without this check, omitting a variable would return ALL data instead of filtered data.
-            if is_materialized:
-                required_var = self._get_required_variable_for_materialized(query, version)
-                if required_var:
-                    raise ValidationError(f"Required variable '{required_var}' not provided")
+
+        # SECURITY: For materialized endpoints with required variables, ALL must be provided.
+        # Without this check, omitting variables would return ALL data instead of filtered data.
+        # Exception: filters_override is the deprecated way to provide filters for insight endpoints
+        if is_materialized and not (data.filters_override and data.filters_override.properties):
+            required_vars = self._get_required_variables_for_materialized(query, version)
+            if required_vars:
+                provided = set(data.variables.keys()) if data.variables else set()
+                missing = sorted(required_vars - provided)
+                if missing:
+                    raise ValidationError(f"Required variable(s) {', '.join(repr(v) for v in missing)} not provided")
 
     @extend_schema(
         description="Get the last execution times in the past 6 months for multiple endpoints.",

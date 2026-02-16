@@ -2,7 +2,7 @@ from typing import Literal
 
 from django.conf import settings
 
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
 
 Product = Literal[
     "llm_gateway", "twig", "wizard", "django", "growth", "llma_translation", "llma_summarization", "llma_eval_summary"
@@ -32,3 +32,16 @@ def get_llm_client(product: Product = "django") -> OpenAI:
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
     return OpenAI(base_url=base_url, api_key=settings.LLM_GATEWAY_API_KEY)
+
+
+def get_async_llm_client(product: Product = "django") -> AsyncOpenAI:
+    """
+    Get an async OpenAI-compatible client for the LLM gateway.
+
+    Same as get_llm_client but returns an AsyncOpenAI client for use in async contexts.
+    """
+    if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
+        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+
+    base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
+    return AsyncOpenAI(base_url=base_url, api_key=settings.LLM_GATEWAY_API_KEY)

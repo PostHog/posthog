@@ -2408,6 +2408,7 @@ export interface EnterpriseEventDefinitionApi {
     readonly created_by: UserBasicApi
     post_to_slack?: boolean
     default_columns?: string[]
+    readonly media_preview_urls: readonly string[]
 }
 
 export interface PaginatedEnterpriseEventDefinitionListApi {
@@ -2451,6 +2452,7 @@ export interface PatchedEnterpriseEventDefinitionApi {
     readonly created_by?: UserBasicApi
     post_to_slack?: boolean
     default_columns?: string[]
+    readonly media_preview_urls?: readonly string[]
 }
 
 export type EventDefinitionApiProperties = { [key: string]: unknown }

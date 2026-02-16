@@ -8,12 +8,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { llmProviderKeysLogicType } from './llmProviderKeysLogicType'
 
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
-export type LLMProvider = 'openai' | 'anthropic' | 'gemini'
+export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter'
 
 export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openai: 'OpenAI',
     anthropic: 'Anthropic',
     gemini: 'Google Gemini',
+    openrouter: 'OpenRouter',
 }
 
 export interface LLMProviderKey {
@@ -48,6 +49,7 @@ export interface CreateLLMProviderKeyPayload {
     provider: LLMProvider
     name: string
     api_key: string
+    set_as_active?: boolean
 }
 
 export interface UpdateLLMProviderKeyPayload {
@@ -206,6 +208,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         payload
                     )
                     actions.setNewKeyModalOpen(false)
+                    actions.loadEvaluationConfig()
                     return [...values.providerKeys, response]
                 },
                 updateProviderKey: async ({

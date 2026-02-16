@@ -296,6 +296,20 @@ export interface TicketAssignmentApi {
     readonly type: string
 }
 
+export type TicketPersonApiProperties = { [key: string]: unknown }
+
+/**
+ * Minimal person serializer for embedding in ticket responses.
+ */
+export interface TicketPersonApi {
+    readonly id: string
+    readonly name: string
+    readonly distinct_ids: readonly string[]
+    readonly properties: TicketPersonApiProperties
+    readonly created_at: string
+    readonly is_identified: boolean
+}
+
 export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
@@ -316,9 +330,11 @@ export interface TicketApi {
     /** @nullable */
     readonly last_message_text: string | null
     readonly unread_team_count: number
+    readonly unread_customer_count: number
     /** @nullable */
     readonly session_id: string | null
     readonly session_context: unknown
+    readonly person: TicketPersonApi | null
 }
 
 export interface PaginatedTicketListApi {
@@ -350,9 +366,11 @@ export interface PatchedTicketApi {
     /** @nullable */
     readonly last_message_text?: string | null
     readonly unread_team_count?: number
+    readonly unread_customer_count?: number
     /** @nullable */
     readonly session_id?: string | null
     readonly session_context?: unknown
+    readonly person?: TicketPersonApi | null
 }
 
 export type ConversationsListParams = {

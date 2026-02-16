@@ -49,6 +49,8 @@ PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
     PropertyOperator.IS_NOT: "is not",
     PropertyOperator.ICONTAINS: "contains",
     PropertyOperator.NOT_ICONTAINS: "doesn't contain",
+    PropertyOperator.ICONTAINS_MULTI: "contains any of",
+    PropertyOperator.NOT_ICONTAINS_MULTI: "doesn't contain any of",
     PropertyOperator.REGEX: "matches regex",
     PropertyOperator.NOT_REGEX: "doesn't match regex",
     PropertyOperator.GT: "greater than",

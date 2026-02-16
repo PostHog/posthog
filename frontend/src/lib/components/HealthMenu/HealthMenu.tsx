@@ -1,41 +1,30 @@
+import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
 
 import { IconCloud, IconCode, IconDatabase, IconStethoscope, IconWarning } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { urls } from 'scenes/urls'
 
 import { sidePanelHealthLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
 import { sidePanelSdkDoctorLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSdkDoctorLogic'
-import { sidePanelStatusIncidentIoLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelStatusIncidentIoLogic'
-import { sidePanelStatusLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelStatusLogic'
 
 import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
 import { keyBinds } from '../AppShortcuts/shortcuts'
+import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { healthMenuLogic } from './healthMenuLogic'
 
-export function HealthMenu(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const useIncidentIo = !!featureFlags[FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE]
-
-    const { status: atlassianStatus, statusPage } = useValues(sidePanelStatusLogic)
-    const { status: incidentIoStatus, statusDescription: incidentIoDescription } =
-        useValues(sidePanelStatusIncidentIoLogic)
-
-    const { isHealthMenuOpen } = useValues(healthMenuLogic)
+export function HealthMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
+    const {
+        isHealthMenuOpen,
+        postHogStatus,
+        postHogStatusTooltip,
+        postHogStatusBadgeContent,
+        postHogStatusBadgeStatus,
+    } = useValues(healthMenuLogic)
     const { setHealthMenuOpen } = useActions(healthMenuLogic)
     const { needsAttention, needsUpdatingCount, sdkHealth } = useValues(sidePanelSdkDoctorLogic)
     const { issueCount: pipelineIssueCount } = useValues(sidePanelHealthLogic)
@@ -53,148 +42,168 @@ export function HealthMenu(): JSX.Element {
             ? `${pipelineIssueCount} pipeline issue${pipelineIssueCount === 1 ? '' : 's'}`
             : 'All pipelines healthy'
 
-    const status = useIncidentIo ? incidentIoStatus : atlassianStatus
-
-    const posthogStatusTooltip = useIncidentIo
-        ? incidentIoDescription
-        : statusPage?.status.description
-          ? capitalizeFirstLetter(statusPage.status.description.toLowerCase())
-          : null
-
     // Cumulative badge content and status
     const triggerBadgeContent =
-        status !== 'operational' || needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0 ? '!' : '✓'
+        postHogStatus !== 'operational' || needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0
+            ? '!'
+            : '✓'
     const triggerBadgeStatus =
-        status !== 'operational' || needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0
+        postHogStatus !== 'operational' || needsAttention || needsUpdatingCount > 0 || pipelineIssueCount > 0
             ? 'danger'
             : 'success'
 
     return (
-        <DropdownMenu open={isHealthMenuOpen} onOpenChange={setHealthMenuOpen}>
-            <DropdownMenuTrigger asChild>
-                <ButtonPrimitive
-                    tooltip={
-                        <>
-                            Health menu
-                            <RenderKeybind keybind={[keyBinds.healthMenu]} className="ml-1" />
-                        </>
-                    }
-                    tooltipPlacement="top"
-                    tooltipCloseDelayMs={0}
-                    iconOnly
-                    className="group"
+        <Menu.Root open={isHealthMenuOpen} onOpenChange={setHealthMenuOpen}>
+            <Menu.Trigger
+                render={
+                    <ButtonPrimitive
+                        tooltip={
+                            iconOnly ? (
+                                <>
+                                    Health menu
+                                    <RenderKeybind keybind={[keyBinds.healthMenu]} className="ml-1" />
+                                </>
+                            ) : undefined
+                        }
+                        tooltipPlacement="right"
+                        tooltipCloseDelayMs={0}
+                        iconOnly={iconOnly}
+                        className="group"
+                        menuItem={!iconOnly}
+                    >
+                        <span className="flex text-secondary group-hover:text-primary">
+                            <IconWithBadge size="xsmall" content={triggerBadgeContent} status={triggerBadgeStatus}>
+                                <IconStethoscope className="size-4.5" />
+                            </IconWithBadge>
+                        </span>
+                        {!iconOnly && (
+                            <>
+                                <span className="-ml-[2px]">Health</span>
+                                <MenuOpenIndicator direction="up" />
+                            </>
+                        )}
+                    </ButtonPrimitive>
+                }
+            />
+            <Menu.Portal>
+                <Menu.Backdrop className="fixed inset-0 z-[var(--z-modal)]" />
+                <Menu.Positioner
+                    className="z-[var(--z-popover)]"
+                    side="top"
+                    align="start"
+                    sideOffset={8}
+                    collisionPadding={{ left: 0, top: 50, bottom: 50 }}
                 >
-                    <span className="flex text-secondary group-hover:text-primary">
-                        <IconWithBadge size="xsmall" content={triggerBadgeContent} status={triggerBadgeStatus}>
-                            {/* Heart Plus Icon TODO: add this to icons */}
-                            <IconStethoscope className="size-4.5" />
-                        </IconWithBadge>
-                    </span>
-                </ButtonPrimitive>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-                side="top"
-                align="start"
-                sideOffset={8}
-                className="min-w-[250px] flex flex-col gap-1"
-                collisionPadding={{ left: 0 }}
-                loop
-            >
-                <DropdownMenuGroup className="pt-2 px-2">
-                    <DropdownMenuItem asChild>
-                        <Link
-                            to={urls.health()}
-                            buttonProps={{
-                                menuItem: true,
-                                size: 'fit',
-                                className:
-                                    'flex flex-col gap-1 p-2 border border-primary rounded h-32 items-center justify-center',
-                            }}
+                    <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[250px]">
+                        <ScrollableShadows
+                            direction="vertical"
+                            styledScrollbars
+                            className="flex flex-col gap-px overflow-x-hidden"
+                            innerClassName="primitive-menu-content-inner p-1 "
                         >
-                            <IconStethoscope className="size-5" />
-                            <span className="text-sm font-medium">View health overview</span>
-                            <span className="text-xs text-tertiary text-center text-pretty">
-                                See at-a-glance view of the health of your project.{' '}
-                                <LemonTag type="warning" className="my-1" size="small">
-                                    posthog only
-                                </LemonTag>
-                            </span>
-                        </Link>
-                    </DropdownMenuItem>
-                </DropdownMenuGroup>
-                <DropdownMenuGroup className="flex flex-col gap-px pt-0">
-                    <DropdownMenuItem asChild>
-                        <Link
-                            targetBlankIcon
-                            target="_blank"
-                            buttonProps={{ menuItem: true }}
-                            to="https://posthogstatus.com"
-                            tooltip={posthogStatusTooltip}
-                            tooltipPlacement="right"
-                            tooltipCloseDelayMs={0}
-                        >
-                            <IconWithBadge
-                                content={status !== 'operational' ? '!' : '✓'}
-                                size="xsmall"
-                                status={
-                                    status.includes('outage')
-                                        ? 'danger'
-                                        : status.includes('degraded') || status.includes('monitoring')
-                                          ? 'warning'
-                                          : 'success'
-                                }
-                                className="flex"
-                            >
-                                <IconCloud />
-                            </IconWithBadge>
-                            PostHog status
-                        </Link>
-                    </DropdownMenuItem>
+                            <div className="flex flex-col gap-px">
+                                <Menu.Item
+                                    render={(props) => (
+                                        <Link
+                                            {...props}
+                                            to={urls.health()}
+                                            buttonProps={{
+                                                menuItem: true,
+                                                size: 'fit',
+                                                className:
+                                                    'flex flex-col gap-1 p-2 border border-primary rounded h-32 items-center justify-center shadow hover:border-accent transition-colors',
+                                            }}
+                                        >
+                                            <IconStethoscope className="size-5" />
+                                            <span className="text-sm font-medium">View health overview</span>
+                                            <span className="text-xs text-tertiary text-center text-pretty">
+                                                See at-a-glance view of the health of your project.{' '}
+                                            </span>
+                                        </Link>
+                                    )}
+                                />
+                            </div>
+                            <div className="flex flex-col gap-px pt-1">
+                                <Menu.Item
+                                    render={(props) => (
+                                        <Link
+                                            {...props}
+                                            targetBlankIcon
+                                            target="_blank"
+                                            buttonProps={{ menuItem: true }}
+                                            to="https://posthogstatus.com"
+                                            tooltip={postHogStatusTooltip}
+                                            tooltipPlacement="right"
+                                            tooltipCloseDelayMs={0}
+                                        >
+                                            <IconWithBadge
+                                                content={postHogStatusBadgeContent}
+                                                size="xsmall"
+                                                status={postHogStatusBadgeStatus}
+                                                className="flex"
+                                            >
+                                                <IconCloud />
+                                            </IconWithBadge>
+                                            PostHog status
+                                        </Link>
+                                    )}
+                                />
 
-                    <DropdownMenuItem asChild>
-                        <Link
-                            to={urls.sdkDoctor()}
-                            buttonProps={{ menuItem: true }}
-                            tooltip={sdkDoctorTooltip}
-                            tooltipPlacement="right"
-                            tooltipCloseDelayMs={0}
-                        >
-                            <IconWithBadge
-                                size="xsmall"
-                                content={needsUpdatingCount > 0 ? '!' : '✓'}
-                                status={sdkHealth}
-                            >
-                                <IconCode className="size-5" />
-                            </IconWithBadge>
-                            SDK Doctor
-                        </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                        <Link
-                            to={urls.pipelineStatus()}
-                            buttonProps={{ menuItem: true }}
-                            tooltip={pipelineStatusTooltip}
-                            tooltipPlacement="right"
-                            tooltipCloseDelayMs={0}
-                        >
-                            <IconWithBadge
-                                size="xsmall"
-                                content={pipelineIssueCount > 0 ? '!' : '✓'}
-                                status={pipelineHealthStatus}
-                            >
-                                <IconDatabase className="size-5" />
-                            </IconWithBadge>
-                            Pipeline status
-                        </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                        <Link to={urls.ingestionWarnings()} buttonProps={{ menuItem: true }}>
-                            <IconWarning className="size-5" />
-                            Ingestion warnings
-                        </Link>
-                    </DropdownMenuItem>
-                </DropdownMenuGroup>
-            </DropdownMenuContent>
-        </DropdownMenu>
+                                <Menu.Item
+                                    render={(props) => (
+                                        <Link
+                                            {...props}
+                                            to={urls.sdkDoctor()}
+                                            buttonProps={{ menuItem: true }}
+                                            tooltip={sdkDoctorTooltip}
+                                            tooltipPlacement="right"
+                                            tooltipCloseDelayMs={0}
+                                        >
+                                            <IconWithBadge
+                                                size="xsmall"
+                                                content={needsUpdatingCount > 0 ? '!' : '✓'}
+                                                status={sdkHealth}
+                                            >
+                                                <IconCode className="size-5" />
+                                            </IconWithBadge>
+                                            SDK Doctor
+                                        </Link>
+                                    )}
+                                />
+                                <Menu.Item
+                                    render={(props) => (
+                                        <Link
+                                            {...props}
+                                            to={urls.pipelineStatus()}
+                                            buttonProps={{ menuItem: true }}
+                                            tooltip={pipelineStatusTooltip}
+                                            tooltipPlacement="right"
+                                            tooltipCloseDelayMs={0}
+                                        >
+                                            <IconWithBadge
+                                                size="xsmall"
+                                                content={pipelineIssueCount > 0 ? '!' : '✓'}
+                                                status={pipelineHealthStatus}
+                                            >
+                                                <IconDatabase className="size-5" />
+                                            </IconWithBadge>
+                                            Pipeline status
+                                        </Link>
+                                    )}
+                                />
+                                <Menu.Item
+                                    render={(props) => (
+                                        <Link {...props} to={urls.ingestionWarnings()} buttonProps={{ menuItem: true }}>
+                                            <IconWarning className="size-5" />
+                                            Ingestion warnings
+                                        </Link>
+                                    )}
+                                />
+                            </div>
+                        </ScrollableShadows>
+                    </Menu.Popup>
+                </Menu.Positioner>
+            </Menu.Portal>
+        </Menu.Root>
     )
 }

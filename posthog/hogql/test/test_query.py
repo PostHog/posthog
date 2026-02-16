@@ -16,11 +16,13 @@ from posthog.schema import (
     EventPropertyFilter,
     HogQLFilters,
     HogQLQueryModifiers,
+    HogQLVariable,
     QueryTiming,
     SessionPropertyFilter,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -34,6 +36,7 @@ from posthog.errors import InternalCHQueryError
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -1190,7 +1193,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_43)s, %(hogql_val_44)s, %(hogql_val_45)s), ''), 'null'), '^\"|\"$', '') "
                 f"FROM events "
                 f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
-                f"LIMIT 100 "
+                f"LIMIT {DEFAULT_RETURNED_ROWS} "
                 f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
                 response.clickhouse,
             )
@@ -1499,6 +1502,29 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table 'events' does not accept arguments")
 
+    def test_variables_missing_from_query_with_suggestion(self):
+        insight_variable = InsightVariable.objects.create(
+            team=self.team,
+            name="Variable One",
+            code_name="variable_one",
+            type=InsightVariable.Type.STRING,
+        )
+        variables = {
+            "variable_one": HogQLVariable(
+                code_name="variable_one",
+                value="value",
+                variableId=str(insight_variable.id),
+            )
+        }
+
+        query = "SELECT {variables.variable_two}"
+        with self.assertRaises(QueryError) as e:
+            execute_hogql_query(query, team=self.team, variables=variables)
+        self.assertEqual(
+            str(e.exception),
+            "Variable variable_two is missing from query. Did you mean: variable_one?",
+        )
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_filters(self):
         with freeze_time("2020-01-10"):
@@ -1585,7 +1611,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             pretty=False,
         )
-        self.assertEqual(response.hogql, "SELECT event FROM events WHERE true LIMIT 100")
+        self.assertEqual(response.hogql, f"SELECT event FROM events WHERE true LIMIT {DEFAULT_RETURNED_ROWS}")
 
     def test_hogql_query_filters_double_error(self):
         query = "SELECT event from events where {filters}"
@@ -1623,7 +1649,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                f"SELECT event, distinct_id FROM events AS e WHERE equals(properties.random_uuid, '{random_uuid}') LIMIT 100",
+                f"SELECT event, distinct_id FROM events AS e WHERE equals(properties.random_uuid, '{random_uuid}') LIMIT {DEFAULT_RETURNED_ROWS}",
             )
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(len(response.results), 2)
@@ -1638,7 +1664,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             response.hogql,
-            f"SELECT event FROM events LIMIT 100 UNION ALL SELECT event FROM events LIMIT 100",
+            f"SELECT event FROM events LIMIT {DEFAULT_RETURNED_ROWS} UNION ALL SELECT event FROM events LIMIT {DEFAULT_RETURNED_ROWS}",
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 

@@ -4,6 +4,7 @@ import React, { useMemo } from 'react'
 
 import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -30,7 +31,7 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
-import { DashboardPlacement, EventType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
 import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
@@ -82,9 +83,14 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
             )}
             {hidePropertyFilters && <div className="flex-1" />}
             {activeTab === 'dashboard' && selectedDashboardId && (
-                <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
-                    Edit dashboard
-                </LemonButton>
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.LlmAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
+                        Edit dashboard
+                    </LemonButton>
+                </AccessControlAction>
             )}
             <LLMAnalyticsReloadAction />
         </div>
@@ -423,22 +429,17 @@ export function LLMAnalyticsScene(): JSX.Element {
         },
     ]
 
-    if (
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_ERRORS_TAB] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    ) {
-        tabs.push({
-            key: 'errors',
-            label: 'Errors',
-            content: (
-                <LLMAnalyticsSetupPrompt>
-                    <LLMAnalyticsErrors />
-                </LLMAnalyticsSetupPrompt>
-            ),
-            link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
-            'data-attr': 'errors-tab',
-        })
-    }
+    tabs.push({
+        key: 'errors',
+        label: 'Errors',
+        content: (
+            <LLMAnalyticsSetupPrompt>
+                <LLMAnalyticsErrors />
+            </LLMAnalyticsSetupPrompt>
+        ),
+        link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
+        'data-attr': 'errors-tab',
+    })
 
     // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
     if (
@@ -476,7 +477,8 @@ export function LLMAnalyticsScene(): JSX.Element {
 
     const availableItemsInSidebar = useMemo(() => {
         return [
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ? (
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ||
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS] ? (
                 <Link to={urls.llmAnalyticsClusters()} onClick={() => toggleProduct('Clusters', true)}>
                     clusters
                 </Link>
@@ -497,7 +499,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </Link>
             ) : null,
         ].filter(Boolean) as JSX.Element[]
-    }, [featureFlags])
+    }, [featureFlags, toggleProduct])
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>

@@ -86,10 +86,15 @@ export function InsightDisplayConfig(): JSX.Element {
         isLifecycle ||
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
     const showSmoothing =
-        isTrends && !isValidBreakdown(breakdownFilter) && (!display || display === ChartDisplayType.ActionsLineGraph)
-    const showMultipleYAxesConfig = isTrends || isStickiness
-    const showAlertThresholdLinesConfig = isTrends
-    const isLineGraph = display === ChartDisplayType.ActionsLineGraph || (!display && isTrendsQuery(querySource))
+        isTrends &&
+        !isValidBreakdown(breakdownFilter) &&
+        (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph)
+    const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
+    const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
+    const isLineGraph =
+        display === ChartDisplayType.ActionsLineGraph ||
+        display === ChartDisplayType.ActionsAreaGraph ||
+        (!display && isTrendsQuery(querySource))
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
     const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
@@ -115,7 +120,9 @@ export function InsightDisplayConfig(): JSX.Element {
                               ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
                               : []),
                           ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
-                          ...(isTrends || isRetention ? [{ label: () => <ShowTrendLinesFilter /> }] : []),
+                          ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
+                              ? [{ label: () => <ShowTrendLinesFilter /> }]
+                              : []),
                       ],
                   },
               ]
@@ -197,7 +204,7 @@ export function InsightDisplayConfig(): JSX.Element {
                                       checked={showMovingAverage}
                                       disabledReason={
                                           !isLineGraph
-                                              ? 'Moving average is only available for line graphs'
+                                              ? 'Moving average is only available for line and area graphs'
                                               : !isLinearScale
                                                 ? 'Moving average is only supported for linear scale.'
                                                 : undefined

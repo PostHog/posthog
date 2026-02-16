@@ -188,6 +188,8 @@ export interface PersonApi {
     properties?: unknown
     readonly created_at: string
     readonly uuid: string
+    /** @nullable */
+    readonly last_seen_at: string | null
 }
 
 export interface PaginatedPersonListApi {
@@ -206,6 +208,8 @@ export interface PatchedPersonApi {
     properties?: unknown
     readonly created_at?: string
     readonly uuid?: string
+    /** @nullable */
+    readonly last_seen_at?: string | null
 }
 
 export type PersonsListParams = {
@@ -355,6 +359,18 @@ export type PersonsActivityRetrieveFormat =
     (typeof PersonsActivityRetrieveFormat)[keyof typeof PersonsActivityRetrieveFormat]
 
 export const PersonsActivityRetrieveFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type PersonsBatchByDistinctIdsCreateParams = {
+    format?: PersonsBatchByDistinctIdsCreateFormat
+}
+
+export type PersonsBatchByDistinctIdsCreateFormat =
+    (typeof PersonsBatchByDistinctIdsCreateFormat)[keyof typeof PersonsBatchByDistinctIdsCreateFormat]
+
+export const PersonsBatchByDistinctIdsCreateFormat = {
     csv: 'csv',
     json: 'json',
 } as const
@@ -654,6 +670,18 @@ export type PersonsActivityRetrieve3Format =
     (typeof PersonsActivityRetrieve3Format)[keyof typeof PersonsActivityRetrieve3Format]
 
 export const PersonsActivityRetrieve3Format = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type PersonsBatchByDistinctIdsCreate2Params = {
+    format?: PersonsBatchByDistinctIdsCreate2Format
+}
+
+export type PersonsBatchByDistinctIdsCreate2Format =
+    (typeof PersonsBatchByDistinctIdsCreate2Format)[keyof typeof PersonsBatchByDistinctIdsCreate2Format]
+
+export const PersonsBatchByDistinctIdsCreate2Format = {
     csv: 'csv',
     json: 'json',
 } as const

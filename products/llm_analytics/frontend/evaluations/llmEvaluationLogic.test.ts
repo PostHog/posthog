@@ -31,6 +31,17 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_by: null,
         last_used_at: null,
     },
+    {
+        id: 'key-3',
+        provider: 'openrouter',
+        name: 'OpenRouter Key',
+        state: 'ok',
+        error_message: null,
+        api_key_masked: 'sk-or-...9012',
+        created_at: '2024-01-03T00:00:00Z',
+        created_by: null,
+        last_used_at: null,
+    },
 ]
 
 const mockEvaluation: EvaluationConfig = {
@@ -261,6 +272,8 @@ describe('llmEvaluationLogic', () => {
                 expect(byProvider.anthropic).toHaveLength(1)
                 expect(byProvider.anthropic[0].id).toBe('key-2')
                 expect(byProvider.gemini).toHaveLength(0)
+                expect(byProvider.openrouter).toHaveLength(1)
+                expect(byProvider.openrouter[0].id).toBe('key-3')
             })
         })
 
@@ -507,6 +520,66 @@ describe('llmEvaluationLogic', () => {
 
                 await expectLogic(logic).toMatchValues({
                     summaryExpanded: true,
+                })
+            })
+        })
+
+        describe('filteredEvaluationRuns', () => {
+            it('returns all runs when filter is all', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: mockRuns,
+                })
+            })
+
+            it('returns only passing runs when filter is pass', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationSummaryFilter('pass', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-1', result: true })],
+                })
+            })
+
+            it('returns only failing runs when filter is fail', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationSummaryFilter('fail', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-2', result: false })],
+                })
+            })
+
+            it('returns only N/A runs when filter is na', async () => {
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationSummaryFilter('na', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-3', result: null })],
+                })
+            })
+
+            it('excludes non-completed runs when filter is not all', async () => {
+                const runsWithFailed: EvaluationRun[] = [
+                    ...mockRuns,
+                    {
+                        id: 'run-4',
+                        evaluation_id: 'eval-123',
+                        evaluation_name: 'Test Evaluation',
+                        generation_id: 'gen-4',
+                        trace_id: 'trace-4',
+                        timestamp: '2024-01-01T15:00:00Z',
+                        result: true,
+                        reasoning: 'Good',
+                        status: 'failed',
+                    },
+                ]
+                logic.actions.loadEvaluationRunsSuccess(runsWithFailed)
+                logic.actions.setEvaluationSummaryFilter('pass', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-1' })],
                 })
             })
         })

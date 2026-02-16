@@ -13,6 +13,7 @@ import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from '../settings/l
 import { queryEvaluationRuns } from '../utils'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
+import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import {
     EvaluationConditionSet,
@@ -38,10 +39,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     props({} as LLMEvaluationLogicProps),
     key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
 
-    connect({
+    connect(() => ({
         values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
         actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadProviderKeysSuccess']],
-    }),
+    })),
 
     actions({
         // Evaluation configuration actions
@@ -425,6 +426,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (props.evaluationId === 'new') {
                     const response = await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
                     actions.saveEvaluationSuccess(response)
+                    llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
                 } else {
                     const response = await api.update(
                         `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
@@ -513,6 +515,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     openai: [],
                     anthropic: [],
                     gemini: [],
+                    openrouter: [],
                 }
                 for (const key of providerKeys) {
                     if (key.provider in byProvider) {
@@ -565,19 +568,32 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
 
-        runsToSummarizeCount: [
+        filteredEvaluationRuns: [
             (s) => [s.evaluationRuns, s.evaluationSummaryFilter],
-            (runs, filter) => {
-                // This is for UI display only - actual filtering happens server-side
-                let filteredRuns = runs.filter((r) => r.status === 'completed')
-                if (filter === 'pass') {
-                    filteredRuns = filteredRuns.filter((r) => r.result === true)
-                } else if (filter === 'fail') {
-                    filteredRuns = filteredRuns.filter((r) => r.result === false)
-                } else if (filter === 'na') {
-                    filteredRuns = filteredRuns.filter((r) => r.result === null)
+            (runs: EvaluationRun[], filter: EvaluationSummaryFilter): EvaluationRun[] => {
+                if (filter === 'all') {
+                    return runs
                 }
-                return Math.min(filteredRuns.length, EVALUATION_SUMMARY_MAX_RUNS)
+                // Only consider completed runs for filtering
+                const completedRuns = runs.filter((r) => r.status === 'completed')
+                if (filter === 'pass') {
+                    return completedRuns.filter((r) => r.result === true)
+                }
+                if (filter === 'fail') {
+                    return completedRuns.filter((r) => r.result === false)
+                }
+                // na
+                return completedRuns.filter((r) => r.result === null)
+            },
+        ],
+
+        runsToSummarizeCount: [
+            (s) => [s.filteredEvaluationRuns, s.evaluationSummaryFilter],
+            (filteredRuns: EvaluationRun[], filter: EvaluationSummaryFilter): number => {
+                // When 'all', filteredEvaluationRuns includes non-completed runs, but summarization only uses completed
+                const count =
+                    filter === 'all' ? filteredRuns.filter((r) => r.status === 'completed').length : filteredRuns.length
+                return Math.min(count, EVALUATION_SUMMARY_MAX_RUNS)
             },
         ],
 

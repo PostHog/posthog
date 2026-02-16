@@ -8,7 +8,7 @@ test.describe('Insight creation', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true })
+        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
@@ -181,8 +181,9 @@ test.describe('Insight creation', () => {
         })
 
         await test.step('add insight to a new dashboard', async () => {
-            await dashboard.addInsightToNewDashboard()
-            await expect(dashboard.items.locator('canvas').first()).toBeVisible()
+            await dashboard.addToNewDashboardFromInsightPage()
+            await expect(page).toHaveURL(/\/dashboard\//)
+            await expect(page.locator('.InsightCard canvas').first()).toBeVisible()
         })
     })
 })
