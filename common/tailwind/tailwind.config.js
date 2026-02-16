@@ -11,6 +11,7 @@ const commonColors = {
     'accent-active': 'var(--color-accent-active)',
     'accent-highlight-primary': 'var(--color-accent-highlight-primary)',
     'accent-highlight-secondary': 'var(--color-accent-highlight-secondary)',
+    ai: 'var(--color-ai)',
 }
 
 const deprecatedColors = {

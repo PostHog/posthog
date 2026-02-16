@@ -75,7 +75,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
                         {issue && (
-                            <div className="flex flex-col h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))]">
+                            <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
                                 <SceneTitleSection
                                     canEdit
                                     name={issue.name}
@@ -121,8 +121,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
                                 <ErrorTrackingIssueScenePanel issue={issue} />
 
-                                <div className="ErrorTrackingIssue flex flex-grow">
-                                    <div className="flex flex-1 h-full w-full">
+                                <div className="ErrorTrackingIssue flex flex-grow min-h-0 overflow-hidden">
+                                    <div className="flex flex-1 h-full w-full min-h-0">
                                         <LeftHandColumn />
                                         <RightHandColumn />
                                     </div>
@@ -141,18 +141,20 @@ const RightHandColumn = (): JSX.Element => {
     const tagRenderer = useErrorTagRenderer()
 
     return (
-        <div className="flex flex-1 gap-y-1 overflow-y-auto min-w-[375px]">
+        <div className="flex flex-col flex-1 gap-1 min-h-0 min-w-[375px]">
             <PostHogSDKIssueBanner event={selectedEvent} />
-            <ExceptionCard
-                issueId={issue?.id ?? 'no-issue'}
-                issueName={issue?.name ?? null}
-                loading={issueLoading || initialEventLoading}
-                event={selectedEvent ?? undefined}
-                label={tagRenderer(selectedEvent)}
-                renderStackTraceActions={() => {
-                    return issue ? <StackTraceActions issue={issue} /> : null
-                }}
-            />
+            <div className="flex-1 min-h-0 flex flex-col">
+                <ExceptionCard
+                    issueId={issue?.id ?? 'no-issue'}
+                    issueName={issue?.name ?? null}
+                    loading={issueLoading || initialEventLoading}
+                    event={selectedEvent ?? undefined}
+                    label={tagRenderer(selectedEvent)}
+                    renderStackTraceActions={() => {
+                        return issue ? <StackTraceActions issue={issue} /> : null
+                    }}
+                />
+            </div>
         </div>
     )
 }
@@ -170,6 +172,7 @@ const LeftHandColumn = (): JSX.Element => {
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
     const hasTasks = useFeatureFlag('TASKS')
+    const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
 
     return (
         <div
@@ -188,7 +191,7 @@ const LeftHandColumn = (): JSX.Element => {
             >
                 <div>
                     <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
-                        <TabsPrimitiveList className="flex justify-between space-x-0.5">
+                        <TabsPrimitiveList className="flex space-x-0.5 gap-2">
                             <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="exceptions">
                                 <IconList className="mr-1" />
                                 <span className="text-nowrap">Exceptions</span>
@@ -203,10 +206,12 @@ const LeftHandColumn = (): JSX.Element => {
                                     <span className="text-nowrap">Autofix</span>
                                 </TabsPrimitiveTrigger>
                             )}
-                            <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
-                                <IconSearch className="mr-1" />
-                                <span className="text-nowrap">Similar issues</span>
-                            </TabsPrimitiveTrigger>
+                            {hasSimilarIssues && (
+                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
+                                    <IconSearch className="mr-1" />
+                                    <span className="text-nowrap">Similar issues</span>
+                                </TabsPrimitiveTrigger>
+                            )}
                         </TabsPrimitiveList>
                     </ScrollableShadows>
                 </div>
@@ -223,9 +228,11 @@ const LeftHandColumn = (): JSX.Element => {
                         </div>
                     </TabsPrimitiveContent>
                 )}
-                <TabsPrimitiveContent value="similar_issues">
-                    <SimilarIssuesList />
-                </TabsPrimitiveContent>
+                {hasSimilarIssues && (
+                    <TabsPrimitiveContent value="similar_issues">
+                        <SimilarIssuesList />
+                    </TabsPrimitiveContent>
+                )}
             </TabsPrimitive>
 
             <Resizer {...resizerLogicProps} />
@@ -238,8 +245,8 @@ const ExceptionsTab = (): JSX.Element => {
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
 
     return (
-        <div className="flex flex-col h-full">
-            <div className="px-2 py-3">
+        <div className="flex flex-col h-full min-h-0">
+            <div className="px-2 py-3 shrink-0">
                 <ErrorFilters.Root>
                     <div className="flex gap-2 justify-between flex-wrap">
                         <ErrorFilters.DateRange />
@@ -248,8 +255,8 @@ const ExceptionsTab = (): JSX.Element => {
                     <ErrorFilters.FilterGroup />
                 </ErrorFilters.Root>
             </div>
-            <LemonDivider className="my-0" />
-            <Metadata className="flex flex-col overflow-y-auto">
+            <LemonDivider className="my-0 shrink-0" />
+            <Metadata className="flex flex-col flex-1 min-h-0 overflow-y-auto">
                 <EventsTable
                     query={eventsQuery}
                     queryKey={eventsQueryKey}

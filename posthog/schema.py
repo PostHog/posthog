@@ -338,6 +338,7 @@ class AssistantTool(StrEnum):
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
+    EXPERIMENT_SESSION_REPLAYS_SUMMARY = "experiment_session_replays_summary"
     CREATE_SURVEY = "create_survey"
     EDIT_SURVEY = "edit_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
@@ -1171,6 +1172,10 @@ class OrderDirection(StrEnum):
     DESC = "desc"
 
 
+class DomainConnectProviderName(RootModel[Literal["Cloudflare"]]):
+    root: Literal["Cloudflare"] = "Cloudflare"
+
+
 class DurationType(StrEnum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
@@ -1699,6 +1704,7 @@ class FileSystemIconType(StrEnum):
     ERROR_TRACKING = "error_tracking"
     HEATMAP = "heatmap"
     SESSION_REPLAY = "session_replay"
+    SESSION_PROFILE = "session_profile"
     SURVEY = "survey"
     PRODUCT_TOUR = "product_tour"
     USER_INTERVIEW = "user_interview"
@@ -1716,6 +1722,7 @@ class FileSystemIconType(StrEnum):
     WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
     ACTION = "action"
+    ACTIVITY = "activity"
     COMMENT = "comment"
     ANNOTATION = "annotation"
     EVENT = "event"
@@ -1745,6 +1752,7 @@ class FileSystemIconType(StrEnum):
     TOOLBAR = "toolbar"
     SETTINGS = "settings"
     HEALTH = "health"
+    INBOX = "inbox"
     SDK_DOCTOR = "sdk_doctor"
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
@@ -2294,11 +2302,20 @@ class MarketingIntegrationConfig2(BaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
+class ConversionActionTypes(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fallback: list[str] = Field(..., max_length=14, min_length=14)
+    omni: list[str] = Field(..., max_length=5, min_length=5)
+
+
 class MarketingIntegrationConfig3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     campaignTableName: Literal["campaigns"] = "campaigns"
+    conversionActionTypes: ConversionActionTypes
     defaultSources: list[str] = Field(..., max_length=9, min_length=9)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
@@ -2562,6 +2579,31 @@ class MaxProductInfo(BaseModel):
     projected_amount_usd_with_limit: str | None = None
     type: str
     usage_limit: float | None = None
+
+
+class MetaAdsConversionFallbackActionTypes(StrEnum):
+    PURCHASE = "purchase"
+    OFFSITE_CONVERSION_FB_PIXEL_PURCHASE = "offsite_conversion.fb_pixel_purchase"
+    APP_CUSTOM_EVENT_FB_MOBILE_PURCHASE = "app_custom_event.fb_mobile_purchase"
+    LEAD = "lead"
+    OFFSITE_CONVERSION_FB_PIXEL_LEAD = "offsite_conversion.fb_pixel_lead"
+    ONSITE_CONVERSION_LEAD_GROUPED = "onsite_conversion.lead_grouped"
+    COMPLETE_REGISTRATION = "complete_registration"
+    OFFSITE_CONVERSION_FB_PIXEL_COMPLETE_REGISTRATION = "offsite_conversion.fb_pixel_complete_registration"
+    APP_CUSTOM_EVENT_FB_MOBILE_COMPLETE_REGISTRATION = "app_custom_event.fb_mobile_complete_registration"
+    OFFSITE_COMPLETE_REGISTRATION_ADD_META_LEADS = "offsite_complete_registration_add_meta_leads"
+    APP_INSTALL = "app_install"
+    MOBILE_APP_INSTALL = "mobile_app_install"
+    SUBSCRIBE = "subscribe"
+    OFFSITE_CONVERSION_FB_PIXEL_SUBSCRIBE = "offsite_conversion.fb_pixel_subscribe"
+
+
+class MetaAdsConversionOmniActionTypes(StrEnum):
+    OMNI_PURCHASE = "omni_purchase"
+    OMNI_LEAD = "omni_lead"
+    OMNI_COMPLETE_REGISTRATION = "omni_complete_registration"
+    OMNI_APP_INSTALL = "omni_app_install"
+    OMNI_SUBSCRIBE = "omni_subscribe"
 
 
 class MetaAdsDefaultSources(StrEnum):
@@ -2908,6 +2950,8 @@ class ProductIntentContext(StrEnum):
     WORKFLOW_CREATED = "workflow_created"
     DATA_PIPELINE_CREATED = "data_pipeline_created"
     BATCH_EXPORT_CREATED = "batch_export_created"
+    BATCH_EXPORT_UPDATED = "batch_export_updated"
+    BATCH_EXPORT_BACKFILL_CREATED = "batch_export_backfill_created"
     NOTEBOOK_CREATED = "notebook_created"
     PRODUCT_TOUR_CREATED = "product_tour_created"
     TASK_CREATED = "task_created"
@@ -3040,6 +3084,8 @@ class PropertyOperator(StrEnum):
     SEMVER_TILDE = "semver_tilde"
     SEMVER_CARET = "semver_caret"
     SEMVER_WILDCARD = "semver_wildcard"
+    ICONTAINS_MULTI = "icontains_multi"
+    NOT_ICONTAINS_MULTI = "not_icontains_multi"
 
 
 class Mark(BaseModel):
@@ -3751,6 +3797,7 @@ class TaxonomicFilterGroupType(StrEnum):
     ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
     MAX_AI_CONTEXT = "max_ai_context"
     WORKFLOW_VARIABLES = "workflow_variables"
+    SUGGESTED_FILTERS = "suggested_filters"
     EMPTY = "empty"
 
 
@@ -5323,6 +5370,7 @@ class LLMTrace(BaseModel):
     )
     aiSessionId: str | None = None
     createdAt: str
+    distinctId: str
     errorCount: float | None = None
     events: list[LLMTraceEvent]
     id: str
@@ -5333,7 +5381,7 @@ class LLMTrace(BaseModel):
     outputCost: float | None = None
     outputState: Any | None = None
     outputTokens: float | None = None
-    person: LLMTracePerson
+    person: LLMTracePerson | None = None
     totalCost: float | None = None
     totalLatency: float | None = None
     traceName: str | None = None
@@ -6310,6 +6358,7 @@ class SourceFieldInputConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    caption: str | None = None
     label: str
     name: str
     placeholder: str
@@ -14244,7 +14293,7 @@ class WebAnalyticsAssistantFilters(BaseModel):
     date_from: str | None = None
     date_to: str | None = None
     doPathCleaning: bool | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
 
 
 class WebAnalyticsExternalSummaryQuery(BaseModel):
@@ -14253,7 +14302,7 @@ class WebAnalyticsExternalSummaryQuery(BaseModel):
     )
     dateRange: DateRange
     kind: Literal["WebAnalyticsExternalSummaryQuery"] = "WebAnalyticsExternalSummaryQuery"
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebAnalyticsExternalSummaryQueryResponse | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -14286,7 +14335,7 @@ class WebExternalClicksTableQuery(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebExternalClicksTableQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -14324,7 +14373,7 @@ class WebGoalsQuery(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebGoalsQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -14360,7 +14409,7 @@ class WebOverviewQuery(BaseModel):
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebOverviewQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -14397,7 +14446,7 @@ class WebPageURLSearchQuery(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebPageURLSearchQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -14441,7 +14490,7 @@ class WebStatsTableQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebStatsTableQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -15352,6 +15401,10 @@ class FunnelsFilter(BaseModel):
         default=None,
         description="Customizations for the appearance of result datasets.",
     )
+    showTrendLines: bool | None = Field(
+        default=None,
+        description=("Display linear regression trend lines on the chart (only for historical trends viz)"),
+    )
     showValuesOnSeries: bool | None = False
     useUdf: bool | None = None
 
@@ -15524,7 +15577,7 @@ class InsightFilter(
         | StickinessFilter
         | LifecycleFilter
         | CalendarHeatmapFilter
-        | list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+        | list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     ]
 ):
     root: (
@@ -15535,7 +15588,7 @@ class InsightFilter(
         | StickinessFilter
         | LifecycleFilter
         | CalendarHeatmapFilter
-        | list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+        | list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     )
 
 
@@ -15570,7 +15623,7 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     )
     kind: Literal["MarketingAnalyticsAggregatedQuery"] = "MarketingAnalyticsAggregatedQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: MarketingAnalyticsAggregatedQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -15619,7 +15672,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
     orderBy: list[list[str | MarketingAnalyticsOrderByEnum]] | None = Field(
         default=None, description="Columns to order by - similar to EventsQuery format"
     )
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: MarketingAnalyticsTableQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -15730,7 +15783,7 @@ class NonIntegratedConversionsTableQuery(BaseModel):
     orderBy: list[list[str | MarketingAnalyticsOrderByEnum]] | None = Field(
         default=None, description="Columns to order by"
     )
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: NonIntegratedConversionsTableQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -16096,7 +16149,7 @@ class WebTrendsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebTrendsQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -16134,7 +16187,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     percentile: WebVitalsPercentile
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebVitalsPathBreakdownQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -17980,7 +18033,7 @@ class WebVitalsQuery(BaseModel):
     kind: Literal["WebVitalsQuery"] = "WebVitalsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebGoalsQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")

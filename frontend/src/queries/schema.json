@@ -1966,6 +1966,7 @@
                 "search_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
+                "experiment_session_replays_summary",
                 "create_survey",
                 "edit_survey",
                 "analyze_survey_responses",
@@ -2043,8 +2044,15 @@
                     "type": "string"
                 },
                 "ui_payload": {
-                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
-                    "type": "object"
+                    "anyOf": [
+                        {
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend."
                 }
             },
             "required": ["type", "content", "tool_call_id"],
@@ -11716,6 +11724,10 @@
             "required": ["results"],
             "type": "object"
         },
+        "DomainConnectProviderName": {
+            "const": "Cloudflare",
+            "type": "string"
+        },
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"
@@ -15619,6 +15631,7 @@
                 "error_tracking",
                 "heatmap",
                 "session_replay",
+                "session_profile",
                 "survey",
                 "product_tour",
                 "user_interview",
@@ -15636,6 +15649,7 @@
                 "workflows",
                 "notebook",
                 "action",
+                "activity",
                 "comment",
                 "annotation",
                 "event",
@@ -15665,6 +15679,7 @@
                 "toolbar",
                 "settings",
                 "health",
+                "inbox",
                 "sdk_doctor",
                 "pipeline_status",
                 "llm_evaluations",
@@ -16427,6 +16442,10 @@
                     },
                     "description": "Customizations for the appearance of result datasets.",
                     "type": "object"
+                },
+                "showTrendLines": {
+                    "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
+                    "type": "boolean"
                 },
                 "showValuesOnSeries": {
                     "default": false,
@@ -18550,6 +18569,9 @@
                 "createdAt": {
                     "type": "string"
                 },
+                "distinctId": {
+                    "type": "string"
+                },
                 "errorCount": {
                     "type": "number"
                 },
@@ -18592,7 +18614,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "createdAt", "person", "events"],
+            "required": ["id", "createdAt", "distinctId", "events"],
             "type": "object"
         },
         "LLMTraceEvent": {
@@ -18631,6 +18653,7 @@
                     "type": "string"
                 },
                 "properties": {
+                    "additionalProperties": {},
                     "type": "object"
                 },
                 "uuid": {
@@ -20055,6 +20078,103 @@
                             "const": "campaigns",
                             "type": "string"
                         },
+                        "conversionActionTypes": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "fallback": {
+                                    "items": [
+                                        {
+                                            "const": "purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_custom_event.fb_mobile_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "onsite_conversion.lead_grouped",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_custom_event.fb_mobile_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_complete_registration_add_meta_leads",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "mobile_app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "subscribe",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_subscribe",
+                                            "type": "string"
+                                        }
+                                    ],
+                                    "maxItems": 14,
+                                    "minItems": 14,
+                                    "type": "array"
+                                },
+                                "omni": {
+                                    "items": [
+                                        {
+                                            "const": "omni_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_subscribe",
+                                            "type": "string"
+                                        }
+                                    ],
+                                    "maxItems": 5,
+                                    "minItems": 5,
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["omni", "fallback"],
+                            "type": "object"
+                        },
                         "defaultSources": {
                             "items": [
                                 {
@@ -20146,7 +20266,8 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "conversionActionTypes"
                     ],
                     "type": "object"
                 },
@@ -21341,6 +21462,29 @@
                     "$ref": "#/definitions/MaxRecordingEventFilter"
                 }
             ]
+        },
+        "MetaAdsConversionFallbackActionTypes": {
+            "enum": [
+                "purchase",
+                "offsite_conversion.fb_pixel_purchase",
+                "app_custom_event.fb_mobile_purchase",
+                "lead",
+                "offsite_conversion.fb_pixel_lead",
+                "onsite_conversion.lead_grouped",
+                "complete_registration",
+                "offsite_conversion.fb_pixel_complete_registration",
+                "app_custom_event.fb_mobile_complete_registration",
+                "offsite_complete_registration_add_meta_leads",
+                "app_install",
+                "mobile_app_install",
+                "subscribe",
+                "offsite_conversion.fb_pixel_subscribe"
+            ],
+            "type": "string"
+        },
+        "MetaAdsConversionOmniActionTypes": {
+            "enum": ["omni_purchase", "omni_lead", "omni_complete_registration", "omni_app_install", "omni_subscribe"],
+            "type": "string"
         },
         "MetaAdsDefaultSources": {
             "enum": [
@@ -22540,6 +22684,8 @@
                 "workflow_created",
                 "data_pipeline_created",
                 "batch_export_created",
+                "batch_export_updated",
+                "batch_export_backfill_created",
                 "notebook_created",
                 "product_tour_created",
                 "task_created",
@@ -22780,7 +22926,9 @@
                 "semver_lte",
                 "semver_tilde",
                 "semver_caret",
-                "semver_wildcard"
+                "semver_wildcard",
+                "icontains_multi",
+                "not_icontains_multi"
             ],
             "type": "string"
         },
@@ -30481,6 +30629,9 @@
         "SourceFieldInputConfig": {
             "additionalProperties": false,
             "properties": {
+                "caption": {
+                    "type": "string"
+                },
                 "label": {
                     "type": "string"
                 },
@@ -31512,6 +31663,7 @@
                 "activity_log_properties",
                 "max_ai_context",
                 "workflow_variables",
+                "suggested_filters",
                 "empty"
             ],
             "type": "string"
@@ -33203,6 +33355,9 @@
                 },
                 {
                     "$ref": "#/definitions/SessionPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/CohortPropertyFilter"
                 }
             ]
         },

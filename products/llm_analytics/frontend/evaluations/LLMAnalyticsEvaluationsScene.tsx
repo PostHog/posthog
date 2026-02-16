@@ -14,6 +14,8 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -23,6 +25,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMProviderKeysSettings } from '../settings/LLMProviderKeysSettings'
 import { TrialUsageMeter } from '../settings/TrialUsageMeter'
@@ -43,8 +46,9 @@ export const scene: SceneExport = {
 }
 
 function LLMAnalyticsEvaluationsContent(): JSX.Element {
-    const { evaluations, filteredEvaluations, evaluationsLoading, evaluationsFilter } = useValues(llmEvaluationsLogic)
-    const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations } =
+    const { evaluations, filteredEvaluations, evaluationsLoading, evaluationsFilter, dateFilter } =
+        useValues(llmEvaluationsLogic)
+    const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations, setDates } =
         useActions(llmEvaluationsLogic)
     const { evaluationsWithMetrics } = useValues(evaluationMetricsLogic)
     const { currentTeamId } = useValues(teamLogic)
@@ -77,12 +81,17 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             key: 'enabled',
             render: (_, evaluation) => (
                 <div className="flex items-center gap-2">
-                    <LemonSwitch
-                        checked={evaluation.enabled}
-                        onChange={() => toggleEvaluationEnabled(evaluation.id)}
-                        size="small"
-                        data-attr="toggle-evaluation-enabled"
-                    />
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonSwitch
+                            checked={evaluation.enabled}
+                            onChange={() => toggleEvaluationEnabled(evaluation.id)}
+                            size="small"
+                            data-attr="toggle-evaluation-enabled"
+                        />
+                    </AccessControlAction>
                     <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
                         {evaluation.enabled ? 'Enabled' : 'Disabled'}
                     </span>
@@ -108,7 +117,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                 <div className="flex flex-wrap gap-1">
                     {evaluation.conditions.map((condition) => (
                         <LemonTag key={condition.id} type="option">
-                            {condition.rollout_percentage}%
+                            {parseFloat(condition.rollout_percentage.toFixed(2))}%
                             {condition.properties.length > 0 &&
                                 ` when ${condition.properties.length} condition${condition.properties.length !== 1 ? 's' : ''}`}
                         </LemonTag>
@@ -138,7 +147,9 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         <div className="text-sm">
                             {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
                         </div>
-                        <div className={`font-semibold ${passRateColor}`}>{stats.pass_rate}%</div>
+                        <div className={`font-semibold ${passRateColor}`}>
+                            {parseFloat(stats.pass_rate.toFixed(2))}%
+                        </div>
                     </div>
                 )
             },
@@ -148,31 +159,46 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             key: 'actions',
             render: (_, evaluation) => (
                 <div className="flex gap-1">
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconPencil />}
-                        onClick={() => push(urls.llmAnalyticsEvaluation(evaluation.id))}
-                    />
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconCopy />}
-                        onClick={() => duplicateEvaluation(evaluation.id)}
-                    />
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        status="danger"
-                        icon={<IconTrash />}
-                        onClick={() => {
-                            deleteWithUndo({
-                                endpoint: `environments/${currentTeamId}/evaluations`,
-                                object: evaluation,
-                                callback: () => loadEvaluations(),
-                            })
-                        }}
-                    />
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconPencil />}
+                            onClick={() => push(urls.llmAnalyticsEvaluation(evaluation.id))}
+                        />
+                    </AccessControlAction>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconCopy />}
+                            onClick={() => duplicateEvaluation(evaluation.id)}
+                        />
+                    </AccessControlAction>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            status="danger"
+                            icon={<IconTrash />}
+                            onClick={() => {
+                                deleteWithUndo({
+                                    endpoint: `environments/${currentTeamId}/evaluations`,
+                                    object: evaluation,
+                                    callback: () => loadEvaluations(),
+                                })
+                            }}
+                        />
+                    </AccessControlAction>
                 </div>
             ),
         },
@@ -193,16 +219,23 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         Configure evaluation prompts and triggers to automatically assess your LLM generations.
                     </p>
                 </div>
-                <LemonButton
-                    type="primary"
-                    icon={<IconPlus />}
-                    to={urls.llmAnalyticsEvaluationTemplates()}
-                    data-attr="create-evaluation-button"
-                    tooltip="Create evaluation"
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.LlmAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
                 >
-                    Create evaluation
-                </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        to={urls.llmAnalyticsEvaluationTemplates()}
+                        data-attr="create-evaluation-button"
+                        tooltip="Create evaluation"
+                    >
+                        Create evaluation
+                    </LemonButton>
+                </AccessControlAction>
             </div>
+
+            <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
 
             <EvaluationMetrics />
 

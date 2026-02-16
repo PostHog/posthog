@@ -35,10 +35,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
-use dashmap::mapref::entry::Entry;
-use dashmap::{DashMap, DashSet};
-use futures::future::Shared;
-use tokio::task::JoinHandle;
+use dashmap::DashSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -48,25 +45,6 @@ use crate::metrics_const::{
     REBALANCING_COUNT,
 };
 
-/// Type alias for the shared task handle. The closure maps JoinHandle's Result to ()
-/// so it can be Clone (required by Shared).
-type SharedTaskHandle =
-    Shared<futures::future::Map<JoinHandle<()>, fn(Result<(), tokio::task::JoinError>) -> ()>>;
-
-/// Tracks a partition setup task with its cancellation token.
-///
-/// The `Shared` future allows multiple async_setup calls to await the same task.
-/// The `CancellationToken` allows cancelling ONLY this partition's download on revoke.
-///
-/// Two-phase registration: `handle` is None when claimed but task not yet spawned,
-/// then set via `finalize_partition_setup()` after the task is spawned.
-/// This prevents race conditions where overlapping rebalances could spawn duplicate tasks.
-struct PartitionSetupTask {
-    /// None = claimed but task not yet spawned, Some = task spawned and awaitable
-    handle: Option<SharedTaskHandle>,
-    cancel_token: CancellationToken,
-}
-
 /// Tracks rebalance state across multiple components.
 ///
 /// This is a lightweight struct that can be cheaply cloned via `Arc`.
@@ -74,6 +52,9 @@ struct PartitionSetupTask {
 /// - Whether a rebalance is in progress (counter-based for overlapping rebalances)
 /// - Which partitions are currently owned by this consumer
 /// - Export suppression during rebalancing (to prioritize imports)
+///
+/// Note: Partition setup task tracking is handled by ProcessorRebalanceHandler
+/// (not here) because it needs access to StoreManager to detect stale entries.
 pub struct RebalanceTracker {
     /// Counter tracking the number of in-progress rebalances.
     /// Using a counter (not bool) correctly handles overlapping rebalances.
@@ -83,11 +64,6 @@ pub struct RebalanceTracker {
     /// Updated synchronously in ASSIGN (add) and REVOKE (remove) callbacks.
     /// Used to determine which partitions to resume and which to cleanup.
     owned_partitions: DashSet<Partition>,
-
-    /// Per-partition setup task handles with cancellation tokens.
-    /// - Shared<JoinHandle> allows multiple async_setup calls to await the same task
-    /// - CancellationToken allows cancelling ONLY this partition's S3 download on revoke
-    partition_setup_tasks: DashMap<Partition, PartitionSetupTask>,
 
     /// Token for suppressing checkpoint exports during rebalancing.
     /// Cancelled when rebalancing starts (count 0->1), recreated when complete (count 1->0).
@@ -103,7 +79,6 @@ impl RebalanceTracker {
         Self {
             rebalancing_count: AtomicUsize::new(0),
             owned_partitions: DashSet::new(),
-            partition_setup_tasks: DashMap::new(),
             export_suppression_token: RwLock::new(CancellationToken::new()),
         }
     }
@@ -152,28 +127,50 @@ impl RebalanceTracker {
     ///
     /// On the 1->0 transition (all rebalances complete), creates a fresh export
     /// suppression token so checkpoint exports can resume normally.
+    ///
+    /// Uses compare_exchange to prevent underflow from 0 to usize::MAX, which
+    /// would permanently set is_rebalancing() to true.
     pub fn finish_rebalancing(&self) {
-        let prev = self.rebalancing_count.fetch_sub(1, Ordering::SeqCst);
-        let new_count = prev.saturating_sub(1);
-        metrics::gauge!(REBALANCING_COUNT).set(new_count as f64);
+        loop {
+            let current = self.rebalancing_count.load(Ordering::SeqCst);
+            if current == 0 {
+                warn!("finish_rebalancing called when counter was already 0 — skipping to prevent underflow");
+                return;
+            }
 
-        if prev == 0 {
-            warn!("finish_rebalancing called when counter was already 0");
-        } else if new_count == 0 {
-            // Create fresh token when ALL rebalances complete (1 -> 0 transition)
-            let mut token = self
-                .export_suppression_token
-                .write()
-                .unwrap_or_else(|poison| poison.into_inner());
-            *token = CancellationToken::new();
-            info!("Export suppression: created fresh token (all rebalances complete)");
-            info!("All rebalances completed, counter returned to 0");
-        } else {
-            info!(
-                previous_count = prev,
-                new_count = new_count,
-                "Rebalance finished, decremented rebalancing counter (other rebalances still in progress)"
-            );
+            match self.rebalancing_count.compare_exchange(
+                current,
+                current - 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => {
+                    let new_count = current - 1;
+                    metrics::gauge!(REBALANCING_COUNT).set(new_count as f64);
+
+                    if new_count == 0 {
+                        // Create fresh token when ALL rebalances complete (1 -> 0 transition)
+                        let mut token = self
+                            .export_suppression_token
+                            .write()
+                            .unwrap_or_else(|poison| poison.into_inner());
+                        *token = CancellationToken::new();
+                        info!("Export suppression: created fresh token (all rebalances complete)");
+                        info!("All rebalances completed, counter returned to 0");
+                    } else {
+                        info!(
+                            previous_count = current,
+                            new_count = new_count,
+                            "Rebalance finished, decremented rebalancing counter (other rebalances still in progress)"
+                        );
+                    }
+                    return;
+                }
+                Err(_) => {
+                    // Counter changed between load and CAS, retry
+                    continue;
+                }
+            }
         }
     }
 
@@ -312,103 +309,17 @@ impl RebalanceTracker {
             .collect()
     }
 
-    // ============================================
-    // PER-PARTITION SETUP TASK MANAGEMENT
-    //
-    // Two-phase registration prevents race conditions in overlapping rebalances:
-    // 1. try_claim_partition_setup() - atomically claims a partition for setup
-    // 2. finalize_partition_setup() - attaches the task handle after spawning
-    // ============================================
-
-    /// Atomically claim a partition for setup.
-    ///
-    /// Returns true if claimed successfully, false if a task already exists (claimed or finalized).
-    /// After claiming, caller MUST call `finalize_partition_setup()` with the spawned task handle.
-    ///
-    /// This two-phase approach prevents race conditions where overlapping rebalances could
-    /// both pass a "no task exists" check and spawn duplicate tasks.
-    pub fn try_claim_partition_setup(
-        &self,
-        partition: &Partition,
-        cancel_token: CancellationToken,
-    ) -> bool {
-        match self.partition_setup_tasks.entry(partition.clone()) {
-            Entry::Vacant(e) => {
-                // Claim the slot with handle=None (task not yet spawned)
-                e.insert(PartitionSetupTask {
-                    handle: None,
-                    cancel_token,
-                });
-                true
-            }
-            Entry::Occupied(_) => false, // Already claimed or finalized
-        }
-    }
-
-    /// Attach the task handle after spawning.
-    ///
-    /// Must be called after `try_claim_partition_setup()` returns true.
-    /// Converts the JoinHandle to a Shared future so multiple callers can await it.
-    pub fn finalize_partition_setup(&self, partition: &Partition, handle: JoinHandle<()>) {
-        use futures::future::FutureExt;
-
-        // Helper function to discard JoinHandle result (must be fn, not closure, for type matching)
-        fn discard_result(_: Result<(), tokio::task::JoinError>) {}
-
-        if let Some(mut task) = self.partition_setup_tasks.get_mut(partition) {
-            // Map the JoinHandle result to () so it's Clone (required for Shared)
-            let shared_handle = handle.map(discard_result as fn(_) -> ()).shared();
-            task.handle = Some(shared_handle);
-        }
-    }
-
-    /// Get the setup task handle for a partition (if finalized).
-    ///
-    /// Returns a clone of the Shared handle that can be awaited by multiple callers.
-    /// Returns None if no task exists OR if task is claimed but not yet finalized.
-    pub fn get_setup_task(&self, partition: &Partition) -> Option<SharedTaskHandle> {
-        self.partition_setup_tasks
-            .get(partition)
-            .and_then(|t| t.handle.clone())
-    }
-
-    /// Check if a partition has a claimed or finalized setup task.
-    ///
-    /// Returns true if the partition has been claimed (even if not yet finalized).
-    /// Use this to check if setup is in progress before spawning a new task.
-    pub fn has_setup_task(&self, partition: &Partition) -> bool {
-        self.partition_setup_tasks.contains_key(partition)
-    }
-
-    /// Cancel and remove setup tasks for revoked partitions.
-    ///
-    /// This immediately cancels any in-flight S3 downloads to save cost/time.
-    /// The tasks will detect cancellation and clean up.
-    pub fn cancel_setup_tasks(&self, partitions: &[Partition]) {
-        for partition in partitions {
-            if let Some((_, task)) = self.partition_setup_tasks.remove(partition) {
-                // Cancel the token - S3 download will stop at next chunk
-                task.cancel_token.cancel();
-                // Handle is dropped, task continues but we won't wait for it
-            }
-        }
-    }
-
-    /// Remove a completed setup task for a partition.
-    ///
-    /// Called after awaiting the task to clean up the tracking entry.
-    pub fn complete_setup_task(&self, partition: &Partition) {
-        self.partition_setup_tasks.remove(partition);
-    }
-
     /// Get the count of owned partitions (for testing/debugging).
     #[cfg(test)]
     pub fn owned_partition_count(&self) -> usize {
         self.owned_partitions.len()
     }
 
-    /// Get the current rebalancing count (for testing/debugging).
-    #[cfg(test)]
+    /// Get the current rebalancing count.
+    ///
+    /// Used by ProcessorRebalanceHandler to decide whether to run finalize before or after
+    /// decrementing (so is_rebalancing() stays true during finalize and orphan cleanup skips).
+    /// Also useful for observability.
     pub fn rebalancing_count(&self) -> usize {
         self.rebalancing_count.load(Ordering::SeqCst)
     }
@@ -528,6 +439,18 @@ mod tests {
         assert!(!tracker.is_rebalancing());
     }
 
+    #[test]
+    fn test_finish_rebalancing_prevents_underflow() {
+        let tracker = RebalanceTracker::new();
+        assert_eq!(tracker.rebalancing_count(), 0);
+        assert!(!tracker.is_rebalancing());
+
+        // Calling finish_rebalancing when counter is 0 does not corrupt the counter
+        tracker.finish_rebalancing();
+        assert_eq!(tracker.rebalancing_count(), 0);
+        assert!(!tracker.is_rebalancing());
+    }
+
     // ============================================
     // PARTITION OWNERSHIP TESTS
     // ============================================
@@ -632,129 +555,6 @@ mod tests {
         // Empty unowned query
         let unowned = tracker.get_unowned_partitions(&[]);
         assert!(unowned.is_empty());
-    }
-
-    // ============================================
-    // TWO-PHASE TASK REGISTRATION TESTS
-    // ============================================
-
-    #[test]
-    fn test_try_claim_partition_setup_success() {
-        let tracker = RebalanceTracker::new();
-        let p0 = Partition::new("topic".to_string(), 0);
-        let token = CancellationToken::new();
-
-        // First claim should succeed
-        assert!(tracker.try_claim_partition_setup(&p0, token));
-
-        // has_setup_task should return true (claimed)
-        assert!(tracker.has_setup_task(&p0));
-
-        // get_setup_task should return None (not yet finalized)
-        assert!(tracker.get_setup_task(&p0).is_none());
-    }
-
-    #[test]
-    fn test_try_claim_partition_setup_already_claimed() {
-        let tracker = RebalanceTracker::new();
-        let p0 = Partition::new("topic".to_string(), 0);
-        let token1 = CancellationToken::new();
-        let token2 = CancellationToken::new();
-
-        // First claim succeeds
-        assert!(tracker.try_claim_partition_setup(&p0, token1));
-
-        // Second claim fails (already claimed)
-        assert!(!tracker.try_claim_partition_setup(&p0, token2));
-    }
-
-    #[tokio::test]
-    async fn test_finalize_partition_setup() {
-        let tracker = RebalanceTracker::new();
-        let p0 = Partition::new("topic".to_string(), 0);
-        let token = CancellationToken::new();
-
-        // Claim the partition
-        assert!(tracker.try_claim_partition_setup(&p0, token));
-        assert!(tracker.get_setup_task(&p0).is_none()); // Not yet finalized
-
-        // Spawn a simple task
-        let handle = tokio::spawn(async { /* do nothing */ });
-
-        // Finalize with the handle
-        tracker.finalize_partition_setup(&p0, handle);
-
-        // Now get_setup_task should return Some
-        assert!(tracker.get_setup_task(&p0).is_some());
-
-        // Can await the task
-        let task = tracker.get_setup_task(&p0).unwrap();
-        task.await;
-    }
-
-    #[test]
-    fn test_cancel_claimed_but_not_finalized_task() {
-        let tracker = RebalanceTracker::new();
-        let p0 = Partition::new("topic".to_string(), 0);
-        let token = CancellationToken::new();
-
-        // Claim but don't finalize
-        assert!(tracker.try_claim_partition_setup(&p0, token.clone()));
-        assert!(!token.is_cancelled());
-
-        // Cancel should work even on claimed-but-not-finalized tasks
-        tracker.cancel_setup_tasks(std::slice::from_ref(&p0));
-
-        // Token should be cancelled
-        assert!(token.is_cancelled());
-
-        // Task should be removed
-        assert!(!tracker.has_setup_task(&p0));
-    }
-
-    #[test]
-    fn test_overlapping_rebalances_cannot_claim_same_partition() {
-        // Simulates the race condition we're preventing:
-        // Two overlapping rebalances both try to claim the same partition
-        let tracker = RebalanceTracker::new();
-        let p0 = Partition::new("topic".to_string(), 0);
-
-        // Rebalance A claims p0
-        let token_a = CancellationToken::new();
-        assert!(
-            tracker.try_claim_partition_setup(&p0, token_a),
-            "Rebalance A should claim p0"
-        );
-
-        // Rebalance B tries to claim p0 - should fail
-        let token_b = CancellationToken::new();
-        assert!(
-            !tracker.try_claim_partition_setup(&p0, token_b),
-            "Rebalance B should NOT be able to claim p0 (already claimed by A)"
-        );
-
-        // Only A's claim exists
-        assert!(tracker.has_setup_task(&p0));
-    }
-
-    #[tokio::test]
-    async fn test_complete_setup_task_removes_entry() {
-        let tracker = RebalanceTracker::new();
-        let p0 = Partition::new("topic".to_string(), 0);
-        let token = CancellationToken::new();
-
-        // Claim and finalize
-        assert!(tracker.try_claim_partition_setup(&p0, token));
-        let handle = tokio::spawn(async { /* do nothing */ });
-        tracker.finalize_partition_setup(&p0, handle);
-
-        assert!(tracker.has_setup_task(&p0));
-
-        // Complete removes the entry
-        tracker.complete_setup_task(&p0);
-
-        assert!(!tracker.has_setup_task(&p0));
-        assert!(tracker.get_setup_task(&p0).is_none());
     }
 
     // ============================================

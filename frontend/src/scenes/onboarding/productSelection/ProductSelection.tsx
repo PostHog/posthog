@@ -63,7 +63,7 @@ function ChoosePathStep(): JSX.Element {
     const aiRecommendationsEnabled = useFeatureFlag('ONBOARDING_AI_PRODUCT_RECOMMENDATIONS', 'test')
 
     return (
-        <div className="max-w-4xl w-full">
+        <div className="max-w-6xl w-full">
             <div className="flex justify-center mb-4">
                 <Logomark />
             </div>
@@ -82,6 +82,11 @@ function ChoosePathStep(): JSX.Element {
                             placeholder="e.g., I want to understand why users drop off during checkout and run experiments to improve conversion..."
                             value={aiDescription}
                             onChange={(value) => setAiDescription(value)}
+                            onPressEnter={() => {
+                                if (aiDescription.trim()) {
+                                    submitAiRecommendation()
+                                }
+                            }}
                             rows={3}
                         />
                         <div className="flex items-center justify-between mt-3">
@@ -192,7 +197,7 @@ function ProductCard({
     return (
         <LemonCard
             data-attr={`${productKey}-onboarding-card`}
-            className="cursor-pointer hover:transform-none p-4 w-full md:w-[calc(33.333%-0.5rem)]"
+            className="cursor-pointer hover:transform-none p-4"
             onClick={onToggle}
             focused={selected}
             hoverEffect
@@ -233,7 +238,7 @@ function ProductSelectionStep(): JSX.Element {
     const availableOtherProducts = otherProducts.filter(isAvailableOnboardingProductKey)
 
     return (
-        <div className="max-w-[800px] w-full">
+        <div className="max-w-6xl w-full">
             <div className="flex justify-center mb-4">
                 <Logomark />
             </div>
@@ -257,7 +262,7 @@ function ProductSelectionStep(): JSX.Element {
             {recommendationSource === 'browsing_history' && <BrowsingHistoryBanner />}
 
             {/* Products list - single unified grid */}
-            <div className="flex flex-wrap justify-center gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 justify-items-center w-full">
                 {/* Recommended products first */}
                 {availableRecommendedProducts.map((productKey) => (
                     <ProductCard

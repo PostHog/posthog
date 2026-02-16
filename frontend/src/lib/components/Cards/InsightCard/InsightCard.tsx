@@ -219,7 +219,12 @@ function InsightCardInternal(
 
     return (
         <div
-            className={clsx('InsightCard border', highlighted && 'InsightCard--highlighted', className)}
+            className={clsx(
+                'InsightCard border',
+                highlighted && 'InsightCard--highlighted',
+                areDetailsShown && 'InsightCard--details-shown',
+                className
+            )}
             data-attr="insight-card"
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props

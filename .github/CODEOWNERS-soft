@@ -103,6 +103,8 @@ nodejs/tests/ @PostHog/team-ingestion
 nodejs/src/ingestion/ @PostHog/team-ingestion
 nodejs/src/cdp/ @PostHog/team-workflows
 nodejs/src/ingestion/ai/ @PostHog/team-llm-analytics
+nodejs/src/session-replay/ @PostHog/team-replay
+nodejs/src/session-replay/shared/ @PostHog/team-replay @PostHog/team-ingestion
 
 # Web Analytics - owned by @PostHog/team-web-analytics
 products/web_analytics/** @PostHog/team-web-analytics
@@ -209,3 +211,4 @@ CLAUDE.md @PostHog/team-devex
 AGENTS.md @PostHog/team-devex
 .claude/ @PostHog/team-devex
 greptile.json @PostHog/team-devex
+docs/published/developing-locally.md @PostHog/team-devex

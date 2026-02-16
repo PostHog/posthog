@@ -73,6 +73,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import ExternalDataSourceType
+from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
@@ -206,7 +207,7 @@ async def _run(
     schema_name: str,
     table_name: str,
     source_type: str,
-    job_inputs: dict[str, str],
+    job_inputs: dict[str, str | dict[str, str]],
     mock_data_response: Any,
     sync_type: Optional[ExternalDataSchema.SyncType] = None,
     sync_type_config: Optional[dict] = None,
@@ -346,7 +347,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow],
+                workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow, DuckLakeCopyDataImportsWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -1456,7 +1457,7 @@ async def test_postgres_nan_numerical_values(team, postgres_config, postgres_con
 @pytest.mark.asyncio
 async def test_delete_table_on_reset(team, stripe_balance_transaction, mock_stripe_client):
     with (
-        mock.patch.object(s3fs.S3FileSystem, "delete") as mock_s3_delete,
+        mock.patch.object(s3fs.S3FileSystem, "_rm") as mock_s3_delete,
     ):
         workflow_id, inputs = await _run(
             team=team,
@@ -1559,7 +1560,6 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
     # The last call should be an append
@@ -1569,7 +1569,6 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
 
@@ -1627,7 +1626,6 @@ async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(team, postgres
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
 
@@ -1699,7 +1697,6 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
     # The subsequent call should be an append
@@ -1709,7 +1706,6 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
 
@@ -1964,7 +1960,7 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     )
     await postgres_connection.commit()
 
-    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+    async def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
         return pa_table
 
     # Emulate an existing table with no partitions
@@ -2053,7 +2049,7 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     )
     await postgres_connection.commit()
 
-    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+    async def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
         return pa_table
 
     # Emulate an existing table with no partitions
@@ -2258,7 +2254,7 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
         DATA_WAREHOUSE_REDIS_HOST="localhost",
         DATA_WAREHOUSE_REDIS_PORT="6379",
     ):
-        row_count_in_redis = get_rows(team.id, schema_id)
+        row_count_in_redis = await get_rows(team.id, schema_id)
 
     assert row_count_in_redis == 1
 
@@ -2383,12 +2379,11 @@ async def test_worker_shutdown_desc_sort_order(team):
     def mock_raise_if_is_worker_shutdown(self):
         raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
 
-    async def mock_get_workflows(*args, **kwargs):
+    def mock_get_messages(*args, **kwargs):
         yield {
-            "workflow_id": "test-workflow-id",
-            "run_id": "test-run-id",
-            "status": "RUNNING",
-            "close_time": datetime.now().isoformat(),
+            "id": "test-message-id",
+            "conversation_updated_at": datetime.now().isoformat(),
+            "created_at": datetime.now().isoformat(),
         }
 
     with (
@@ -2397,25 +2392,20 @@ async def test_worker_shutdown_desc_sort_order(team):
             "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
         mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
-        mock.patch("posthog.temporal.data_imports.sources.temporalio.temporalio._get_workflows", mock_get_workflows),
+        mock.patch("posthog.temporal.data_imports.sources.vitally.vitally.get_messages", mock_get_messages),
     ):
         _, inputs = await _run(
             team=team,
-            schema_name="workflows",
-            table_name="temporalio_workflows",
-            source_type="TemporalIO",
+            schema_name="Messages",
+            table_name="vitally_messages",
+            source_type="Vitally",
             job_inputs={
-                "host": "test",
-                "port": "1234",
-                "namespace": "test",
-                "server_client_root_ca": "test",
-                "client_certificate": "test",
-                "client_private_key": "test",
-                "encryption_key": "test",
+                "secret_token": "test_token",
+                "region": {"selection": "EU", "subdomain": ""},
             },
             mock_data_response=[],
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            sync_type_config={"incremental_field": "close_time", "incremental_field_type": "datetime"},
+            sync_type_config={"incremental_field": "conversation_updated_at", "incremental_field_type": "datetime"},
             ignore_assertions=True,
         )
 

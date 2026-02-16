@@ -75,7 +75,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         window_end=window_end,
         max_samples=inputs.max_samples,
         analysis_level=inputs.analysis_level,
-        trace_filters=inputs.trace_filters if inputs.trace_filters else None,
+        event_filters=inputs.event_filters if inputs.event_filters else None,
     )
 
     logger.debug(
@@ -84,8 +84,8 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         analysis_level=inputs.analysis_level,
     )
 
-    # Need at least 2 items to perform clustering
-    if len(item_ids) < 2:
+    # Need enough items for UMAP (n_neighbors default=15) and meaningful clusters
+    if len(item_ids) < constants.MIN_TRACES_FOR_CLUSTERING:
         logger.warning(
             "Not enough items for clustering",
             item_count=len(item_ids),

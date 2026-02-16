@@ -63,7 +63,6 @@ export const QueryDatabase = (): JSX.Element => {
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
     const { deleteDraft } = useActions(draftsLogic)
     const { setQueryInput } = useActions(multitabEditorLogic)
-    const { selectedQueryColumns } = useValues(multitabEditorLogic)
     const builtTabLogic = useMountedLogic(multitabEditorLogic)
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
@@ -147,11 +146,14 @@ export const QueryDatabase = (): JSX.Element => {
                 return 'join'
             case 'virtual-table':
                 return 'virtual table'
+            case 'materialized_view':
+                return 'materialized view'
             case 'managed-view':
                 return 'managed view'
             case 'endpoint':
                 return 'endpoint'
             case 'view':
+            case 'view-table':
                 return item.record.view?.is_materialized ? 'materialized view' : 'view'
             case 'table': {
                 const tableType = item.record.table?.type
@@ -228,7 +230,6 @@ export const QueryDatabase = (): JSX.Element => {
                 const hasMatches = matches && matches.length > 0
                 const isColumn = item.record?.type === 'column'
                 const columnType = isColumn ? item.record?.field?.type : null
-                const columnKey = isColumn && item.record ? `${item.record.table}.${item.record.columnName}` : null
                 const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
 
                 return (
@@ -253,9 +254,6 @@ export const QueryDatabase = (): JSX.Element => {
                                                 'endpoints',
                                             ].includes(item.record?.type) && 'font-semibold',
                                             isColumn && 'font-mono text-xs',
-                                            columnKey &&
-                                                selectedQueryColumns[columnKey] &&
-                                                'underline underline-offset-2',
                                             'truncate shrink-0'
                                         )}
                                     >

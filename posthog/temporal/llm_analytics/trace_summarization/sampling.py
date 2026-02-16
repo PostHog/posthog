@@ -5,17 +5,24 @@ The full trace data is fetched later by the summarization activity using
 TraceQueryRunner per-item, so sampling only needs IDs and timestamps.
 """
 
+from typing import Any
+
 import structlog
 import temporalio
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.llm_analytics.trace_summarization.constants import (
+    MAX_TRACE_EVENTS_LIMIT,
+    MAX_TRACE_PROPERTIES_SIZE,
+)
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, SampledItem
 from posthog.temporal.llm_analytics.trace_summarization.utils import format_datetime_for_clickhouse
 
@@ -41,24 +48,43 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
         raise ValueError("window_start and window_end must be provided by the workflow")
 
     def _sample_items(
-        team_id: int, window_start: str, window_end: str, max_items: int, analysis_level: str
+        team_id: int,
+        window_start: str,
+        window_end: str,
+        max_items: int,
+        analysis_level: str,
+        event_filters: list[dict[str, Any]] | None = None,
     ) -> list[SampledItem]:
-        team = Team.objects.get(id=team_id)
+        try:
+            team = Team.objects.get(id=team_id)
+        except Team.DoesNotExist:
+            logger.info("Team not found in local database, skipping", team_id=team_id)
+            return []
 
         start_dt_str = format_datetime_for_clickhouse(window_start)
         end_dt_str = format_datetime_for_clickhouse(window_end)
+
+        # Build optional trace filter expression from property filters
+        trace_filter_expr: ast.Expr | None = None
+        if event_filters:
+            filter_exprs = [property_to_expr(f, team) for f in event_filters]
+            trace_filter_expr = ast.And(exprs=filter_exprs) if len(filter_exprs) > 1 else filter_exprs[0]
 
         if analysis_level == "generation":
             # Sample generations directly: get the last generation per trace
             # with the trace's first_timestamp for navigation.
             # We query all AI event types to get accurate trace_first_timestamp,
             # but use argMaxIf to only pick generation UUIDs.
+            # Also filters by event count and total properties size to prevent
+            # oversized traces from reaching the CPU-intensive formatting activity.
             generations_query = parse_select(
                 """
                 SELECT
                     properties.$ai_trace_id as trace_id,
                     argMaxIf(uuid, timestamp, event = '$ai_generation') as last_generation_id,
-                    min(timestamp) as trace_first_timestamp
+                    min(timestamp) as trace_first_timestamp,
+                    count() as event_count,
+                    sum(length(properties)) as total_properties_size
                 FROM events
                 WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
                     AND timestamp >= toDateTime({start_ts}, 'UTC')
@@ -66,6 +92,9 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     AND properties.$ai_trace_id != ''
                 GROUP BY trace_id
                 HAVING last_generation_id IS NOT NULL
+                    AND event_count <= {max_events}
+                    AND total_properties_size <= {max_properties_size}
+                    AND countIf({trace_filter}) > 0
                 ORDER BY trace_first_timestamp DESC
                 LIMIT {limit}
                 """
@@ -78,6 +107,9 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     "start_ts": ast.Constant(value=start_dt_str),
                     "end_ts": ast.Constant(value=end_dt_str),
                     "limit": ast.Constant(value=max_items),
+                    "max_events": ast.Constant(value=MAX_TRACE_EVENTS_LIMIT),
+                    "max_properties_size": ast.Constant(value=MAX_TRACE_PROPERTIES_SIZE),
+                    "trace_filter": trace_filter_expr or ast.Constant(value=True),
                 },
                 team=team,
                 limit_context=LimitContext.QUERY_ASYNC,
@@ -89,6 +121,8 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                 start_ts=start_dt_str,
                 end_ts=end_dt_str,
                 team_id=team_id,
+                max_events_filter=MAX_TRACE_EVENTS_LIMIT,
+                max_properties_size_filter=MAX_TRACE_PROPERTIES_SIZE,
             )
 
             items: list[SampledItem] = []
@@ -107,18 +141,26 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
 
             return items
         else:
-            # Trace-level: sample trace IDs and first timestamps
+            # Trace-level: sample trace IDs and first timestamps.
+            # Filters out traces with more than MAX_TRACE_EVENTS_LIMIT events
+            # AND traces where total properties size exceeds MAX_TRACE_PROPERTIES_SIZE
+            # to prevent CPU-intensive formatting from blocking the worker.
             traces_query = parse_select(
                 """
                 SELECT
                     properties.$ai_trace_id as trace_id,
-                    min(timestamp) as first_timestamp
+                    min(timestamp) as first_timestamp,
+                    count() as event_count,
+                    sum(length(properties)) as total_properties_size
                 FROM events
                 WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
                     AND timestamp >= toDateTime({start_ts}, 'UTC')
                     AND timestamp < toDateTime({end_ts}, 'UTC')
                     AND properties.$ai_trace_id != ''
                 GROUP BY trace_id
+                HAVING event_count <= {max_events}
+                    AND total_properties_size <= {max_properties_size}
+                    AND countIf({trace_filter}) > 0
                 ORDER BY first_timestamp DESC
                 LIMIT {limit}
                 """
@@ -131,6 +173,9 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     "start_ts": ast.Constant(value=start_dt_str),
                     "end_ts": ast.Constant(value=end_dt_str),
                     "limit": ast.Constant(value=max_items),
+                    "max_events": ast.Constant(value=MAX_TRACE_EVENTS_LIMIT),
+                    "max_properties_size": ast.Constant(value=MAX_TRACE_PROPERTIES_SIZE),
+                    "trace_filter": trace_filter_expr or ast.Constant(value=True),
                 },
                 team=team,
                 limit_context=LimitContext.QUERY_ASYNC,
@@ -142,6 +187,8 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                 start_ts=start_dt_str,
                 end_ts=end_dt_str,
                 team_id=team_id,
+                max_events_filter=MAX_TRACE_EVENTS_LIMIT,
+                max_properties_size_filter=MAX_TRACE_PROPERTIES_SIZE,
             )
 
             return [
@@ -161,6 +208,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
             inputs.window_end,
             inputs.max_items,
             inputs.analysis_level,
+            event_filters=inputs.event_filters if inputs.event_filters else None,
         )
 
     logger.debug(
