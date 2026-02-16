@@ -922,10 +922,11 @@ def toolbar_oauth_exchange(request):
 @session_auth_required
 def toolbar_oauth_authorize(request):
     """
-    Consent page for toolbar OAuth.
+    Start the toolbar OAuth flow.
 
-    Renders a page where the user confirms toolbar access, then redirects
-    to the OAuth authorization endpoint with PKCE and signed state.
+    Validates the redirect URL, generates PKCE + signed state, stores the
+    code_verifier in the session, and redirects straight to the OAuth
+    authorization endpoint (skipping an intermediate consent page).
     """
     redirect_url = request.GET.get("redirect")
     if not redirect_url:
@@ -958,16 +959,7 @@ def toolbar_oauth_authorize(request):
 
     request.session["toolbar_oauth_code_verifier"] = code_verifier
 
-    return render_template(
-        "authorize_and_redirect.html",
-        request=request,
-        context={
-            "email": request.user,
-            "domain": urllib.parse.urlparse(redirect_url).hostname,
-            "redirect_url": redirect_url,
-            "authorization_url": authorization_url,
-        },
-    )
+    return redirect(authorization_url)
 
 
 @session_auth_required
