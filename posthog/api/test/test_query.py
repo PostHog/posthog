@@ -674,7 +674,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             },
         )
         mock_process_query_model.assert_called_once()
-        self.assertIsNone(mock_process_query_model.call_args[1]["limit_context"])
+        # HogQLQuery is an insight query, so it gets QUERY_ASYNC by default
+        self.assertEqual(mock_process_query_model.call_args[1]["limit_context"], LimitContext.QUERY_ASYNC)
 
     def test_query_limit_context_invalid_value(self):
         api_response = self.client.post(

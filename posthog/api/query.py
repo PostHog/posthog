@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
+    LimitContext as SchemaLimitContext,
     QueryRequest,
     QueryResponseAlternative,
     QueryStatusResponse,
@@ -141,7 +142,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             self._tag_client_query_id(client_query_id)
             query_dict = query.model_dump()
 
-            if data.limit_context == "posthog_ai":
+            if data.limit_context == SchemaLimitContext.POSTHOG_AI:
                 limit_context: LimitContext | None = LimitContext.POSTHOG_AI
             elif (
                 is_insight_query(query_dict)
