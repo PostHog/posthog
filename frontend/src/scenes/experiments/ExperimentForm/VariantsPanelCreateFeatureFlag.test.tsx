@@ -299,6 +299,66 @@ describe('VariantsPanelCreateFeatureFlag', () => {
                 }),
             })
         })
+
+        it.each([
+            { inputValue: '70', expectedControl: 70, expectedTest: 30 },
+            { inputValue: '90', expectedControl: 90, expectedTest: 10 },
+            { inputValue: '0', expectedControl: 0, expectedTest: 100 },
+            { inputValue: '100', expectedControl: 100, expectedTest: 0 },
+        ])(
+            'auto-balances second variant to $expectedTest% when control is set to $expectedControl% with 2 variants',
+            async ({ inputValue, expectedControl, expectedTest }) => {
+                const { container } = renderComponent(defaultExperiment)
+
+                const customizeButton = screen.getByRole('button', { name: /customize split/i })
+                await userEvent.click(customizeButton)
+
+                const percentageInputs = container.querySelectorAll(
+                    '[data-attr="experiment-variant-rollout-percentage-input"]'
+                )
+
+                await userEvent.clear(percentageInputs[0] as Element)
+                await userEvent.type(percentageInputs[0] as Element, inputValue)
+
+                const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
+                expect(lastCall.parameters.feature_flag_variants).toEqual([
+                    expect.objectContaining({ key: 'control', rollout_percentage: expectedControl }),
+                    expect.objectContaining({ key: 'test', rollout_percentage: expectedTest }),
+                ])
+            }
+        )
+
+        it('does not auto-balance other variants when there are more than 2', async () => {
+            const threeVariantExperiment = {
+                ...defaultExperiment,
+                parameters: {
+                    feature_flag_variants: [
+                        { key: 'control', rollout_percentage: 34 },
+                        { key: 'test', rollout_percentage: 33 },
+                        { key: 'test-2', rollout_percentage: 33 },
+                    ],
+                },
+            }
+
+            const { container } = renderComponent(threeVariantExperiment)
+
+            const customizeButton = screen.getByRole('button', { name: /customize split/i })
+            await userEvent.click(customizeButton)
+
+            const percentageInputs = container.querySelectorAll(
+                '[data-attr="experiment-variant-rollout-percentage-input"]'
+            )
+
+            await userEvent.clear(percentageInputs[0] as Element)
+            await userEvent.type(percentageInputs[0] as Element, '10')
+
+            const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
+            expect(lastCall.parameters.feature_flag_variants).toEqual([
+                expect.objectContaining({ key: 'control', rollout_percentage: 10 }),
+                expect.objectContaining({ key: 'test', rollout_percentage: 33 }),
+                expect.objectContaining({ key: 'test-2', rollout_percentage: 33 }),
+            ])
+        })
     })
 
     describe('experience continuity', () => {

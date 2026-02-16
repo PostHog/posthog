@@ -54,6 +54,11 @@ declare module '@storybook/types' {
              * @default false
              */
             skipIframeWait?: boolean
+            /**
+             * Re-enable canvas rendering for stories that need a canvas-based snapshot.
+             * @default false
+             */
+            enableCanvasRendering?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -139,6 +144,13 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
+    const { enableCanvasRendering = false } = storyContext.parameters?.testOptions ?? {}
+    await page.evaluate((shouldRenderCanvas: boolean) => {
+        ;(
+            window as Window & { __STORYBOOK_TEST_RUNNER_RENDER_CANVAS__?: boolean }
+        ).__STORYBOOK_TEST_RUNNER_RENDER_CANVAS__ = shouldRenderCanvas
+    }, enableCanvasRendering)
+
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
 

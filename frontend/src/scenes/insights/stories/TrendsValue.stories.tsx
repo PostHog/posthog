@@ -43,7 +43,7 @@ export const TrendsValue: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json')
 )
 TrendsValue.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-bar-value-graph] > canvas' },
+    testOptions: { waitForSelector: '[data-attr=trend-bar-value-graph] > canvas', enableCanvasRendering: true },
 }
 export const TrendsValueEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'),
@@ -57,7 +57,7 @@ export const TrendsValueBreakdown: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json')
 )
 TrendsValueBreakdown.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-bar-value-graph] > canvas' },
+    testOptions: { waitForSelector: '[data-attr=trend-bar-value-graph] > canvas', enableCanvasRendering: true },
 }
 export const TrendsValueBreakdownEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'),
@@ -72,7 +72,7 @@ export const TrendsArea: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsArea.json')
 )
 TrendsArea.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas', enableCanvasRendering: true },
 }
 export const TrendsAreaEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsArea.json'),
@@ -86,7 +86,7 @@ export const TrendsAreaBreakdown: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json')
 )
 TrendsAreaBreakdown.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas', enableCanvasRendering: true },
 }
 export const TrendsAreaBreakdownEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json'),

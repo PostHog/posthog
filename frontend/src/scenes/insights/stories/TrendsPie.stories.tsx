@@ -42,7 +42,9 @@ export default meta
 export const TrendsPie: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json')
 )
-TrendsPie.parameters = { testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' } }
+TrendsPie.parameters = {
+    testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas', enableCanvasRendering: true },
+}
 export const TrendsPieEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'),
     'edit'
@@ -52,7 +54,9 @@ TrendsPieEdit.parameters = { testOptions: { waitForSelector: '[data-attr=trend-p
 export const TrendsPieBreakdown: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json')
 )
-TrendsPieBreakdown.parameters = { testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' } }
+TrendsPieBreakdown.parameters = {
+    testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas', enableCanvasRendering: true },
+}
 export const TrendsPieBreakdownEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'),
     'edit'
@@ -77,5 +81,5 @@ export const TrendsWorldMapEdit: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'),
     'edit'
 )
-TrendsWorldMapEdit.parameters = { testOptions: { waitForSelector: '.WorldMap' } }
+TrendsWorldMapEdit.parameters = { testOptions: { waitForSelector: '.WorldMap', enableCanvasRendering: true } }
 /* eslint-enable @typescript-eslint/no-var-requires */

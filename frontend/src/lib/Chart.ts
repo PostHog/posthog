@@ -5,6 +5,12 @@ import ZoomPlugin from 'chartjs-plugin-zoom'
 
 import { inStorybookTestRunner } from 'lib/utils'
 
+declare global {
+    interface Window {
+        __STORYBOOK_TEST_RUNNER_RENDER_CANVAS__?: boolean
+    }
+}
+
 if (registerables) {
     // required for storybook to work, not found in esbuild
     RawChart.register(...registerables)
@@ -24,7 +30,7 @@ export class Chart<
     TLabel = unknown,
 > extends RawChart<TType, TData, TLabel> {
     draw(): void {
-        if (inStorybookTestRunner()) {
+        if (inStorybookTestRunner() && !window.__STORYBOOK_TEST_RUNNER_RENDER_CANVAS__) {
             // Disable Chart.js rendering in Storybook snapshots, as they've proven to be very flaky
             return
         }
