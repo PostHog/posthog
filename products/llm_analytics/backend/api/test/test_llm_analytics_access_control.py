@@ -81,6 +81,7 @@ class TestLLMAnalyticsAccessControl(APIBaseTest):
             ("evaluations", "evaluation"),
             ("datasets", "dataset"),
             ("llm_analytics/provider_keys", "provider_key"),
+            ("llm_analytics/clustering_settings", "clustering_settings"),
         ]
     )
     def test_viewer_can_list(self, endpoint, _attr):
@@ -95,6 +96,7 @@ class TestLLMAnalyticsAccessControl(APIBaseTest):
             ("evaluations", "evaluation"),
             ("datasets", "dataset"),
             ("llm_analytics/provider_keys", "provider_key"),
+            ("llm_analytics/clustering_settings", "clustering_settings"),
         ]
     )
     def test_viewer_can_retrieve(self, endpoint, attr):
@@ -205,6 +207,28 @@ class TestLLMAnalyticsAccessControl(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
+    def test_viewer_cannot_update_clustering_settings(self):
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/clustering_settings/",
+            {"trace_filters": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_editor_can_update_clustering_settings(self):
+        self._set_access_level(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/clustering_settings/",
+            {"trace_filters": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     # -- None access blocks everything --
 
     @parameterized.expand(
@@ -212,6 +236,7 @@ class TestLLMAnalyticsAccessControl(APIBaseTest):
             ("evaluations",),
             ("datasets",),
             ("llm_analytics/provider_keys",),
+            ("llm_analytics/clustering_settings",),
         ]
     )
     def test_none_access_blocks_list(self, endpoint):
@@ -228,6 +253,7 @@ class TestLLMAnalyticsAccessControl(APIBaseTest):
             ("evaluations", "evaluation"),
             ("datasets", "dataset"),
             ("llm_analytics/provider_keys", "provider_key"),
+            ("llm_analytics/clustering_settings", "clustering_settings"),
         ]
     )
     def test_llm_analytics_viewer_can_list_child_resources(self, endpoint, _attr):
