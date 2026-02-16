@@ -53,8 +53,3 @@ export interface StreamlitAppMinimalType {
     created_at: string
     updated_at: string
 }
-
-export interface StreamlitAppConnectUrl {
-    url: string
-    token: string
-}

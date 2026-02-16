@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import time
-import logging
 from io import BytesIO
 from zipfile import ZipFile
 
 from django.conf import settings
 from django.utils import timezone
 
+import structlog
+
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
 from products.streamlit_apps.backend.services.bridge import generate_bridge_token
-from products.tasks.backend.services.sandbox import SandboxConfig, SandboxProtocol, SandboxTemplate, get_sandbox_class
+from products.tasks.backend.services.sandbox import (  # noqa: E501
+    SandboxConfig,
+    SandboxProtocol,
+    SandboxTemplate,
+    get_sandbox_class,
+)
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 STREAMLIT_PORT = 8501
 AUTH_PROXY_PORT = 8080
@@ -34,6 +40,7 @@ def _build_sandbox_config(app: StreamlitApp, version: StreamlitAppVersion) -> Sa
         cpu_cores=app.cpu_cores,
         memory_gb=app.memory_gb,
         ttl_seconds=60 * 15,
+        encrypted_ports=[AUTH_PROXY_PORT],
         environment_variables={
             "POSTHOG_BRIDGE_URL": bridge_url,
             "POSTHOG_BRIDGE_TOKEN": bridge_token,
@@ -91,6 +98,40 @@ def _wait_for_proxy_ready(sandbox: SandboxProtocol, max_attempts: int = 20, dela
     return False
 
 
+def _sync_sandbox_status(sandbox_record: StreamlitAppSandbox) -> StreamlitAppSandbox:
+    """Sync the DB sandbox status with the actual Modal sandbox state.
+
+    Handles two cases:
+    - RUNNING sandbox that has died → update to STOPPED
+    - STARTING sandbox that is actually running → update to RUNNING
+    """
+    if sandbox_record.status not in (StreamlitAppSandbox.Status.RUNNING, StreamlitAppSandbox.Status.STARTING):
+        return sandbox_record
+    if not sandbox_record.sandbox_id:
+        return sandbox_record
+
+    try:
+        sandbox_class = get_sandbox_class()
+        sandbox = sandbox_class.get_by_id(sandbox_record.sandbox_id)
+        is_running = sandbox.is_running()
+
+        if sandbox_record.status == StreamlitAppSandbox.Status.RUNNING and not is_running:
+            sandbox_record.status = StreamlitAppSandbox.Status.STOPPED
+            sandbox_record.last_error = "Sandbox terminated (TTL timeout)"
+            sandbox_record.save(update_fields=["status", "last_error"])
+        elif sandbox_record.status == StreamlitAppSandbox.Status.STARTING and is_running:
+            sandbox_record.status = StreamlitAppSandbox.Status.RUNNING
+            sandbox_record.started_at = timezone.now()
+            sandbox_record.last_activity_at = timezone.now()
+            sandbox_record.save(update_fields=["status", "started_at", "last_activity_at"])
+    except Exception:
+        sandbox_record.status = StreamlitAppSandbox.Status.STOPPED
+        sandbox_record.last_error = "Sandbox no longer reachable"
+        sandbox_record.save(update_fields=["status", "last_error"])
+
+    return sandbox_record
+
+
 class AppRuntimeService:
     def __init__(self, download_zip=None):
         self._download_zip = download_zip
@@ -101,7 +142,7 @@ class AppRuntimeService:
             raise AppRuntimeError("App has no active version")
 
         existing = StreamlitAppSandbox.objects.filter(app=app).first()
-        if existing and existing.status == StreamlitAppSandbox.Status.RUNNING:
+        if existing and existing.status in (StreamlitAppSandbox.Status.RUNNING, StreamlitAppSandbox.Status.STARTING):
             return existing
 
         if existing:
@@ -139,8 +180,14 @@ class AppRuntimeService:
                     if result.exit_code != 0:
                         raise AppRuntimeError(f"pip install failed: {result.stderr}")
 
-                snapshot_id = sandbox.create_snapshot()
-                version.snapshot_id = snapshot_id
+                modal_image_id = sandbox.create_snapshot()
+                from products.tasks.backend.models import SandboxSnapshot
+
+                snapshot = SandboxSnapshot.objects.create(
+                    external_id=modal_image_id,
+                    status=SandboxSnapshot.Status.COMPLETE,
+                )
+                version.snapshot_id = str(snapshot.id)
                 version.snapshot_created_at = timezone.now()
                 version.save(update_fields=["snapshot_id", "snapshot_created_at"])
 
@@ -150,17 +197,24 @@ class AppRuntimeService:
             if not _wait_for_proxy_ready(sandbox):
                 raise AppRuntimeError("Auth proxy failed to become ready")
 
-            sandbox_record.status = StreamlitAppSandbox.Status.RUNNING
-            sandbox_record.started_at = timezone.now()
-            sandbox_record.last_activity_at = timezone.now()
-            sandbox_record.save(update_fields=["status", "started_at", "last_activity_at"])
+            now = timezone.now()
+            updated = StreamlitAppSandbox.objects.filter(id=sandbox_record.id).update(
+                status=StreamlitAppSandbox.Status.RUNNING,
+                started_at=now,
+                last_activity_at=now,
+            )
+            if updated:
+                sandbox_record.refresh_from_db()
+            else:
+                logger.warning("sandbox_record_deleted_during_start", app_id=str(app.id))
 
             return sandbox_record
 
         except Exception as e:
-            sandbox_record.status = StreamlitAppSandbox.Status.ERROR
-            sandbox_record.last_error = str(e)
-            sandbox_record.save(update_fields=["status", "last_error"])
+            StreamlitAppSandbox.objects.filter(id=sandbox_record.id).update(
+                status=StreamlitAppSandbox.Status.ERROR,
+                last_error=str(e),
+            )
             raise
 
     def stop_app(self, app: StreamlitApp) -> None:
@@ -190,6 +244,9 @@ class AppRuntimeService:
                 "current_viewers": 0,
                 "max_viewers": 20,
             }
+
+        sandbox_record = _sync_sandbox_status(sandbox_record)
+
         return {
             "status": sandbox_record.status,
             "current_viewers": sandbox_record.current_viewers,
@@ -208,6 +265,8 @@ class AppRuntimeService:
         sandbox_record = StreamlitAppSandbox.objects.filter(app=app).first()
         if not sandbox_record or not sandbox_record.sandbox_id:
             return None
+
+        sandbox_record = _sync_sandbox_status(sandbox_record)
         if sandbox_record.status != StreamlitAppSandbox.Status.RUNNING:
             return None
 
@@ -219,7 +278,7 @@ class AppRuntimeService:
             )
             return {"url": credentials.url, "token": credentials.token}
         except Exception:
-            logger.warning("streamlit_connect_url_failed", extra={"app_id": str(app.id)})
+            logger.exception("streamlit_connect_url_failed", extra={"app_id": str(app.id)})
             return None
 
     def restart_app(self, app: StreamlitApp, zip_content: bytes | None = None) -> StreamlitAppSandbox:

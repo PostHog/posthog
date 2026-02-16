@@ -311,7 +311,6 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         app = self.get_object()
         try:
             sandbox = app.sandbox
-            return Response(StreamlitAppSandboxSerializer(sandbox).data)
         except StreamlitAppSandbox.DoesNotExist:
             return Response(
                 {
@@ -324,6 +323,11 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "max_viewers": 20,
                 }
             )
+
+        from products.streamlit_apps.backend.services.app_runtime import _sync_sandbox_status
+
+        sandbox = _sync_sandbox_status(sandbox)
+        return Response(StreamlitAppSandboxSerializer(sandbox).data)
 
     @action(methods=["POST"], detail=True, url_path="start")
     def start(self, request: Request, **kwargs: Any) -> Response:
@@ -377,6 +381,14 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         sandbox_record.last_activity_at = timezone.now()
         sandbox_record.save(update_fields=["last_activity_at"])
+
+        from products.streamlit_apps.backend.services.bridge import generate_proxy_token
+
+        connect_data["proxy_token"] = generate_proxy_token(
+            user_id=request.user.id,
+            team_id=self.team_id,
+            app_short_id=app.short_id,
+        )
 
         return Response(connect_data)
 

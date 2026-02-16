@@ -226,7 +226,6 @@ import type {
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
 import {
-    StreamlitAppConnectUrl,
     StreamlitAppMinimalType,
     StreamlitAppSandbox,
     StreamlitAppType,
@@ -4622,7 +4621,7 @@ const api = {
         async restart(shortId: string): Promise<StreamlitAppType> {
             return await new ApiRequest().streamlitApp(shortId).withAction('restart').create()
         },
-        async connectUrl(shortId: string): Promise<StreamlitAppConnectUrl> {
+        async connectUrl(shortId: string): Promise<{ url: string; token: string; proxy_token: string }> {
             return await new ApiRequest().streamlitApp(shortId).withAction('connect_url').get()
         },
     },

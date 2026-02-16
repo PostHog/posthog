@@ -1198,6 +1198,17 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
+        path: 'Apps',
+        intents: [ProductKey.STREAMLIT_APPS],
+        href: urls.streamlitApps(),
+        type: 'streamlit_app',
+        category: 'Tools',
+        iconType: 'apps',
+        iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
+        sceneKey: 'StreamlitApps',
+        sceneKeys: ['StreamlitApps', 'StreamlitApp', 'StreamlitAppEdit'],
+    },
+    {
         path: 'Clusters',
         intents: [ProductKey.LLM_CLUSTERS],
         category: 'AI engineering',

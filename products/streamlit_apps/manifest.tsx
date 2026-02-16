@@ -1,4 +1,8 @@
-import { ProductManifest } from '../../frontend/src/types'
+import { urls } from 'scenes/urls'
+
+import { ProductKey } from '~/queries/schema/schema-general'
+
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Streamlit apps',
@@ -31,4 +35,17 @@ export const manifest: ProductManifest = {
         '/apps/:id': ['StreamlitApp', 'streamlitApp'],
         '/apps/:id/edit': ['StreamlitAppEdit', 'streamlitAppEdit'],
     },
+    treeItemsProducts: [
+        {
+            path: 'Apps',
+            intents: [ProductKey.STREAMLIT_APPS],
+            href: urls.streamlitApps(),
+            type: 'streamlit_app',
+            category: 'Tools',
+            iconType: 'apps',
+            iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
+            sceneKey: 'StreamlitApps',
+            sceneKeys: ['StreamlitApps', 'StreamlitApp', 'StreamlitAppEdit'],
+        },
+    ],
 }

@@ -17,13 +17,13 @@ catalogs:
       version: 7.6.4
     '@storybook/react':
       specifier: ^7.6.4
-      version: 7.6.4
+      version: 7.6.24
     '@storybook/testing-library':
       specifier: ^0.2.2
       version: 0.2.2
     '@storybook/types':
       specifier: ^7.6.4
-      version: 7.6.20
+      version: 7.6.24
     '@types/jest':
       specifier: ^29.5.12
       version: 29.5.14
@@ -293,7 +293,7 @@ importers:
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
+        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -448,7 +448,7 @@ importers:
         version: 0.1.13
       '@storybook/react':
         specifier: 'catalog:'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
+        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
       '@storybook/react-webpack5':
         specifier: ^7.6.4
         version: 7.6.4(@babel/core@7.26.0)(@swc/core@1.15.18)(encoding@0.1.13)(esbuild@0.18.20)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(type-fest@4.41.0)(typescript@5.8.3)(webpack-cli@5.1.4)(webpack-hot-middleware@2.25.4)
@@ -460,7 +460,7 @@ importers:
         version: 7.6.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@storybook/types':
         specifier: 'catalog:'
-        version: 7.6.20
+        version: 7.6.24
       babel-loader:
         specifier: ^8.0.6
         version: 8.3.0(@babel/core@7.26.0)(webpack@5.88.2)
@@ -1156,13 +1156,13 @@ importers:
         version: 7.6.4
       '@storybook/react':
         specifier: 'catalog:'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
+        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
       '@storybook/testing-library':
         specifier: 'catalog:'
         version: 0.2.2
       '@storybook/types':
         specifier: 'catalog:'
-        version: 7.6.20
+        version: 7.6.24
       '@sucrase/jest-plugin':
         specifier: ^3.0.0
         version: 3.0.0(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.8.3)))(sucrase@3.34.0)
@@ -1810,7 +1810,7 @@ importers:
         version: 7.6.4(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
+        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
       '@storybook/react-vite':
         specifier: ^7.6.4
         version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(rollup@4.52.4)(typescript@5.8.3)(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))
@@ -1963,7 +1963,7 @@ importers:
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
+        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
       '@tailwindcss/vite':
         specifier: ^4.1.17
         version: 4.2.2(vite@6.4.1(@types/node@22.18.8)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.8.2))
@@ -2077,7 +2077,7 @@ importers:
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
+        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
 
   products/conversations:
     dependencies:
@@ -2425,7 +2425,7 @@ importers:
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
+        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
 
   products/feature_flags:
     dependencies:
@@ -2459,7 +2459,7 @@ importers:
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
+        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
@@ -2994,6 +2994,24 @@ importers:
 
   products/slack_app: {}
 
+  products/streamlit_apps:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/lemon-ui':
+        specifier: '*'
+        version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@3.1.7(react@18.3.1)))(kea@3.1.7(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: '*'
+        version: 3.1.7(react@18.3.1)
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+
   products/surveys:
     dependencies:
       '@posthog/icons':
@@ -3023,7 +3041,7 @@ importers:
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
+        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
 
   products/tasks:
     dependencies:
@@ -3246,7 +3264,7 @@ importers:
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
+        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.8.3)
       '@testing-library/react':
         specifier: '*'
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -17340,6 +17358,11 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
+  kea@3.1.7:
+    resolution: {integrity: sha512-BN9bS4NMI57TwJRANL55H5Cl2Px0ciyv58wtnzzfwH7d2R9fEmcuRREpLfp3blglSrgfGUWM4b+Pz6CwxJxjzQ==}
+    peerDependencies:
+      react: 18.3.1
+
   kea@4.0.0-pre.5:
     resolution: {integrity: sha512-GMF6Bdfe7qt3xk7u3mFhhjrwt41neTlmG8JDXJxGyCojHRU8AuEtZ7Ac+x81JoqvCusHHvDVhvrdF/zYT0cn7Q==}
     peerDependencies:
@@ -20635,6 +20658,9 @@ packages:
     resolution: {integrity: sha512-DJnGAeenTdpMEH6uAJRK/uiyEIH9WVsUmoLwzudwGJUwZPp80PDBWPHXSAGNPwNvIXAbe7MSUB1zQFugFml66A==}
     engines: {node: '>=4'}
 
+  redux@4.2.1:
+    resolution: {integrity: sha512-LAUYz4lc+Do8/g7aeRa8JkyDErK6ekstQaqWQrNRW//MY1TvCEpMtpTWvlQ+FPbWCx+Xixu/6SHt5N0HR+SB4w==}
+
   redux@5.0.1:
     resolution: {integrity: sha512-M9/ELqF6fy8FwmkpnF0S3YKOqMyoWJ4+CS5Efg2ct3oY9daQvd/Pc71FpGZsVsbl3Cpb+IIcjBDUnnyBdQbq4w==}
 
@@ -20720,6 +20746,9 @@ packages:
 
   requires-port@1.0.0:
     resolution: {integrity: sha512-KigOCHcocU3XODJxsu8i/j8T9tzT4adHiecwORRQ0ZZFcp7ahwXuRU1m+yuO90C5ZUyGeGfocHDI14M3L3yDAQ==}
+
+  reselect@4.1.8:
+    resolution: {integrity: sha512-ab9EmR80F/zQTMNeneUr4cv+jSwPJgIlvEmVwLerwrWVbpLlBuls9XHzIeTFy4cegU2NHBp3va0LKOzU5qFEYQ==}
 
   reselect@5.1.1:
     resolution: {integrity: sha512-K/BG6eIky/SBpzfHZv/dd+9JBFiS4SWV7FIujVyJRux6e45+73RaUHXLmIR1f7WOMaQ0U1km6qwklRQxpJJY0w==}
@@ -22529,8 +22558,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.395.0:
-    resolution: {integrity: sha512-2tb1IuEBa11ZUXueDtYCHc7PqV3WbAoBmEpNWjgE4WZclSk4sW0P41KKpa6NswdoP8UfFd18aV+oQJhz467NcA==}
+  unlayer-types@1.397.0:
+    resolution: {integrity: sha512-czgVpuWiN4iIg7DzF047ASYkWrjpazrB/XdGnkgEKHbHY+ZXYUzALB4AmlYIVOWEgJKMqXUQLixNcI8Y+OZmCA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -31675,6 +31704,14 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
+  '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@3.1.7(react@18.3.1)))(kea@3.1.7(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      antd: 5.26.0(date-fns@2.29.3)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      kea: 3.1.7(react@18.3.1)
+      kea-router: 3.4.1(kea@3.1.7(react@18.3.1))
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+
   '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       antd: 5.26.0(date-fns@2.29.3)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -38173,7 +38210,7 @@ snapshots:
     dependencies:
       chalk: 2.4.2
       date-fns: 2.29.3
-      lodash: 4.17.23
+      lodash: 4.18.1
       read-pkg: 4.0.1
       rxjs: 6.6.7
       spawn-command: 0.0.2-1
@@ -43152,6 +43189,11 @@ snapshots:
     dependencies:
       kea: 4.0.0-pre.5(react@18.3.1)
 
+  kea-router@3.4.1(kea@3.1.7(react@18.3.1)):
+    dependencies:
+      kea: 3.1.7(react@18.3.1)
+      url-pattern: 1.0.3
+
   kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)):
     dependencies:
       kea: 4.0.0-pre.5(react@18.3.1)
@@ -43186,6 +43228,13 @@ snapshots:
   kea-window-values@3.0.1(kea@4.0.0-pre.5(react@18.3.1)):
     dependencies:
       kea: 4.0.0-pre.5(react@18.3.1)
+
+  kea@3.1.7(react@18.3.1):
+    dependencies:
+      react: 18.3.1
+      redux: 4.2.1
+      reselect: 4.1.8
+      use-sync-external-store: 1.6.0(react@18.3.1)
 
   kea@4.0.0-pre.5(react@18.3.1):
     dependencies:
@@ -47096,7 +47145,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.395.0
+      unlayer-types: 1.397.0
 
   react-error-overlay@6.0.9: {}
 
@@ -47392,6 +47441,10 @@ snapshots:
     dependencies:
       redis-errors: 1.2.0
 
+  redux@4.2.1:
+    dependencies:
+      '@babel/runtime': 7.28.6
+
   redux@5.0.1: {}
 
   reflect.getprototypeof@1.0.10:
@@ -47522,6 +47575,8 @@ snapshots:
   require-main-filename@2.0.0: {}
 
   requires-port@1.0.0: {}
+
+  reselect@4.1.8: {}
 
   reselect@5.1.1: {}
 
@@ -49606,7 +49661,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.395.0: {}
+  unlayer-types@1.397.0: {}
 
   unpipe@1.0.0: {}
 

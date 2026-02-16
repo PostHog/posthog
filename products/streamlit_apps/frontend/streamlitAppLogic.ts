@@ -2,16 +2,20 @@ import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, r
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { Breadcrumb } from '~/types'
 
 import type { streamlitAppLogicType } from './streamlitAppLogicType'
-import { StreamlitAppConnectUrl, StreamlitAppSandbox, StreamlitAppStatus, StreamlitAppType } from './types'
+import { StreamlitAppSandbox, StreamlitAppStatus, StreamlitAppType } from './types'
 
 export interface StreamlitAppLogicProps {
     shortId: string
 }
 
 const POLL_INTERVAL_MS = 2000
-const TOKEN_REFRESH_INTERVAL_MS = 4 * 60 * 1000 // 4 minutes
+const HEALTH_POLL_INTERVAL_MS = 15000
 
 export const streamlitAppLogic = kea<streamlitAppLogicType>([
     path(['products', 'streamlit_apps', 'frontend', 'streamlitAppLogic']),
@@ -21,8 +25,8 @@ export const streamlitAppLogic = kea<streamlitAppLogicType>([
     actions({
         startPolling: true,
         stopPolling: true,
-        startTokenRefresh: true,
-        stopTokenRefresh: true,
+        startHealthPolling: true,
+        stopHealthPolling: true,
     }),
 
     loaders(({ props }) => ({
@@ -54,14 +58,6 @@ export const streamlitAppLogic = kea<streamlitAppLogicType>([
                 },
             },
         ],
-        connectUrl: [
-            null as StreamlitAppConnectUrl | null,
-            {
-                loadConnectUrl: async () => {
-                    return await api.streamlitApps.connectUrl(props.shortId)
-                },
-            },
-        ],
     })),
 
     reducers({
@@ -72,44 +68,63 @@ export const streamlitAppLogic = kea<streamlitAppLogicType>([
                 stopPolling: () => false,
             },
         ],
-        isRefreshingToken: [
+        isHealthPolling: [
             false,
             {
-                startTokenRefresh: () => true,
-                stopTokenRefresh: () => false,
+                startHealthPolling: () => true,
+                stopHealthPolling: () => false,
             },
         ],
     }),
 
     selectors({
+        breadcrumbs: [
+            (s) => [s.streamlitApp],
+            (streamlitApp): Breadcrumb[] => [
+                {
+                    key: 'StreamlitApps',
+                    name: 'Apps',
+                    path: urls.streamlitApps(),
+                },
+                {
+                    key: ['StreamlitApp', streamlitApp?.short_id || 'new'],
+                    name: streamlitApp?.name || 'Loading...',
+                },
+            ],
+        ],
         appStatus: [
             (s) => [s.sandboxStatus],
             (sandboxStatus): StreamlitAppStatus => sandboxStatus?.status ?? 'stopped',
         ],
         iframeSrc: [
-            (s) => [s.connectUrl],
-            (connectUrl): string | null => {
-                if (!connectUrl) {
+            (s) => [s.appStatus, s.streamlitApp],
+            (appStatus, streamlitApp): string | null => {
+                if (appStatus !== 'running' || !streamlitApp) {
                     return null
                 }
-                return `${connectUrl.url}?_modal_connect_token=${connectUrl.token}`
+                const teamId = teamLogic.findMounted()?.values.currentTeamId
+                if (!teamId) {
+                    return null
+                }
+                return `/api/projects/${teamId}/streamlit_apps/${streamlitApp.short_id}/proxy/`
             },
         ],
     }),
 
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions, values, cache }) => ({
         loadStreamlitAppSuccess: ({ streamlitApp }) => {
             if (!streamlitApp) {
                 return
             }
-            // Auto-start if the app is stopped
+            // Seed sandboxStatus from app data so appStatus is correct immediately
+            if (streamlitApp.sandbox) {
+                actions.loadSandboxStatusSuccess({ sandboxStatus: streamlitApp.sandbox })
+            }
             const status = streamlitApp.sandbox?.status ?? 'stopped'
             if (status === 'stopped' && streamlitApp.active_version) {
                 actions.startApp()
             } else if (status === 'starting') {
                 actions.startPolling()
-            } else if (status === 'running') {
-                actions.loadConnectUrl()
             }
         },
         startAppSuccess: () => {
@@ -126,39 +141,36 @@ export const streamlitAppLogic = kea<streamlitAppLogicType>([
                 cache.pollTimer = null
             }
         },
+        startHealthPolling: () => {
+            cache.healthPollTimer = setInterval(() => {
+                actions.loadSandboxStatus()
+            }, HEALTH_POLL_INTERVAL_MS)
+        },
+        stopHealthPolling: () => {
+            if (cache.healthPollTimer) {
+                clearInterval(cache.healthPollTimer)
+                cache.healthPollTimer = null
+            }
+        },
         loadSandboxStatusSuccess: ({ sandboxStatus }) => {
             if (!sandboxStatus) {
                 return
             }
             if (sandboxStatus.status === 'running') {
                 actions.stopPolling()
-                actions.loadConnectUrl()
+                if (!values.isHealthPolling) {
+                    actions.startHealthPolling()
+                }
             } else if (sandboxStatus.status === 'error' || sandboxStatus.status === 'stopped') {
                 actions.stopPolling()
-            }
-        },
-        loadConnectUrlSuccess: ({ connectUrl }) => {
-            if (connectUrl) {
-                actions.startTokenRefresh()
-            }
-        },
-        startTokenRefresh: () => {
-            cache.tokenTimer = setInterval(() => {
-                actions.loadConnectUrl()
-            }, TOKEN_REFRESH_INTERVAL_MS)
-        },
-        stopTokenRefresh: () => {
-            if (cache.tokenTimer) {
-                clearInterval(cache.tokenTimer)
-                cache.tokenTimer = null
+                actions.stopHealthPolling()
             }
         },
         stopAppSuccess: () => {
             actions.stopPolling()
-            actions.stopTokenRefresh()
+            actions.stopHealthPolling()
         },
         restartAppSuccess: () => {
-            actions.stopTokenRefresh()
             actions.startPolling()
         },
     })),
@@ -169,6 +181,6 @@ export const streamlitAppLogic = kea<streamlitAppLogicType>([
 
     beforeUnmount(({ actions }) => {
         actions.stopPolling()
-        actions.stopTokenRefresh()
+        actions.stopHealthPolling()
     }),
 ])

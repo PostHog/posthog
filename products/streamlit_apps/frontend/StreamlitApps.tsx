@@ -1,8 +1,8 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { IconEllipsis, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -26,6 +26,7 @@ const STATUS_CONFIG: Record<StreamlitAppStatus, { label: string; type: LemonTagT
 
 function AppCard({ app }: { app: StreamlitAppMinimalType }): JSX.Element {
     const config = STATUS_CONFIG[app.status]
+    const { deleteStreamlitApp } = useActions(streamlitAppsLogic)
 
     return (
         <div
@@ -34,7 +35,27 @@ function AppCard({ app }: { app: StreamlitAppMinimalType }): JSX.Element {
         >
             <div className="flex items-start justify-between mb-2">
                 <h3 className="font-semibold text-base m-0 truncate">{app.name}</h3>
-                <LemonTag type={config.type}>{config.label}</LemonTag>
+                <div className="flex items-center gap-1">
+                    <LemonTag type={config.type}>{config.label}</LemonTag>
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Delete',
+                                icon: <IconTrash />,
+                                status: 'danger',
+                                onClick: () => deleteStreamlitApp({ shortId: app.short_id }),
+                            },
+                        ]}
+                        placement="bottom-end"
+                    >
+                        <LemonButton
+                            size="xsmall"
+                            noPadding
+                            icon={<IconEllipsis />}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    </LemonMenu>
+                </div>
             </div>
             {app.description && <p className="text-muted text-sm mb-2 line-clamp-2 m-0">{app.description}</p>}
             <div className="flex items-center justify-between text-xs text-muted mt-3">

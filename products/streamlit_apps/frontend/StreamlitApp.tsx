@@ -7,6 +7,8 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
 import { StreamlitAppLoading } from './StreamlitAppLoading'
 import { StreamlitAppLogicProps, streamlitAppLogic } from './streamlitAppLogic'
 
@@ -18,7 +20,8 @@ export const scene: SceneExport = {
     }),
 }
 
-export function StreamlitAppViewer({ shortId }: StreamlitAppLogicProps): JSX.Element {
+export function StreamlitAppViewer(props: Record<string, any>): JSX.Element {
+    const shortId = props.id as string
     const { streamlitApp, streamlitAppLoading, appStatus, iframeSrc, sandboxStatus } = useValues(
         streamlitAppLogic({ shortId })
     )
@@ -38,29 +41,30 @@ export function StreamlitAppViewer({ shortId }: StreamlitAppLogicProps): JSX.Ele
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                    <LemonButton type="tertiary" size="small" to={urls.streamlitApps()}>
-                        Apps
+            <SceneTitleSection
+                name={streamlitApp.name}
+                resourceType={{ type: 'streamlit_app' }}
+                actions={
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconPencil />}
+                        to={urls.streamlitAppEdit(streamlitApp.short_id)}
+                    >
+                        Edit
                     </LemonButton>
-                    <span className="text-muted">/</span>
-                    <h1 className="text-2xl font-bold m-0">{streamlitApp.name}</h1>
-                </div>
-                <LemonButton type="secondary" icon={<IconPencil />} to={urls.streamlitAppEdit(streamlitApp.short_id)}>
-                    Edit
-                </LemonButton>
-            </div>
-
+                }
+            />
             <div className="flex-1 min-h-0">
                 {appStatus === 'starting' && <StreamlitAppLoading />}
 
                 {appStatus === 'running' && iframeSrc && (
                     <iframe
                         src={iframeSrc}
+                        sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin"
                         className="w-full h-full border-0 rounded-lg"
                         style={{ minHeight: '600px' }}
                         title={streamlitApp.name}
-                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                     />
                 )}
 

@@ -179,6 +179,13 @@
             "type": "revenue",
             "intents": ["revenue_analytics"]
         },
+        {
+            "path": "Apps",
+            "category": "Tools",
+            "iconType": "apps",
+            "type": "streamlit_app",
+            "intents": ["streamlit_apps"]
+        },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Tasks", "category": "Unreleased", "iconType": "task", "type": "task", "intents": ["tasks"] },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },

@@ -7,6 +7,8 @@ from posthog.models import Organization, Team
 
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
 
+MOCK_CONNECT_INFO = {"url": "https://tunnel.modal.host", "token": "tok_abc"}
+
 
 def _create_running_app(team, user) -> tuple[StreamlitApp, StreamlitAppSandbox]:
     app = StreamlitApp.objects.create(team=team, name="Test App", created_by=user)
@@ -36,25 +38,22 @@ class TestStreamlitProxyAuth(APIBaseTest):
         response = self.client.get(self._proxy_url(app.short_id))
         assert response.status_code == 401
 
-    @patch("products.streamlit_apps.backend.api.proxy.AppRuntimeService")
-    def test_authenticated_request_proxies(self, mock_runtime_cls):
-        mock_runtime = MagicMock()
-        mock_runtime.get_tunnel_url.return_value = "https://tunnel.modal.host"
-        mock_runtime.get_connect_token.return_value = "tok_abc"
-        mock_runtime_cls.return_value = mock_runtime
-
+    @patch("products.streamlit_apps.backend.api.proxy._get_cached_connect_url")
+    def test_authenticated_request_proxies(self, mock_connect):
+        mock_connect.return_value = MOCK_CONNECT_INFO
         app, _sandbox = _create_running_app(self.team, self.user)
 
         with patch("products.streamlit_apps.backend.api.proxy.http_requests.request") as mock_req:
             mock_resp = MagicMock()
             mock_resp.status_code = 200
-            mock_resp.content = b"<html>streamlit</html>"
+            mock_resp.content = b"<html><head></head><body>streamlit</body></html>"
             mock_resp.headers = {"content-type": "text/html"}
             mock_req.return_value = mock_resp
 
             response = self.client.get(self._proxy_url(app.short_id, ""))
             assert response.status_code == 200
-            assert response.content == b"<html>streamlit</html>"
+            assert b"<script>" in response.content
+            assert b"_stcore/stream" in response.content
 
     def test_wrong_team_returns_403(self):
         other_org = Organization.objects.create(name="Other Org")
@@ -121,13 +120,9 @@ class TestStreamlitProxyConcurrentViewers(APIBaseTest):
         assert response.status_code == 503
         assert b"busy" in response.content.lower()
 
-    @patch("products.streamlit_apps.backend.api.proxy.AppRuntimeService")
-    def test_below_max_viewers_proxies(self, mock_runtime_cls):
-        mock_runtime = MagicMock()
-        mock_runtime.get_tunnel_url.return_value = "https://tunnel.modal.host"
-        mock_runtime.get_connect_token.return_value = "tok"
-        mock_runtime_cls.return_value = mock_runtime
-
+    @patch("products.streamlit_apps.backend.api.proxy._get_cached_connect_url")
+    def test_below_max_viewers_proxies(self, mock_connect):
+        mock_connect.return_value = MOCK_CONNECT_INFO
         app, sandbox = _create_running_app(self.team, self.user)
         sandbox.current_viewers = 19
         sandbox.max_viewers = 20
@@ -148,13 +143,9 @@ class TestStreamlitProxyActivityTracking(APIBaseTest):
     def _proxy_url(self, short_id: str, path: str = "") -> str:
         return f"/api/projects/{self.team.id}/streamlit_apps/{short_id}/proxy/{path}"
 
-    @patch("products.streamlit_apps.backend.api.proxy.AppRuntimeService")
-    def test_proxy_updates_last_activity(self, mock_runtime_cls):
-        mock_runtime = MagicMock()
-        mock_runtime.get_tunnel_url.return_value = "https://tunnel.modal.host"
-        mock_runtime.get_connect_token.return_value = "tok"
-        mock_runtime_cls.return_value = mock_runtime
-
+    @patch("products.streamlit_apps.backend.api.proxy._get_cached_connect_url")
+    def test_proxy_updates_last_activity(self, mock_connect):
+        mock_connect.return_value = MOCK_CONNECT_INFO
         app, sandbox = _create_running_app(self.team, self.user)
         assert sandbox.last_activity_at is None
 
@@ -175,13 +166,9 @@ class TestStreamlitProxyForwarding(APIBaseTest):
     def _proxy_url(self, short_id: str, path: str = "") -> str:
         return f"/api/projects/{self.team.id}/streamlit_apps/{short_id}/proxy/{path}"
 
-    @patch("products.streamlit_apps.backend.api.proxy.AppRuntimeService")
-    def test_forwards_path_to_tunnel(self, mock_runtime_cls):
-        mock_runtime = MagicMock()
-        mock_runtime.get_tunnel_url.return_value = "https://tunnel.modal.host"
-        mock_runtime.get_connect_token.return_value = "tok_abc"
-        mock_runtime_cls.return_value = mock_runtime
-
+    @patch("products.streamlit_apps.backend.api.proxy._get_cached_connect_url")
+    def test_forwards_path_with_token_in_query_param(self, mock_connect):
+        mock_connect.return_value = MOCK_CONNECT_INFO
         app, _sandbox = _create_running_app(self.team, self.user)
 
         with patch("products.streamlit_apps.backend.api.proxy.http_requests.request") as mock_req:
@@ -194,29 +181,22 @@ class TestStreamlitProxyForwarding(APIBaseTest):
             self.client.get(self._proxy_url(app.short_id, "_stcore/stream"))
 
             call_kwargs = mock_req.call_args
-            assert call_kwargs.kwargs["url"] == "https://tunnel.modal.host/_stcore/stream"
-            assert call_kwargs.kwargs["headers"]["Authorization"] == "Bearer tok_abc"
+            assert "_stcore/stream" in call_kwargs.kwargs["url"]
+            assert "_modal_connect_token=tok_abc" in call_kwargs.kwargs["url"]
 
-    @patch("products.streamlit_apps.backend.api.proxy.AppRuntimeService")
-    def test_no_tunnel_url_returns_502(self, mock_runtime_cls):
-        mock_runtime = MagicMock()
-        mock_runtime.get_tunnel_url.return_value = None
-        mock_runtime_cls.return_value = mock_runtime
-
+    @patch("products.streamlit_apps.backend.api.proxy._get_cached_connect_url")
+    def test_no_connect_url_returns_502(self, mock_connect):
+        mock_connect.return_value = None
         app, _sandbox = _create_running_app(self.team, self.user)
 
         response = self.client.get(self._proxy_url(app.short_id))
         assert response.status_code == 502
 
-    @patch("products.streamlit_apps.backend.api.proxy.AppRuntimeService")
-    def test_upstream_timeout_returns_504(self, mock_runtime_cls):
+    @patch("products.streamlit_apps.backend.api.proxy._get_cached_connect_url")
+    def test_upstream_timeout_returns_504(self, mock_connect):
         import requests as real_requests
 
-        mock_runtime = MagicMock()
-        mock_runtime.get_tunnel_url.return_value = "https://tunnel.modal.host"
-        mock_runtime.get_connect_token.return_value = "tok"
-        mock_runtime_cls.return_value = mock_runtime
-
+        mock_connect.return_value = MOCK_CONNECT_INFO
         app, _sandbox = _create_running_app(self.team, self.user)
 
         with patch("products.streamlit_apps.backend.api.proxy.http_requests.request") as mock_req:
@@ -225,15 +205,11 @@ class TestStreamlitProxyForwarding(APIBaseTest):
             response = self.client.get(self._proxy_url(app.short_id))
             assert response.status_code == 504
 
-    @patch("products.streamlit_apps.backend.api.proxy.AppRuntimeService")
-    def test_upstream_connection_error_returns_502(self, mock_runtime_cls):
+    @patch("products.streamlit_apps.backend.api.proxy._get_cached_connect_url")
+    def test_upstream_connection_error_returns_502(self, mock_connect):
         import requests as real_requests
 
-        mock_runtime = MagicMock()
-        mock_runtime.get_tunnel_url.return_value = "https://tunnel.modal.host"
-        mock_runtime.get_connect_token.return_value = "tok"
-        mock_runtime_cls.return_value = mock_runtime
-
+        mock_connect.return_value = MOCK_CONNECT_INFO
         app, _sandbox = _create_running_app(self.team, self.user)
 
         with patch("products.streamlit_apps.backend.api.proxy.http_requests.request") as mock_req:
@@ -241,3 +217,65 @@ class TestStreamlitProxyForwarding(APIBaseTest):
 
             response = self.client.get(self._proxy_url(app.short_id))
             assert response.status_code == 502
+
+
+class TestStreamlitProxyWsInjection(APIBaseTest):
+    def _proxy_url(self, short_id: str, path: str = "") -> str:
+        return f"/api/projects/{self.team.id}/streamlit_apps/{short_id}/proxy/{path}"
+
+    @parameterized.expand(
+        [
+            ("text/html", True),
+            ("text/html; charset=utf-8", True),
+            ("application/javascript", False),
+            ("text/css", False),
+            ("application/json", False),
+        ]
+    )
+    @patch("products.streamlit_apps.backend.api.proxy._get_cached_connect_url")
+    def test_ws_redirect_injection_by_content_type(self, content_type, should_inject, mock_connect):
+        mock_connect.return_value = MOCK_CONNECT_INFO
+        app, _sandbox = _create_running_app(self.team, self.user)
+
+        with patch("products.streamlit_apps.backend.api.proxy.http_requests.request") as mock_req:
+            original_content = b"<html><head></head><body>hello</body></html>" if should_inject else b"var x = 1;"
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.content = original_content
+            mock_resp.headers = {"content-type": content_type}
+            mock_req.return_value = mock_resp
+
+            response = self.client.get(self._proxy_url(app.short_id))
+
+            if should_inject:
+                assert b"<script>" in response.content
+                assert b"_stcore/stream" in response.content
+                assert b"tunnel.modal.host" in response.content
+                assert b"tok_abc" in response.content
+            else:
+                assert response.content == original_content
+
+
+class TestStreamlitProxyCaching(APIBaseTest):
+    def _proxy_url(self, short_id: str, path: str = "") -> str:
+        return f"/api/projects/{self.team.id}/streamlit_apps/{short_id}/proxy/{path}"
+
+    @patch("products.streamlit_apps.backend.api.proxy.AppRuntimeService")
+    def test_connect_url_is_cached(self, mock_runtime_cls):
+        mock_runtime = MagicMock()
+        mock_runtime.get_connect_url.return_value = MOCK_CONNECT_INFO
+        mock_runtime_cls.return_value = mock_runtime
+
+        app, _sandbox = _create_running_app(self.team, self.user)
+
+        with patch("products.streamlit_apps.backend.api.proxy.http_requests.request") as mock_req:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.content = b"ok"
+            mock_resp.headers = {}
+            mock_req.return_value = mock_resp
+
+            self.client.get(self._proxy_url(app.short_id))
+            self.client.get(self._proxy_url(app.short_id))
+
+            assert mock_runtime.get_connect_url.call_count == 1

@@ -54,7 +54,7 @@ async def proxy_handler(request: web.Request) -> web.StreamResponse:
 
 async def _proxy_http(request: web.Request, target: str) -> web.Response:
     headers = _filter_headers(request.headers)
-    async with ClientSession(auto_decompress=False) as session:
+    async with ClientSession() as session:
         async with session.request(
             method=request.method,
             url=target,

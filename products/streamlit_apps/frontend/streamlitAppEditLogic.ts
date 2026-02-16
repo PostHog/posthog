@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -6,6 +6,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
+
+import { Breadcrumb } from '~/types'
 
 import type { streamlitAppEditLogicType } from './streamlitAppEditLogicType'
 import { streamlitAppsLogic } from './streamlitAppsLogic'
@@ -136,6 +138,23 @@ export const streamlitAppEditLogic = kea<streamlitAppEditLogicType>([
             {
                 setZipFile: (_, { file }) => file,
             },
+        ],
+    }),
+
+    selectors({
+        breadcrumbs: [
+            (s) => [s.streamlitApp],
+            (streamlitApp): Breadcrumb[] => [
+                {
+                    key: 'StreamlitApps',
+                    name: 'Apps',
+                    path: urls.streamlitApps(),
+                },
+                {
+                    key: ['StreamlitAppEdit', streamlitApp?.short_id || 'new'],
+                    name: streamlitApp ? streamlitApp.name : 'New app',
+                },
+            ],
         ],
     }),
 

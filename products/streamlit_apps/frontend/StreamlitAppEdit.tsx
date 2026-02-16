@@ -7,6 +7,8 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
 import { StreamlitAppZipUpload } from './StreamlitAppZipUpload'
 import { StreamlitAppEditLogicProps, streamlitAppEditLogic } from './streamlitAppEditLogic'
 
@@ -36,7 +38,8 @@ const MEMORY_OPTIONS = [
     { value: 16, label: '16 GB' },
 ]
 
-export function StreamlitAppEdit({ shortId = 'new' }: StreamlitAppEditLogicProps): JSX.Element {
+export function StreamlitAppEdit(props: Record<string, any>): JSX.Element {
+    const shortId = (props.id as string) || 'new'
     const {
         streamlitApp,
         streamlitAppLoading,
@@ -73,17 +76,10 @@ export function StreamlitAppEdit({ shortId = 'new' }: StreamlitAppEditLogicProps
 
     return (
         <div>
-            <div className="flex items-center justify-between mb-4">
-                <h1 className="text-2xl font-bold m-0">
-                    {isNew ? 'Create new app' : (streamlitApp?.name ?? 'Edit app')}
-                </h1>
-                {!isNew && (
-                    <LemonButton type="secondary" status="danger" onClick={deleteApp}>
-                        Delete
-                    </LemonButton>
-                )}
-            </div>
-
+            <SceneTitleSection
+                name={isNew ? 'New app' : (streamlitApp?.name ?? 'Edit app')}
+                resourceType={{ type: 'streamlit_app' }}
+            />
             <div className="max-w-xl space-y-6">
                 <div className="space-y-2">
                     <label className="font-semibold">Name</label>
@@ -132,18 +128,27 @@ export function StreamlitAppEdit({ shortId = 'new' }: StreamlitAppEditLogicProps
                     </div>
                 </div>
 
-                <div className="flex justify-end gap-2 pt-4">
-                    <LemonButton type="secondary" to={urls.streamlitApps()}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={saveApp}
-                        loading={savedAppLoading}
-                        disabledReason={!canSave ? 'Fill in all required fields' : undefined}
-                    >
-                        {isNew ? 'Create app' : 'Save changes'}
-                    </LemonButton>
+                <div className="flex justify-between pt-4">
+                    {!isNew ? (
+                        <LemonButton type="secondary" status="danger" onClick={deleteApp}>
+                            Delete
+                        </LemonButton>
+                    ) : (
+                        <div />
+                    )}
+                    <div className="flex gap-2">
+                        <LemonButton type="secondary" to={urls.streamlitApps()}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={saveApp}
+                            loading={savedAppLoading}
+                            disabledReason={!canSave ? 'Fill in all required fields' : undefined}
+                        >
+                            {isNew ? 'Create app' : 'Save changes'}
+                        </LemonButton>
+                    </div>
                 </div>
             </div>
         </div>

@@ -69,8 +69,14 @@ class TestAppRuntimeStartApp(BaseTest):
         mock_sandbox.create_snapshot.assert_called_once()
 
         version.refresh_from_db()
-        assert version.snapshot_id == "snapshot-abc"
+        assert version.snapshot_id is not None
         assert version.snapshot_created_at is not None
+
+        from products.tasks.backend.models import SandboxSnapshot
+
+        snapshot = SandboxSnapshot.objects.get(id=version.snapshot_id)
+        assert snapshot.external_id == "snapshot-abc"
+        assert snapshot.status == SandboxSnapshot.Status.COMPLETE
 
     def test_cold_start_with_requirements_runs_pip_install(self, mock_get_sandbox_class, _mock_wait):
         mock_sandbox = _make_mock_sandbox()
@@ -193,34 +199,56 @@ class TestAppRuntimeStopApp(BaseTest):
         service.stop_app(app)
 
 
+@patch("products.streamlit_apps.backend.services.app_runtime.get_sandbox_class")
 class TestAppRuntimeGetStatus(BaseTest):
-    @parameterized.expand(
-        [
-            ("no_sandbox", None, "stopped"),
-            ("running", StreamlitAppSandbox.Status.RUNNING, "running"),
-            ("error", StreamlitAppSandbox.Status.ERROR, "error"),
-        ]
-    )
-    def test_get_status(self, _name, sandbox_status, expected):
+    def test_get_status_no_sandbox(self, mock_get_sandbox_class):
         app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        service = AppRuntimeService()
+        status = service.get_status(app)
+        assert status["status"] == "stopped"
 
-        if sandbox_status is not None:
-            version = StreamlitAppVersion.objects.create(
-                app=app,
-                version_number=1,
-                zip_file="a.zip",
-                zip_hash="a",
-            )
-            StreamlitAppSandbox.objects.create(
-                app=app,
-                version=version,
-                sandbox_id="modal-123",
-                status=sandbox_status,
-            )
+    def test_get_status_error(self, mock_get_sandbox_class):
+        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+        StreamlitAppSandbox.objects.create(
+            app=app, version=version, sandbox_id="modal-123", status=StreamlitAppSandbox.Status.ERROR
+        )
+        service = AppRuntimeService()
+        status = service.get_status(app)
+        assert status["status"] == "error"
+
+    def test_get_status_running_sandbox_still_alive(self, mock_get_sandbox_class):
+        mock_sandbox = _make_mock_sandbox()
+        mock_sandbox.is_running.return_value = True
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+        StreamlitAppSandbox.objects.create(
+            app=app, version=version, sandbox_id="modal-123", status=StreamlitAppSandbox.Status.RUNNING
+        )
 
         service = AppRuntimeService()
         status = service.get_status(app)
-        assert status["status"] == expected
+        assert status["status"] == "running"
+
+    def test_get_status_detects_timed_out_sandbox(self, mock_get_sandbox_class):
+        mock_sandbox = _make_mock_sandbox()
+        mock_sandbox.is_running.return_value = False
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+        StreamlitAppSandbox.objects.create(
+            app=app, version=version, sandbox_id="modal-123", status=StreamlitAppSandbox.Status.RUNNING
+        )
+
+        service = AppRuntimeService()
+        status = service.get_status(app)
+        assert status["status"] == "stopped"
+
+        record = StreamlitAppSandbox.objects.get(app=app)
+        assert record.status == StreamlitAppSandbox.Status.STOPPED
 
 
 @patch("products.streamlit_apps.backend.services.app_runtime._wait_for_proxy_ready", return_value=True)
@@ -350,7 +378,9 @@ class TestAppRuntimeConnectUrl(BaseTest):
             ("error", StreamlitAppSandbox.Status.ERROR),
         ]
     )
-    def test_get_connect_url_returns_none_for_non_running(self, _name, sandbox_status, mock_get_sandbox_class):
+    def test_get_connect_url_returns_none_for_non_running(self, mock_get_sandbox_class, _name, sandbox_status):
+        mock_get_sandbox_class.return_value.get_by_id.return_value.is_running.return_value = False
+
         app = StreamlitApp.objects.create(team=self.team, name="Test App")
         version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
         StreamlitAppSandbox.objects.create(app=app, version=version, sandbox_id="modal-123", status=sandbox_status)
@@ -378,3 +408,16 @@ class TestAppRuntimeConnectUrl(BaseTest):
         mock_sandbox._sandbox.create_connect_token.assert_called_once_with(
             user_metadata={"user_id": "42", "team_id": "7"}
         )
+
+    def test_get_connect_url_detects_timed_out_sandbox(self, mock_get_sandbox_class):
+        mock_sandbox = MagicMock()
+        mock_sandbox.is_running.return_value = False
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app, _sandbox = self._create_running_app()
+        service = AppRuntimeService()
+        result = service.get_connect_url(app, user_id=1, team_id=1)
+
+        assert result is None
+        record = StreamlitAppSandbox.objects.get(app=app)
+        assert record.status == StreamlitAppSandbox.Status.STOPPED
