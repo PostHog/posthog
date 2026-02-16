@@ -59,9 +59,9 @@ class TestSupportSlackEventsAPI(BaseTest):
         assert response.status_code == 200
         assert response.json() == {"challenge": "challenge123"}
 
-    @patch("products.conversations.backend.api.slack_events._handle_support_event")
+    @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
-    def test_event_id_idempotency_skips_duplicates(self, mock_validate: MagicMock, mock_handle: MagicMock):
+    def test_event_callback_enqueues_processing(self, mock_validate: MagicMock, mock_process: MagicMock):
         mock_validate.return_value = None
         payload = {
             "type": "event_callback",
@@ -74,12 +74,12 @@ class TestSupportSlackEventsAPI(BaseTest):
         second = self._post(payload)
 
         assert first.status_code == 202
-        assert second.status_code == 200
-        assert mock_handle.call_count == 1
+        assert second.status_code == 202
+        assert mock_process.delay.call_count == 2
 
-    @patch("products.conversations.backend.api.slack_events._handle_support_event")
+    @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
-    def test_event_callback_routes_to_handler(self, mock_validate: MagicMock, mock_handle: MagicMock):
+    def test_event_callback_routes_to_handler(self, mock_validate: MagicMock, mock_process: MagicMock):
         mock_validate.return_value = None
 
         response = self._post(
@@ -92,7 +92,7 @@ class TestSupportSlackEventsAPI(BaseTest):
         )
 
         assert response.status_code == 202
-        mock_handle.assert_called_once()
+        mock_process.delay.assert_called_once()
 
 
 class TestSlackChannelsAPI(APIBaseTest):
