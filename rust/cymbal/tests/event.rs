@@ -9,7 +9,7 @@ use cymbal::{
     symbol_store::saving::SymbolSetRecord,
     types::{
         event::AnyEvent, exception_properties::ExceptionProperties, Exception, ExceptionList,
-        Stacktrace,
+        Mechanism, Stacktrace,
     },
 };
 use insta::assert_json_snapshot;
@@ -136,47 +136,17 @@ fn frame_at(mut frame: Frame, source: &str, line: u32, column: u32) -> Frame {
 // Response structs
 
 #[derive(Deserialize)]
-#[serde(untagged)]
-enum ResponseItem {
-    #[serde(rename_all = "PascalCase")]
-    Ok { ok: AnyEvent },
-    #[serde(rename_all = "PascalCase")]
-    Err { err: serde_json::Value },
-}
-
-#[derive(Deserialize)]
-struct SuccessResponse(Vec<ResponseItem>);
+struct SuccessResponse(Vec<AnyEvent>);
 
 impl SuccessResponse {
     fn take_properties(self) -> ExceptionProperties {
-        let item = self.0.first().expect("Should have at least one event");
-        match item {
-            ResponseItem::Ok { ok: event } => serde_json::from_value(event.properties.clone())
-                .expect("Should deserialize properties"),
-            ResponseItem::Err { err: e } => {
-                panic!("Expected Ok event, got Err: {:?}", e);
-            }
-        }
+        let event = self.0.first().expect("Should have at least one event");
+        serde_json::from_value(event.properties.clone())
+            .expect("Should deserialize properties")
     }
 
     fn first_event(&self) -> &AnyEvent {
-        let item = self.0.first().expect("Should have at least one event");
-        match item {
-            ResponseItem::Ok { ok: event } => event,
-            ResponseItem::Err { err: e } => {
-                panic!("Expected Ok event, got Err: {:?}", e);
-            }
-        }
-    }
-
-    fn first_error(&self) -> &serde_json::Value {
-        let item = self.0.first().expect("Should have at least one event");
-        match item {
-            ResponseItem::Err { err: e } => e,
-            ResponseItem::Ok { ok: _ } => {
-                panic!("Expected Err event, got Ok");
-            }
-        }
+        self.0.first().expect("Should have at least one event")
     }
 }
 
@@ -429,32 +399,33 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
 
     assert!(status.is_success());
-    // exception should be returned as suppressed error
-    assert_eq!(body.0.len(), 1);
-    let err = body.first_error();
-    assert!(err.to_string().contains("Suppressed"));
+    // suppressed events are filtered out entirely
+    assert_eq!(body.0.len(), 0);
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn extracts_metadata_from_exceptions(db: PgPool) {
     let harness = TestHarness::new(db);
-    let input = make_event_with_options(
-        vec![make_exception_with_stack(
-            "TypeError",
-            "Cannot read property 'foo' of undefined",
-            vec![
-                frame_at(
-                    make_frame_ts("handleClick"),
-                    "src/components/Button.tsx",
-                    42,
-                    10,
-                ),
-                frame_at(make_frame_ts("onClick"), "src/App.tsx", 100, 5),
-            ],
-        )],
-        None,
-        Some(true),
+    let mut exception = make_exception_with_stack(
+        "TypeError",
+        "Cannot read property 'foo' of undefined",
+        vec![
+            frame_at(
+                make_frame_ts("handleClick"),
+                "src/components/Button.tsx",
+                42,
+                10,
+            ),
+            frame_at(make_frame_ts("onClick"), "src/App.tsx", 100, 5),
+        ],
     );
+    exception.mechanism = Some(Mechanism {
+        handled: Some(true),
+        mechanism_type: None,
+        source: None,
+        synthetic: None,
+    });
+    let input = make_event_with_options(vec![exception], None, Some(true));
 
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
 
