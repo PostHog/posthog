@@ -1,7 +1,8 @@
 // This is the incoming message from Kafka
 import { Message } from 'node-rdkafka'
 
-import { ValidRetentionPeriods } from './constants'
+// Re-export shared RetentionPeriod so existing recording-ingestion imports still work
+export { RetentionPeriod } from '../session-replay/shared/constants'
 
 export type PersistedRecordingMessage = {
     window_id?: string
@@ -25,5 +26,3 @@ export type CaptureIngestionWarningFn = (
 export interface BatchMessageProcessor<TInput, TOutput> {
     parseBatch(messages: TInput[]): Promise<TOutput[]>
 }
-
-export type RetentionPeriod = (typeof ValidRetentionPeriods)[number]

@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
-import { BuiltLogic, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { BuiltLogic, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -1219,15 +1219,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             item,
                         })
                     }
-                    if (isQuickFilterItem(item)) {
+                    const isOnSuggestedFiltersTab = values.activeTab === TaxonomicFilterGroupType.SuggestedFilters
+                    if (isOnSuggestedFiltersTab) {
+                        const source = isQuickFilterItem(item) ? 'suggested_filter' : 'top_match'
                         posthog.capture('taxonomic suggested filter selected', {
                             query: originalQuery,
-                            filterName: item.name,
-                            propertyKey: item.propertyKey,
-                            operator: item.operator,
-                            filterValue: item.filterValue,
-                            propertyFilterType: item.propertyFilterType,
-                            eventName: item.eventName,
+                            source,
+                            group: group.type,
+                            value,
+                            ...(isQuickFilterItem(item)
+                                ? {
+                                      filterName: item.name,
+                                      propertyKey: item.propertyKey,
+                                      operator: item.operator,
+                                      filterValue: item.filterValue,
+                                      propertyFilterType: item.propertyFilterType,
+                                      eventName: item.eventName,
+                                  }
+                                : {}),
                         })
                     } else {
                         posthog.capture('taxonomic non-suggested filter selected', {
@@ -1384,4 +1393,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             }
         },
     })),
+    afterMount(({ values }) => {
+        if (values.activeTab === TaxonomicFilterGroupType.SuggestedFilters) {
+            posthog.capture('taxonomic_filter_suggested_filters_shown', {
+                searchQuery: values.searchQuery,
+            })
+        }
+    }),
 ])
