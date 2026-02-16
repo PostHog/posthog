@@ -238,10 +238,10 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                             },
                             {
                                 value: 'first_seen',
-                                label: 'Use first seen variant',
+                                label: 'First seen variant',
                                 labelInMenu: (
                                     <div>
-                                        <div>Use first seen variant</div>
+                                        <div>First seen variant</div>
                                         <div className="text-xs text-muted font-normal">
                                             Users will be analyzed using their first seen variant
                                         </div>
@@ -260,7 +260,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                     }}
                     bordered={false}
                     fullWidth
-                    labelClassName="text-secondary"
+                    labelClassName="text-secondary font-normal"
                     className="p-0"
                 />
             </div>
