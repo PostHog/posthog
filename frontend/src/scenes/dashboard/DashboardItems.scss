@@ -14,12 +14,6 @@
         /* Skip rendering for off-screen tiles during resize/reflow */
         content-visibility: auto;
         contain-intrinsic-size: auto 30rem;
-
-        /* Disable content-visibility in Storybook tests to ensure all tiles render
-           fully for deterministic snapshots (prevents intermittent height mismatches) */
-        .storybook-test-runner & {
-            content-visibility: visible;
-        }
     }
 }
 
