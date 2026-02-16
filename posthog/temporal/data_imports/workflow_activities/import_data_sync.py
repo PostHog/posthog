@@ -266,7 +266,6 @@ async def _run(
             )
 
         result = await pipeline.run()
-        logger.debug("Finished running pipeline")
         del pipeline
         await logger.adebug("Finished running pipeline")
         return result
