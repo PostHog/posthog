@@ -1,6 +1,7 @@
 import ExtensionDocument from '@tiptap/extension-document'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
+import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
 import { Placeholder } from '@tiptap/extensions'
 import StarterKit, { StarterKitOptions } from '@tiptap/starter-kit'
@@ -57,6 +58,7 @@ import { CollapsibleHeading } from './CollapsibleHeading'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
 import { InlineMenu } from './InlineMenu'
 import { SlashCommandsExtension } from './SlashCommands'
+import { TableMenu } from './TableMenu'
 import { notebookLogic } from './notebookLogic'
 
 const CustomDocument = ExtensionDocument.extend({
@@ -113,6 +115,10 @@ export function Editor(): JSX.Element {
                 resetSuggestions()
             },
         }),
+        Table,
+        TableRow,
+        TableHeader,
+        TableCell,
         DropAndPasteHandlerExtension,
         TaskList,
         TaskItem.configure({ nested: true }),
@@ -176,6 +182,7 @@ export function Editor(): JSX.Element {
             }}
         >
             <FloatingSuggestions />
+            {isEditable && <TableMenu />}
             <InlineMenu
                 extra={(editor) =>
                     !editor.isActive('comment') ? (
