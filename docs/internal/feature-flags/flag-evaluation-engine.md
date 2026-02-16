@@ -310,27 +310,7 @@ When `flag_keys` is provided in the request, the dependency graph is filtered to
 
 ## Experience continuity
 
-Experience continuity ensures users see the same flag value even when their `distinct_id` changes (e.g., anonymous user logs in). See [experience-continuity.md](experience-continuity.md) for the full design.
-
-### When it applies
-
-A flag uses experience continuity when ALL of:
-
-- `ensure_experience_continuity` is true
-- The flag is person-based (no group aggregation)
-- The flag uses `distinct_id` bucketing (not `device_id`)
-
-### Optimization
-
-Flags at 100% rollout with no hash-dependent variants skip the DB lookup entirely (`OPTIMIZE_EXPERIENCE_CONTINUITY_LOOKUPS=true`). Only flags with partial rollout or multiple variants need the stored hash key.
-
-### Hash key override flow
-
-1. If `$anon_distinct_id` is provided in the request:
-   - Check if all active EEC flags already have overrides for this person
-   - Write missing overrides in a transaction with `ON CONFLICT DO NOTHING`
-   - Read back all overrides (from writer to avoid replication lag)
-2. If no `$anon_distinct_id`: read existing overrides from the reader DB
+Experience continuity ensures users see the same flag value even when their `distinct_id` changes (e.g., anonymous user logs in). It applies to person-based flags with `ensure_experience_continuity` enabled and `distinct_id` bucketing. See [experience-continuity.md](experience-continuity.md) for the full design, including the hash key override flow and optimization for 100%-rollout flags.
 
 ## Cohort matching
 

@@ -117,16 +117,16 @@ The response format depends on the `v` query parameter and the endpoint:
 | `v=1`     | `/decide` | `DecideV1Response`: list of active flag keys                                                 |
 | `v=2`     | `/decide` | `DecideV2Response`: flat `feature_flags: { key: value }` map                                 |
 
-### `/flags/definitions` endpoint (WIP)
+### `/flags/definitions` endpoint (under construction)
 
-**Not live in production.** This endpoint is work in progress and is not routed by Contour. Local evaluation is currently served by Django at `/api/feature_flag/local_evaluation` (see [Django API endpoints](django-api-endpoints.md)).
+**Not live in production.** This endpoint is under active development and is not routed by Contour. Local evaluation is currently served by Django at `/api/feature_flag/local_evaluation` (see [Django API endpoints](django-api-endpoints.md)), which remains the production endpoint for server-side SDKs.
 
-Once live, it will serve flag definitions for SDKs that evaluate flags locally (server-side SDKs). Requires authentication via:
+The goal is for this Rust endpoint to replace the Django local evaluation endpoint. When complete, it will serve flag definitions for SDKs that evaluate flags locally, authenticated via:
 
 - Team secret API token (`Authorization: Bearer phx_...`), or
 - Personal API key with `feature_flag:read` scope
 
-Returns flag definitions with cohort data from HyperCache. No PostgreSQL fallback -- if cache misses, the endpoint returns an error. Rate limited per team (default 600/minute).
+Current implementation returns flag definitions with cohort data from HyperCache. No PostgreSQL fallback -- if cache misses, the endpoint returns an error. Rate limited per team (default 600/minute).
 
 ## Request and response types
 
