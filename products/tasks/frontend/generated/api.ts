@@ -14,6 +14,7 @@ import type {
     PaginatedTaskRunDetailListApi,
     PatchedTaskApi,
     PatchedTaskRunUpdateApi,
+    RepositoryReadinessResponseApi,
     TaskApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
@@ -23,6 +24,7 @@ import type {
     TaskRunCreateRequestApi,
     TaskRunDetailApi,
     TasksListParams,
+    TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
     TasksRunsSessionLogsRetrieveParams,
 } from './api.schemas'
@@ -420,5 +422,39 @@ export const tasksRunsSetOutputPartialUpdate = async (
     return apiMutator<TaskRunDetailApi>(getTasksRunsSetOutputPartialUpdateUrl(projectId, taskId, id), {
         ...options,
         method: 'PATCH',
+    })
+}
+
+/**
+ * Get autonomy readiness details for a specific repository in the current project.
+ * @summary Get repository readiness
+ */
+export const getTasksRepositoryReadinessRetrieveUrl = (
+    projectId: string,
+    params: TasksRepositoryReadinessRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/repository_readiness/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/repository_readiness/`
+}
+
+export const tasksRepositoryReadinessRetrieve = async (
+    projectId: string,
+    params: TasksRepositoryReadinessRetrieveParams,
+    options?: RequestInit
+): Promise<RepositoryReadinessResponseApi> => {
+    return apiMutator<RepositoryReadinessResponseApi>(getTasksRepositoryReadinessRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }

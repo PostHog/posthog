@@ -1,10 +1,63 @@
+import { JSONContent } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Extension } from '@tiptap/react'
+import Papa from 'papaparse'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { NotebookNodeType } from '../types'
+
+export type TabularFormat = 'tsv' | 'csv'
+
+export function detectTabularFormat(text: string): TabularFormat | null {
+    const lines = text.replace(/\n+$/, '').split('\n')
+    if (lines.length < 2) {
+        return null
+    }
+    if (lines.every((line) => line.includes('\t'))) {
+        return 'tsv'
+    }
+    const commaCounts = lines.map((line) => (line.match(/,/g) || []).length)
+    if (commaCounts[0] >= 1 && commaCounts.every((c) => c === commaCounts[0])) {
+        return 'csv'
+    }
+    return null
+}
+
+export function isTabularData(text: string): boolean {
+    return detectTabularFormat(text) !== null
+}
+
+export function parseTabularDataToTipTapTable(text: string, delimiter: string = '\t'): JSONContent {
+    const trimmed = text.replace(/\n+$/, '')
+    const rows: string[][] =
+        delimiter === ','
+            ? Papa.parse<string[]>(trimmed, { header: false }).data
+            : trimmed.split('\n').map((line) => line.split(delimiter))
+
+    const maxCols = Math.max(...rows.map((row) => row.length))
+
+    const tableRows: JSONContent[] = rows.map((row, rowIndex) => {
+        const cellType = rowIndex === 0 ? 'tableHeader' : 'tableCell'
+        const cells: JSONContent[] = []
+        for (let col = 0; col < maxCols; col++) {
+            const value = (row[col] ?? '').trim()
+            cells.push({
+                type: cellType,
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: value ? [{ type: 'text', text: value }] : [],
+                    },
+                ],
+            })
+        }
+        return { type: 'tableRow', content: cells }
+    })
+
+    return { type: 'table', content: tableRows }
+}
 
 export const DropAndPasteHandlerExtension = Extension.create({
     name: 'DropAndPasteHandlerExtension',
@@ -95,6 +148,30 @@ export const DropAndPasteHandlerExtension = Extension.create({
                     handlePaste: (_view, event) => {
                         if (!this.editor) {
                             return false
+                        }
+
+                        // Spreadsheet HTML pastes contain <table> elements that TipTap handles natively
+                        // via the table extension, so we only intercept plain-text TSV data
+                        const html = event.clipboardData?.getData('text/html')
+                        if (html && /<table[\s>]/i.test(html)) {
+                            return false
+                        }
+
+                        // Detect tab-separated or comma-separated values
+                        const text = event.clipboardData?.getData('text/plain')
+                        const format = text ? detectTabularFormat(text) : null
+                        if (text && format) {
+                            const delimiter = format === 'tsv' ? '\t' : ','
+                            const tableContent = parseTabularDataToTipTapTable(text, delimiter)
+                            const rows = tableContent.content?.length ?? 0
+                            const cols = tableContent.content?.[0]?.content?.length ?? 0
+                            this.editor.chain().focus().insertContent(tableContent).run()
+                            posthog.capture('notebook table pasted', {
+                                rows,
+                                cols,
+                                source: format,
+                            })
+                            return true
                         }
 
                         // Special handling for pasting files such as images
