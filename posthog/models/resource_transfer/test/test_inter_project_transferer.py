@@ -109,7 +109,7 @@ class TestDuplicateResourceToNewTeam(BaseTest):
         dest_team = self._create_destination_team()
         insight = Insight.objects.create(team=self.team, name="My insight", filters={"events": [{"id": "$pageview"}]})
 
-        results = duplicate_resource_to_new_team(insight, dest_team)
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
         new_insights = [r for r in results if isinstance(r, Insight)]
 
         assert len(new_insights) == 1
@@ -122,7 +122,7 @@ class TestDuplicateResourceToNewTeam(BaseTest):
         dest_team = self._create_destination_team()
         dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
 
-        results = duplicate_resource_to_new_team(dashboard, dest_team)
+        results = duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
         new_dashboards = [r for r in results if isinstance(r, Dashboard)]
 
         assert len(new_dashboards) == 1
@@ -136,7 +136,7 @@ class TestDuplicateResourceToNewTeam(BaseTest):
         insight = Insight.objects.create(team=self.team, name="My insight")
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
-        results = duplicate_resource_to_new_team(dashboard, dest_team)
+        results = duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
 
         new_dashboards = [r for r in results if isinstance(r, Dashboard)]
         new_insights = [r for r in results if isinstance(r, Insight)]
@@ -158,7 +158,7 @@ class TestDuplicateResourceToNewTeam(BaseTest):
         DashboardTile.objects.create(dashboard=dashboard, insight=insight_a)
         DashboardTile.objects.create(dashboard=dashboard, insight=insight_b)
 
-        results = duplicate_resource_to_new_team(dashboard, dest_team)
+        results = duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
 
         new_insights = [r for r in results if isinstance(r, Insight)]
         new_tiles = [r for r in results if isinstance(r, DashboardTile)]
@@ -173,7 +173,7 @@ class TestDuplicateResourceToNewTeam(BaseTest):
         dest_team = self._create_destination_team()
         insight = Insight.objects.create(team=self.team, name="My insight")
 
-        duplicate_resource_to_new_team(insight, dest_team)
+        duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
 
         insight.refresh_from_db()
         assert insight.team == self.team
@@ -183,7 +183,7 @@ class TestDuplicateResourceToNewTeam(BaseTest):
         dest_team = self._create_destination_team()
         insight = Insight.objects.create(team=self.team, name="My insight", short_id="abc123")
 
-        results = duplicate_resource_to_new_team(insight, dest_team)
+        results = duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
         new_insight = next(r for r in results if isinstance(r, Insight))
 
         assert new_insight.short_id != "abc123"
@@ -201,7 +201,7 @@ class TestDuplicateResourceToNewTeam(BaseTest):
             side_effect=Exception("boom"),
         ):
             with self.assertRaises(Exception):
-                duplicate_resource_to_new_team(dashboard, dest_team)
+                duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
 
         assert Dashboard.objects.count() == initial_count
 
@@ -217,7 +217,7 @@ class TestResourceTransferRecordCreation(BaseTest):
         insight = Insight.objects.create(team=self.team, name="My insight")
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
-        duplicate_resource_to_new_team(dashboard, dest_team)
+        duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
 
         transfers = ResourceTransfer.objects.filter(
             source_team=self.team,
@@ -233,7 +233,7 @@ class TestResourceTransferRecordCreation(BaseTest):
         dest_team = self._create_destination_team()
         insight = Insight.objects.create(team=self.team, name="My insight")
 
-        duplicate_resource_to_new_team(insight, dest_team)
+        duplicate_resource_to_new_team(insight, dest_team, created_by=self.user)
 
         transfers = ResourceTransfer.objects.filter(source_team=self.team, destination_team=dest_team)
         kinds = set(transfers.values_list("resource_kind", flat=True))
@@ -250,7 +250,7 @@ class TestResourceTransferRecordCreation(BaseTest):
         dest_team = self._create_destination_team()
         resource = create_resource(self)
 
-        results = duplicate_resource_to_new_team(resource, dest_team)
+        results = duplicate_resource_to_new_team(resource, dest_team, created_by=self.user)
         new_resource = next(r for r in results if type(r) is type(resource) and r.pk != resource.pk)
 
         transfer = ResourceTransfer.objects.get(
@@ -317,4 +317,5 @@ class TestSubstitutionTeamValidation(BaseTest):
                 dashboard,
                 dest_team,
                 substitutions=[(("Insight", insight.pk), ("Insight", wrong_insight.pk))],
+                created_by=self.user,
             )

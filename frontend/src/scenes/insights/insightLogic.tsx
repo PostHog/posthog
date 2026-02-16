@@ -139,6 +139,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ) => ({
             metadataUpdate,
         }),
+        setInsightMetadataLocal: (
+            metadataUpdate: Partial<Pick<QueryBasedInsightModel, 'name' | 'description' | 'tags' | 'favorited'>>
+        ) => ({
+            metadataUpdate,
+        }),
         highlightSeries: (series: IndexedTrendResult | null) => ({ series }),
         setAccessDeniedToInsight: true,
         handleInsightSuggested: (suggestedInsight: Node | null) => ({ suggestedInsight }),
@@ -273,7 +278,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 }
                 return { ...insight }
             },
-            setInsightMetadata: (state, { metadataUpdate }) => ({ ...state, ...metadataUpdate }),
+            // Note: setInsightMetadata state updates are handled by the loader
+            setInsightMetadataLocal: (state, { metadataUpdate }) => ({ ...state, ...metadataUpdate }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
                 const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
                 const updateIsForThisDashboard =

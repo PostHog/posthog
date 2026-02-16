@@ -2867,6 +2867,7 @@ export type FileSystemIconType =
     | 'error_tracking'
     | 'heatmap'
     | 'session_replay'
+    | 'session_profile'
     | 'survey'
     | 'product_tour'
     | 'user_interview'
