@@ -6,7 +6,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import groups
-from posthog.models import EventDefinition
+from posthog.models import EventDefinition, ObjectMediaPreview
 
 from ee.models.event_definition import EnterpriseEventDefinition
 
@@ -22,6 +22,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
     last_updated_at = serializers.DateTimeField(read_only=True)
     post_to_slack = serializers.BooleanField(default=False)
     default_columns = serializers.ListField(child=serializers.CharField(), required=False)
+    media_preview_urls = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = EnterpriseEventDefinition
@@ -48,6 +49,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "created_by",
             "post_to_slack",
             "default_columns",
+            "media_preview_urls",
         )
         read_only_fields = [
             "id",
@@ -158,3 +160,17 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
 
     def get_is_action(self, obj) -> bool:
         return hasattr(obj, "action_id") and obj.action_id is not None
+
+    def get_media_preview_urls(self, obj) -> list[str]:
+        media_map = self.context.get("media_preview_urls_map")
+        if media_map is not None:
+            return media_map.get(str(obj.id), [])
+
+        if not obj.id:
+            return []
+        previews = (
+            ObjectMediaPreview.objects.filter(event_definition_id=obj.id)
+            .select_related("uploaded_media", "exported_asset")
+            .order_by("-updated_at")
+        )
+        return [p.media_url for p in previews if p.media_url]

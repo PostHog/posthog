@@ -120,7 +120,6 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        base_currency = self.context.base_currency
 
         # Get cost - use ifNull(toFloat(...), 0) to handle both numeric types and NULLs
         spend_field = ast.Field(chain=[stats_table_name, "spend"])
@@ -129,26 +128,12 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
             args=[ast.Call(name="toFloat", args=[spend_field]), ast.Constant(value=0)],
         )
 
-        # Check if currency column exists in stats table
-        try:
-            columns = getattr(self.config.stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and "account_currency" in columns:
-                # Convert each row's spend, then sum
-                # Use coalesce to handle NULL currency values - fallback to base_currency
-                currency_field = ast.Field(chain=[stats_table_name, "account_currency"])
-                currency_with_fallback = ast.Call(
-                    name="coalesce", args=[currency_field, ast.Constant(value=base_currency)]
-                )
-                convert_currency = ast.Call(
-                    name="convertCurrency",
-                    args=[currency_with_fallback, ast.Constant(value=base_currency), spend_float],
-                )
-                convert_to_float = ast.Call(name="toFloat", args=[convert_currency])
-                return ast.Call(name="SUM", args=[convert_to_float])
-        except (TypeError, AttributeError, KeyError):
-            pass
+        converted = self._apply_currency_conversion(
+            self.config.stats_table, stats_table_name, "account_currency", spend_float
+        )
+        if converted:
+            return ast.Call(name="SUM", args=[converted])
 
-        # Currency column doesn't exist, return cost without conversion
         return ast.Call(name="SUM", args=[spend_float])
 
     def _build_action_type_filter(self, action_types: list[str]) -> ast.Expr:
@@ -257,6 +242,12 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                         fallback_sum,
                     ],
                 )
+
+                converted = self._apply_currency_conversion(
+                    self.config.stats_table, stats_table_name, "account_currency", array_sum
+                )
+                if converted:
+                    return ast.Call(name="SUM", args=[converted])
 
                 sum_result = ast.Call(name="SUM", args=[array_sum])
                 return ast.Call(name="toFloat", args=[sum_result])

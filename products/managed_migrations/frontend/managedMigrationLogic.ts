@@ -227,21 +227,15 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             }
         },
         startPolling: () => {
-            const pollInterval = setInterval(() => {
-                if (!values.isPolling) {
-                    clearInterval(pollInterval)
-                    return
-                }
-                actions.loadMigrations()
-            }, 5000)
-
-            cache.pollInterval = pollInterval
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    actions.loadMigrations()
+                }, 5000)
+                return () => clearInterval(intervalId)
+            }, 'pollMigrations')
         },
         stopPolling: () => {
-            if (cache.pollInterval) {
-                clearInterval(cache.pollInterval)
-                cache.pollInterval = null
-            }
+            cache.disposables.dispose('pollMigrations')
         },
     })),
     selectors({
