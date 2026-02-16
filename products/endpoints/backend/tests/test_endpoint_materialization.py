@@ -85,7 +85,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         response_data = response.json()
-        self.assertTrue(response_data["is_materialized"])
+        # is_materialized is derived from saved_query.table_id, which is only set after Temporal runs
+        # At this point, saved_query exists but table_id is not yet set
+        self.assertFalse(response_data["is_materialized"])
 
         # Verify SavedQuery was created on version
         version.refresh_from_db()
@@ -427,7 +429,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertTrue(response_data["is_materialized"])
+        # is_materialized is derived from saved_query.table_id — False until Temporal creates the table
+        self.assertFalse(response_data["is_materialized"])
         self.assertIn("materialization", response_data)
         self.assertTrue(response_data["materialization"]["can_materialize"])
         self.assertIn("status", response_data["materialization"])
@@ -623,7 +626,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Link saved_query to version
         version = endpoint.versions.first()
         version.saved_query = saved_query
-        version.is_materialized = True
         version.save()
 
         # filters_override is no longer allowed - should be rejected
@@ -672,7 +674,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Link saved_query to version
         version = endpoint.versions.first()
         version.saved_query = saved_query
-        version.is_materialized = True
         version.save()
 
         # Mock the execution methods to track which path is taken
@@ -724,7 +725,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Link saved_query to version
         version = endpoint.versions.first()
         version.saved_query = saved_query
-        version.is_materialized = True
         version.save()
 
         # Mock the execution methods to track which path is taken
@@ -775,7 +775,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Link saved_query to version
         version = endpoint.versions.first()
         version.saved_query = saved_query
-        version.is_materialized = True
         version.save()
 
         with (
@@ -825,7 +824,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Link saved_query to version
         version = endpoint.versions.first()
         version.saved_query = saved_query
-        version.is_materialized = True
         version.save()
 
         with (
@@ -1084,7 +1082,6 @@ class TestEndpointMaterializationTemporal:
 
         # Link saved_query to version instead of endpoint
         version.saved_query = saved_query
-        version.is_materialized = True
         await sync_to_async(version.save)()
 
         yield endpoint

@@ -998,7 +998,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["is_materialized"])
+        # is_materialized is derived from saved_query.table_id — False until Temporal creates the table
+        self.assertFalse(response.json()["is_materialized"])
 
     def test_endpoint_with_multiple_breakdowns_cannot_be_materialized(self):
         endpoint = create_endpoint_with_version(

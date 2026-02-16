@@ -88,5 +88,4 @@ def _deactivate_version_materialization(version: EndpointVersion) -> None:
     saved_query.revert_materialization()
     saved_query.soft_delete()
     version.saved_query = None
-    version.is_materialized = False
-    version.save(update_fields=["saved_query", "is_materialized"])
+    version.save(update_fields=["saved_query"])
