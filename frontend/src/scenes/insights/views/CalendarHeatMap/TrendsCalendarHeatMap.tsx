@@ -58,7 +58,7 @@ export function TrendsCalendarHeatMap(_props: ChartParams): JSX.Element {
                 <LemonButton
                     size="xsmall"
                     type="tertiary"
-                    to={urls.settings('environment', 'date-and-time')}
+                    to={urls.settings('environment-customization', 'date-and-time')}
                     targetBlank={false}
                 >
                     Change

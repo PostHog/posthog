@@ -321,7 +321,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ correlationType, action, props }),
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
         reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
-        reportBookmarkletDragged: true,
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
         reportPersonPropertyUpdated: (
@@ -552,7 +551,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentAiSummaryRequested: (experiment: Experiment) => ({ experiment }),
         reportExperimentSessionReplaySummaryRequested: (experiment: Experiment) => ({ experiment }),
         // Definition Popover
-        reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
+        reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType, mediaPreviewCount?: number) => ({
+            type,
+            mediaPreviewCount,
+        }),
+        reportMediaPreviewUploaded: (source: string) => ({ source }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => ({ type }),
         // Group view Shortcuts
@@ -933,10 +936,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
 
             const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
             posthog.capture(eventName, properties)
-        },
-        reportBookmarkletDragged: async (_, breakpoint) => {
-            await breakpoint(500)
-            posthog.capture('bookmarklet drag start')
         },
         reportProjectCreationSubmitted: async ({
             projectCount,
@@ -1405,8 +1404,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportChangeInnerPropertyGroupFiltersType: ({ type, filtersLength }) => {
             posthog.capture('inner match property group filters type changed', { type, filtersLength })
         },
-        reportDataManagementDefinitionHovered: ({ type }) => {
-            posthog.capture('definition hovered', { type })
+        reportDataManagementDefinitionHovered: ({ type, mediaPreviewCount }) => {
+            posthog.capture('definition hovered', { type, media_preview_count: mediaPreviewCount ?? 0 })
+        },
+        reportMediaPreviewUploaded: ({ source }) => {
+            posthog.capture('media preview uploaded', { source })
         },
         reportDataManagementDefinitionClickView: ({ type }) => {
             posthog.capture('definition click view', { type })

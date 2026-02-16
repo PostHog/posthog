@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -434,7 +434,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     )
                     actions.saveEvaluationSuccess(response)
                 }
-                router.actions.push(urls.llmAnalyticsEvaluations())
+                router.actions.push(urls.llmAnalyticsEvaluations(), router.values.searchParams)
             } catch (error) {
                 console.error('Failed to save evaluation:', error)
             }
@@ -568,28 +568,41 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
 
-        runsToSummarizeCount: [
+        filteredEvaluationRuns: [
             (s) => [s.evaluationRuns, s.evaluationSummaryFilter],
-            (runs, filter) => {
-                // This is for UI display only - actual filtering happens server-side
-                let filteredRuns = runs.filter((r) => r.status === 'completed')
-                if (filter === 'pass') {
-                    filteredRuns = filteredRuns.filter((r) => r.result === true)
-                } else if (filter === 'fail') {
-                    filteredRuns = filteredRuns.filter((r) => r.result === false)
-                } else if (filter === 'na') {
-                    filteredRuns = filteredRuns.filter((r) => r.result === null)
+            (runs: EvaluationRun[], filter: EvaluationSummaryFilter): EvaluationRun[] => {
+                if (filter === 'all') {
+                    return runs
                 }
-                return Math.min(filteredRuns.length, EVALUATION_SUMMARY_MAX_RUNS)
+                // Only consider completed runs for filtering
+                const completedRuns = runs.filter((r) => r.status === 'completed')
+                if (filter === 'pass') {
+                    return completedRuns.filter((r) => r.result === true)
+                }
+                if (filter === 'fail') {
+                    return completedRuns.filter((r) => r.result === false)
+                }
+                // na
+                return completedRuns.filter((r) => r.result === null)
+            },
+        ],
+
+        runsToSummarizeCount: [
+            (s) => [s.filteredEvaluationRuns, s.evaluationSummaryFilter],
+            (filteredRuns: EvaluationRun[], filter: EvaluationSummaryFilter): number => {
+                // When 'all', filteredEvaluationRuns includes non-completed runs, but summarization only uses completed
+                const count =
+                    filter === 'all' ? filteredRuns.filter((r) => r.status === 'completed').length : filteredRuns.length
+                return Math.min(count, EVALUATION_SUMMARY_MAX_RUNS)
             },
         ],
 
         breadcrumbs: [
-            (s) => [s.evaluation],
-            (evaluation): Breadcrumb[] => [
+            (s) => [s.evaluation, router.selectors.searchParams],
+            (evaluation: EvaluationConfig | null, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     name: 'Evaluations',
-                    path: urls.llmAnalyticsEvaluations(),
+                    path: combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url,
                     key: 'LLMAnalyticsEvaluations',
                     iconType: 'llm_evaluations',
                 },

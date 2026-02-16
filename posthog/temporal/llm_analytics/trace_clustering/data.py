@@ -35,7 +35,7 @@ def fetch_eligible_trace_ids(
     team: Team,
     window_start: datetime,
     window_end: datetime,
-    trace_filters: list[dict],
+    event_filters: list[dict],
     max_samples: int,
 ) -> list[ItemId]:
     """Query trace IDs that have at least one AI event matching the given property filters.
@@ -49,18 +49,18 @@ def fetch_eligible_trace_ids(
         team: Team object to query traces for
         window_start: Start of time window
         window_end: End of time window
-        trace_filters: List of property filter dicts (PostHog standard format)
+        event_filters: List of property filter dicts (PostHog standard format)
         max_samples: Maximum number of traces to return
 
     Returns:
         List of trace IDs where at least one event matches the filter criteria
     """
-    if not trace_filters:
+    if not event_filters:
         return []
 
     # Build property filter expression from the list of filters
     property_exprs: list[ast.Expr] = []
-    for prop in trace_filters:
+    for prop in event_filters:
         property_exprs.append(property_to_expr(prop, team))
 
     # Combine filters with AND logic
@@ -93,7 +93,9 @@ def fetch_eligible_trace_ids(
                 "start_dt": ast.Constant(value=window_start),
                 "end_dt": ast.Constant(value=window_end),
                 "property_filters": property_filter_expr,
-                "max_samples": ast.Constant(value=max_samples * 2),  # Oversample to account for missing embeddings
+                "max_samples": ast.Constant(
+                    value=min(max_samples * 50, constants.MAX_ELIGIBLE_IDS)
+                ),  # Oversample generously but cap to avoid oversized IN-clause queries
             },
             team=team,
         )
@@ -162,11 +164,11 @@ def fetch_item_embeddings_for_clustering(
     window_end: datetime,
     max_samples: int,
     analysis_level: AnalysisLevel = "trace",
-    trace_filters: list[dict] | None = None,
+    event_filters: list[dict] | None = None,
 ) -> tuple[list[ItemId], ItemEmbeddings, ItemBatchRunIds]:
     """Query item IDs and embeddings from document_embeddings table using HogQL.
 
-    If trace_filters are provided, first queries for eligible trace IDs from AI events
+    If event_filters are provided, first queries for eligible trace IDs from AI events
     matching the filter criteria, then fetches embeddings only for those items.
 
     Args:
@@ -175,7 +177,7 @@ def fetch_item_embeddings_for_clustering(
         window_end: End of time window
         max_samples: Maximum number of items to sample
         analysis_level: "trace" or "generation" - determines which document_type to query
-        trace_filters: Optional property filters to scope which traces are included
+        event_filters: Optional property filters to scope which traces are included
 
     Returns:
         Tuple of (list of item IDs, dict mapping item_id -> embedding vector,
@@ -192,12 +194,12 @@ def fetch_item_embeddings_for_clustering(
     # For trace-level: eligible IDs are trace IDs directly.
     # For generation-level: find eligible trace IDs, then map to generation IDs.
     eligible_item_ids: list[ItemId] | None = None
-    if trace_filters:
+    if event_filters:
         eligible_trace_ids = fetch_eligible_trace_ids(
             team=team,
             window_start=window_start,
             window_end=window_end,
-            trace_filters=trace_filters,
+            event_filters=event_filters,
             max_samples=max_samples,
         )
         if not eligible_trace_ids:

@@ -1,7 +1,7 @@
 import classNames from 'classnames'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import React, { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
@@ -89,12 +89,17 @@ import {
 function TraceNavigation(): JSX.Element {
     const { viewMode, newerTraceId, newerTimestamp, olderTraceId, olderTimestamp, neighborsLoading } =
         useValues(llmAnalyticsTraceLogic)
+    const { searchParams } = useValues(router)
 
     // Navigate to newer (more recent) or older traces
     const goToNewer = (): void => {
         if (newerTraceId) {
             router.actions.push(
-                urls.llmAnalyticsTrace(newerTraceId, { timestamp: newerTimestamp ?? undefined, tab: viewMode })
+                combineUrl(urls.llmAnalyticsTrace(newerTraceId), {
+                    ...searchParams,
+                    timestamp: newerTimestamp ?? undefined,
+                    tab: viewMode,
+                }).url
             )
         }
     }
@@ -102,7 +107,11 @@ function TraceNavigation(): JSX.Element {
     const goToOlder = (): void => {
         if (olderTraceId) {
             router.actions.push(
-                urls.llmAnalyticsTrace(olderTraceId, { timestamp: olderTimestamp ?? undefined, tab: viewMode })
+                combineUrl(urls.llmAnalyticsTrace(olderTraceId), {
+                    ...searchParams,
+                    timestamp: olderTimestamp ?? undefined,
+                    tab: viewMode,
+                }).url
             )
         }
     }
@@ -156,6 +165,7 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
 
 function TraceSceneWrapper(): JSX.Element {
     const { searchQuery, commentCount } = useValues(llmAnalyticsTraceLogic)
+    const { searchParams } = useValues(router)
     const {
         enrichedTree,
         trace,
@@ -171,6 +181,11 @@ function TraceSceneWrapper(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { showBillingInfo, markupUsd, billedTotalUsd, billedCredits } = usePosthogAIBillingCalculations(enrichedTree)
+    const backTo = searchParams.back_to
+    const backPath =
+        backTo === 'generations'
+            ? combineUrl(urls.llmAnalyticsGenerations(), searchParams).url
+            : combineUrl(urls.llmAnalyticsTraces(), searchParams).url
 
     return (
         <>
@@ -187,9 +202,9 @@ function TraceSceneWrapper(): JSX.Element {
                             name={trace.id}
                             resourceType={{ type: 'llm_analytics' }}
                             forceBackTo={{
-                                name: 'Traces',
-                                path: urls.llmAnalyticsTraces(),
-                                key: 'traces',
+                                name: backTo === 'generations' ? 'Generations' : 'Traces',
+                                path: backPath,
+                                key: backTo === 'generations' ? 'generations' : 'traces',
                             }}
                             actions={
                                 featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION] ? (
@@ -545,6 +560,7 @@ const TreeNode = React.memo(function TraceNode({
     const item = node.event
 
     const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
+    const { searchParams } = useValues(router)
     const eventType = getEventType(item)
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
     const isBillable =
@@ -577,11 +593,14 @@ const TreeNode = React.memo(function TraceNode({
     return (
         <li key={item.id} className="mt-0.5" aria-current={isSelected /* aria-current used for auto-focus */}>
             <Link
-                to={urls.llmAnalyticsTrace(topLevelTrace.id, {
-                    event: item.id,
-                    timestamp: getTraceTimestamp(topLevelTrace.createdAt),
-                    ...(searchQuery?.trim() && { search: searchQuery }),
-                })}
+                to={
+                    combineUrl(urls.llmAnalyticsTrace(topLevelTrace.id), {
+                        ...searchParams,
+                        event: item.id,
+                        timestamp: getTraceTimestamp(topLevelTrace.createdAt),
+                        ...(searchQuery?.trim() && { search: searchQuery }),
+                    }).url
+                }
                 className={classNames(
                     'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:!bg-accent-highlight-secondary',
                     isSelected && '!bg-accent-highlight-secondary',
@@ -794,7 +813,9 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
-        const showClustersTab = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
+        const showClustersTab =
+            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ||
+            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
         const showFeedbackTab = true
 

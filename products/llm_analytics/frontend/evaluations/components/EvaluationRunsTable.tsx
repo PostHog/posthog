@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { IconCheck, IconMinus, IconRefresh, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
@@ -12,7 +13,8 @@ import { EvaluationRun } from '../types'
 import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationSummaryPanel'
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { evaluationRuns, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
+    const { filteredEvaluationRuns, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
+    const { searchParams } = useValues(router)
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
 
     const columns: LemonTableColumns<EvaluationRun> = [
@@ -28,7 +30,12 @@ export function EvaluationRunsTable(): JSX.Element {
             render: (_, run) => (
                 <div className="font-mono text-sm">
                     <Link
-                        to={urls.llmAnalyticsTrace(run.trace_id, { event: run.generation_id })}
+                        to={
+                            combineUrl(urls.llmAnalyticsTrace(run.trace_id), {
+                                ...searchParams,
+                                event: run.generation_id,
+                            }).url
+                        }
                         className="text-primary"
                     >
                         {run.generation_id.slice(0, 12)}...
@@ -126,7 +133,7 @@ export function EvaluationRunsTable(): JSX.Element {
 
             <LemonTable
                 columns={columns}
-                dataSource={evaluationRuns}
+                dataSource={filteredEvaluationRuns}
                 loading={evaluationRunsLoading}
                 rowKey="id"
                 pagination={{
