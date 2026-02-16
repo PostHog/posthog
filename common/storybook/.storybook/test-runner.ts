@@ -182,6 +182,20 @@ async function expectStoryToMatchSnapshot(
         // Stop all animations for consistent snapshots, and adjust other styles
         document.body.classList.add('storybook-test-runner')
         document.body.classList.add(`storybook-test-runner--${layout}`)
+
+        // Force all content-visibility:auto elements to render fully for deterministic snapshots.
+        // content-visibility:auto skips rendering offscreen content, which causes non-deterministic
+        // page heights depending on timing. We override it and trigger a synchronous reflow.
+        document.querySelectorAll('*').forEach((el) => {
+            if (el instanceof HTMLElement) {
+                const style = getComputedStyle(el)
+                if (style.contentVisibility === 'auto') {
+                    el.style.contentVisibility = 'visible'
+                }
+            }
+        })
+        // Force synchronous reflow so the browser recalculates layout
+        void document.body.offsetHeight
     }, storyContext.parameters?.layout || 'padded')
 
     const { waitForLoadersToDisappear = true, waitForSelector } = storyContext.parameters?.testOptions ?? {}
