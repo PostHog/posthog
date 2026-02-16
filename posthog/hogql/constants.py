@@ -76,7 +76,7 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
     elif limit_context == LimitContext.SAVED_QUERY:
         return sys.maxsize  # Max python int
     elif limit_context == LimitContext.POSTHOG_AI:
-        return MAX_SELECT_POSTHOG_AI_LIMIT  # 100
+        return MAX_SELECT_POSTHOG_AI_LIMIT  # 500
     else:
         raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 

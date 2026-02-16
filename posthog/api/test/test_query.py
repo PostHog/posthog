@@ -651,6 +651,41 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedHogQLQueryResponse)
         self.assertEqual(len(response.results), 15)
 
+    @patch("posthog.api.query.process_query_model")
+    def test_query_limit_context_posthog_ai(self, mock_process_query_model):
+        mock_process_query_model.return_value = {"results": []}
+        self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select 1"},
+                "limit_context": "posthog_ai",
+            },
+        )
+        mock_process_query_model.assert_called_once()
+        self.assertEqual(mock_process_query_model.call_args[1]["limit_context"], LimitContext.POSTHOG_AI)
+
+    @patch("posthog.api.query.process_query_model")
+    def test_query_limit_context_default(self, mock_process_query_model):
+        mock_process_query_model.return_value = {"results": []}
+        self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select 1"},
+            },
+        )
+        mock_process_query_model.assert_called_once()
+        self.assertIsNone(mock_process_query_model.call_args[1]["limit_context"])
+
+    def test_query_limit_context_invalid_value(self):
+        api_response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select 1"},
+                "limit_context": "export",
+            },
+        )
+        self.assertEqual(api_response.status_code, 400)
+
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
     def test_full_events_query_limit(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):

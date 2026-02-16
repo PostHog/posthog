@@ -73,7 +73,7 @@ WHERE e.event IN (SELECT event FROM events WHERE ...)
   - Optional org filter → AND (coalesce(variables.org, '') = '' OR p.properties.org = variables.org)
   - Optional browser filter → AND (variables.browser IS NULL OR properties.$browser = variables.browser)
   - Time window should remain enforced for events; add variable guards only if explicitly asked
-- Your SQL query results are capped at 100 rows. The user sees the full results in the UI. If you need to analyze more data, paginate using LIMIT and OFFSET in subsequent queries.
+- Your SQL query results are capped at 100 rows by default but you can request up to 500 rows using a LIMIT clause. The user sees the full results in the UI. If you need to analyze more data, paginate using LIMIT and OFFSET in subsequent queries.
 
 # Expressions guide
 

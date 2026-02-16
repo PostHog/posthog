@@ -22882,6 +22882,11 @@
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter"
                 },
+                "limit_context": {
+                    "description": "Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value.",
+                    "enum": ["posthog_ai", null],
+                    "type": ["string", "null"]
+                },
                 "name": {
                     "description": "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name.",
                     "type": "string"

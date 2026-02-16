@@ -3097,6 +3097,11 @@ class QueryLogTags(BaseModel):
     )
 
 
+class LimitContext(Enum):
+    POSTHOG_AI = "posthog_ai"
+    NONE_TYPE_NONE = None
+
+
 class QueryResponseAlternative7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -18812,9 +18817,9 @@ class QueryRequest(BaseModel):
         description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
     )
     filters_override: DashboardFilter | None = None
-    limit_context: Literal["posthog_ai"] | None = Field(
+    limit_context: LimitContext | None = Field(
         default=None,
-        description="Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value.",
+        description=("Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value."),
     )
     name: str | None = Field(
         default=None,
