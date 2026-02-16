@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import { SessionManager } from '@/lib/SessionManager'
+import { OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import { getToolsFromContext } from '@/tools'
-import { getToolsForFeatures } from '@/tools/toolDefinitions'
+import { getToolDefinitions, getToolsForFeatures } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
 
 describe('Tool Filtering - Features', () => {
@@ -190,5 +191,30 @@ describe('Tool Filtering - API Scopes', () => {
         // Only demo tool should be available since it has no required scopes
         expect(toolNames).toContain('demo-mcp-ui-apps')
         expect(tools).toHaveLength(1)
+    })
+})
+
+describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
+    it('should include every scope referenced in tool definitions', () => {
+        const supportedScopes = new Set<string>(OAUTH_SCOPES_SUPPORTED)
+
+        const allDefinitions = {
+            ...getToolDefinitions(1),
+            ...getToolDefinitions(2),
+        }
+
+        const scopesFromTools = new Set<string>()
+        for (const def of Object.values(allDefinitions)) {
+            for (const scope of def.required_scopes) {
+                scopesFromTools.add(scope)
+            }
+        }
+
+        const missing = [...scopesFromTools].filter((s) => !supportedScopes.has(s)).sort()
+
+        expect(
+            missing,
+            `OAUTH_SCOPES_SUPPORTED is missing scopes used by tool definitions: ${missing.join(', ')}`
+        ).toEqual([])
     })
 })
