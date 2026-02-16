@@ -2,5 +2,5 @@
     "production_eu": "clickhouse/clickhouse-server:25.8.12",
     "production_us": "clickhouse/clickhouse-server:25.8.12",
     "local": "clickhouse/clickhouse-server:25.12.5",
-    "oldest_supported": "clickhouse/clickhouse-server:25.8.12"
+    "oldest_supported": "clickhouse/clickhouse-server:25.12.5"
 }
