@@ -6,13 +6,21 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../config/config'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
 import {
-    RestrictionPipelineInput,
-    RestrictionPipelineOutput,
-    applyRestrictions,
-    createRestrictionPipeline,
+    SessionReplayPipelineInput,
+    SessionReplayPipelineOutput,
+    createSessionReplayPipeline,
+    runSessionReplayPipeline,
 } from '../ingestion/session_replay'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
+import { getBlockDecryptor, getBlockEncryptor } from '../session-replay/shared/crypto'
+import { VerifyingEncryptor } from '../session-replay/shared/crypto/verifying-encryptor'
+import { getKeyStore } from '../session-replay/shared/keystore'
+import { MemoryCachedKeyStore } from '../session-replay/shared/keystore/cache'
+import { SessionMetadataStore } from '../session-replay/shared/metadata/session-metadata-store'
+import { RetentionService } from '../session-replay/shared/retention/retention-service'
+import { TeamService } from '../session-replay/shared/teams/team-service'
+import { KeyStore, RecordingEncryptor } from '../session-replay/shared/types'
 import {
     HealthCheckResult,
     PluginServerService,
@@ -28,27 +36,18 @@ import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { captureIngestionWarning } from '../worker/ingestion/utils'
-import {
-    KAFKA_CONSUMER_GROUP_ID,
-    KAFKA_CONSUMER_GROUP_ID_OVERFLOW,
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
-} from './constants'
 import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
-import { RetentionAwareStorage } from './retention/retention-aware-batch-writer'
-import { RetentionService } from './retention/retention-service'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
+import { RetentionAwareStorage } from './sessions/retention-aware-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from './sessions/session-console-log-store'
 import { SessionFilter } from './sessions/session-filter'
-import { SessionMetadataStore } from './sessions/session-metadata-store'
 import { SessionTracker } from './sessions/session-tracker'
 import { TeamFilter } from './teams/team-filter'
-import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
 import { TopTracker } from './top-tracker'
 import { CaptureIngestionWarningFn } from './types'
@@ -70,6 +69,9 @@ export type SessionRecordingIngesterHub = SessionRecordingConfig &
         | 'POSTHOG_REDIS_HOST'
         | 'POSTHOG_REDIS_PORT'
         | 'POSTHOG_REDIS_PASSWORD'
+        // For encryption key management
+        | 'SESSION_RECORDING_KMS_ENDPOINT'
+        | 'SESSION_RECORDING_DYNAMODB_ENDPOINT'
     >
 
 export class SessionRecordingIngester {
@@ -89,16 +91,19 @@ export class SessionRecordingIngester {
     private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
     private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    private readonly restrictionPipeline: BatchPipelineUnwrapper<
-        RestrictionPipelineInput,
-        RestrictionPipelineOutput,
+    private readonly sessionReplayPipeline: BatchPipelineUnwrapper<
+        SessionReplayPipelineInput,
+        SessionReplayPipelineOutput,
         { message: Message }
     >
     private readonly kafkaMetadataProducer: KafkaProducerWrapper
     private readonly kafkaMessageProducer: KafkaProducerWrapper
+    private readonly ingestionWarningProducer?: KafkaProducerWrapper
     private readonly overflowTopic: string
     private readonly topTracker: TopTracker
     private topTrackerLogInterval?: NodeJS.Timeout
+    private readonly keyStore: KeyStore
+    private readonly encryptor: RecordingEncryptor
 
     constructor(
         private hub: SessionRecordingIngesterHub,
@@ -108,11 +113,9 @@ export class SessionRecordingIngester {
         kafkaMessageProducer: KafkaProducerWrapper,
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
-        this.topic = consumeOverflow
-            ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
-            : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
-        this.overflowTopic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
-        this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
+        this.topic = hub.INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC
+        this.overflowTopic = hub.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC
+        this.consumerGroupId = hub.INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID
         this.isDebugLoggingEnabled = buildIntegerMatcher(hub.SESSION_RECORDING_DEBUG_PARTITION, true)
 
         this.promiseScheduler = new PromiseScheduler()
@@ -127,6 +130,7 @@ export class SessionRecordingIngester {
 
         this.kafkaMetadataProducer = kafkaMetadataProducer
         this.kafkaMessageProducer = kafkaMessageProducer
+        this.ingestionWarningProducer = ingestionWarningProducer
 
         let s3Client: S3Client | null = null
         if (
@@ -236,6 +240,16 @@ export class SessionRecordingIngester {
             localCacheTtlMs: this.hub.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
         })
 
+        const region = hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
+        const keyStore = getKeyStore(teamService, retentionService, region, {
+            kmsEndpoint: hub.SESSION_RECORDING_KMS_ENDPOINT,
+            dynamoDBEndpoint: hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+        })
+        this.keyStore = new MemoryCachedKeyStore(keyStore)
+        const encryptor = getBlockEncryptor(this.keyStore)
+        const decryptor = getBlockDecryptor(this.keyStore)
+        this.encryptor = new VerifyingEncryptor(encryptor, decryptor, hub.SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE)
+
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.hub.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
             maxBatchAgeMs: this.hub.SESSION_RECORDING_MAX_BATCH_AGE_MS,
@@ -246,9 +260,11 @@ export class SessionRecordingIngester {
             consoleLogStore,
             sessionTracker,
             sessionFilter,
+            keyStore: this.keyStore,
+            encryptor: this.encryptor,
         })
 
-        this.restrictionPipeline = createRestrictionPipeline({
+        this.sessionReplayPipeline = createSessionReplayPipeline({
             kafkaProducer: this.kafkaMessageProducer,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: !this.consumeOverflow,
@@ -295,10 +311,10 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
-        // Apply event ingestion restrictions before parsing
+        // Apply event processing pipeline steps first
         const messagesToProcess = await instrumentFn(
-            `recordingingesterv2.handleEachBatch.applyRestrictions`,
-            async () => await applyRestrictions(this.restrictionPipeline, messages)
+            `recordingingesterv2.handleEachBatch.runPipeline`,
+            async () => await runSessionReplayPipeline(this.sessionReplayPipeline, messages)
         )
 
         const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.parseBatch`, async () => {
@@ -382,6 +398,9 @@ export class SessionRecordingIngester {
             kafkaCapabilities: features,
         })
 
+        await this.keyStore.start()
+        await this.encryptor.start()
+
         // Check that the storage backend is healthy before starting the consumer
         // This is especially important in local dev with minio
         await this.fileStorage.checkHealth()
@@ -443,7 +462,13 @@ export class SessionRecordingIngester {
         const promiseResults = await this.promiseScheduler.waitForAllSettled()
 
         // Clean up resources owned by this ingester
+        this.keyStore.stop()
+        // Note: kafkaMetadataProducer may be shared (e.g., hub.kafkaProducer in production),
+        // so callers are responsible for disconnecting it if they created it
         await this.kafkaMessageProducer.disconnect()
+        if (this.ingestionWarningProducer) {
+            await this.ingestionWarningProducer.disconnect()
+        }
         await this.redisPool.drain()
         await this.redisPool.clear()
         await this.restrictionRedisPool.drain()

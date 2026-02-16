@@ -18,10 +18,7 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.temporal.ai import (
-    ACTIVITIES as AI_ACTIVITIES,
-    WORKFLOWS as AI_WORKFLOWS,
-)
+from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, SIGNALS_ACTIVITIES, SIGNALS_WORKFLOWS
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
@@ -57,6 +54,10 @@ from posthog.temporal.ducklake import (
 from posthog.temporal.enforce_max_replay_retention import (
     ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
     WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
+)
+from posthog.temporal.event_screenshots import (
+    ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
+    WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
 )
 from posthog.temporal.experiments import (
     ACTIVITIES as EXPERIMENTS_ACTIVITIES,
@@ -129,10 +130,6 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
-from products.signals.backend.temporal import (
-    ACTIVITIES as SIGNALS_ACTIVITIES,
-    WORKFLOWS as SIGNALS_WORKFLOWS,
-)
 from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
@@ -178,8 +175,7 @@ _task_queue_specs = [
         + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
-        + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
-        + SIGNALS_WORKFLOWS,
+        + INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
@@ -191,8 +187,7 @@ _task_queue_specs = [
         + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
-        + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
-        + SIGNALS_ACTIVITIES,
+        + INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
     ),
     (
         settings.DUCKLAKE_TASK_QUEUE,
@@ -226,8 +221,8 @@ _task_queue_specs = [
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        VIDEO_EXPORT_WORKFLOWS,
-        VIDEO_EXPORT_ACTIVITIES,
+        VIDEO_EXPORT_WORKFLOWS + SIGNALS_WORKFLOWS,
+        VIDEO_EXPORT_ACTIVITIES + SIGNALS_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
@@ -259,6 +254,11 @@ _task_queue_specs = [
         settings.LLMA_TASK_QUEUE,
         LLM_ANALYTICS_WORKFLOWS,
         LLM_ANALYTICS_ACTIVITIES,
+    ),
+    (
+        settings.EVENT_SCREENSHOTS_TASK_QUEUE,
+        EVENT_SCREENSHOTS_WORKFLOWS,
+        EVENT_SCREENSHOTS_ACTIVITIES,
     ),
 ]
 

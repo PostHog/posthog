@@ -227,14 +227,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Activity',
         defaultDocsPath: '/docs/data/events',
         description: 'Explore your events or see real-time events from your app or website.',
-        iconType: 'event',
+        iconType: 'activity',
     },
     [Scene.ExploreEvents]: {
         projectBased: true,
         name: 'Explore events',
         defaultDocsPath: '/docs/data/events',
         description: 'A catalog of all user interactions with your app or website.',
-        iconType: 'event',
+        iconType: 'activity',
     },
     [Scene.ExploreSessions]: {
         projectBased: true,
@@ -269,6 +269,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Heatmaps',
         iconType: 'heatmap',
         description: 'Heatmaps are a way to visualize user behavior on your website.',
+    },
+    [Scene.Inbox]: {
+        projectBased: true,
+        name: 'Inbox',
+        description: 'Actionable reports automatically generated from user session analysis and other signals.',
     },
     [Scene.Heatmap]: {
         projectBased: true,
@@ -464,6 +469,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/session-replay',
         layout: 'plain',
         hideProjectNotice: true,
+    },
+    [Scene.ResourceTransfer]: {
+        projectBased: true,
+        name: 'Copy to project',
+        layout: 'app-container',
     },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
@@ -805,6 +815,7 @@ export const routes: Record<string, [Scene | string, string]> = {
         },
         {} as Record<string, [Scene, string]>
     ),
+    [urls.resourceTransfer(':resourceKind', ':resourceId')]: [Scene.ResourceTransfer, 'resourceTransfer'],
     [urls.replayFilePlayback()]: [Scene.ReplayFilePlayback, 'replayFilePlayback'],
     [urls.replayKiosk()]: [Scene.ReplayKiosk, 'replayKiosk'],
     [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
@@ -912,6 +923,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],
+    [urls.inbox()]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkDoctor()]: [Scene.SdkDoctor, 'sdkDoctor'],
     [urls.exports()]: [Scene.Exports, 'exports'],

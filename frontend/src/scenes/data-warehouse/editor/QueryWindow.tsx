@@ -1,7 +1,7 @@
 import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
-import { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 
 import { IconBook, IconDownload, IconInfo, IconPlayFilled } from '@posthog/icons'
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
@@ -19,6 +19,7 @@ import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -54,8 +55,18 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         inProgressViewEdits,
     } = useValues(multitabEditorLogic)
 
-    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, saveAsView, saveDraft, updateView } =
-        useActions(multitabEditorLogic)
+    const {
+        setQueryInput,
+        runQuery,
+        setError,
+        setMetadata,
+        setMetadataLoading,
+        saveAsView,
+        saveDraft,
+        updateView,
+        setSuggestedQueryInput,
+        reportAIQueryPromptOpen,
+    } = useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
 
     const { saveOrUpdateDraft } = useActions(draftsLogic)
@@ -261,7 +272,32 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                             data-attr="sql-editor-vim-toggle"
                         />
                     )}
-                    {isRemovingSidePanelFlag && <SceneTitlePanelButton />}
+                    {isRemovingSidePanelFlag && (
+                        <SceneTitlePanelButton
+                            buttonClassName="size-[26px]"
+                            maxToolProps={{
+                                identifier: 'execute_sql',
+                                context: {
+                                    current_query: queryInput,
+                                },
+                                contextDescription: {
+                                    text: 'Current query',
+                                    icon: iconForType('sql_editor'),
+                                },
+                                callback: (toolOutput: string) => {
+                                    setSuggestedQueryInput(toolOutput, 'max_ai')
+                                },
+                                suggestions: [],
+                                onMaxOpen: () => {
+                                    reportAIQueryPromptOpen()
+                                },
+                                introOverride: {
+                                    headline: 'What data do you want to analyze?',
+                                    description: 'Let me help you quickly write SQL, and tweak it.',
+                                },
+                            }}
+                        />
+                    )}
                 </div>
             </div>
             <QueryPane
@@ -355,7 +391,7 @@ function RunButton(): JSX.Element {
     )
 }
 
-function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
+const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
     const { finishedLoading } = useValues(multitabEditorLogic)
 
     // NOTE: hacky way to avoid flicker loading
@@ -364,4 +400,4 @@ function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
     }
 
     return <OutputPane tabId={tabId} />
-}
+})

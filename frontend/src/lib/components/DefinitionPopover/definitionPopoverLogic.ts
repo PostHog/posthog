@@ -181,6 +181,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             (openDetailInNewTab) => openDetailInNewTab ?? true,
         ],
         singularType: [(s) => [s.type], (type) => getSingularType(type)],
+        mediaPreviews: [
+            (s) => [s.definition],
+            (definition): string[] => (definition as EventDefinition)?.media_preview_urls ?? [],
+        ],
         dirty: [
             (s) => [s.state, s.definition, s.localDefinition],
             (state, definition, localDefinition) =>
@@ -309,7 +313,9 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         },
         recordHoverActivity: async (_, breakpoint) => {
             await breakpoint(IS_TEST_MODE ? 1 : 1000) // Tests will wait for all breakpoints to finish
-            eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionHovered(values.type)
+            eventUsageLogic
+                .findMounted()
+                ?.actions?.reportDataManagementDefinitionHovered(values.type, values.mediaPreviews.length)
         },
     })),
     events(({ actions }) => ({

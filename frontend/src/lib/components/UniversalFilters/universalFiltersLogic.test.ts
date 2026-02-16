@@ -9,7 +9,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { QuickFilterItem, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { universalFiltersLogic } from './universalFiltersLogic'
 
 const propertyFilter: AnyPropertyFilter = {
@@ -130,6 +130,84 @@ describe('universalFiltersLogic', () => {
                     },
                 ],
             },
+        })
+    })
+
+    describe('addGroupFilter with QuickFilterItem', () => {
+        it.each([
+            {
+                scenario: 'with event name and extra properties',
+                item: {
+                    _type: 'quick_filter' as const,
+                    name: 'Pageview with email containing "blog"',
+                    filterValue: 'blog',
+                    operator: PropertyOperator.IContains,
+                    propertyKey: '$current_url',
+                    propertyFilterType: PropertyFilterType.Event,
+                    eventName: '$pageview',
+                    extraProperties: [
+                        {
+                            key: '$browser',
+                            value: 'Chrome',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                } satisfies QuickFilterItem,
+                expected: [
+                    {
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: 'events',
+                        properties: [
+                            {
+                                key: '$current_url',
+                                value: 'blog',
+                                operator: PropertyOperator.IContains,
+                                type: PropertyFilterType.Event,
+                            },
+                            {
+                                key: '$browser',
+                                value: 'Chrome',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    },
+                ],
+            },
+            {
+                scenario: 'without event name',
+                item: {
+                    _type: 'quick_filter' as const,
+                    name: 'Person email containing "test"',
+                    filterValue: 'test',
+                    operator: PropertyOperator.IContains,
+                    propertyKey: 'email',
+                    propertyFilterType: PropertyFilterType.Person,
+                } satisfies QuickFilterItem,
+                expected: [
+                    {
+                        key: 'email',
+                        value: 'test',
+                        operator: PropertyOperator.IContains,
+                        type: PropertyFilterType.Person,
+                    },
+                ],
+            },
+        ])('creates filters from QuickFilterItem $scenario', async ({ item, expected }) => {
+            await expectLogic(logic, () => {
+                logic.actions.addGroupFilter(
+                    { type: TaxonomicFilterGroupType.SuggestedFilters } as TaxonomicFilterGroup,
+                    undefined as any,
+                    item
+                )
+            }).toMatchValues({
+                filterGroup: {
+                    ...defaultFilter,
+                    values: [...defaultFilter.values, ...expected],
+                },
+            })
         })
     })
 })

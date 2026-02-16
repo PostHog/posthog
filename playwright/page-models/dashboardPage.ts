@@ -34,9 +34,8 @@ export class DashboardPage {
     }
 
     async addInsightToNewDashboard(): Promise<void> {
-        const addButton = this.page.getByRole('button', { name: 'Add insight' }).first()
-        await addButton.click()
-        await this.page.getByTestId('dashboard-insight-action-button').first().click()
+        await this.page.getByRole('button', { name: 'Add insight' }).first().click()
+        await this.page.locator('.LemonModal .LemonTable tbody tr').first().click()
         await this.page.getByRole('button', { name: 'Close' }).click()
     }
 
@@ -51,6 +50,14 @@ export class DashboardPage {
 
         await modal.getByRole('button', { name: 'Add to a new dashboard' }).click()
         await this.page.getByTestId('create-dashboard-blank').click()
+
+        // After creating a new dashboard from the insight page, the app either:
+        // 1. Navigates directly to the dashboard (when _dashboardToNavigateTo is set), OR
+        // 2. Shows a toast "Insight added to dashboard" and stays on the insight page
+        // Wait for either signal to confirm the async API call has completed.
+        await expect(
+            this.page.getByText('Insight added to dashboard').or(this.page.locator('.InsightCard'))
+        ).toBeVisible({ timeout: 30000 })
     }
 
     async closeSidePanels(): Promise<void> {

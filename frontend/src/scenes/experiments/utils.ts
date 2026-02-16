@@ -62,6 +62,12 @@ export function formatUnitByQuantity(value: number, unit: string): string {
     return value === 1 ? unit : unit + 's'
 }
 
+export function ensureIsPercent(value: string | number | undefined): number {
+    const parsedNum = typeof value === 'string' ? parseInt(value, 10) : (value ?? 0)
+    const num = isNaN(parsedNum) ? 0 : parsedNum
+    return Math.min(100, Math.max(0, num))
+}
+
 export function percentageDistribution(variantCount: number): number[] {
     const basePercentage = Math.floor(100 / variantCount)
     const percentages = new Array(variantCount).fill(basePercentage)
@@ -868,7 +874,7 @@ export function initializeMetricOrdering(experiment: Experiment): Experiment {
  * Maps metrics to their results and errors in the correct display order
  * This handles the complex logic of:
  * 1. Mapping results by index to original metrics array (including shared metrics)
- * 2. Enriching shared metrics with metadata
+ * 2. Enriching shared metrics with metadata, including breakdowns
  * 3. Reordering everything according to the ordered UUIDs
  */
 export function getOrderedMetricsWithResults(
@@ -901,6 +907,11 @@ export function getOrderedMetricsWithResults(
             name: sharedMetric.name,
             sharedMetricId: sharedMetric.saved_metric,
             isSharedMetric: true,
+            // Merge breakdowns from metadata into breakdownFilter
+            breakdownFilter: {
+                ...sharedMetric.query?.breakdownFilter,
+                breakdowns: sharedMetric.metadata?.breakdowns || [],
+            },
         })) as ExperimentMetric[]
 
     const allMetrics = [...regularMetrics, ...enrichedSharedMetrics]

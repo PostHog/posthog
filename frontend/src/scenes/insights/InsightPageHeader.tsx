@@ -117,11 +117,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         hogQLVariables,
         insightQuery,
         insightData,
+        generatedInsightNameLoading,
     } = useValues(insightDataLogic(insightProps))
-    const { toggleQueryEditorPanel, toggleDebugPanel, cancelChanges } = useActions(insightDataLogic(insightProps))
+    const { toggleQueryEditorPanel, toggleDebugPanel, cancelChanges, generateInsightName } = useActions(
+        insightDataLogic(insightProps)
+    )
     const { createStaticCohort } = useActions(exportsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
+    const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
 
     // endpointLogic
     const { openCreateFromInsightModal } = useActions(endpointLogic({ tabId: insightProps.tabId || '' }))
@@ -366,16 +370,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         ) : null}
 
-                        {featureFlags[FEATURE_FLAGS.MANAGE_INSIGHTS_THROUGH_TERRAFORM] ? (
-                            <ButtonPrimitive
-                                onClick={() => setTerraformModalOpen(true)}
-                                menuItem
-                                data-attr={`${RESOURCE_TYPE}-manage-terraform`}
-                            >
-                                <IconCode2 />
-                                Manage with Terraform
-                            </ButtonPrimitive>
-                        ) : null}
+                        <ButtonPrimitive
+                            onClick={() => setTerraformModalOpen(true)}
+                            menuItem
+                            data-attr={`${RESOURCE_TYPE}-manage-terraform`}
+                        >
+                            <IconCode2 />
+                            Manage with Terraform
+                        </ButtonPrimitive>
 
                         {hasDashboardItemId && featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
                             <ButtonPrimitive
@@ -548,6 +550,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         setInsightMetadata({ description })
                     }
                 }}
+                onGenerateName={canAccessAutoname && insightQuery ? generateInsightName : undefined}
+                isGeneratingName={canAccessAutoname && generatedInsightNameLoading}
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-02-10 20:11:16 UTC
+// Generated at: 2026-02-16 10:17:48 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -43,11 +43,9 @@ export type CanonicalProvider =
     | 'deepseek'
     | 'featherless'
     | 'fireworks'
-    | 'fireworks-fp16'
     | 'fireworks-fp8'
     | 'friendli'
     | 'gmicloud-fp8'
-    | 'gmicloud-int4'
     | 'google-ai-studio'
     | 'google-vertex'
     | 'google-vertex-europe'
@@ -59,6 +57,7 @@ export type CanonicalProvider =
     | 'hyperbolic-fp8'
     | 'inception'
     | 'inceptron-fp8'
+    | 'inceptron-int4'
     | 'infermatic'
     | 'infermatic-bf16'
     | 'inflection'
@@ -67,7 +66,7 @@ export type CanonicalProvider =
     | 'mancer-int4'
     | 'minimax'
     | 'minimax-fp8'
-    | 'minimax-lightning'
+    | 'minimax-highspeed'
     | 'mistral'
     | 'modelrun-fp4'
     | 'moonshotai'
@@ -110,12 +109,12 @@ export type CanonicalProvider =
     | 'sambanova-turbo'
     | 'seed-fp8'
     | 'siliconflow-fp8'
+    | 'siliconflow-int4'
     | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake-fp16'
     | 'switchpoint'
     | 'together'
-    | 'together-bf16'
     | 'together-fp8'
     | 'together-int4'
     | 'together-turbo'

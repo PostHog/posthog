@@ -58,8 +58,13 @@ from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation
 
 logger = structlog.get_logger(__name__)
 
-# Default TTL for experiment exposure preaggregation (6 hours)
-DEFAULT_EXPOSURE_TTL_SECONDS = 6 * 60 * 60
+# Variable TTL for experiment exposure preaggregation
+# Current day refreshes frequently (data arriving), old data cached long
+DEFAULT_EXPOSURE_TTL_SECONDS = {
+    "0d": 15 * 60,  # 15 min
+    "1d": 60 * 60,  # 1 hour
+    "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
+}
 
 MAX_EXECUTION_TIME = 600
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
@@ -204,6 +209,17 @@ class ExperimentQueryRunner(QueryRunner):
             metric=self.metric,
             breakdowns=self._get_breakdowns_for_builder(),
         )
+
+        if self.experiment.exposure_preaggregation_enabled:
+            try:
+                result = self._ensure_exposures_preaggregated(builder)
+                if result.ready:
+                    builder.preaggregation_job_ids = [str(job_id) for job_id in result.job_ids]
+                else:
+                    logger.warning("exposure_preaggregation_not_ready", experiment_id=self.experiment.id)
+            except Exception:
+                logger.exception("exposure_preaggregation_failed", experiment_id=self.experiment.id)
+
         return builder.build_query()
 
     def _evaluate_experiment_query(

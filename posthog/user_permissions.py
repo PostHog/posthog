@@ -157,6 +157,7 @@ class UserPermissions:
             return None
 
         dashboard_ids = {tile.dashboard_id for tile in self._tiles}
+        # nosemgrep: idor-lookup-without-team (IDs from internal FK query)
         return list(Dashboard.objects.filter(pk__in=dashboard_ids))
 
     def reset_insights_dashboard_cached_results(self):
@@ -345,6 +346,7 @@ class UserInsightPermissions:
         dashboard_ids = set(
             DashboardTile.objects.filter(insight=self.insight.pk).values_list("dashboard_id", flat=True)
         )
+        # nosemgrep: idor-lookup-without-team (IDs from internal FK query)
         return list(Dashboard.objects.filter(pk__in=dashboard_ids))
 
 
