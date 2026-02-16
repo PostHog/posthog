@@ -4,9 +4,9 @@ WorkOS Radar integration for bot/fraud detection during authentication flows.
 This module provides a client for the WorkOS Radar Attempts API to evaluate
 signup and signin attempts for potential fraud or bot activity.
 
-The integration operates in LOG-ONLY mode - it records the Radar decision as
-a PostHog event but does not actually block or challenge users based on the verdict.
-This allows evaluation of the potential impact before enabling enforcement.
+When enforce=True and Radar returns a BLOCK verdict, the attempt is rejected
+with a SuspiciousAttemptBlocked exception unless the email is on the bypass
+list (WORKOS_RADAR_BYPASS_EMAILS setting).
 """
 
 import time
@@ -27,6 +27,12 @@ logger = structlog.get_logger(__name__)
 
 WORKOS_RADAR_API_URL = "https://api.workos.com/radar/attempts"
 WORKOS_RADAR_TIMEOUT = 5.0
+
+
+class SuspiciousAttemptBlocked(Exception):
+    """Raised when WorkOS Radar returns a BLOCK verdict for an auth attempt."""
+
+    pass
 
 
 class RadarAction(StrEnum):
@@ -63,12 +69,10 @@ def evaluate_auth_attempt(
     action: RadarAction,
     auth_method: RadarAuthMethod,
     user_id: Optional[str] = None,
+    bypass: bool = True,
 ) -> Optional[RadarVerdict]:
     """
     Evaluate an authentication attempt using the WorkOS Radar Attempts API.
-
-    This function operates in LOG-ONLY mode - it logs the Radar decision as a
-    PostHog event but always returns the verdict without blocking.
 
     Args:
         request: The Django/DRF request object
@@ -76,9 +80,16 @@ def evaluate_auth_attempt(
         action: Whether this is a signup or signin attempt
         auth_method: The authentication method (password or passkey)
         user_id: Optional user ID if the user already exists (for signin)
+        bypass: When True (default), blocking is skipped (log-only mode).
+            When False and verdict is BLOCK, raises SuspiciousAttemptBlocked
+            (unless the email is in WORKOS_RADAR_BYPASS_EMAILS).
 
     Returns:
         The Radar verdict (allow, challenge, block, error, or disabled)
+
+    Raises:
+        SuspiciousAttemptBlocked: When bypass=False and verdict is BLOCK and
+            the email is not in the bypass list.
     """
     if not settings.WORKOS_RADAR_ENABLED or not settings.WORKOS_RADAR_API_KEY:
         return None
@@ -107,6 +118,16 @@ def evaluate_auth_attempt(
         user_agent=short_user_agent,
         duration_ms=duration_ms,
     )
+
+    if not bypass and verdict == RadarVerdict.BLOCK:
+        bypass_emails: list[str] = getattr(settings, "WORKOS_RADAR_BYPASS_EMAILS", [])
+        if email.lower() not in bypass_emails:
+            logger.warning(
+                "workos_radar_attempt_blocked",
+                action=action.value,
+                email_hash=_hash_email(email),
+            )
+            raise SuspiciousAttemptBlocked()
 
     return verdict
 
