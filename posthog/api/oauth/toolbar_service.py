@@ -3,8 +3,7 @@ Toolbar OAuth backend primitives.
 
 Non-obvious behavior documented here:
 - We keep one OAuth app per organization (not global, not per team).
-- We allow multiple callback redirect URIs on that app so one org can launch
-  toolbar auth from multiple PostHog deployments/environments.
+- The redirect URI is derived from settings.SITE_URL (one per deployment).
 - OAuth state is both signed and one-time-use (cache-backed) to prevent replay.
 """
 
@@ -12,7 +11,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlencode, urlparse, urlunparse
+from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.core import signing
@@ -29,6 +28,10 @@ from posthog.models.organization import Organization
 STATE_SIGNER_SALT = "toolbar-oauth-state-v1"
 STATE_VERSION = 1
 CALLBACK_PATH = "/toolbar_oauth/callback"
+
+
+def _get_redirect_uri() -> str:
+    return f"{settings.SITE_URL}{CALLBACK_PATH}"
 
 
 class ToolbarOAuthStateCache:
@@ -88,24 +91,6 @@ class ToolbarOAuthState:
     user_intent: str | None = None
 
 
-def _split_redirect_uris(redirect_uris: str) -> list[str]:
-    """Split space-delimited redirect URIs, dropping empty entries."""
-    return [uri for uri in redirect_uris.split(" ") if uri]
-
-
-def normalize_base_url_for_oauth(base_url: str) -> str:
-    """
-    OAuth redirect URI validation requires HTTPS for non-loopback hosts.
-    If request context is HTTP on a non-loopback host (e.g. Django testserver),
-    upgrade the scheme to HTTPS for OAuth URL construction.
-    """
-    parsed = urlparse(base_url)
-    if parsed.scheme == "http" and not is_loopback_host(parsed.hostname):
-        parsed = parsed._replace(scheme="https")
-        return urlunparse(parsed).rstrip("/")
-    return base_url.rstrip("/")
-
-
 def normalize_and_validate_app_url(team: Team, app_url: str) -> str:
     try:
         parsed = urlparse(app_url)
@@ -128,16 +113,14 @@ def normalize_and_validate_app_url(team: Team, app_url: str) -> str:
     return app_url
 
 
-def get_or_create_toolbar_oauth_application(base_url: str, user: User) -> OAuthApplication:
+def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
     """
     Return the toolbar OAuth app for the user's organization.
 
     The app is org-scoped so organizations do not share client IDs.
-    Redirect URIs are appended (not replaced) so an org can authorize toolbar
-    from multiple hosts.
+    The redirect URI is derived from settings.SITE_URL.
     """
-    base_url = normalize_base_url_for_oauth(base_url)
-    redirect_uri = f"{base_url.rstrip('/')}{CALLBACK_PATH}"
+    redirect_uri = _get_redirect_uri()
     app_name = settings.TOOLBAR_OAUTH_APPLICATION_NAME
 
     if user.organization is None:
@@ -156,17 +139,11 @@ def get_or_create_toolbar_oauth_application(base_url: str, user: User) -> OAuthA
         ).first()
 
         if existing:
-            # Keep redirect URIs in sync for this organization deployment URLs.
-            existing_redirect_uris = _split_redirect_uris(existing.redirect_uris)
-            if redirect_uri not in existing_redirect_uris:
-                # DOT stores redirect URIs as a single space-delimited string.
-                # We append instead of replacing so one org can authorize toolbar
-                # from multiple PostHog hosts (e.g. US/EU or prod/staging).
-                existing.redirect_uris = " ".join([*existing_redirect_uris, redirect_uri])
+            if existing.redirect_uris != redirect_uri:
+                existing.redirect_uris = redirect_uri
                 existing.save(update_fields=["redirect_uris"])
             return existing
 
-        # NOTE: Keep as non-first-party for now to avoid potential security issues.
         return OAuthApplication.objects.create(
             name=app_name,
             user=user,
@@ -252,13 +229,11 @@ def validate_and_consume_toolbar_oauth_state(
 
 
 def build_authorization_url(
-    base_url: str,
     application: OAuthApplication,
     state: str,
     code_challenge: str,
 ) -> str:
-    base_url = normalize_base_url_for_oauth(base_url)
-    redirect_uri = f"{base_url.rstrip('/')}{CALLBACK_PATH}"
+    redirect_uri = _get_redirect_uri()
     scopes = " ".join(settings.TOOLBAR_OAUTH_SCOPES)
 
     params = {
@@ -271,41 +246,34 @@ def build_authorization_url(
         "scope": scopes,
     }
 
-    return f"{base_url.rstrip('/')}/oauth/authorize/?{urlencode(params)}"
+    return f"{settings.SITE_URL}/oauth/authorize/?{urlencode(params)}"
 
 
 def exchange_code_for_tokens(
-    base_url: str,
     client_id: str,
     code: str,
     code_verifier: str,
 ) -> dict[str, Any]:
-    base_url = normalize_base_url_for_oauth(base_url)
-    redirect_uri = f"{base_url.rstrip('/')}{CALLBACK_PATH}"
-    token_url = f"{base_url.rstrip('/')}/oauth/token/"
+    """Exchange an authorization code for tokens by calling the token endpoint."""
+    redirect_uri = _get_redirect_uri()
+    token_url = f"{settings.SITE_URL}/oauth/token/"
 
-    data = {
-        "grant_type": "authorization_code",
-        "client_id": client_id,
-        "code": code,
-        "redirect_uri": redirect_uri,
-        "code_verifier": code_verifier,
-    }
+    response = requests.post(
+        token_url,
+        data={
+            "grant_type": "authorization_code",
+            "client_id": client_id,
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "code_verifier": code_verifier,
+        },
+        timeout=settings.TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS,
+    )
 
     try:
-        response = requests.post(token_url, data=data, timeout=settings.TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS)
-    except requests.RequestException as exc:
-        raise ToolbarOAuthError("token_exchange_unavailable", "Failed to exchange code for tokens", 500) from exc
-
-    if response.content:
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise ToolbarOAuthError(
-                "token_exchange_invalid_response", "OAuth token exchange returned invalid JSON", 502
-            ) from exc
-    else:
-        payload = {}
+        payload = response.json()
+    except (ValueError, requests.exceptions.JSONDecodeError):
+        raise ToolbarOAuthError("token_exchange_failed", "Non-JSON response from token endpoint", 502)
 
     if response.status_code >= 400:
         error = payload.get("error", "token_exchange_failed")
