@@ -16,21 +16,5 @@
         "@posthog/icons": "*",
         "@types/react": "*",
         "react": "*"
-    },
-    "turbo": {
-        "extends": [
-            "//"
-        ],
-        "tasks": {
-            "backend:contract-check": {
-                "inputs": [
-                    "backend/facade/api.py",
-                    "backend/facade/contracts.py",
-                    "backend/facade/enums.py"
-                ],
-                "outputs": [],
-                "cache": true
-            }
-        }
     }
 }
