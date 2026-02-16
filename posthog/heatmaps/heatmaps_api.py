@@ -490,8 +490,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
 
 
 class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "heatmap"
-    scope_object_read_actions = ["list", "retrieve", "content"]
+    scope_object = "INTERNAL"
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
     authentication_classes = [TemporaryTokenAuthentication]
@@ -569,7 +568,7 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
 
 
 class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
-    scope_object = "heatmap"
+    scope_object = "INTERNAL"
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
     authentication_classes = [TemporaryTokenAuthentication]
