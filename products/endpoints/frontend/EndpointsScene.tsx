@@ -1,7 +1,7 @@
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconBook, IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -33,6 +33,7 @@ const ENDPOINTS_USAGE_PRODUCT_DESCRIPTION =
 export const scene: SceneExport = {
     component: EndpointsScene,
     logic: endpointsLogic,
+    productKey: ProductKey.ENDPOINTS,
 }
 
 export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
@@ -73,19 +74,13 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 >
                                     <LemonButton
                                         type="primary"
-                                        to={urls.sqlEditor(
-                                            undefined,
-                                            undefined,
-                                            undefined,
-                                            undefined,
-                                            OutputTab.Endpoint
-                                        )}
+                                        to={urls.sqlEditor({ outputTab: OutputTab.Endpoint })}
                                         sideAction={{
                                             dropdown: {
                                                 placement: 'bottom-end',
                                                 className: 'new-endpoint-overlay',
                                                 actionable: true,
-                                                overlay: <OverlayForNewEndpointMenu dataAttr="new-endpoint-option" />,
+                                                overlay: <OverlayForNewEndpointMenu />,
                                             },
                                             'data-attr': 'new-endpoint-dropdown',
                                         }}
@@ -109,6 +104,19 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 like to see here and/or report any issues directly to us!
                             </p>
                         </LemonBanner>
+                        <LemonBanner
+                            type="success"
+                            dismissKey="endpoints-docs-upgrade-banner"
+                            action={{
+                                children: 'View docs',
+                                to: 'https://posthog.com/docs/endpoints',
+                                targetBlank: true,
+                            }}
+                            icon={<IconBook />}
+                        >
+                            We've leveled up our endpoints documentation. Check out the new docs for detailed guides and
+                            examples.
+                        </LemonBanner>
                         <ProductIntroduction
                             productName="endpoints"
                             productKey={ProductKey.ENDPOINTS}
@@ -121,11 +129,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                             docsURL="https://posthog.com/docs/endpoints"
                             customHog={BigLeaguesHog}
                             isEmpty={false}
-                            action={() =>
-                                router.actions.push(
-                                    urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint)
-                                )
-                            }
+                            action={() => router.actions.push(urls.sqlEditor({ outputTab: OutputTab.Endpoint }))}
                         />
                         <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
                     </SceneContent>

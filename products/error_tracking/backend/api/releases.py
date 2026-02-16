@@ -1,9 +1,12 @@
 from django.shortcuts import get_object_or_404
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
+
+from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -21,6 +24,7 @@ class ErrorTrackingReleaseSerializer(serializers.ModelSerializer):
         read_only_fields = ["team_id"]
 
 
+@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     queryset = ErrorTrackingRelease.objects.all()

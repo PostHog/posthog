@@ -1,13 +1,16 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
@@ -15,6 +18,9 @@ import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
 import { maxLogic, mergeConversationHistory } from './maxLogic'
+
+// Keep this stored across all projects, only display this once per device
+const AI_LIABILITY_NOTICE_STORAGE_KEY = 'posthog_ai_liability_notice_dismissed'
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
@@ -87,6 +93,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
+        dismissLiabilityNotice: true,
     }),
 
     loaders(({ values }) => ({
@@ -141,6 +148,13 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
             },
         ],
+        liabilityNoticeDismissed: [
+            false,
+            { persist: true, storageKey: AI_LIABILITY_NOTICE_STORAGE_KEY },
+            {
+                dismissLiabilityNotice: () => true,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         acceptDataProcessing: async ({ testOnlyOverride }) => {
@@ -149,6 +163,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             })
         },
         askSidePanelMax: ({ prompt }) => {
+            const isRemovingSidePanelFlag = values.featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
+            if (isRemovingSidePanelFlag) {
+                newInternalTab(urls.ai(undefined, prompt))
+                return
+            }
+
             let logic = maxLogic.findMounted({ tabId: 'sidepanel' })
             if (!logic) {
                 logic = maxLogic({ tabId: 'sidepanel' })
@@ -175,6 +195,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
         },
     })),
+    afterMount(({ actions, values }) => {
+        if (values.featureFlags[FEATURE_FLAGS.AI_FIRST]) {
+            actions.loadConversationHistory()
+        }
+    }),
+
     selectors({
         dataProcessingAccepted: [
             (s) => [s.currentOrganization],
@@ -187,6 +213,18 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 currentOrganization.membership_level < OrganizationMembershipLevel.Admin
                     ? `Ask an admin or owner of ${currentOrganization?.name} to approve this`
                     : null,
+        ],
+        isOrganizationCreatedRecently: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): boolean => {
+                const orgCreatedAt = currentOrganization?.created_at
+                return orgCreatedAt ? dayjs().diff(dayjs(orgCreatedAt), 'day') <= 15 : false
+            },
+        ],
+        shouldShowLiabilityNotice: [
+            (s) => [s.isOrganizationCreatedRecently, s.liabilityNoticeDismissed],
+            (isOrganizationCreatedRecently, liabilityNoticeDismissed): boolean =>
+                isOrganizationCreatedRecently && !liabilityNoticeDismissed,
         ],
         availableStaticTools: [
             (s) => [s.featureFlags],

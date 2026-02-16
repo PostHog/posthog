@@ -23,6 +23,7 @@ import {
     DataWarehouseNode,
     EventsNode,
     FileSystemIconType,
+    GroupNode,
     HogQLQuery,
     HogQLVariable,
     InsightVizNode,
@@ -39,6 +40,7 @@ import {
     isDataTableNode,
     isDataWarehouseNode,
     isEventsNode,
+    isGroupNode,
     isInsightVizNode,
 } from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
@@ -73,6 +75,25 @@ export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | nu
     )
 }
 
+export const formatEventName = (name: string | undefined | null): string | undefined => {
+    if (!name) {
+        return
+    }
+
+    // Handle comma-separated event keys (e.g., "$pageview, $exception" from GroupNode)
+    if (name.includes(',')) {
+        return name
+            .split(',')
+            .map((eventName) => {
+                const trimmed = eventName.trim()
+                return CORE_FILTER_DEFINITIONS_BY_GROUP.events?.[trimmed]?.label || trimmed
+            })
+            .join(', ')
+    }
+
+    return CORE_FILTER_DEFINITIONS_BY_GROUP.events?.[name]?.label || name
+}
+
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
     isCustom = true
@@ -92,20 +113,35 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export const getDisplayNameFromEntityNode = (
-    node: EventsNode | ActionsNode | DataWarehouseNode,
+    node: EventsNode | ActionsNode | DataWarehouseNode | GroupNode,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
-    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
+
+    // Handle GroupNode: format comma-separated event names
+    if (isGroupNode(node) && name) {
+        const eventNames = name.split(',').map((eventName) => {
+            const trimmedName = eventName.trim()
+            return CORE_FILTER_DEFINITIONS_BY_GROUP.events?.[trimmedName]?.label || trimmedName
+        })
+        name = eventNames.join(', ')
+    } else if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
         name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
     }
+
     if (isEventsNode(node) && node.event === null) {
         name = 'All events'
     }
 
-    const id = isDataWarehouseNode(node) ? node.table_name : isEventsNode(node) ? node.event : node.id
+    const id = isDataWarehouseNode(node)
+        ? node.table_name
+        : isEventsNode(node)
+          ? node.event
+          : isGroupNode(node)
+            ? undefined
+            : node.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)
@@ -200,7 +236,7 @@ export function formatAggregationValue(
     if (property && formatPropertyValueForDisplay) {
         formattedValue = formatPropertyValueForDisplay(property, propertyValue)
         // yes, double equals not triple equals  ¯\_(ツ)_/¯ let JS compare strings and numbers however it wants
-        if (formattedValue == propertyValue) {
+        if (String(formattedValue) == String(propertyValue)) {
             // formatPropertyValueForDisplay didn't change the value...
             formattedValue = renderCount(propertyValue)
         }
@@ -221,7 +257,7 @@ export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
 export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
 export const BREAKDOWN_NULL_DISPLAY = 'None (i.e. no value)'
 
-export function isOtherBreakdown(breakdown_value: string | number | null | undefined | ReactNode): boolean {
+export function isOtherBreakdown(breakdown_value: string | number | bigint | null | undefined | ReactNode): boolean {
     return (
         breakdown_value === BREAKDOWN_OTHER_STRING_LABEL ||
         breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL ||
@@ -426,7 +462,7 @@ export const INSIGHT_TYPE_URLS: Record<InsightType | string, string> = {
     [InsightType.WEB_ANALYTICS]: urls.insightNew({ type: InsightType.WEB_ANALYTICS }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
-    SQL: urls.sqlEditor((examples.HogQLForDataVisualization as HogQLQuery)['query']),
+    SQL: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery)['query'] }),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */

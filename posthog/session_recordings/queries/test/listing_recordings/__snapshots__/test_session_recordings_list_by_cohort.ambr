@@ -44,7 +44,7 @@
                                                                                                                                                                                                                                                                                                                                  FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -95,7 +95,7 @@
                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -156,7 +156,7 @@
                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -207,7 +207,7 @@
                                                                                                                                                                                                                                                                                                                                  FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -275,7 +275,7 @@
                                                                                                                                                                                                                                                                                                                                                                   FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                   WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -333,7 +333,7 @@
                                                                                                                                                                                                                                                                                                                                                                   FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                   WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -394,7 +394,7 @@
                                                                                                                                                                                                                                                                                                                                  FROM person_static_cohort
                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))))))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -445,7 +445,7 @@
                                                                                                                                                                                                                                                                                                                                     FROM person_static_cohort
                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))))))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -496,7 +496,7 @@
                                                                                                                                                                                                                                                                                                                                  FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -547,7 +547,7 @@
                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -601,7 +601,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                            FROM person_static_cohort
                                                                                                                                                                                                                                                                                                                                                                                                                                                                            WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999))))))))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -655,7 +655,7 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                            FROM person_static_cohort
                                                                                                                                                                                                                                                                                                                                                                                                                                                                            WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999))))))))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,
@@ -716,7 +716,7 @@
                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))))))
   GROUP BY s.session_id
-  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0)
+  HAVING and(ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-08-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(max(s.is_deleted), 0), 0))
   ORDER BY start_time DESC,
            s.session_id DESC
   LIMIT 51 SETTINGS readonly=2,

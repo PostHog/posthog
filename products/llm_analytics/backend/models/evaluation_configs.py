@@ -31,9 +31,7 @@ class LLMJudgeConfig(BaseModel):
 class BooleanOutputConfig(BaseModel):
     """Configuration for boolean output type"""
 
-    # Currently no specific config needed for boolean output
-    # This is a placeholder for future extensions
-    pass
+    allows_na: bool = False
 
 
 # Mapping: (evaluation_type, output_type) -> (evaluation_config_model, output_config_model)

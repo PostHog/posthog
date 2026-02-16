@@ -54,11 +54,13 @@ export enum PluginServerMode {
     cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
-    cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
+    cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
+    cdp_cyclotron_shadow_worker = 'cdp-cyclotron-shadow-worker',
+    recording_api = 'recording-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -188,6 +190,11 @@ export type CdpConfig = {
     // Cyclotron (CDP job queue)
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
+    CYCLOTRON_SHADOW_DATABASE_URL: string
+    CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
+    CDP_CYCLOTRON_TEST_SEEK_LATENCY: boolean // When true, samples consumed messages and seeks back to verify read latency
+    CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: number // Fraction of messages to test (0.0-1.0, e.g. 0.01 = 1%)
+    CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: number // Max offsets to seek back (e.g. 50000000 ≈ 14 days at current throughput)
 
     // SES (Workflows email sending)
     SES_ENDPOINT: string
@@ -204,7 +211,13 @@ export type CdpConfig = {
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
+/** The lane for ingestion consumers */
+export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
+
 export type IngestionConsumerConfig = {
+    /** The lane this consumer is processing (e.g. main, overflow, historical, async) */
+    INGESTION_LANE?: IngestionLane
+
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
     INGESTION_CONSUMER_CONSUME_TOPIC: string
@@ -218,11 +231,11 @@ export type IngestionConsumerConfig = {
     INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled
     INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string // comma-separated list of token or token:distinct_id to force overflow
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether Kafka message keys should be preserved when rerouted to overflow
-    /** If true, use the joined ingestion pipeline instead of the legacy two-stage pipeline */
-    INGESTION_JOINED_PIPELINE: boolean
 
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
+    /** When true, use batch SQL queries for person updates. When false, use individual queries. */
+    PERSON_BATCH_WRITING_USE_BATCH_UPDATES: boolean
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: boolean
     PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
@@ -250,6 +263,14 @@ export type IngestionConsumerConfig = {
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
+
+    // Stateful overflow config
+    /** If true, use stateful overflow redirect with Redis. If false, use stateless MemoryRateLimiter. */
+    INGESTION_STATEFUL_OVERFLOW_ENABLED: boolean
+    /** TTL in seconds for overflow flags in Redis (default: 300 = 5 minutes) */
+    INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
+    /** TTL in seconds for local cache entries (default: 60 = 1 minute) */
+    INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
 
     // Per-token/distinct_id restrictions
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
@@ -297,6 +318,13 @@ export type LogsIngestionConsumerConfig = {
     LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
 }
 
+export type SessionRecordingApiConfig = {
+    SESSION_RECORDING_API_REDIS_HOST: string
+    SESSION_RECORDING_API_REDIS_PORT: number
+    SESSION_RECORDING_KMS_ENDPOINT: string | undefined
+    SESSION_RECORDING_DYNAMODB_ENDPOINT: string | undefined
+}
+
 export type SessionRecordingConfig = {
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -337,13 +365,30 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
     SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
+    SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: number
+    SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE: number
+    /** When true, rate limiting will drop messages that exceed the limit. When false, dry run mode (metrics only) */
+    SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED: boolean
+    /** When false, skips all Redis calls for session filtering. Use to bypass Redis during outages */
+    SESSION_RECORDING_SESSION_FILTER_ENABLED: boolean
+    /** TTL in milliseconds for the in-memory session tracker cache */
+    SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
+    /** TTL in milliseconds for the in-memory session filter cache */
+    SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
+
+    // Kafka consumer config (overrides hardcoded defaults when set)
+    INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
+    INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: string
+    INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC: string
+    INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC: string
 }
 
 export interface PluginsServerConfig
     extends CdpConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
-        SessionRecordingConfig {
+        SessionRecordingConfig,
+        SessionRecordingApiConfig {
     CONTINUOUS_PROFILING_ENABLED: boolean
     PYROSCOPE_SERVER_ADDRESS: string
     PYROSCOPE_APPLICATION_NAME: string
@@ -426,6 +471,8 @@ export interface PluginsServerConfig
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     PLUGIN_SERVER_MODE: PluginServerMode | null
+    /** Comma-separated list of capability groups for local dev: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags */
+    NODEJS_CAPABILITY_GROUPS: string | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
@@ -446,6 +493,9 @@ export interface PluginsServerConfig
     POSTHOG_API_KEY: string
     POSTHOG_HOST_URL: string
 
+    // Internal API authentication
+    INTERNAL_API_SECRET: string
+
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 
@@ -456,11 +506,28 @@ export interface PluginsServerConfig
 
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
+    CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: number
+
+    // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
+    PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
+
+    // SES (Workflows email sending)
+    SES_ENDPOINT: string
+    SES_ACCESS_KEY_ID: string
+    SES_SECRET_ACCESS_KEY: string
+    SES_REGION: string
 
     // Pod termination
     POD_TERMINATION_ENABLED: boolean
     POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
     POD_TERMINATION_JITTER_MINUTES: number
+
+    // ClickHouse
+    CLICKHOUSE_HOST: string
+    CLICKHOUSE_PORT: number
+    CLICKHOUSE_USERNAME: string
+    CLICKHOUSE_PASSWORD: string
+    CLICKHOUSE_DATABASE: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -500,14 +567,16 @@ export interface PluginServerCapabilities {
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
+    cdpBatchHogFlow?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
-    cdpCyclotronWorkerDelay?: boolean
     cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
+    cdpCyclotronShadowWorker?: boolean
+    recordingApi?: boolean
 }
 
 export type TeamId = Team['id']
@@ -600,6 +669,13 @@ export interface RawOrganization {
 export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' | 'zapier'
 
 /** Usable Team model. */
+export interface LogsSettings {
+    capture_console_logs?: boolean
+    json_parse_logs?: boolean
+    retention_days?: number
+    retention_last_updated?: string
+}
+
 export interface Team {
     id: number
     project_id: ProjectId
@@ -622,6 +698,7 @@ export interface Team {
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
     drop_events_older_than_seconds: number | null
+    logs_settings?: LogsSettings | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
@@ -800,12 +877,14 @@ export interface BasePerson {
 export interface RawPerson extends BasePerson {
     created_at: string
     version: string | null
+    last_seen_at: string | null
 }
 
 /** Usable Person model. */
 export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
+    last_seen_at: DateTime | null
 }
 
 /** Mutable fields that can be updated on a Person via updatePerson. */
@@ -816,6 +895,7 @@ export interface PersonUpdateFields {
     is_identified: boolean
     created_at: DateTime
     version?: number // Optional: allows forcing a specific version
+    last_seen_at?: DateTime | null
 }
 
 /** Person model exposed outside of person-specific DB logic. */
@@ -841,6 +921,7 @@ export interface ClickHousePerson {
     is_deleted: number
     timestamp: string
     version: number
+    last_seen_at: string | null
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4

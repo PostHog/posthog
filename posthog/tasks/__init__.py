@@ -1,6 +1,7 @@
 # Make tasks ready for celery autoimport
 
 from . import (
+    activity_log,
     async_migrations,
     calculate_cohort,
     demo_create_data,
@@ -10,6 +11,7 @@ from . import (
     exporter,
     feature_flags,
     heatmap_screenshot,
+    hog_flows,
     hog_functions,
     integrations,
     plugin_server,
@@ -27,6 +29,7 @@ from . import (
 )
 
 __all__ = [
+    "activity_log",
     "async_migrations",
     "calculate_cohort",
     "demo_create_data",
@@ -36,6 +39,7 @@ __all__ = [
     "exporter",
     "feature_flags",
     "heatmap_screenshot",
+    "hog_flows",
     "hog_functions",
     "integrations",
     "plugin_server",

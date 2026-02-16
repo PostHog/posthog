@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { IconExternal, IconPlus } from '@posthog/icons'
 import {
@@ -26,6 +27,24 @@ import { HogFlowAction } from '../types'
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, workflow, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setMode } = useActions(hogFlowEditorLogic)
+
+    /**
+     * Tricky: Since resultPath is stored inside an object, we need separate state to manage
+     * its value to prevent cursor jumping while typing. Updating the parent object causes
+     * a re-render due to the new object reference being set on each keystroke.
+     */
+    const [outputResultPath, setOutputResultPath] = useState(selectedNode?.data.output_variable?.result_path || '')
+    useEffect(() => {
+        if (selectedNode?.data.output_variable?.key) {
+            setWorkflowAction(selectedNode.data.id, {
+                ...selectedNode.data,
+                output_variable: {
+                    ...selectedNode.data.output_variable,
+                    result_path: outputResultPath ?? null,
+                },
+            } as HogFlowAction)
+        }
+    }, [outputResultPath]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const Step = useHogFlowStep(selectedNode?.data)
 
@@ -76,6 +95,9 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                             config: {
                                                 ...action.config,
                                                 message_category_id: categoryId,
+                                                message_category_type: categoryId
+                                                    ? categories.find((cat) => cat.id === categoryId)?.category_type
+                                                    : undefined,
                                             },
                                         } as Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }>)
                                     }}
@@ -97,13 +119,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                             panels={[
                                 {
                                     key: 'outputs',
-                                    header: {
-                                        children: (
-                                            <>
-                                                <span className="flex-1">Output variable</span>
-                                            </>
-                                        ),
-                                    },
+                                    header: <span className="flex-1">Output variable</span>,
                                     content: (
                                         <div className="flex flex-col items-start gap-2">
                                             <LemonField.Pure label="Select a workflow variable to store the output of this step">
@@ -128,22 +144,20 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                             </LemonField.Pure>
                                             <LemonField.Pure
                                                 label="Result path (optional)"
-                                                info="Specify a path within the step result to store. For example, to store the user ID from a response, use 'response.user.id'. To store the entire result, leave this blank."
+                                                info="Specify a path within the step result to store. For example, to store a user ID from a webhook response, you might use 'body.results[0].id'. To store the entire result, leave this blank."
+                                                className="w-full"
                                             >
                                                 <LemonInput
+                                                    disabledReason={
+                                                        !action.output_variable?.key
+                                                            ? 'Select a variable above to enable setting a result path.'
+                                                            : undefined
+                                                    }
                                                     type="text"
                                                     prefix={<span>result.</span>}
-                                                    value={action.output_variable?.result_path || ''}
-                                                    onChange={(value) =>
-                                                        setWorkflowAction(action.id, {
-                                                            ...action,
-                                                            output_variable: {
-                                                                key: action.output_variable?.key || '',
-                                                                result_path: value || null,
-                                                            },
-                                                        })
-                                                    }
-                                                    placeholder="response.user.id"
+                                                    value={outputResultPath}
+                                                    onChange={(value) => setOutputResultPath(value)}
+                                                    placeholder="body.results[0].id"
                                                 />
                                             </LemonField.Pure>
                                             <LemonButton
@@ -160,14 +174,12 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                 },
                                 {
                                     key: 'filters',
-                                    header: {
-                                        children: (
-                                            <>
-                                                <span className="flex-1">Conditions</span>
-                                                <LemonBadge.Number count={numberOfActionFilters} showZero={false} />
-                                            </>
-                                        ),
-                                    },
+                                    header: (
+                                        <>
+                                            <span className="flex-1">Conditions</span>
+                                            <LemonBadge.Number count={numberOfActionFilters} showZero={false} />
+                                        </>
+                                    ),
                                     content: (
                                         <div>
                                             <p>
@@ -175,7 +187,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 will skip this step and continue to the next one.
                                             </p>
                                             <HogFlowPropertyFilters
-                                                actionId={action.id}
+                                                filtersKey={`action-skip-conditions-${action.id}`}
                                                 filters={action.filters ?? {}}
                                                 setFilters={(filters) =>
                                                     setWorkflowAction(action.id, { ...action, filters })
@@ -187,13 +199,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                 },
                                 {
                                     key: 'on_error',
-                                    header: {
-                                        children: (
-                                            <>
-                                                <span className="flex-1">Error handling</span>
-                                            </>
-                                        ),
-                                    },
+                                    header: <span className="flex-1">Error handling</span>,
                                     content: (
                                         <div>
                                             <p>
@@ -205,7 +211,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     { value: 'continue', label: 'Continue to next step' },
                                                     { value: 'abort', label: 'Exit the workflow' },
                                                 ]}
-                                                value={action.on_error || 'continue'}
+                                                value={action.on_error || 'abort'}
                                                 onChange={(value) =>
                                                     setWorkflowAction(action.id, {
                                                         ...action,

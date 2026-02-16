@@ -1,10 +1,4 @@
 // ==== Deduplication-specific metrics ====
-/// Counter for the number of duplicate events found
-pub const DUPLICATE_EVENTS_TOTAL_COUNTER: &str = "duplicate_events_total";
-
-/// Counter for the number of unique events processed
-pub const UNIQUE_EVENTS_TOTAL_COUNTER: &str = "unique_events_total";
-
 /// Counter for duplicate events published to Kafka (with status label: success/failure)
 pub const DUPLICATE_EVENTS_PUBLISHED_COUNTER: &str = "duplicate_events_published_total";
 
@@ -45,29 +39,6 @@ pub const TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str =
 pub const TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER: &str =
     "timestamp_dedup_field_differences_total";
 
-// ==== UUID deduplication metrics ====
-/// Histogram for timestamp variance in milliseconds for UUID duplicates
-pub const UUID_DEDUP_TIMESTAMP_VARIANCE_HISTOGRAM: &str = "uuid_dedup_timestamp_variance_ms";
-
-/// Histogram for number of unique timestamps seen for the same UUID
-pub const UUID_DEDUP_UNIQUE_TIMESTAMPS_HISTOGRAM: &str = "uuid_dedup_unique_timestamps";
-
-/// Histogram for similarity score in UUID deduplication
-pub const UUID_DEDUP_SIMILARITY_SCORE_HISTOGRAM: &str = "uuid_dedup_similarity_score";
-
-/// Histogram for number of different fields in UUID deduplication
-pub const UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM: &str = "uuid_dedup_different_fields";
-
-/// Histogram for number of different properties in UUID deduplication
-pub const UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM: &str = "uuid_dedup_different_properties";
-
-/// Histogram for properties similarity score in UUID deduplication
-pub const UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str =
-    "uuid_dedup_properties_similarity_score";
-
-/// Counter for specific fields that differ in UUID deduplication
-pub const UUID_DEDUP_FIELD_DIFFERENCES_COUNTER: &str = "uuid_dedup_field_differences_total";
-
 // ==== Cleanup operations metrics ====
 /// Counter for cleanup operations performed
 pub const CLEANUP_OPERATIONS_COUNTER: &str = "cleanup_operations_total";
@@ -88,21 +59,26 @@ pub const CHECKPOINT_FILE_COUNT_HISTOGRAM: &str = "checkpoint_file_count";
 pub const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
 
 /// Counter for checkpoint worker status
+/// Tags: result=success|error|skipped, cause=..., export=...
 pub const CHECKPOINT_WORKER_STATUS_COUNTER: &str = "checkpoint_worker_status";
 
-/// Counts number of times a StoreManager lookup by partition
-/// finds no associated DeduplicationStore, meaning ownership
-/// has changed across a rebalance or other event asynchronously
-pub const CHECKPOINT_STORE_NOT_FOUND_COUNTER: &str = "checkpoint_store_not_found";
-
 /// Histogram for checkpoint upload duration
+/// Tags: result=success|error|cancelled
+/// When result=cancelled, additional tag: cause=rebalance|shutdown|unknown
 pub const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_duration_seconds";
 
 /// Counter for checkpoint upload outcome status
+/// Tags: result=success|error|cancelled|unavailable
+/// When result=cancelled, additional tag: cause=rebalance|shutdown|unknown
 pub const CHECKPOINT_UPLOADS_COUNTER: &str = "checkpoint_upload_status";
 
 /// Counter for checkpoint file downloads outcome status
+/// Tags: status=success|error|cancelled
 pub const CHECKPOINT_FILE_DOWNLOADS_COUNTER: &str = "checkpoint_file_downloads_status";
+
+/// Counter for checkpoint file uploads outcome status
+/// Tags: status=success|error|cancelled
+pub const CHECKPOINT_FILE_UPLOADS_COUNTER: &str = "checkpoint_file_uploads_status";
 
 /// Counter for checkpoint files tracked in each attempt plan tagged by action taken
 pub const CHECKPOINT_PLAN_FILE_TRACKED_COUNTER: &str = "checkpoint_plan_file_tracked";
@@ -121,9 +97,27 @@ pub const CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM: &str = "checkpoint_file_fetch_a
 /// Histogram for checkpoint metadata file list duration; only measured on success
 pub const CHECKPOINT_LIST_METADATA_HISTOGRAM: &str = "checkpoint_list_metadata_seconds";
 
+/// Histogram for total checkpoint import duration from start to completion
+/// This measures the end-to-end time for import_checkpoint_for_topic_partition_cancellable,
+/// including listing checkpoints, downloading metadata files, downloading all SST files,
+/// and any fallback attempts. Tags: result=success|failed|cancelled|timeout
+pub const CHECKPOINT_IMPORT_DURATION_HISTOGRAM: &str = "checkpoint_import_duration_seconds";
+
+/// Histogram for per-checkpoint-attempt duration during import
+/// This measures the time for each individual checkpoint attempt (downloading one checkpoint's files).
+/// Multiple attempts may occur if earlier checkpoints fail. Tags: result=success|failed
+pub const CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM: &str =
+    "checkpoint_import_attempt_duration_seconds";
+
 /// Record outcomes for attempts to restore checkpoints
 /// when local store is missing after Kafka rebalances
 pub const REBALANCE_CHECKPOINT_IMPORT_COUNTER: &str = "rebalance_checkpoint_import_total";
+
+/// Counter for immediate cleanup of checkpoint imports after cancellation or ownership loss.
+/// This counts directories cleaned up immediately rather than waiting for orphan cleaner.
+/// Tags: result=success|failed
+pub const CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER: &str =
+    "checkpoint_import_cancelled_cleanup_total";
 
 // ==== Store Manager Diagnostics ====
 /// Histogram for store creation duration (in milliseconds)
@@ -134,6 +128,67 @@ pub const STORE_CREATION_EVENTS: &str = "store_creation_events_total";
 
 /// Gauge for active store count
 pub const ACTIVE_STORE_COUNT: &str = "active_store_count";
+
+/// Gauge for number of overlapping rebalances in progress
+/// Value > 0 means rebalance async work is ongoing; used to block orphan cleanup
+pub const REBALANCING_COUNT: &str = "rebalancing_count";
+
+// ==== Partition Ownership Tracking ====
+
+/// Gauge for currently owned partition count
+/// Updated on every ownership change for real-time visibility
+pub const OWNED_PARTITIONS_COUNT: &str = "owned_partitions_count";
+
+/// Counter for partitions added to ownership (ASSIGN callback)
+pub const PARTITION_OWNERSHIP_ADDED: &str = "partition_ownership_added_total";
+
+/// Counter for partitions removed from ownership (REVOKE callback)
+pub const PARTITION_OWNERSHIP_REMOVED: &str = "partition_ownership_removed_total";
+
+/// Counter for partition state changes from Kafka rebalance (assign/revoke)
+/// Labels: topic, partition, op (assign|revoke)
+/// Use this to track rebalance activity per partition for debugging and alerting
+pub const REBALANCE_PARTITION_STATE_CHANGE: &str = "rebalance_partition_state_change_total";
+
+/// Counter for async setup cancellations
+/// Incremented when a new rebalance starts before async setup completes
+pub const REBALANCE_ASYNC_SETUP_CANCELLED: &str = "rebalance_async_setup_cancelled_total";
+
+/// Counter for partitions skipped during store creation (no longer owned)
+/// Labels: reason (not_owned, cancelled)
+pub const PARTITION_STORE_SETUP_SKIPPED: &str = "partition_store_setup_skipped_total";
+
+/// Counter for partitions where checkpoint import failed and we fell back to empty store
+/// Labels: reason (no_importer | import_failed | import_cancelled | unknown)
+/// This is an important metric for alerting - indicates degraded deduplication quality
+pub const PARTITION_STORE_FALLBACK_EMPTY: &str = "partition_store_fallback_empty_total";
+
+/// Counter for messages dropped because no store was registered for the partition
+/// Labels: topic, partition
+/// This is expected during rebalances due to rdkafka message buffering
+pub const MESSAGES_DROPPED_NO_STORE: &str = "messages_dropped_no_store_total";
+
+/// Counter for batch processing errors (excluding expected store-not-found errors)
+/// Labels: topic, partition, error_type
+pub const BATCH_PROCESSING_ERROR: &str = "batch_processing_error_total";
+
+// ==== Rebalance Resume ====
+
+/// Counter for Resume commands skipped entirely (no owned partitions)
+pub const REBALANCE_RESUME_SKIPPED_NO_OWNED: &str = "rebalance_resume_skipped_no_owned_total";
+
+/// Counter for empty rebalances skipped (cooperative-sticky no-ops)
+/// Labels: event_type (assign|revoke)
+/// With cooperative-sticky protocol, the broker triggers rebalances for all consumers
+/// when any group membership changes, even if partitions don't move. This tracks
+/// how many of these empty rebalances we short-circuit.
+pub const REBALANCE_EMPTY_SKIPPED: &str = "rebalance_empty_skipped_total";
+
+/// Histogram for partition directory cleanup duration at end of rebalance cycle.
+/// Measures total time for parallel scatter-gather deletion of unowned partition directories.
+/// Use to monitor cleanup performance and detect I/O bottlenecks blocking consumption resume.
+pub const REBALANCE_DIRECTORY_CLEANUP_DURATION_HISTOGRAM: &str =
+    "rebalance_directory_cleanup_duration_seconds";
 
 // ==== Partition Batch Processing Diagnostics ====
 /// Histogram for partition batch processing duration (in milliseconds)

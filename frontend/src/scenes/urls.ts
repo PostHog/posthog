@@ -8,7 +8,6 @@ import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, SDKKey } f
 
 import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
-import type { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
@@ -42,8 +41,13 @@ export const urls = {
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
     dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
+    apps: (): string => '/apps',
+    appsNew: (): string => '/apps/new',
+    destinations: (): string => '/data-management/destinations',
+    models: (): string => '/models',
+    sources: (): string => '/data-management/sources',
+    transformations: (): string => '/data-management/transformations',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
-    feed: (): string => '/feed',
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
@@ -52,14 +56,21 @@ export const urls = {
     marketingAnalytics: (): string => '/data-management/marketing-analytics',
     marketingAnalyticsApp: (): string => '/marketing',
     customCss: (): string => '/themes/custom-css',
-    sqlEditor: (
-        query?: string,
-        view_id?: string,
-        insightShortId?: string,
-        draftId?: string,
-        outputTab?: OutputTab,
+    sqlEditor: ({
+        query,
+        view_id,
+        insightShortId,
+        draftId,
+        outputTab,
+        endpointName,
+    }: {
+        query?: string
+        view_id?: string
+        insightShortId?: string
+        draftId?: string
+        outputTab?: OutputTab
         endpointName?: string
-    ): string => {
+    } = {}): string => {
         const params = new URLSearchParams()
 
         if (query) {
@@ -87,6 +98,9 @@ export const urls = {
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     comments: (): string => '/data-management/comments',
     comment: (id: CommentType['id'] | ':id'): string => `/data-management/comments/${id}`,
+    variables: (): string => '/data-management/variables',
+    variable: (id: string | ':id'): string => `/data-management/variables/${id}`,
+    variableEdit: (id: string | ':id'): string => `/data-management/variables/${id}/edit`,
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',
@@ -107,18 +121,40 @@ export const urls = {
     liveDebugger: (): string => '/live-debugger',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
+    twoFactorReset: (userUuid: string, token: string): string => `/reset_2fa/${userUuid}/${token}`,
     preflight: (): string => '/preflight',
     signup: (): string => '/signup',
     verifyEmail: (userUuid: string = '', token: string = ''): string =>
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
+    vercelLinkError: (): string => '/integrations/vercel/link-error',
     inviteSignup: (id: string): string => `/signup/${id}`,
-    products: (): string => '/products',
-    useCaseSelection: (): string => '/onboarding/use-case',
-    onboardingCoupon: (campaign: string): string => `/onboarding/coupons/${campaign}`,
-    onboarding: (productKey: string, stepKey?: OnboardingStepKey, sdk?: SDKKey): string =>
-        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}${
-            sdk && stepKey ? '&sdk=' + sdk : sdk ? '?sdk=' + sdk : ''
-        }`,
+    onboarding: ({
+        campaign,
+        productKey,
+        stepKey,
+        sdk,
+    }: {
+        campaign?: string
+        productKey?: string
+        stepKey?: OnboardingStepKey
+        sdk?: SDKKey
+    } = {}): string => {
+        if (campaign) {
+            return `/onboarding/coupons/${campaign}`
+        }
+
+        const params = new URLSearchParams()
+        if (stepKey) {
+            params.set('step', stepKey)
+        }
+        if (sdk) {
+            params.set('sdk', sdk)
+        }
+
+        const base = `/onboarding${productKey ? `/${productKey}` : ''}`
+        const queryString = params.toString()
+        return `${base}${queryString ? `?${queryString}` : ''}`
+    },
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
@@ -160,6 +196,7 @@ export const urls = {
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     debugHog: (): string => '/debug/hog',
+    signalsDebug: (): string => '/debug/signals',
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
@@ -177,10 +214,9 @@ export const urls = {
     coupons: (campaign: string): string => `/coupons/${campaign}`,
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
     oauthAuthorize: (): string => '/oauth/authorize',
-    dataPipelines: (kind: DataPipelinesSceneTab = 'overview'): string => `/pipeline/${kind}`,
     dataPipelinesNew: (kind?: DataPipelinesNewSceneKind): string => `/pipeline/new/${kind ?? ''}`,
     dataWarehouseSource: (id: string, tab?: DataWarehouseSourceSceneTab): string =>
-        `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,
+        `/data-management/sources/${id}/${tab ?? 'schemas'}`,
     dataWarehouseSourceNew: (kind?: string): string => `/data-warehouse/new-source${kind ? `?kind=${kind}` : ''}`,
     batchExportNew: (service: string): string => `/pipeline/batch-exports/new/${service}`,
     batchExport: (id: string): string => `/pipeline/batch-exports/${id}`,
@@ -188,10 +224,16 @@ export const urls = {
     hogFunction: (id: string, tab?: HogFunctionSceneTab): string => `/functions/${id}${tab ? `?tab=${tab}` : ''}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
     productTours: (): string => '/product_tours',
-    productTour: (id: string): string => `/product_tours/${id}`,
+    productTour: (id: string, params?: string): string =>
+        `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationDeactivated: (): string => '/organization-deactivated',
-    approvals: (): string => '/settings/organization-approvals#change-requests',
+    approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
+    health: (): string => '/health',
+    inbox: (): string => '/inbox',
+    pipelineStatus: (): string => '/health/pipeline-status',
+    sdkDoctor: (): string => '/health/sdk-doctor',
+    exports: (): string => '/exports',
 }
 
 export interface UrlMatcher {

@@ -1,6 +1,7 @@
 import ExtensionDocument from '@tiptap/extension-document'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
+import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
 import { Placeholder } from '@tiptap/extensions'
 import StarterKit, { StarterKitOptions } from '@tiptap/starter-kit'
@@ -22,6 +23,7 @@ import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
+import { NotebookNodeDuckSQL } from '../Nodes/NotebookNodeDuckSQL'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 import { NotebookNodeExperiment } from '../Nodes/NotebookNodeExperiment'
@@ -29,6 +31,7 @@ import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeGroupProperties } from '../Nodes/NotebookNodeGroupProperties'
+import { NotebookNodeHogQL } from '../Nodes/NotebookNodeHogQL'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 import { NotebookNodeIssues } from '../Nodes/NotebookNodeIssues'
 import { NotebookNodeLLMTrace } from '../Nodes/NotebookNodeLLMTrace'
@@ -38,6 +41,7 @@ import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
 import { NotebookNodePersonProperties } from '../Nodes/NotebookNodePersonProperties'
 import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
+import { NotebookNodePython } from '../Nodes/NotebookNodePython'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
 import { NotebookNodeRelatedGroups } from '../Nodes/NotebookNodeRelatedGroups'
@@ -54,6 +58,7 @@ import { CollapsibleHeading } from './CollapsibleHeading'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
 import { InlineMenu } from './InlineMenu'
 import { SlashCommandsExtension } from './SlashCommands'
+import { TableMenu } from './TableMenu'
 import { notebookLogic } from './notebookLogic'
 
 const CustomDocument = ExtensionDocument.extend({
@@ -61,7 +66,7 @@ const CustomDocument = ExtensionDocument.extend({
 })
 
 export function Editor(): JSX.Element {
-    const { shortId, mode } = useValues(notebookLogic)
+    const { shortId, mode, isEditable } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
         useActions(notebookLogic)
     const hasCollapsibleSections = useFeatureFlag('NOTEBOOKS_COLLAPSIBLE_SECTIONS')
@@ -110,6 +115,10 @@ export function Editor(): JSX.Element {
                 resetSuggestions()
             },
         }),
+        Table,
+        TableRow,
+        TableHeader,
+        TableCell,
         DropAndPasteHandlerExtension,
         TaskList,
         TaskItem.configure({ nested: true }),
@@ -118,6 +127,9 @@ export function Editor(): JSX.Element {
         NotebookNodeLatex,
         NotebookNodeBacklink,
         NotebookNodeQuery,
+        NotebookNodePython,
+        NotebookNodeDuckSQL,
+        NotebookNodeHogQL,
         NotebookNodeRecording,
         NotebookNodeReplayTimestamp,
         NotebookNodePlaylist,
@@ -154,6 +166,7 @@ export function Editor(): JSX.Element {
         <RichContentEditor
             logicKey={`Notebook.${shortId}`}
             extensions={extensions}
+            disabled={!isEditable}
             className="NotebookEditor flex flex-col flex-1"
             onUpdate={onEditorUpdate}
             onSelectionUpdate={onEditorSelectionUpdate}
@@ -169,6 +182,7 @@ export function Editor(): JSX.Element {
             }}
         >
             <FloatingSuggestions />
+            {isEditable && <TableMenu />}
             <InlineMenu
                 extra={(editor) =>
                     !editor.isActive('comment') ? (

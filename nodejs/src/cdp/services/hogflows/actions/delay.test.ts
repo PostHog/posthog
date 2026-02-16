@@ -44,11 +44,12 @@ describe('calculatedScheduledAt', () => {
 
         it('should return null if delay time has already passed', () => {
             // Set start time to 1 hour ago
-            const pastTimestamp = DateTime.utc().minus({ hours: 1 }).toMillis()
-            const result = calculatedScheduledAt('30m', pastTimestamp)
+            const hourAgoTimestamp = DateTime.utc().minus({ hours: 1 }).toMillis()
+            const result = calculatedScheduledAt('30m', hourAgoTimestamp)
             expect(result).toBeNull()
 
-            const result2 = calculatedScheduledAt('61m', pastTimestamp)
+            const halfHourAgoTimestamp = DateTime.utc().minus({ minutes: 30 }).toMillis()
+            const result2 = calculatedScheduledAt('31m', halfHourAgoTimestamp)
             expect(result2).toEqual(DateTime.utc().plus({ minutes: 1 }))
         })
     })
@@ -62,6 +63,16 @@ describe('calculatedScheduledAt', () => {
         it('should use wait time if smaller than max delay duration', () => {
             const result = calculatedScheduledAt('1m', startedAtTimestamp, 300) // 5 minutes max
             expect(result).toEqual(DateTime.utc().plus({ minutes: 1 }))
+        })
+
+        it.each([
+            ['61s', DateTime.fromISO('2025-01-01T00:00:00.000Z').toUTC().plus({ seconds: 60 })],
+            ['61m', DateTime.fromISO('2025-01-01T00:00:00.000Z').toUTC().plus({ minutes: 60 })],
+            ['25h', DateTime.fromISO('2025-01-01T00:00:00.000Z').toUTC().plus({ hours: 24 })],
+            ['31d', DateTime.fromISO('2025-01-01T00:00:00.000Z').toUTC().plus({ days: 30 })],
+        ])('should enforce a maximum value for max delay duration', (duration, expectedTime) => {
+            const result = calculatedScheduledAt(duration, startedAtTimestamp)
+            expect(result).toEqual(expectedTime)
         })
     })
 

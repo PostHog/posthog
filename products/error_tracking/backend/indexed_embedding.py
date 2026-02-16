@@ -409,6 +409,6 @@ def DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL() -> str:
         FROM {distributed_table}""")
 
     view_sql = f"""CREATE VIEW IF NOT EXISTS posthog_document_embeddings_union_view
-AS {' UNION ALL '.join(union_parts)}"""
+AS {" UNION ALL ".join(union_parts)}"""
 
     return view_sql

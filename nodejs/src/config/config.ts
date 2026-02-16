@@ -1,3 +1,4 @@
+import { KAFKA_CONSUMER_GROUP_ID as SESSION_RECORDING_DEFAULT_GROUP_ID } from '../session-recording/constants'
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
 import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import {
@@ -12,6 +13,8 @@ import {
     KAFKA_LOGS_INGESTION_DLQ,
     KAFKA_LOGS_INGESTION_OVERFLOW,
     KAFKA_LOG_ENTRIES,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from './kafka-topics'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
@@ -60,6 +63,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTGRES_BEHAVIORAL_COHORTS_HOST: 'localhost',
         POSTGRES_BEHAVIORAL_COHORTS_USER: 'postgres',
         POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: '',
+        CLICKHOUSE_HOST: 'localhost',
+        CLICKHOUSE_PORT: 8123,
+        CLICKHOUSE_DATABASE: isTestEnv() ? 'posthog_test' : isDevEnv() ? 'default' : '',
+        CLICKHOUSE_USERNAME: 'default',
+        CLICKHOUSE_PASSWORD: '',
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
@@ -99,6 +107,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_OVERFLOW_ENABLED: false,
         INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
+        INGESTION_STATEFUL_OVERFLOW_ENABLED: false,
+        INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300, // 5 minutes
+        INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60, // 1 minute
         LOG_LEVEL: isTestEnv() ? 'warn' : 'info',
         HTTP_SERVER_PORT: DEFAULT_HTTP_SERVER_PORT,
         SCHEDULE_LOCK_TTL: 60,
@@ -120,6 +131,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         PLUGIN_SERVER_MODE: null,
+        NODEJS_CAPABILITY_GROUPS: null, // Set via hogli dev:setup - e.g. "cdp_workflows,session_replay"
         PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
@@ -143,6 +155,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_API_KEY: '',
         POSTHOG_HOST_URL: 'http://localhost:8010',
 
+        // Internal API authentication
+        INTERNAL_API_SECRET: '',
+
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
         SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
@@ -155,6 +170,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_PARALLEL_CONSUMPTION: false,
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
         POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
+        SESSION_RECORDING_API_REDIS_HOST: '127.0.0.1',
+        SESSION_RECORDING_API_REDIS_PORT: 6379,
         SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true,
         SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: true,
         SESSION_RECORDING_DEBUG_PARTITION: '',
@@ -192,7 +209,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_REDIS_HOST: '127.0.0.1',
-        CDP_REDIS_PORT: 6479,
+        CDP_REDIS_PORT: 6379,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
@@ -206,6 +223,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
+        CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: 1, // set to 1 intentionally, batch requests fanout into many workflow invocations
 
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
@@ -230,13 +248,19 @@ export function getDefaultConfig(): PluginsServerConfig {
             : 'postgres://posthog:posthog@localhost:5432/cyclotron',
 
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
+        CYCLOTRON_SHADOW_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
+            : 'postgres://posthog:posthog@localhost:5432/cyclotron_shadow',
+        CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: false,
+        CDP_CYCLOTRON_TEST_SEEK_LATENCY: false,
+        CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: 0.01,
+        CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 50_000_000,
 
         // New IngestionConsumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
         INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-        INGESTION_JOINED_PIPELINE: false,
 
         // PropertyDefsConsumer config
         PROPERTY_DEFS_CONSUMER_GROUP_ID: 'property-defs-consumer',
@@ -257,10 +281,24 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any',
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any',
         SESSION_RECORDING_V2_S3_TIMEOUT_MS: isDevEnv() ? 120000 : 30000,
+        SESSION_RECORDING_KMS_ENDPOINT: undefined,
+        SESSION_RECORDING_DYNAMODB_ENDPOINT: undefined,
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
         SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: Number.MAX_SAFE_INTEGER,
+        SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: 3000, // Max burst of new sessions per team
+        SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE: 300, // Sessions per second sustained rate
+        SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED: false, // When true, drop messages that exceed limit. When false, dry run mode (metrics only)
+        SESSION_RECORDING_SESSION_FILTER_ENABLED: true, // When false, skip all Redis calls for session filtering
+        SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
+        SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
+
+        // Session replay ingestion consumer config
+        INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+        INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: SESSION_RECORDING_DEFAULT_GROUP_ID,
+        INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+        INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC: '',
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,
@@ -283,6 +321,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: isDevEnv() || isTestEnv() ? 1.0 : 0.0,
 
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
+        PERSON_BATCH_WRITING_USE_BATCH_UPDATES: true,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: false,
         PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
@@ -326,7 +365,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         LOGS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_LOGS_INGESTION_DLQ,
         LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: KAFKA_LOGS_CLICKHOUSE,
         LOGS_REDIS_HOST: '127.0.0.1',
-        LOGS_REDIS_PORT: 6479,
+        LOGS_REDIS_PORT: 6379,
         LOGS_REDIS_PASSWORD: '',
         LOGS_REDIS_TLS: isProdEnv() ? true : false,
         LOGS_LIMITER_ENABLED_TEAMS: isProdEnv() ? '' : '*',

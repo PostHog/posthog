@@ -1,7 +1,7 @@
 import json
 import base64
 import datetime as dt
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -26,6 +26,9 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 
 def _generate_resource_attribute_filters(
@@ -91,13 +94,10 @@ def _generate_resource_attribute_filters(
 
     IN_ = "NOT IN" if is_negative_filter else "IN"
 
-    # this query has two steps - the inner step filters for resource_fingerprints that match ANY attribute filter
-    # e.g. if you filter on k8s.container.name='contour' and k8s.container.restart_count='0'
-    #      the inner query will have two rows, one for each filter
-    #      each row will have a bitmap of resource_fingerprints that match the attribute filter
-    #      this would probably have 3 results for the container name (we run 3 contour containers) and maybe 5000 for restart_count=0
-    #      (99% of our running containers have restart count 0)
-    # The outer step then ANDs together all the inner bitmaps, which results in a list of resources which match all the filters
+    # this query fetches all resource fingerprints that match at least one resource attribute filter
+    # then does a secondary filter for those that match every filter
+    # this sounds over complicated but it's because each row in the table is a single attribute - so we need to first group
+    # them to collapse the rows into a single row per resource fingerprint, _then_ check every filter is met
     return parse_expr(
         f"""
         (resource_fingerprint) {IN_}
@@ -155,7 +155,7 @@ class LogsQueryRunnerMixin(QueryRunner):
                     [
                         f
                         for f in property_group.values
-                        if f.type in [LogPropertyFilterType.LOG_ATTRIBUTE, LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE]
+                        if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE
                         and not operator_is_negative(f.operator)
                     ],
                 )
@@ -164,8 +164,7 @@ class LogsQueryRunnerMixin(QueryRunner):
                     [
                         f
                         for f in property_group.values
-                        if f.type in [LogPropertyFilterType.LOG_ATTRIBUTE, LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE]
-                        and operator_is_negative(f.operator)
+                        if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE and operator_is_negative(f.operator)
                     ],
                 )
                 self.log_filters = cast(
@@ -243,7 +242,7 @@ class LogsQueryRunnerMixin(QueryRunner):
             timezone_info=ZoneInfo("UTC"),
         )
 
-    def where(self):
+    def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []
 
         if self.query.serviceNames:
@@ -253,6 +252,14 @@ class LogsQueryRunnerMixin(QueryRunner):
                     placeholders={
                         "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
                     },
+                )
+            )
+
+        if self.query.resourceFingerprint:
+            exprs.append(
+                parse_expr(
+                    "resource_fingerprint = {resourceFingerprint}",
+                    placeholders={"resourceFingerprint": ast.Constant(value=str(self.query.resourceFingerprint))},
                 )
             )
 
@@ -366,6 +373,15 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
     cached_response: CachedLogsQueryResponse
     paginator: HogQLHasMorePaginator
 
+    def validate_query_runner_access(self, user: "User") -> bool:
+        # LogsQuery is registered in get_query_runner solely for server-side CSV export
+        # (via ExportedAsset + Celery, which runs without a user context and skips this check).
+        # Block all user-initiated queries via the generic /api/projects/:id/query/ endpoint
+        # until the LogsQuery schema is stable and ready to be a public API.
+        from posthog.rbac.user_access_control import UserAccessControlError
+
+        raise UserAccessControlError("logs", "viewer")
+
     def _calculate(self) -> LogsQueryResponse:
         response = self.paginator.execute_hogql_query(
             query_type="LogsQuery",
@@ -393,9 +409,10 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                     "severity_number": result[8],
                     "level": result[9],
                     "resource_attributes": result[10],
-                    "instrumentation_scope": result[11],
-                    "event_name": result[12],
-                    "live_logs_checkpoint": result[13],
+                    "resource_fingerprint": str(result[11]),
+                    "instrumentation_scope": result[12],
+                    "event_name": result[13],
+                    "live_logs_checkpoint": result[14],
                 }
             )
 
@@ -407,51 +424,41 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
         return response
 
     def to_query(self) -> ast.SelectQuery:
-        # utilize a hack to fix read_in_order_optimization not working correctly
-        # from: https://github.com/ClickHouse/ClickHouse/pull/82478/
-        query = self.paginator.paginate(
-            parse_select("""
-                SELECT _part_starting_offset+_part_offset from logs
-            """)
-        )
-        assert isinstance(query, ast.SelectQuery)
-
         order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
 
-        query.where = ast.And(exprs=[self.where()])
-        query.order_by = [
-            parse_order_expr("team_id"),
-            parse_order_expr(f"time_bucket {order_dir}"),
-            parse_order_expr(f"timestamp {order_dir}"),
-            parse_order_expr(f"uuid {order_dir}"),
-        ]
-        final_query = parse_select(
-            """
+        query = self.paginator.paginate(
+            parse_select(
+                """
             SELECT
                 uuid,
-                hex(trace_id),
-                hex(span_id),
+                hex(tryBase64Decode(trace_id)),
+                hex(tryBase64Decode(span_id)),
                 body,
-                mapFilter((k, v) -> not(has(resource_attributes, k)), attributes),
+                attributes,
                 timestamp,
                 observed_timestamp,
                 severity_text,
                 severity_number,
                 severity_text as level,
                 resource_attributes,
+                resource_fingerprint,
                 instrumentation_scope,
                 event_name,
                 (select min(max_observed_timestamp) from logs_kafka_metrics) as live_logs_checkpoint
-            FROM logs where (_part_starting_offset+_part_offset) in ({query})
+            FROM logs
+            WHERE {where}
         """,
-            placeholders={"query": query},
+                placeholders={
+                    "where": self.where(),
+                },
+            )
         )
-        assert isinstance(final_query, ast.SelectQuery)
-        final_query.order_by = [
+        assert isinstance(query, ast.SelectQuery)
+        query.order_by = [
             parse_order_expr(f"timestamp {order_dir}"),
             parse_order_expr(f"uuid {order_dir}"),
         ]
-        return final_query
+        return query
 
     @cached_property
     def properties(self):

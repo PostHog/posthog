@@ -1,13 +1,10 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
@@ -18,12 +15,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { Experiment } from '~/types'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { experimentSceneLogic } from '../experimentSceneLogic'
 import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
-import { ExposureCriteriaPanelHeader } from './ExposureCriteriaPanelHeader'
-import { MetricsPanel, MetricsPanelHeader } from './MetricsPanel'
+import { MetricsPanel } from './MetricsPanel'
 import { VariantsPanel } from './VariantsPanel'
-import { VariantsPanelHeader } from './VariantsPanelHeader'
 import { createExperimentLogic } from './createExperimentLogic'
 
 const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
@@ -41,10 +35,17 @@ interface ExperimentFormProps {
 
 export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps): JSX.Element => {
     const logic = createExperimentLogic({ experiment: draftExperiment, tabId })
-    useAttachedLogic(logic, tabId ? experimentSceneLogic({ tabId }) : undefined)
+    useMountedLogic(logic)
 
-    const { experiment, experimentErrors, canSubmitExperiment, sharedMetrics, isExperimentSubmitting, isEditMode } =
-        useValues(logic)
+    const {
+        experiment,
+        experimentErrors,
+        canSubmitExperiment,
+        experimentValidationErrors,
+        sharedMetrics,
+        isExperimentSubmitting,
+        isEditMode,
+    } = useValues(logic)
     const {
         setExperimentValue,
         setExperiment,
@@ -56,7 +57,6 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
         validateField,
     } = useActions(logic)
 
-    const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
     const handleCancel = (): void => {
         if (!isEditMode) {
             clearDraft()
@@ -64,9 +64,9 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
         router.actions.push(urls.experiments())
     }
 
-    return (
-        <div>
-            <SceneContent>
+    function renderFormHeader(): JSX.Element {
+        return (
+            <>
                 <SceneTitleSection
                     name={experiment.name}
                     description={null}
@@ -102,7 +102,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                             >
                                 <LemonButton
                                     loading={isExperimentSubmitting}
-                                    disabledReason={!canSubmitExperiment ? 'Experiment is not valid' : undefined}
+                                    disabledReason={!canSubmitExperiment ? experimentValidationErrors : undefined}
                                     data-attr="save-experiment"
                                     type="primary"
                                     size="small"
@@ -128,107 +128,13 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                     />
                 </SceneSection>
                 <SceneDivider />
-                <LemonCollapse
-                    activeKey={selectedPanel ?? undefined}
-                    defaultActiveKey="experiment-exposure"
-                    onChange={setSelectedPanel}
-                    className="bg-surface-primary"
-                    panels={[
-                        {
-                            key: 'experiment-exposure',
-                            header: <ExposureCriteriaPanelHeader experiment={experiment} />,
-                            content: (
-                                <ExposureCriteriaPanel
-                                    experiment={experiment}
-                                    onChange={setExposureCriteria}
-                                    onNext={() => setSelectedPanel('experiment-variants')}
-                                />
-                            ),
-                        },
-                        {
-                            key: 'experiment-variants',
-                            header: <VariantsPanelHeader experiment={experiment} disabled={isEditMode} />,
-                            content: (
-                                <VariantsPanel
-                                    experiment={experiment}
-                                    updateFeatureFlag={setFeatureFlagConfig}
-                                    onPrevious={() => setSelectedPanel('experiment-exposure')}
-                                    onNext={() => setSelectedPanel('experiment-metrics')}
-                                    disabled={isEditMode}
-                                />
-                            ),
-                        },
-                        {
-                            key: 'experiment-metrics',
-                            header: <MetricsPanelHeader experiment={experiment} sharedMetrics={sharedMetrics} />,
-                            content: (
-                                <MetricsPanel
-                                    experiment={experiment}
-                                    sharedMetrics={sharedMetrics}
-                                    onSaveMetric={(metric, context) => {
-                                        const isNew = !experiment[context.field].some((m) => m.uuid === metric.uuid)
+            </>
+        )
+    }
 
-                                        setExperiment({
-                                            ...experiment,
-                                            [context.field]: isNew
-                                                ? [...experiment[context.field], metric]
-                                                : experiment[context.field].map((m) =>
-                                                      m.uuid === metric.uuid ? metric : m
-                                                  ),
-                                        })
-                                    }}
-                                    onDeleteMetric={(metric, context) => {
-                                        if (metric.isSharedMetric) {
-                                            setExperiment({
-                                                ...experiment,
-                                                saved_metrics: (experiment.saved_metrics ?? []).filter(
-                                                    (sm) => sm.saved_metric !== metric.sharedMetricId
-                                                ),
-                                            })
-                                            setSharedMetrics({
-                                                ...sharedMetrics,
-                                                [context.type]: sharedMetrics[context.type].filter(
-                                                    (m) => m.uuid !== metric.uuid
-                                                ),
-                                            })
-                                            return
-                                        }
-
-                                        const metricIndex = experiment[context.field].findIndex(
-                                            ({ uuid }) => uuid === metric.uuid
-                                        )
-
-                                        if (metricIndex !== -1) {
-                                            setExperiment({
-                                                ...experiment,
-                                                [context.field]: experiment[context.field].filter(
-                                                    ({ uuid }) => uuid !== metric.uuid
-                                                ),
-                                            })
-                                        }
-                                    }}
-                                    onSaveSharedMetrics={(metrics, context) => {
-                                        setExperiment({
-                                            ...experiment,
-                                            saved_metrics: [
-                                                ...(experiment.saved_metrics ?? []),
-                                                ...metrics.map((metric) => ({
-                                                    saved_metric: metric.sharedMetricId,
-                                                })),
-                                            ],
-                                        })
-                                        setSharedMetrics({
-                                            ...sharedMetrics,
-                                            [context.type]: [...sharedMetrics[context.type], ...metrics],
-                                        })
-                                    }}
-                                    onPrevious={() => setSelectedPanel('experiment-variants')}
-                                />
-                            ),
-                        },
-                    ]}
-                />
-
+    function renderFormFooter(): JSX.Element {
+        return (
+            <>
                 <SceneDivider />
                 <div className="flex justify-end gap-2">
                     <LemonButton data-attr="cancel-experiment" type="secondary" size="small" onClick={handleCancel}>
@@ -242,7 +148,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                     >
                         <LemonButton
                             loading={isExperimentSubmitting}
-                            disabledReason={!canSubmitExperiment ? 'Experiment is not valid' : undefined}
+                            disabledReason={!canSubmitExperiment ? experimentValidationErrors : undefined}
                             data-attr="save-experiment"
                             type="primary"
                             size="small"
@@ -252,6 +158,71 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                         </LemonButton>
                     </AccessControlAction>
                 </div>
+            </>
+        )
+    }
+
+    return (
+        <div>
+            <SceneContent>
+                {renderFormHeader()}
+                <VariantsPanel experiment={experiment} updateFeatureFlag={setFeatureFlagConfig} disabled={isEditMode} />
+                <ExposureCriteriaPanel experiment={experiment} onChange={setExposureCriteria} />
+                <MetricsPanel
+                    experiment={experiment}
+                    sharedMetrics={sharedMetrics}
+                    onSaveMetric={(metric, context) => {
+                        const isNew = !experiment[context.field].some((m) => m.uuid === metric.uuid)
+
+                        setExperiment({
+                            ...experiment,
+                            [context.field]: isNew
+                                ? [...experiment[context.field], metric]
+                                : experiment[context.field].map((m) => (m.uuid === metric.uuid ? metric : m)),
+                        })
+                    }}
+                    onDeleteMetric={(metric, context) => {
+                        if (metric.isSharedMetric) {
+                            setExperiment({
+                                ...experiment,
+                                saved_metrics: (experiment.saved_metrics ?? []).filter(
+                                    (sm) => sm.saved_metric !== metric.sharedMetricId
+                                ),
+                            })
+                            setSharedMetrics({
+                                ...sharedMetrics,
+                                [context.type]: sharedMetrics[context.type].filter((m) => m.uuid !== metric.uuid),
+                            })
+                            return
+                        }
+
+                        const metricIndex = experiment[context.field].findIndex(({ uuid }) => uuid === metric.uuid)
+
+                        if (metricIndex !== -1) {
+                            setExperiment({
+                                ...experiment,
+                                [context.field]: experiment[context.field].filter(({ uuid }) => uuid !== metric.uuid),
+                            })
+                        }
+                    }}
+                    onSaveSharedMetrics={(metrics, context) => {
+                        setExperiment({
+                            ...experiment,
+                            saved_metrics: [
+                                ...(experiment.saved_metrics ?? []),
+                                ...metrics.map((metric) => ({
+                                    saved_metric: metric.sharedMetricId,
+                                })),
+                            ],
+                        })
+                        setSharedMetrics({
+                            ...sharedMetrics,
+                            [context.type]: [...sharedMetrics[context.type], ...metrics],
+                        })
+                    }}
+                />
+
+                {renderFormFooter()}
             </SceneContent>
         </div>
     )

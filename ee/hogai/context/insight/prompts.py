@@ -42,12 +42,18 @@ Here is the insight schema used to retrieve the results above:
 {{/insight_schema}}
 <system_reminder>
 The current date and time is {{{utc_datetime_display}}} UTC, which is {{{project_datetime_display}}} in this project's timezone ({{{project_timezone}}}).
+{{#sql_query}}
+Your SQL query results are capped at 100 rows. If you need more data, paginate using LIMIT and OFFSET clauses in subsequent queries.
+{{/sql_query}}
 {{#currency}}
 Assume currency values are in {{currency}} and ALWAYS include the proper prefix when displaying values that are likely to be currency values.
 {{/currency}}
 It's expected that the data point for the current period may show a drop in value, as data collection for it is still ongoing. Do not point this out.
 Do not copy the results table as the user sees it in the UI.{{#include_url_reminder}}
 {{/include_url_reminder}}
+{{#has_truncated_values}}
+Some JSON/array values were truncated. You can write a more specific SQL query to explore individual properties or array elements if needed.
+{{/has_truncated_values}}
 </system_reminder>
 """.strip()
 

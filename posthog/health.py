@@ -232,6 +232,7 @@ def is_clickhouse_connected() -> bool:
     """
     ping_url = urljoin(settings.CLICKHOUSE_HTTP_URL, "ping")
     try:
+        # nosemgrep: python.requests.security.disabled-cert-validation.disabled-cert-validation (internal health check to local ClickHouse, cert validation not required)
         response = requests.get(ping_url, timeout=3, verify=False)
         response.raise_for_status()
     except Exception:

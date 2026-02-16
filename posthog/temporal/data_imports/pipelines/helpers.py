@@ -3,21 +3,22 @@ from zoneinfo import ZoneInfo
 
 from django.db.models import F
 
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.types import IncrementalFieldType
 
 initial_datetime = datetime(1970, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def aget_external_data_job(team_id, job_id):
     from products.data_warehouse.backend.models import ExternalDataJob
 
     return ExternalDataJob.objects.get(id=job_id, team_id=team_id)
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def aupdate_job_count(job_id: str, team_id: int, count: int):
     from products.data_warehouse.backend.models import ExternalDataJob
 
@@ -33,3 +34,7 @@ def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> int |
         return date(1970, 1, 1)
     if field_type == IncrementalFieldType.ObjectID:
         return "000000000000000000000000"
+
+
+def build_table_name(source: ExternalDataSource, schema_name: str):
+    return f"{source.prefix or ''}{source.source_type}_{schema_name}".lower()

@@ -2,7 +2,8 @@ node_modules
 
 # wrangler files
 .wrangler
-.dev.vars*
+.dev.vars
+!.dev.vars.example
 .mcp.json
 .env.test
 
@@ -17,11 +18,10 @@ __pycache__/
 .mypy_cache/.ruff_cache/
 .pytest_cache/
 .ruff_cache/
-
 .env
-
 dist/
-
 .venv/
-
 .husy/
+
+# MCP UI Apps build files
+ui-apps-dist/

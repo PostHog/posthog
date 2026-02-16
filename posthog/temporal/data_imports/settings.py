@@ -1,3 +1,4 @@
+from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow, produce_to_cdp_kafka_activity
 from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobWorkflow,
     calculate_table_size_activity,
@@ -10,7 +11,7 @@ from posthog.temporal.data_imports.external_data_job import (
     update_external_data_job_model,
 )
 
-WORKFLOWS = [ExternalDataJobWorkflow]
+WORKFLOWS = [ExternalDataJobWorkflow, CDPProducerJobWorkflow]
 
 ACTIVITIES = [
     create_external_data_job_model_activity,
@@ -21,4 +22,5 @@ ACTIVITIES = [
     sync_new_schemas_activity,
     calculate_table_size_activity,
     trigger_schedule_buffer_one_activity,
+    produce_to_cdp_kafka_activity,
 ]

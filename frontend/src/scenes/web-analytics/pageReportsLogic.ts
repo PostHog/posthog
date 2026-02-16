@@ -7,8 +7,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     CompareFilter,
-    DataVisualizationNode,
-    HogQLQuery,
     InsightVizNode,
     NodeKind,
     QuerySchema,
@@ -24,6 +22,7 @@ import {
     InsightLogicProps,
     IntervalType,
     PropertyFilterType,
+    PropertyMathType,
     PropertyOperator,
 } from '~/types'
 
@@ -88,55 +87,52 @@ export function createUrlPropertyFilter(url: string, stripQueryParams: boolean):
     ]
 }
 
-const INTERVAL_FUNCTIONS: Record<IntervalType, string> = {
-    second: 'toStartOfSecond',
-    minute: 'toStartOfMinute',
-    hour: 'toStartOfHour',
-    day: 'toStartOfDay',
-    week: 'toStartOfWeek',
-    month: 'toStartOfMonth',
-}
-
-const getIntervalFunction = (interval: IntervalType): string => INTERVAL_FUNCTIONS[interval] ?? INTERVAL_FUNCTIONS.day
-
-const createAvgTimeOnPageHogQLQuery = (
-    host: string,
+const createTimeOnPageTrendsQuery = (
     pathname: string,
     filterTestAccounts: boolean,
     interval: IntervalType,
     dateRange: { date_from: string | null; date_to: string | null }
-): HogQLQuery => {
-    const intervalFn = getIntervalFunction(interval)
+): InsightVizNode<TrendsQuery> => {
     return {
-        kind: NodeKind.HogQLQuery,
-        query: `
-SELECT
-    ${intervalFn}(ts) as period,
-    avg(session_avg_duration) as avg_time_on_page
-FROM (
-    SELECT
-        e.session.session_id as session_id,
-        min(e.timestamp) as ts,
-        avg(toFloat(e.properties.$prev_pageview_duration)) as session_avg_duration
-    FROM events as e
-    ANY LEFT JOIN events as prev
-        ON e.properties.$prev_pageview_id = toString(prev.uuid)
-    WHERE
-        e.event IN ('$pageview', '$pageleave', '$screen')
-        AND e.properties.$prev_pageview_pathname = {pathname}
-        AND prev.properties.$host = {host}
-    GROUP BY e.session.session_id
-)
-GROUP BY period
-ORDER BY period`,
-        filters: {
+        kind: NodeKind.InsightVizNode,
+        source: {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    math: PropertyMathType.P90,
+                    math_property: '$prev_pageview_duration',
+                    properties: [
+                        {
+                            type: PropertyFilterType.EventMetadata,
+                            key: 'event',
+                            operator: PropertyOperator.In,
+                            value: ['$pageview', '$pageleave', '$screen'],
+                        },
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$prev_pageview_pathname',
+                            operator: PropertyOperator.Exact,
+                            value: pathname,
+                        },
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$prev_pageview_duration',
+                            operator: PropertyOperator.IsSet,
+                            value: PropertyOperator.IsSet,
+                        },
+                    ],
+                },
+            ],
+            interval,
+            dateRange: { date_from: dateRange.date_from, date_to: dateRange.date_to },
             filterTestAccounts,
-            dateRange,
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+                aggregationAxisFormat: 'duration',
+            },
         },
-        values: {
-            pathname,
-            host,
-        },
+        embedded: true,
     }
 }
 
@@ -367,31 +363,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }
 
                 const parsedUrl = parseWebAnalyticsURL(pageUrl)
-                const avgTimeOnPageTrendQuery: DataVisualizationNode | undefined =
+                const avgTimeOnPageTrendQuery: InsightVizNode<TrendsQuery> | undefined =
                     parsedUrl.isValid && parsedUrl.host && parsedUrl.pathname
-                        ? {
-                              kind: NodeKind.DataVisualizationNode,
-                              source: createAvgTimeOnPageHogQLQuery(
-                                  parsedUrl.host,
-                                  parsedUrl.pathname,
-                                  shouldFilterTestAccounts,
-                                  dateFilter.interval,
-                                  dateRange
-                              ),
-                              display: ChartDisplayType.ActionsLineGraph,
-                              chartSettings: {
-                                  xAxis: { column: 'period' },
-                                  yAxis: [
-                                      {
-                                          column: 'avg_time_on_page',
-                                          settings: {
-                                              display: { label: 'Average time' },
-                                              formatting: { suffix: ' seconds', decimalPlaces: 2 },
-                                          },
-                                      },
-                                  ],
-                              },
-                          }
+                        ? createTimeOnPageTrendsQuery(
+                              parsedUrl.pathname,
+                              shouldFilterTestAccounts,
+                              dateFilter.interval,
+                              dateRange
+                          )
                         : undefined
 
                 return {
@@ -431,7 +410,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             () => [],
             () =>
                 (tileId: TileId, tabId?: string): InsightLogicProps => ({
-                    dashboardItemId: `new-${tileId}${tabId ? `-${tabId}` : ''}`,
+                    dashboardItemId: `new-AdHoc.${tileId}${tabId ? `-${tabId}` : ''}`,
                     loadPriority: 0,
                     dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
                 }),
@@ -552,15 +531,15 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 ? {
                                       kind: 'query',
                                       tileId: TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND,
-                                      title: 'Average time on page',
+                                      title: 'Time on page',
                                       query: queries.avgTimeOnPageTrendQuery,
                                       insightProps: createInsightProps(TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND),
                                       layout: {
                                           className: 'w-full min-h-[300px]',
                                       },
                                       docs: {
-                                          title: 'Average time on page',
-                                          description: 'Average time visitors spend on this page',
+                                          title: 'Time on page',
+                                          description: 'The 90th percentile of time users spent on this page.',
                                       },
                                       canOpenModal: false,
                                   }

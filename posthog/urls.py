@@ -16,8 +16,8 @@ from two_factor.urls import urlpatterns as tf_urls
 from posthog.api import (
     api_not_found,
     authentication,
-    decide,
     github,
+    hog_flow_template,
     hog_function_template,
     playwright_setup,
     remote_config,
@@ -26,6 +26,7 @@ from posthog.api import (
     sharing,
     signup,
     site_app,
+    two_factor_reset,
     unsubscribe,
     uploaded_media,
     user,
@@ -38,6 +39,7 @@ from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
+from posthog.auth import apply_auth_brand_cookie
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
@@ -48,6 +50,7 @@ from posthog.temporal.codec_server import decode_payloads
 from products.early_access_features.backend.api import early_access_features
 from products.product_tours.backend.api import product_tours
 from products.slack_app.backend.api import slack_event_handler
+from products.tasks.backend.webhooks import github_pr_webhook
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -96,7 +99,8 @@ def home(request, *args, **kwargs):
         url = "https://us.posthog.com{}".format(request.get_full_path())
         if url_has_allowed_host_and_scheme(url, "us.posthog.com", True):
             return HttpResponseRedirect(url)
-    return render_template("index.html", request)
+    response = render_template("index.html", request)
+    return apply_auth_brand_cookie(request, response)
 
 
 def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
@@ -175,6 +179,7 @@ urlpatterns = [
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
     path("api/sdk_doctor/", sdk_doctor),
+    path("api/conversations/", include("products.conversations.backend.api.urls")),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
@@ -190,6 +195,7 @@ urlpatterns = [
     opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
+    opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
@@ -197,9 +203,17 @@ urlpatterns = [
         "api/reset/<str:user_uuid>/",
         authentication.PasswordResetCompleteViewSet.as_view({"get": "retrieve", "post": "create"}),
     ),
+    path(
+        "api/reset_2fa/<str:user_uuid>/",
+        two_factor_reset.TwoFactorResetViewSet.as_view({"get": "retrieve", "post": "create"}),
+    ),
     opt_slash_path(
         "api/public_hog_function_templates",
         hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
+    ),
+    opt_slash_path(
+        "api/public_hog_flow_templates",
+        hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list"}),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
@@ -231,7 +245,6 @@ urlpatterns = [
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
-    opt_slash_path("decide", decide.get_decide),
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
@@ -244,6 +257,8 @@ urlpatterns = [
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
     opt_slash_path("slack/event-callback", slack_event_handler),
+    # GitHub webhooks for task lifecycle events
+    opt_slash_path("webhooks/github/pr", github_pr_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

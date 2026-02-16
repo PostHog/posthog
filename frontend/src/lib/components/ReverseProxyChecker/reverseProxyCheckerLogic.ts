@@ -1,16 +1,15 @@
-import { kea, listeners, path } from 'kea'
+import { afterMount, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { hogql } from '~/queries/utils'
 
 import type { reverseProxyCheckerLogicType } from './reverseProxyCheckerLogicType'
 
-const CHECK_INTERVAL_MS = 1000 * 60 * 60 // 1 hour
+const CHECK_INTERVAL_MS = 1000 * 60 * 10 // 10 minutes
 
 export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
     path(['components', 'ReverseProxyChecker', 'reverseProxyCheckerLogic']),
@@ -47,8 +46,11 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
     listeners(({ values }) => ({
         loadHasReverseProxySuccess: () => {
             if (values.hasReverseProxy) {
-                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.SetUpReverseProxy)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpReverseProxy)
             }
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadHasReverseProxy()
+    }),
 ])

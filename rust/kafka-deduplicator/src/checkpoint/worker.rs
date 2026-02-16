@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use super::{plan_checkpoint, CheckpointExporter, CheckpointInfo, CheckpointMetadata};
+use super::{
+    plan_checkpoint, CheckpointExporter, CheckpointInfo, CheckpointMetadata, UploadCancelledError,
+};
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
 use crate::metrics_const::{
@@ -14,6 +16,7 @@ use crate::store::{DeduplicationStore, LocalCheckpointInfo};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use metrics;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 /// Worker that handles checkpoint processing for individual partitions
@@ -85,19 +88,39 @@ impl CheckpointWorker {
         }
     }
 
-    /// Perform a complete checkpoint operation: create, export, and cleanup
-    /// Returns (remote_path, metadata) on success
+    /// Perform a complete checkpoint operation: create, export, and cleanup.
+    /// Returns checkpoint info on success, None if export was skipped.
     pub async fn checkpoint_partition(
         &self,
         store: &DeduplicationStore,
         previous_metadata: Option<&CheckpointMetadata>,
     ) -> Result<Option<CheckpointInfo>> {
+        self.checkpoint_partition_cancellable(store, previous_metadata, None, None)
+            .await
+    }
+
+    /// Perform a complete checkpoint operation with cancellation support.
+    /// If cancel_token is provided and cancelled during export, returns an error early.
+    ///
+    /// The optional `cancel_cause` is used for metrics when cancelled (e.g., "rebalance" or "shutdown").
+    pub async fn checkpoint_partition_cancellable(
+        &self,
+        store: &DeduplicationStore,
+        previous_metadata: Option<&CheckpointMetadata>,
+        cancel_token: Option<&CancellationToken>,
+        cancel_cause: Option<&str>,
+    ) -> Result<Option<CheckpointInfo>> {
         // Create the local checkpoint
         let rocks_metadata = self.create_checkpoint(store).await?;
 
-        // Export checkpoint
+        // Export checkpoint with cancellation support
         let result = self
-            .export_checkpoint(&rocks_metadata, previous_metadata)
+            .export_checkpoint_cancellable(
+                &rocks_metadata,
+                previous_metadata,
+                cancel_token,
+                cancel_cause,
+            )
             .await;
 
         // Clean up temp checkpoint directory (skip in test mode to allow verification)
@@ -133,8 +156,7 @@ impl CheckpointWorker {
                 self.worker_id,
                 partition = self.partition.to_string(),
                 attempt_timestamp = self.attempt_timestamp.to_string(),
-                "Checkpoint worker: failed store metrics update after local checkpoint: {}",
-                e
+                "Checkpoint worker: failed store metrics update after local checkpoint: {e:#}"
             );
         }
 
@@ -153,8 +175,7 @@ impl CheckpointWorker {
             error!(
                 self.worker_id,
                 local_attempt_path = self.get_local_attempt_path().to_string_lossy().to_string(),
-                "Checkpoint worker: failed to clean up local attempt directory: {}",
-                e
+                "Checkpoint worker: failed to clean up local attempt directory: {e:#}"
             );
         }
     }
@@ -175,11 +196,11 @@ impl CheckpointWorker {
             error!(
                 self.worker_id,
                 local_base_path = base_path.to_string_lossy().to_string(),
-                "Checkpoint worker: failed to create local directory: {}",
-                e
+                "Checkpoint worker: failed to create local directory: {e:#}"
             );
 
-            return Err(anyhow::anyhow!(e));
+            return Err(anyhow::Error::from(e)
+                .context("Checkpoint worker: failed to create local directory"));
         }
 
         Ok(())
@@ -217,32 +238,25 @@ impl CheckpointWorker {
             }
 
             Err(e) => {
-                // Build the complete error chain
-                let mut error_chain = vec![format!("{:?}", e)];
-                let mut source = e.source();
-                while let Some(err) = source {
-                    error_chain.push(format!("Caused by: {err:?}"));
-                    source = err.source();
-                }
-
                 let tags = [("result", "error"), ("cause", "local_checkpoint")];
                 metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                 error!(
                     self.worker_id,
                     local_attempt_path = local_attempt_path.to_string_lossy().to_string(),
-                    "Checkpoint worker: local attempt failed: {}",
-                    error_chain.join(" -> ")
+                    "Checkpoint worker: local attempt failed: {e:#}"
                 );
 
-                Err(anyhow::anyhow!(error_chain.join(" -> ")))
+                Err(e.context("local checkpoint attempt failed"))
             }
         }
     }
 
-    async fn export_checkpoint(
+    async fn export_checkpoint_cancellable(
         &self,
         rocks_metadata: &LocalCheckpointInfo,
         previous_metadata: Option<&CheckpointMetadata>,
+        cancel_token: Option<&CancellationToken>,
+        cancel_cause: Option<&str>,
     ) -> Result<Option<CheckpointInfo>> {
         let local_attempt_path_tag = self.get_local_attempt_path().to_string_lossy().to_string();
         let attempt_type = if previous_metadata.is_some() {
@@ -297,8 +311,11 @@ impl CheckpointWorker {
                     "Checkpoint worker: plan created"
                 );
 
-                // Export checkpoint using the plan
-                match exporter.export_checkpoint_with_plan(&plan).await {
+                // Export checkpoint using the plan with cancellation support
+                match exporter
+                    .export_checkpoint_with_plan_cancellable(&plan, cancel_token, cancel_cause)
+                    .await
+                {
                     Ok(()) => {
                         let tags = [("result", "success"), ("export", "success")];
                         metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
@@ -314,15 +331,20 @@ impl CheckpointWorker {
                     }
 
                     Err(e) => {
-                        let tags = [("result", "error"), ("cause", "export")];
-                        metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
-                        error!(
-                            self.worker_id,
-                            local_attempt_path = local_attempt_path_tag,
-                            attempt_type,
-                            "Checkpoint worker: export failed: {}",
-                            e
-                        );
+                        // Cancellation is NOT an error - metrics only (s3_uploader already logged the detail)
+                        if e.downcast_ref::<UploadCancelledError>().is_some() {
+                            let tags = [("result", "skipped"), ("cause", "cancelled")];
+                            metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                        } else {
+                            let tags = [("result", "error"), ("cause", "export")];
+                            metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                            error!(
+                                self.worker_id,
+                                local_attempt_path = local_attempt_path_tag,
+                                attempt_type,
+                                "Checkpoint worker: export failed: {e:#}"
+                            );
+                        }
 
                         Err(e)
                     }
@@ -379,35 +401,15 @@ impl CheckpointWorker {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, path::PathBuf, time::Duration};
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    use tempfile::TempDir;
 
     use super::*;
     use crate::checkpoint::CheckpointConfig;
-    use crate::store::{
-        DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
-    };
-
-    use common_types::RawEvent;
-    use tempfile::TempDir;
-
-    fn create_test_store(topic: &str, partition: i32) -> DeduplicationStore {
-        let config = DeduplicationStoreConfig {
-            path: TempDir::new().unwrap().path().to_path_buf(),
-            max_capacity: 1_000_000,
-        };
-        DeduplicationStore::new(config.clone(), topic.to_string(), partition).unwrap()
-    }
-
-    fn create_test_event() -> RawEvent {
-        RawEvent {
-            uuid: None,
-            event: "test_event".to_string(),
-            distinct_id: Some(serde_json::Value::String("user1".to_string())),
-            token: Some("test_token".to_string()),
-            properties: HashMap::new(),
-            ..Default::default()
-        }
-    }
+    use crate::store::{TimestampKey, TimestampMetadata};
+    use crate::test_utils::test_helpers::{create_test_dedup_store, create_test_raw_event};
 
     fn find_local_checkpoint_files(base_dir: &Path) -> Result<Vec<PathBuf>> {
         let mut checkpoint_files = Vec::new();
@@ -420,7 +422,6 @@ mod tests {
                 let entry = entry?;
                 let path = entry.path();
 
-                // TODO(eli): verify this if tests fail :)
                 if path.is_file() {
                     checkpoint_files.push(path);
                 } else if path.is_dir() {
@@ -433,15 +434,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_worker_local_checkpoint_partition_full() {
-        let store = create_test_store("some_test_topic", 0);
+    async fn test_worker_local_checkpoint_creates_expected_files() {
+        // Create store with test data
+        let tmp_store_dir = TempDir::new().unwrap();
+        let store = create_test_dedup_store(tmp_store_dir.path(), "test_topic", 0);
 
-        // Add an event to the store
-        let event = create_test_event();
+        let event = create_test_raw_event();
         let key = TimestampKey::from(&event);
         let metadata = TimestampMetadata::new(&event);
         store.put_timestamp_record(&key, &metadata).unwrap();
 
+        // Create checkpoint worker
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_secs(30),
@@ -449,11 +452,9 @@ mod tests {
             ..Default::default()
         };
 
-        // Create target partition and attempt path objects, run checkpoint worker
-        let partition = Partition::new("some_test_topic".to_string(), 0);
+        let partition = Partition::new("test_topic".to_string(), 0);
         let attempt_timestamp = Utc::now();
 
-        // simulate how the manager's checkpoint loop thread constructs workers
         let worker = CheckpointWorker::new(
             1,
             Path::new(&config.local_checkpoint_dir),
@@ -464,9 +465,11 @@ mod tests {
             None,
         );
 
+        // Execute checkpoint
         let result = worker.create_checkpoint(&store).await;
         assert!(result.is_ok());
 
+        // Verify checkpoint directory and files exist
         let expected_checkpoint_path = worker.get_local_attempt_path();
         assert!(expected_checkpoint_path.exists());
 
@@ -474,86 +477,36 @@ mod tests {
             find_local_checkpoint_files(&expected_checkpoint_path).unwrap();
         assert!(!checkpoint_files_found.is_empty());
 
-        // there should be lots of checkpoint files collected from
-        // various attempt directories of form /<base_path>/topic/partition/timestamp
-        assert!(checkpoint_files_found
-            .iter()
-            .any(|p| p.to_string_lossy().to_string().ends_with("CURRENT")));
-        assert!(checkpoint_files_found
-            .iter()
-            .any(|p| p.to_string_lossy().to_string().contains("MANIFEST")));
-        assert!(checkpoint_files_found
-            .iter()
-            .any(|p| p.to_string_lossy().to_string().contains("OPTIONS")));
-        assert!(checkpoint_files_found
-            .iter()
-            .any(|p| p.to_string_lossy().to_string().ends_with(".sst")));
-        assert!(checkpoint_files_found
-            .iter()
-            .any(|p| p.to_string_lossy().to_string().ends_with(".log")));
-    }
-
-    // TODO: incremental mode is wired up but not implemented yet.
-    // this test case exercises the config and staging logic
-    // and smoke tests the local checkpoint behavior for now
-    #[tokio::test]
-    async fn test_worker_local_checkpoint_partition_incremental() {
-        let store = create_test_store("some_test_topic", 0);
-
-        // Add an event to the store
-        let event = create_test_event();
-        let key = TimestampKey::from(&event);
-        let metadata = TimestampMetadata::new(&event);
-        store.put_timestamp_record(&key, &metadata).unwrap();
-
-        let partition = Partition::new("some_test_topic".to_string(), 0);
-        let attempt_timestamp = Utc::now();
-
-        let tmp_checkpoint_dir = TempDir::new().unwrap();
-        let config = CheckpointConfig {
-            checkpoint_interval: Duration::from_secs(30),
-            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
-            ..Default::default()
-        };
-
-        // simulate how the manager's checkpoint loop thread constructs workers
-        let worker = CheckpointWorker::new(
-            1,
-            Path::new(&config.local_checkpoint_dir),
-            config.s3_key_prefix.clone(),
-            partition.clone(),
-            attempt_timestamp,
-            None,
-            None,
+        // Verify expected RocksDB checkpoint files are present
+        assert!(
+            checkpoint_files_found
+                .iter()
+                .any(|p| p.to_string_lossy().ends_with("CURRENT")),
+            "Missing CURRENT file"
         );
-
-        // Use create_checkpoint to test without cleanup
-        let result = worker.create_checkpoint(&store).await;
-        assert!(result.is_ok());
-
-        let expected_checkpoint_path = worker.get_local_attempt_path();
-        assert!(expected_checkpoint_path.exists());
-
-        let checkpoint_files_found =
-            find_local_checkpoint_files(&expected_checkpoint_path).unwrap();
-        assert!(!checkpoint_files_found.is_empty());
-
-        // there should be lots of checkpoint files collected from
-        // various attempt directories of form /<base_path>/topic/partition/timestamp
-        assert!(checkpoint_files_found
-            .iter()
-            .any(|p| p.to_string_lossy().to_string().ends_with("CURRENT")));
-        assert!(checkpoint_files_found
-            .iter()
-            .any(|p| p.to_string_lossy().to_string().contains("MANIFEST")));
-        assert!(checkpoint_files_found
-            .iter()
-            .any(|p| p.to_string_lossy().to_string().contains("OPTIONS")));
-        assert!(checkpoint_files_found
-            .iter()
-            .any(|p| p.to_string_lossy().to_string().ends_with(".sst")));
-        assert!(checkpoint_files_found
-            .iter()
-            .any(|p| p.to_string_lossy().to_string().ends_with(".log")));
+        assert!(
+            checkpoint_files_found
+                .iter()
+                .any(|p| p.to_string_lossy().contains("MANIFEST")),
+            "Missing MANIFEST file"
+        );
+        assert!(
+            checkpoint_files_found
+                .iter()
+                .any(|p| p.to_string_lossy().contains("OPTIONS")),
+            "Missing OPTIONS file"
+        );
+        assert!(
+            checkpoint_files_found
+                .iter()
+                .any(|p| p.to_string_lossy().ends_with(".sst")),
+            "Missing .sst file"
+        );
+        assert!(
+            checkpoint_files_found
+                .iter()
+                .any(|p| p.to_string_lossy().ends_with(".log")),
+            "Missing .log file"
+        );
     }
 }

@@ -122,7 +122,7 @@ pub fn session_recording_config_response(
 }
 
 fn session_recording_domain_not_allowed(team: &Team, headers: &HeaderMap) -> bool {
-    matches!(&team.recording_domains, Some(domains) if !domains.is_empty() && !on_permitted_recording_domain(domains, headers))
+    matches!(&team.recording_domains, Some(domains) if !domains.is_empty() && !on_permitted_domain(domains, headers))
 }
 
 fn hostname_in_allowed_url_list(allowed: &[String], hostname: Option<&str>) -> bool {
@@ -184,7 +184,12 @@ fn parse_domain(url: Option<&str>) -> Option<String> {
     })
 }
 
-fn on_permitted_recording_domain(recording_domains: &[String], headers: &HeaderMap) -> bool {
+/// Checks if the request originates from a permitted recording domain.
+///
+/// Returns true if:
+/// - Origin or Referer hostname matches one of the allowed domains (supports wildcards)
+/// - User-Agent indicates an authorized mobile client (android, ios, react-native, flutter)
+pub fn on_permitted_domain(recording_domains: &[String], headers: &HeaderMap) -> bool {
     let origin = headers.get("Origin").and_then(|v| v.to_str().ok());
     let referer = headers.get("Referer").and_then(|v| v.to_str().ok());
     let user_agent = headers.get("User-Agent").and_then(|v| v.to_str().ok());
@@ -273,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn test_on_permitted_recording_domain_with_origin() {
+    fn test_on_permitted_domain_with_origin() {
         use axum::http::HeaderMap;
 
         let recording_domains = vec!["https://app.example.com/".to_string()];
@@ -281,26 +286,26 @@ mod tests {
         // Test with Origin header (without trailing slash)
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://app.example.com".parse().unwrap());
-        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(on_permitted_domain(&recording_domains, &headers));
 
         // Test with Origin header (with trailing slash)
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://app.example.com/".parse().unwrap());
-        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(on_permitted_domain(&recording_domains, &headers));
 
         // Test with correct domain with path
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://app.example.com/path".parse().unwrap());
-        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(on_permitted_domain(&recording_domains, &headers));
 
         // Test with wrong domain
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://wrong.example.com".parse().unwrap());
-        assert!(!on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(!on_permitted_domain(&recording_domains, &headers));
     }
 
     #[test]
-    fn test_on_permitted_recording_domain_with_referer() {
+    fn test_on_permitted_domain_with_referer() {
         use axum::http::HeaderMap;
 
         let recording_domains = vec!["https://app.example.com".to_string()];
@@ -311,16 +316,16 @@ mod tests {
             "Referer",
             "https://app.example.com/some/path".parse().unwrap(),
         );
-        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(on_permitted_domain(&recording_domains, &headers));
 
         // Test with wrong domain
         let mut headers = HeaderMap::new();
         headers.insert("Referer", "https://wrong.example.com/path".parse().unwrap());
-        assert!(!on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(!on_permitted_domain(&recording_domains, &headers));
     }
 
     #[test]
-    fn test_on_permitted_recording_domain_with_wildcards() {
+    fn test_on_permitted_domain_with_wildcards() {
         use axum::http::HeaderMap;
 
         let recording_domains = vec!["https://*.example.com".to_string()];
@@ -328,21 +333,85 @@ mod tests {
         // Test with matching subdomain
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://app.example.com".parse().unwrap());
-        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(on_permitted_domain(&recording_domains, &headers));
 
         // Test with different subdomain
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://test.example.com".parse().unwrap());
-        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(on_permitted_domain(&recording_domains, &headers));
 
         // Test with no subdomain - should NOT match
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://example.com".parse().unwrap());
-        assert!(!on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(!on_permitted_domain(&recording_domains, &headers));
 
         // Test with wrong domain
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://app.wrong.com".parse().unwrap());
-        assert!(!on_permitted_recording_domain(&recording_domains, &headers));
+        assert!(!on_permitted_domain(&recording_domains, &headers));
+    }
+
+    // Tests for sample rate handling - verifies compatibility between Python cache and Rust
+    mod sample_rate_tests {
+        use super::*;
+        use axum::http::HeaderMap;
+        use rust_decimal::Decimal;
+        use std::str::FromStr;
+
+        fn create_team_with_sample_rate(sample_rate: Option<Decimal>) -> Team {
+            Team {
+                session_recording_opt_in: true,
+                session_recording_sample_rate: sample_rate,
+                ..Team::default()
+            }
+        }
+
+        fn get_sample_rate_from_config(team: &Team) -> Option<String> {
+            let headers = HeaderMap::new();
+            match session_recording_config_response(team, &headers) {
+                Some(SessionRecordingField::Config(config)) => config.sample_rate.clone(),
+                _ => panic!("Expected Config response"),
+            }
+        }
+
+        #[test]
+        fn test_sample_rate_none_returns_none() {
+            // When sample_rate is None, should return None (no sampling configured)
+            let team = create_team_with_sample_rate(None);
+            assert_eq!(get_sample_rate_from_config(&team), None);
+        }
+
+        #[test]
+        fn test_sample_rate_100_percent_from_db_returns_none() {
+            // When sample_rate is 1.00 from PostgreSQL (preserves precision), should return None
+            // This simulates the PostgreSQL readthrough path where Decimal preserves "1.00"
+            let team = create_team_with_sample_rate(Some(Decimal::from_str("1.00").unwrap()));
+            assert_eq!(
+                get_sample_rate_from_config(&team),
+                None,
+                "100% sample rate (from DB with precision) should return None"
+            );
+        }
+
+        #[test]
+        fn test_sample_rate_80_percent_returns_value() {
+            // 80% sample rate should return "0.80"
+            let team = create_team_with_sample_rate(Some(Decimal::from_str("0.80").unwrap()));
+            assert_eq!(get_sample_rate_from_config(&team), Some("0.80".to_string()));
+        }
+
+        #[test]
+        fn test_sample_rate_50_percent_returns_value() {
+            // 50% sample rate should return "0.50"
+            let team = create_team_with_sample_rate(Some(Decimal::from_str("0.50").unwrap()));
+            assert_eq!(get_sample_rate_from_config(&team), Some("0.50".to_string()));
+        }
+
+        #[test]
+        fn test_sample_rate_0_percent_returns_value() {
+            // 0% sample rate should return "0.00" (record nothing)
+            let team = create_team_with_sample_rate(Some(Decimal::from_str("0.00").unwrap()));
+            assert_eq!(get_sample_rate_from_config(&team), Some("0.00".to_string()));
+        }
     }
 }

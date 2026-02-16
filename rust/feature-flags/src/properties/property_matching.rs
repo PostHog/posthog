@@ -4,8 +4,13 @@ use crate::properties::property_models::{OperatorType, PropertyFilter};
 use crate::properties::relative_date;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use dateparser::parse as parse_date;
-use regex::Regex;
+use fancy_regex::RegexBuilder;
+use semver::{Version, VersionReq};
 use serde_json::Value;
+
+/// Regex backtrack limit to prevent ReDoS attacks.
+/// 10k steps completes in ~1ms worst case, which is acceptable for a hot path.
+const REGEX_BACKTRACK_LIMIT: usize = 10_000;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum FlagMatchingError {
@@ -30,6 +35,20 @@ pub fn to_f64_representation(value: &Value) -> Option<f64> {
         return value.as_f64();
     }
     to_string_representation(value).parse::<f64>().ok()
+}
+
+/// Strip 'v' prefix if present (e.g., "v1.2.3" -> "1.2.3")
+fn normalize_version_string(version: &str) -> &str {
+    version.strip_prefix('v').unwrap_or(version).trim()
+}
+
+pub fn to_semver_representation(value: &Value) -> Option<Version> {
+    let version_string = to_string_representation(value);
+    let normalized = normalize_version_string(&version_string);
+    // TODO: Build metadata (e.g., "1.0.0+build.1") is not currently supported because
+    // our `sortableSemver` method in ClickHouse/HogQL doesn't support it yet.
+    // For semver equality checks, use regular string equality operators instead.
+    Version::parse(normalized).ok()
 }
 
 pub fn match_property(
@@ -113,17 +132,9 @@ pub fn match_property(
                 Ok(operator == OperatorType::IsNot)
             }
         }
-        OperatorType::IsSet => Ok(matching_property_values.contains_key(key)),
-        OperatorType::IsNotSet => {
-            if partial_props {
-                if matching_property_values.contains_key(key) {
-                    Ok(false)
-                } else {
-                    Err(FlagMatchingError::InconclusiveOperatorMatch)
-                }
-            } else {
-                Ok(!matching_property_values.contains_key(key))
-            }
+        // IsSet and IsNotSet are handled early (lines 69-83) and return before reaching this match
+        OperatorType::IsSet | OperatorType::IsNotSet => {
+            unreachable!("IsSet/IsNotSet operators are handled earlier in the function")
         }
         OperatorType::Icontains | OperatorType::NotIcontains => {
             if let Some(match_value) = match_value {
@@ -152,14 +163,19 @@ pub fn match_property(
                 // - for NotRegex: it is a match (true)
                 return Ok(operator == OperatorType::NotRegex);
             }
-            let pattern = match Regex::new(&to_string_representation(value)) {
+            let pattern = match RegexBuilder::new(&to_string_representation(value))
+                .backtrack_limit(REGEX_BACKTRACK_LIMIT)
+                .build()
+            {
                 Ok(pattern) => pattern,
                 Err(_) => {
                     return Ok(false);
                 }
             };
             let haystack = to_string_representation(match_value.unwrap_or(&Value::Null));
-            let match_ = pattern.find(&haystack);
+            let match_ = pattern
+                .find(&haystack)
+                .map_err(|_| FlagMatchingError::InvalidRegexPattern)?;
 
             if operator == OperatorType::Regex {
                 Ok(match_.is_some())
@@ -202,8 +218,8 @@ pub fn match_property(
                 }
             };
 
-            if let Some(override_value) = to_f64_representation(value) {
-                Ok(compare(parsed_value, override_value, operator))
+            if let Some(filter_value) = to_f64_representation(value) {
+                Ok(compare(parsed_value, filter_value, operator))
             } else {
                 tracing::debug!(
                     "Failed to parse filter value '{}' for key '{}' as number for operator {:?}",
@@ -212,9 +228,127 @@ pub fn match_property(
                     operator
                 );
                 Err(FlagMatchingError::ValidationError(
-                    "override value is not a number".to_string(),
+                    "filter value is not a number".to_string(),
                 ))
             }
+        }
+        OperatorType::SemverGt
+        | OperatorType::SemverGte
+        | OperatorType::SemverLt
+        | OperatorType::SemverLte
+        | OperatorType::SemverEq
+        | OperatorType::SemverNeq => {
+            if match_value.is_none() {
+                return Ok(false);
+            }
+
+            let compare = |lhs: &Version, rhs: &Version, operator: OperatorType| -> bool {
+                match operator {
+                    OperatorType::SemverGt => lhs > rhs,
+                    OperatorType::SemverGte => lhs >= rhs,
+                    OperatorType::SemverLt => lhs < rhs,
+                    OperatorType::SemverLte => lhs <= rhs,
+                    // NB: Build metadata comparison is not currently supported (see to_semver_representation).
+                    OperatorType::SemverEq => lhs == rhs,
+                    OperatorType::SemverNeq => lhs != rhs,
+                    _ => false,
+                }
+            };
+
+            let parsed_value = match to_semver_representation(
+                match_value.unwrap_or(&serde_json::Value::Null),
+            ) {
+                Some(parsed_value) => parsed_value,
+                None => {
+                    tracing::debug!(
+                        "Failed to parse property value '{}' for key '{}' as semver for operator {:?}",
+                        match_value.unwrap_or(&serde_json::Value::Null),
+                        key,
+                        operator
+                    );
+                    return Ok(false);
+                }
+            };
+
+            if let Some(filter_value) = to_semver_representation(value) {
+                Ok(compare(&parsed_value, &filter_value, operator))
+            } else {
+                tracing::debug!(
+                    "Failed to parse filter value '{}' for key '{}' as semver for operator {:?}",
+                    value,
+                    key,
+                    operator
+                );
+                Err(FlagMatchingError::ValidationError(
+                    "filter value is not a valid semver".to_string(),
+                ))
+            }
+        }
+        OperatorType::SemverTilde | OperatorType::SemverCaret | OperatorType::SemverWildcard => {
+            if match_value.is_none() {
+                return Ok(false);
+            }
+
+            // Parse the property value as a version
+            let parsed_value = match to_semver_representation(
+                match_value.unwrap_or(&serde_json::Value::Null),
+            ) {
+                Some(parsed_value) => parsed_value,
+                None => {
+                    tracing::debug!(
+                        "Failed to parse property value '{}' for key '{}' as semver for operator {:?}",
+                        match_value.unwrap_or(&serde_json::Value::Null),
+                        key,
+                        operator
+                    );
+                    return Ok(false);
+                }
+            };
+
+            // Build the version requirement string based on the operator
+            let version_string = to_string_representation(value);
+            let normalized_version = normalize_version_string(&version_string);
+
+            let requirement_string = match operator {
+                OperatorType::SemverTilde => format!("~{normalized_version}"),
+                OperatorType::SemverCaret => format!("^{normalized_version}"),
+                OperatorType::SemverWildcard => {
+                    // For wildcard, replace * with x for semver compatibility.
+                    // Supported patterns: "1.*", "1.2.*", "1.*.*", "*"
+                    //
+                    // Python uses rstrip(".*") then calculates bounds manually:
+                    //   "1.2.*" -> "1.2" -> >=1.2.0 <1.3.0
+                    //   "1.*.*" -> "1"   -> >=1.0.0 <2.0.0
+                    // Rust uses VersionReq with x wildcards:
+                    //   "1.2.*" -> "1.2.x" -> >=1.2.0 <1.3.0
+                    //   "1.*.*" -> "1.x.x" -> >=1.0.0 <2.0.0
+                    // Both produce equivalent results for valid patterns.
+                    //
+                    // Invalid patterns like "1.*.3" will fail VersionReq parsing and
+                    // return a ValidationError, which is the expected behavior.
+                    normalized_version.replace('*', "x")
+                }
+                _ => normalized_version.to_string(),
+            };
+
+            // Parse the version requirement
+            let requirement = match VersionReq::parse(&requirement_string) {
+                Ok(req) => req,
+                Err(_) => {
+                    tracing::debug!(
+                        "Failed to parse version requirement '{}' for key '{}' as semver requirement for operator {:?}",
+                        requirement_string,
+                        key,
+                        operator
+                    );
+                    return Err(FlagMatchingError::ValidationError(
+                        "filter value is not a valid semver requirement".to_string(),
+                    ));
+                }
+            };
+
+            // Check if the parsed value matches the requirement
+            Ok(requirement.matches(&parsed_value))
         }
         OperatorType::IsDateExact | OperatorType::IsDateAfter | OperatorType::IsDateBefore => {
             let parsed_date = determine_parsed_date_for_property_matching(match_value);
@@ -1713,5 +1847,1227 @@ mod test_match_properties {
 
         // Test 3 digit milliseconds (existing case)
         assert!(parse_date_string("2025-12-19T00:00:00.123").is_some());
+    }
+
+    #[test]
+    fn test_match_properties_semver_operators() {
+        // Test SemverGt
+        let property_gt = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.0.0")),
+            operator: Some(OperatorType::SemverGt),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_gt,
+            &HashMap::from([("version".to_string(), json!("1.0.1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_gt,
+            &HashMap::from([("version".to_string(), json!("2.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_gt,
+            &HashMap::from([("version".to_string(), json!("1.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_gt,
+            &HashMap::from([("version".to_string(), json!("0.9.9"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test minimal version 0.0.0
+        let property_minimal = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("0.0.0")),
+            operator: Some(OperatorType::SemverGte),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_minimal,
+            &HashMap::from([("version".to_string(), json!("0.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_minimal,
+            &HashMap::from([("version".to_string(), json!("0.0.1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test SemverGte
+        let property_gte = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.0.0")),
+            operator: Some(OperatorType::SemverGte),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_gte,
+            &HashMap::from([("version".to_string(), json!("1.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_gte,
+            &HashMap::from([("version".to_string(), json!("1.0.1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_gte,
+            &HashMap::from([("version".to_string(), json!("0.9.9"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test SemverLt
+        let property_lt = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("2.0.0")),
+            operator: Some(OperatorType::SemverLt),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_lt,
+            &HashMap::from([("version".to_string(), json!("1.9.9"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_lt,
+            &HashMap::from([("version".to_string(), json!("1.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_lt,
+            &HashMap::from([("version".to_string(), json!("2.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_lt,
+            &HashMap::from([("version".to_string(), json!("2.0.1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test SemverLte
+        let property_lte = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("2.0.0")),
+            operator: Some(OperatorType::SemverLte),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_lte,
+            &HashMap::from([("version".to_string(), json!("2.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_lte,
+            &HashMap::from([("version".to_string(), json!("1.9.9"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_lte,
+            &HashMap::from([("version".to_string(), json!("2.0.1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test SemverEq
+        let property_eq = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.2.3")),
+            operator: Some(OperatorType::SemverEq),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_eq,
+            &HashMap::from([("version".to_string(), json!("1.2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_eq,
+            &HashMap::from([("version".to_string(), json!("1.2.4"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test SemverNeq
+        let property_neq = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.2.3")),
+            operator: Some(OperatorType::SemverNeq),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_neq,
+            &HashMap::from([("version".to_string(), json!("1.2.4"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_neq,
+            &HashMap::from([("version".to_string(), json!("1.2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Note: Build metadata is not supported because our `sortableSemver` method doesn't support it yet.
+    }
+
+    #[test]
+    fn test_semver_with_v_prefix() {
+        let property = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.0.0")),
+            operator: Some(OperatorType::SemverGt),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Test with 'v' prefix in property value
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("v1.0.1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test with 'v' prefix in filter value
+        let property_with_v = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("v1.0.0")),
+            operator: Some(OperatorType::SemverGt),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_with_v,
+            &HashMap::from([("version".to_string(), json!("1.0.1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test with 'v' prefix on both sides
+        assert!(match_property(
+            &property_with_v,
+            &HashMap::from([("version".to_string(), json!("v1.0.1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_semver_with_prerelease() {
+        let property = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.0.0")),
+            operator: Some(OperatorType::SemverGt),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Pre-release versions are less than the release version
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.0.0-alpha.1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.0.1-beta.2"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test pre-release comparison
+        let property_pre = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.0.0-alpha.1")),
+            operator: Some(OperatorType::SemverLt),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_pre,
+            &HashMap::from([("version".to_string(), json!("1.0.0-alpha.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    // TODO: Build metadata in semver (e.g., "1.0.0+build.1") is not currently supported.
+    // For semver equality checks, use regular string equality operators (Exact, IsNot) instead.
+    // See to_semver_representation() for details.
+
+    #[test]
+    fn test_semver_invalid_versions() {
+        let property = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.0.0")),
+            operator: Some(OperatorType::SemverGt),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Invalid semver in property value should return false
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("not-a-version"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.abc"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Leading/trailing whitespace is trimmed and accepted
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!(" 1.2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.3 "))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Leading zeros are not valid semver
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("01.02.03"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Too many version components (common in .NET)
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.3.4"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Empty component
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1..2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Trailing dot
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.3."))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Leading dot
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!(".1.2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Negative version part
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.-2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Invalid semver in filter value should return an error (configuration error)
+        let property_invalid_filter = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("invalid-semver")),
+            operator: Some(OperatorType::SemverGt),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_invalid_filter,
+            &HashMap::from([("version".to_string(), json!("1.0.0"))]),
+            true
+        )
+        .is_err());
+
+        // Invalid semver in filter value for range operators should also return an error
+        let property_invalid_tilde = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("not-a-version")),
+            operator: Some(OperatorType::SemverTilde),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_invalid_tilde,
+            &HashMap::from([("version".to_string(), json!("1.0.0"))]),
+            true
+        )
+        .is_err());
+
+        let property_invalid_wildcard = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.*.3")), // Invalid: wildcard in middle
+            operator: Some(OperatorType::SemverWildcard),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_invalid_wildcard,
+            &HashMap::from([("version".to_string(), json!("1.2.3"))]),
+            true
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_semver_missing_property() {
+        let property = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.0.0")),
+            operator: Some(OperatorType::SemverGt),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Missing property should return false
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("other_key".to_string(), json!("1.0.0"))]),
+            false
+        )
+        .expect("expected match to exist"));
+
+        // Missing property with partial_props should error
+        assert!(match_property(
+            &property,
+            &HashMap::from([("other_key".to_string(), json!("1.0.0"))]),
+            true
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_semver_tilde_operator() {
+        // ~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)
+        let property = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.2.3")),
+            operator: Some(OperatorType::SemverTilde),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Should match: same version
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Should match: higher patch version
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.4"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.10"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Should not match: higher minor version
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.3.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Should not match: lower version
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.2"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Should not match: different major version
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("2.2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test with v prefix
+        let property_with_v = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("v1.2.3")),
+            operator: Some(OperatorType::SemverTilde),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_with_v,
+            &HashMap::from([("version".to_string(), json!("v1.2.5"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_semver_caret_operator() {
+        // ^1.2.3 means >=1.2.3 <2.0.0 (allows minor-level changes)
+        let property = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.2.3")),
+            operator: Some(OperatorType::SemverCaret),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Should match: same version
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Should match: higher patch version
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.4"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Should match: higher minor version
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.3.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.10.5"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Should not match: different major version
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("2.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Should not match: lower version
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.2"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.1.9"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_semver_wildcard_operator() {
+        // 1.2.* means >=1.2.0 <1.3.0
+        let property_patch = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.2.*")),
+            operator: Some(OperatorType::SemverWildcard),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Should match: any patch version in 1.2.x
+        assert!(match_property(
+            &property_patch,
+            &HashMap::from([("version".to_string(), json!("1.2.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_patch,
+            &HashMap::from([("version".to_string(), json!("1.2.5"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_patch,
+            &HashMap::from([("version".to_string(), json!("1.2.99"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Should not match: different minor version
+        assert!(!match_property(
+            &property_patch,
+            &HashMap::from([("version".to_string(), json!("1.3.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_patch,
+            &HashMap::from([("version".to_string(), json!("1.1.9"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test 1.*.* which means >=1.0.0 <2.0.0
+        let property_minor = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.*.*")),
+            operator: Some(OperatorType::SemverWildcard),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Should match: any version in 1.x.x
+        assert!(match_property(
+            &property_minor,
+            &HashMap::from([("version".to_string(), json!("1.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_minor,
+            &HashMap::from([("version".to_string(), json!("1.5.9"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_minor,
+            &HashMap::from([("version".to_string(), json!("1.99.99"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Should not match: different major version
+        assert!(!match_property(
+            &property_minor,
+            &HashMap::from([("version".to_string(), json!("2.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_minor,
+            &HashMap::from([("version".to_string(), json!("0.9.9"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test 1.* (single wildcard, should work same as 1.*.*)
+        let property_single = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.*")),
+            operator: Some(OperatorType::SemverWildcard),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_single,
+            &HashMap::from([("version".to_string(), json!("1.5.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_single,
+            &HashMap::from([("version".to_string(), json!("2.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test * (all versions)
+        let property_all = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("*")),
+            operator: Some(OperatorType::SemverWildcard),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_all,
+            &HashMap::from([("version".to_string(), json!("1.0.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_all,
+            &HashMap::from([("version".to_string(), json!("99.99.99"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test invalid pattern: 1.*.3 (wildcard in middle) - should return error
+        let property_invalid = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.*.3")),
+            operator: Some(OperatorType::SemverWildcard),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Invalid patterns return an error (configuration error)
+        assert!(match_property(
+            &property_invalid,
+            &HashMap::from([("version".to_string(), json!("1.2.3"))]),
+            true
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_semver_range_with_prerelease() {
+        // Tilde with pre-release versions
+        let property = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.2.3-beta.1")),
+            operator: Some(OperatorType::SemverTilde),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Should match higher pre-release in same patch version
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.3-beta.2"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Should match release version
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.3"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("1.2.4"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Caret with pre-release
+        let property_caret = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.2.0-alpha")),
+            operator: Some(OperatorType::SemverCaret),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_caret,
+            &HashMap::from([("version".to_string(), json!("1.2.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_caret,
+            &HashMap::from([("version".to_string(), json!("1.5.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_semver_range_invalid_versions() {
+        let property = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.2.3")),
+            operator: Some(OperatorType::SemverTilde),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Invalid version in property value should return false
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("not-a-version"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Invalid version in filter value should return an error (configuration error)
+        let property_invalid = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("invalid")),
+            operator: Some(OperatorType::SemverCaret),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_invalid,
+            &HashMap::from([("version".to_string(), json!("1.0.0"))]),
+            true
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_match_properties_regex_with_lookahead() {
+        // Positive lookahead: match "foo" only if followed by "bar"
+        let property_positive = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(r"foo(?=bar)")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("foobar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("foobar123"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("foobaz"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("foo"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Negative lookahead: match "foo" only if NOT followed by "bar"
+        let property_negative = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(r"foo(?!bar)")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_negative,
+            &HashMap::from([("key".to_string(), json!("foobaz"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_negative,
+            &HashMap::from([("key".to_string(), json!("foo"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_negative,
+            &HashMap::from([("key".to_string(), json!("foobar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_match_properties_regex_with_lookbehind() {
+        // Positive lookbehind: match "bar" only if preceded by "foo"
+        let property_positive = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(r"(?<=foo)bar")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("foobar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("123foobar456"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("bazbar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("bar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Negative lookbehind: match "bar" only if NOT preceded by "foo"
+        let property_negative = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(r"(?<!foo)bar")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_negative,
+            &HashMap::from([("key".to_string(), json!("bazbar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_negative,
+            &HashMap::from([("key".to_string(), json!("bar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_negative,
+            &HashMap::from([("key".to_string(), json!("foobar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_match_properties_regex_with_backreference() {
+        // Backreference: match repeated words like "the the" or "is is"
+        let property = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(r"\b(\w+)\s+\1\b")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("key".to_string(), json!("the the"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("key".to_string(), json!("this is is a test"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("key".to_string(), json!("the quick brown fox"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("key".to_string(), json!("hello world"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Another backreference: match HTML-like tags where opening and closing match
+        let property_tags = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(r"<(\w+)>.*</\1>")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_tags,
+            &HashMap::from([("key".to_string(), json!("<div>content</div>"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_tags,
+            &HashMap::from([("key".to_string(), json!("<span>text</span>"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_tags,
+            &HashMap::from([("key".to_string(), json!("<div>content</span>"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_match_properties_regex_complex_patterns() {
+        // Real-world example: match email addresses from specific domains using lookahead
+        let property = PropertyFilter {
+            key: "email".to_string(),
+            value: Some(json!(r"^[\w.+-]+@(?=.*\.(com|org)$)[\w.-]+$")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("email".to_string(), json!("user@example.com"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("email".to_string(), json!("test@posthog.org"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("email".to_string(), json!("user@example.net"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Password validation: at least one uppercase, one lowercase, one digit
+        let password_check = PropertyFilter {
+            key: "password".to_string(),
+            value: Some(json!(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &password_check,
+            &HashMap::from([("password".to_string(), json!("Password1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &password_check,
+            &HashMap::from([("password".to_string(), json!("SecurePass123"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &password_check,
+            &HashMap::from([("password".to_string(), json!("password"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &password_check,
+            &HashMap::from([("password".to_string(), json!("SHORT1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_match_properties_regex_backtracking_limit() {
+        // Test that pathological regex patterns complete quickly due to backtrack limits.
+        // The backtrack limit only applies to patterns using "fancy" features (lookahead,
+        // lookbehind, backreferences) since fancy-regex delegates simple patterns to the
+        // standard regex crate which uses a non-backtracking DFA/NFA algorithm.
+        //
+        // This pattern uses a backreference which forces the backtracking engine,
+        // combined with nested quantifiers that cause exponential backtracking.
+        let property = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(r"^(a+)+\1$")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Should match when the string is repeated correctly
+        assert!(match_property(
+            &property,
+            &HashMap::from([("key".to_string(), json!("aaaa"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // This causes exponential backtracking: the engine tries many ways to split
+        // the 'a's between the group and the backreference, and with the nested
+        // quantifier (a+)+, each split has many sub-combinations to try.
+        let pathological_input = "a".repeat(30) + "!";
+        let start = std::time::Instant::now();
+        let result = match_property(
+            &property,
+            &HashMap::from([("key".to_string(), json!(pathological_input))]),
+            true,
+        );
+        let elapsed = start.elapsed();
+
+        // The key assertion: this should complete quickly (not hang)
+        // With 10k backtrack limit, should complete in well under 100ms
+        assert!(
+            elapsed.as_millis() < 100,
+            "Regex matching took too long: {:?}",
+            elapsed
+        );
+
+        // Result should be an error due to backtracking limit being exceeded
+        assert!(
+            matches!(result, Err(FlagMatchingError::InvalidRegexPattern)),
+            "Expected InvalidRegexPattern error due to backtrack limit, got {:?}",
+            result
+        );
     }
 }

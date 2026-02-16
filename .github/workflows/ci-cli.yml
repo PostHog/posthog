@@ -15,12 +15,12 @@ jobs:
             run:
                 working-directory: cli
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
 
             - name: Check Cargo.lock is up to date
               run: |
@@ -34,12 +34,12 @@ jobs:
             run:
                 working-directory: cli
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
 
             - name: Run tests
               run: cargo test --all-features
@@ -51,12 +51,12 @@ jobs:
             run:
                 working-directory: cli
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
                   components: clippy
 
             - name: Run clippy
@@ -69,12 +69,12 @@ jobs:
             run:
                 working-directory: cli
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
                   components: rustfmt
 
             - name: Check formatting

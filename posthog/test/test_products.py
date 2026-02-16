@@ -35,7 +35,7 @@ class TestProducts(BaseTest):
         products_by_category = Products.get_products_by_category()
         categories = set(products_by_category.keys())
 
-        expected_categories = {"Analytics", "Behavior", "Features", "Tools", "Unreleased"}
+        expected_categories = {"Analytics", "AI Analytics", "Behavior", "Features", "Tools", "Unreleased"}
         assert categories == expected_categories
 
     def test_get_products_by_category_each_category_has_list_of_strings(self):
@@ -51,9 +51,9 @@ class TestProducts(BaseTest):
 
         for category, product_paths in products_by_category.items():
             for product_path in product_paths:
-                assert (
-                    product_path in all_product_paths
-                ), f"Product {product_path} in category {category} not found in all products"
+                assert product_path in all_product_paths, (
+                    f"Product {product_path} in category {category} not found in all products"
+                )
 
     def test_reload_does_not_raise_error(self):
         try:

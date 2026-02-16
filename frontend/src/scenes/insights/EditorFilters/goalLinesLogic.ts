@@ -42,21 +42,11 @@ export const goalLinesLogic = kea<goalLinesLogicType>([
             {
                 addGoalLine: (state) => [...state, { label: 'Q4 Goal', value: 0, displayLabel: true }],
                 updateGoalLine: (state, { goalLineIndex, key, value }) => {
-                    const goalLines = [...state]
-                    if (key === 'value') {
-                        goalLines[goalLineIndex][key] = value as number
-                    } else {
-                        // @ts-expect-error not sure why it thinks this is an error but it clearly isn't
-                        goalLines[goalLineIndex][key] = value
-                    }
-
-                    return goalLines
+                    return state.map((goalLine, index) =>
+                        index === goalLineIndex ? { ...goalLine, [key]: value } : goalLine
+                    )
                 },
-                removeGoalLine: (state, { goalLineIndex }) => {
-                    const goalLines = [...state]
-                    goalLines.splice(goalLineIndex, 1)
-                    return goalLines
-                },
+                removeGoalLine: (state, { goalLineIndex }) => state.filter((_, index) => index !== goalLineIndex),
                 setGoalLines: (_, { goalLines }) => goalLines,
             },
         ],

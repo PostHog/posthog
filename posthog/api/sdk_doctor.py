@@ -1,6 +1,8 @@
 import json
 from typing import Any, cast
 
+from django.conf import settings
+
 import structlog
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -33,6 +35,12 @@ def sdk_doctor(request: Request) -> Response:
 
     team_data = get_team_data(team_id, force_refresh)
     if not team_data:
+        if settings.DEBUG:  # Running locally, usually doesn't have anything in the cache, just return empty
+            logger.info(
+                f"[SDK Doctor] Running locally, no data received from ClickHouse for team {team_id}, returning empty response"
+            )
+            return Response({}, status=200)
+
         return Response({"error": "Failed to get SDK versions. Please try again later."}, status=500)
 
     sdk_data = get_github_sdk_data()

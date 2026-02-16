@@ -17,6 +17,19 @@ from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOUR
 logger = logging.getLogger(__name__)
 
 
+CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
+
+PRODUCT_ASYNC_FUNCTIONS: set[str] = set()
+
+
+def register_supported_function(name: str) -> None:
+    PRODUCT_ASYNC_FUNCTIONS.add(name)
+
+
+register_supported_function("postHogGetTicket")
+register_supported_function("postHogUpdateTicket")
+
+
 class InputCollector(TraversingVisitor):
     inputs: set[str]
 
@@ -29,6 +42,40 @@ class InputCollector(TraversingVisitor):
         if node.chain[0] == "inputs":
             if len(node.chain) > 1:
                 self.inputs.add(str(node.chain[1]))
+
+
+class HyphenatedPropertyDetector(TraversingVisitor):
+    errors: list[str]
+
+    def __init__(self):
+        super().__init__()
+        self.errors = []
+
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        super().visit_arithmetic_operation(node)
+        if node.op == ast.ArithmeticOperationOp.Sub:
+            if (
+                isinstance(node.left, ast.Field)
+                and len(node.left.chain) >= 2
+                and isinstance(node.right, ast.Field)
+                and len(node.right.chain) == 1
+                and self._is_hyphenated(node.left, node.right)
+            ):
+                right_name = str(node.right.chain[0])
+                left_last = str(node.left.chain[-1])
+                parent = ".".join(str(c) for c in node.left.chain[:-1])
+                self.errors.append(
+                    f"Hyphens are not supported in identifiers and are interpreted as "
+                    f"subtraction. Use bracket notation: "
+                    f"{parent}['{left_last}-{right_name}']"
+                )
+
+    @staticmethod
+    def _is_hyphenated(left: ast.Field, right: ast.Field) -> bool:
+        """Check if the subtraction looks like a hyphenated property name (no spaces around the minus)."""
+        if left.end is not None and right.start is not None:
+            return right.start - left.end == 1
+        return True
 
 
 def collect_inputs(node: ast.Expr) -> set[str]:
@@ -49,6 +96,10 @@ def generate_template_bytecode(obj: Any, input_collector: set[str]) -> Any:
     elif isinstance(obj, str):
         node = parse_string_template(obj)
         input_collector.update(collect_inputs(node))
+        detector = HyphenatedPropertyDetector()
+        detector.visit(node)
+        if detector.errors:
+            raise Exception(detector.errors[0])
         return create_bytecode(node).bytecode
     else:
         return obj
@@ -364,7 +415,7 @@ def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]
     Raises an error if a cycle is detected.
     """
     # Build in-degree
-    in_degree = {node: 0 for node in nodes}
+    in_degree = dict.fromkeys(nodes, 0)
     for node, deps in edges.items():
         for dep in deps:
             if dep in in_degree:
@@ -394,12 +445,20 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
+
+        detector = HyphenatedPropertyDetector()
+        detector.visit(program)
+        if detector.errors:
+            raise serializers.ValidationError({"hog": detector.errors[0]})
+
         supported_functions = set()
 
         if hog_type == "destination":
-            supported_functions = {"fetch", "postHogCapture"}
+            supported_functions = CORE_SUPPORTED_FUNCTIONS | PRODUCT_ASYNC_FUNCTIONS
 
         return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
+    except serializers.ValidationError:
+        raise
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})

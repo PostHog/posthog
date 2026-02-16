@@ -1,36 +1,25 @@
-import { INSIGHT_ALERT_FIRING_EVENT_ID, INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
+import { INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
+import { buildAlertFilterConfig } from 'lib/utils/alertUtils'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { urls } from 'scenes/urls'
 
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { InsightShortId } from '~/types'
 
 export interface AlertDestinationSelectorProps {
     alertId: string
+    insightShortId: InsightShortId
 }
 
-export function AlertDestinationSelector({ alertId }: AlertDestinationSelectorProps): JSX.Element {
+export function AlertDestinationSelector({ alertId, insightShortId }: AlertDestinationSelectorProps): JSX.Element {
+    const returnTo = `${urls.insightAlerts(insightShortId)}?alert_id=${alertId}`
+
     return (
         <LinkedHogFunctions
             type="internal_destination"
             subTemplateIds={[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]}
             hideFeedback={true}
-            forceFilterGroups={[
-                {
-                    properties: [
-                        {
-                            key: 'alert_id',
-                            value: alertId,
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.Event,
-                        },
-                    ],
-                    events: [
-                        {
-                            id: INSIGHT_ALERT_FIRING_EVENT_ID,
-                            type: 'events',
-                        },
-                    ],
-                },
-            ]}
+            forceFilterGroups={[buildAlertFilterConfig(alertId)]}
+            queryParams={{ returnTo }}
         />
     )
 }

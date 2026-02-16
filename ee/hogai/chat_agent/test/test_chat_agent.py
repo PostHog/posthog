@@ -697,10 +697,13 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         assert isinstance(actual_output[5][1], AssistantMessage)
         self.assertEqual(actual_output[5][1].content, "The results indicate a great future for you.")
 
+    @patch("ee.hogai.chat_agent.memory.nodes.MemoryOnboardingFinalizeNode._model")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerContextMixin._aretrieve_context")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryOnboardingEnquiryNode._model")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerNode._model")
-    async def test_onboarding_flow_accepts_memory(self, model_mock, onboarding_enquiry_model_mock, context_mock):
+    async def test_onboarding_flow_accepts_memory(
+        self, model_mock, onboarding_enquiry_model_mock, context_mock, finalize_mock
+    ):
         await self._set_up_onboarding_tests()
 
         # Mock the context retrieval to return a predictable domain
@@ -712,6 +715,9 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         model_mock.return_value = RunnableLambda(
             lambda x: "Here's what I found on posthog.com: PostHog is a product analytics platform."
         )
+
+        # Mock the finalize node to return compressed memory
+        finalize_mock.return_value = RunnableLambda(lambda _: "PostHog is a product analytics platform.")
 
         def mock_response(input_dict):
             input_str = str(input_dict)
@@ -775,10 +781,13 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             "Question: What does the company do?\nAnswer: Here's what I found on posthog.com: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:",
         )
 
+    @patch("ee.hogai.chat_agent.memory.nodes.MemoryOnboardingFinalizeNode._model")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerContextMixin._aretrieve_context")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerNode._model")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryOnboardingEnquiryNode._model")
-    async def test_onboarding_flow_rejects_memory(self, onboarding_enquiry_model_mock, model_mock, context_mock):
+    async def test_onboarding_flow_rejects_memory(
+        self, onboarding_enquiry_model_mock, model_mock, context_mock, finalize_mock
+    ):
         await self._set_up_onboarding_tests()
 
         # Mock the context retrieval to return a predictable domain
@@ -791,6 +800,9 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             lambda _: "Here's what I found on posthog.com: PostHog is a product analytics platform."
         )
         onboarding_enquiry_model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
+
+        # Mock the finalize node to return compressed memory
+        finalize_mock.return_value = RunnableLambda(lambda _: "Target market info.")
 
         # Create a graph with memory initialization flow
         graph = (
@@ -985,7 +997,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
         with (
             patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model") as root_mock,
-            patch("ee.hogai.chat_agent.loop_graph.nodes.AgentLoopGraphToolsNode.arun") as root_tool_mock,
+            patch("ee.hogai.core.agent_modes.executables.AgentToolsExecutable.arun") as root_tool_mock,
         ):
 
             def assert_lock_status(_):
@@ -1688,7 +1700,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
     @patch(
         "ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation"
     )
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     async def test_compacting_conversation_on_the_second_turn(self, mock_model, mock_tool, mock_should_compact):
         mock_model.side_effect = cycle(  # Changed from return_value to side_effect
@@ -1748,7 +1760,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
     @patch("ee.hogai.tools.search.SearchTool._arun_impl", return_value=("Docs doubt it", None))
     @patch(
-        "ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl",
+        "ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl",
         return_value=("Hedgehogs have not talked yet", None),
     )
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")

@@ -153,9 +153,9 @@ async def assert_clickhouse_records_in_kafka(
     expected_records.sort(key=operator.itemgetter(sort_key))
     produced_records.sort(key=operator.itemgetter(sort_key))
 
-    assert (
-        produced_column_names == expected_column_names
-    ), f"Expected column names to be '{expected_column_names}', got '{produced_column_names}'"
+    assert produced_column_names == expected_column_names, (
+        f"Expected column names to be '{expected_column_names}', got '{produced_column_names}'"
+    )
     assert produced_records[0] == expected_records[0]
     assert produced_records == expected_records
     assert len(produced_records) == len(expected_records)

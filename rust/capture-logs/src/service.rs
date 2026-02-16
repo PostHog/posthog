@@ -22,12 +22,19 @@ use tracing::{debug, error, instrument};
 // due to a bug in the otel proto rust library we need to patch the json to support (valid) empty Values
 // see https://github.com/open-telemetry/opentelemetry-rust/issues/1253
 // FIXME: remove once upstream has fixed the issue, OR we should fork upstream and fix the issue ourselves
-fn patch_otel_json(v: &mut Value) {
+pub fn patch_otel_json(v: &mut Value) {
     match v {
         Value::Object(map) => {
             // In OTel, AnyValue is usually a field named "value"
             // If we find "value": {}, change it to "value": null
             if let Some(inner) = map.get_mut("value") {
+                if inner.is_object() && inner.as_object().map(|obj| obj.is_empty()).unwrap_or(false)
+                {
+                    *inner = Value::Null;
+                }
+            }
+            // Handle empty body objects - body should be an AnyValue or null
+            if let Some(inner) = map.get_mut("body") {
                 if inner.is_object() && inner.as_object().map(|obj| obj.is_empty()).unwrap_or(false)
                 {
                     *inner = Value::Null;
@@ -47,17 +54,47 @@ fn patch_otel_json(v: &mut Value) {
     }
 }
 
-fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest, anyhow::Error> {
-    let mut v: Value = serde_json::from_slice(json_bytes)?;
-    patch_otel_json(&mut v);
-    let result: ExportLogsServiceRequest = serde_json::from_value(v)?;
-    Ok(result)
+/// Parse OpenTelemetry log message from JSON bytes.
+///
+/// Supports both single JSON objects and JSONL format (JSON Lines).
+/// For JSONL, multiple ExportLogsServiceRequest objects are parsed and merged
+/// into a single request by combining their resource_logs arrays.
+pub fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest, anyhow::Error> {
+    // First, attempt to parse the entire payload as a single JSON object.
+    // If this succeeds, we treat it as a normal ExportLogsServiceRequest.
+    if let Ok(mut v) = serde_json::from_slice::<Value>(json_bytes) {
+        patch_otel_json(&mut v);
+        let result: ExportLogsServiceRequest = serde_json::from_value(v)?;
+        return Ok(result);
+    }
+
+    // If parsing as a single JSON object fails, fall back to JSONL (JSON Lines)
+    // where each non-empty line is expected to be a complete JSON object.
+    let json_str = std::str::from_utf8(json_bytes)?;
+    let lines: Vec<&str> = json_str
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+
+    // Handle JSONL format - parse each line and merge them
+    let mut merged_request = ExportLogsServiceRequest {
+        resource_logs: Vec::new(),
+    };
+
+    for line in lines {
+        let mut v: Value = serde_json::from_str(line)?;
+        patch_otel_json(&mut v);
+        let request: ExportLogsServiceRequest = serde_json::from_value(v)?;
+        merged_request.resource_logs.extend(request.resource_logs);
+    }
+
+    Ok(merged_request)
 }
 
 #[derive(Clone)]
 pub struct Service {
-    sink: KafkaSink,
-    token_dropper: Arc<TokenDropper>,
+    pub(crate) sink: KafkaSink,
+    pub(crate) token_dropper: Arc<TokenDropper>,
 }
 
 #[derive(Deserialize)]
@@ -68,11 +105,11 @@ pub struct QueryParams {
 impl Service {
     pub async fn new(
         kafka_sink: KafkaSink,
-        token_dropper: TokenDropper,
+        token_dropper: Arc<TokenDropper>,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
-            token_dropper: token_dropper.into(),
+            token_dropper,
         })
     }
 }
@@ -209,5 +246,16 @@ pub async fn export_logs_http(
     }
 
     // Return empty JSON object per OTLP spec
+    Ok(Json(json!({})))
+}
+
+/// Handle CORS preflight requests (OPTIONS method) for all log endpoints.
+///
+/// This endpoint supports all preflight requests by returning an empty JSON response.
+/// The actual CORS headers are handled by the CorsLayer middleware in main.rs,
+/// which provides a very permissive policy allowing all origins, methods, and headers
+/// to support various SDK versions and reverse proxy configurations.
+pub async fn options_handler(
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     Ok(Json(json!({})))
 }

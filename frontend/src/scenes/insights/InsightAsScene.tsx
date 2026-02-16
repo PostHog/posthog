@@ -1,4 +1,4 @@
-import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
@@ -19,7 +19,6 @@ import { InsightShortId, ItemMode } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { InsightsNav } from './InsightNav/InsightsNav'
-import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 
@@ -31,13 +30,14 @@ export interface InsightAsSceneProps {
 
 export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsSceneProps): JSX.Element | null {
     // insightSceneLogic
-    const { insightMode, insight, filtersOverride, variablesOverride, hasOverrides, freshQuery } =
+    const { insightMode, insight, filtersOverride, variablesOverride, hasOverrides, freshQuery, dashboardId } =
         useValues(insightSceneLogic)
     const { currentTeamId } = useValues(teamLogic)
 
     // insightLogic
     const logic = insightLogic({
         dashboardItemId: insightId || `new-${tabId}`,
+        dashboardId: dashboardId ?? undefined,
         tabId,
         // don't use cached insight if we have overrides
         cachedInsight: hasOverrides && insight?.short_id === insightId ? insight : null,
@@ -58,7 +58,6 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
     })
 
     // other logics
-    useMountedLogic(insightCommandLogic(insightProps))
     useAttachedLogic(logic, attachTo) // insightLogic(insightProps)
     useAttachedLogic(insightDataLogic(insightProps), attachTo)
 

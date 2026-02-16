@@ -69,6 +69,47 @@ class TestMediaAPI(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK
             assert response.headers["Content-Type"] == "image/gif"
 
+    def test_can_upload_with_temporary_token(self) -> None:
+        self.client.logout()
+        self.user.temporary_token = "token123"
+        self.user.save()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media/?temporary_token=token123",
+                    {"image": image},
+                    format="multipart",
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+    def test_invalid_temporary_token_returns_401(self) -> None:
+        self.client.logout()
+        self.user.temporary_token = "token123"
+        self.user.save()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media/?temporary_token=wrong_token",
+                    {"image": image},
+                    format="multipart",
+                )
+                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.json())
+
+    def test_missing_token_from_different_origin_returns_401(self) -> None:
+        self.client.logout()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media/",
+                    {"image": image},
+                    format="multipart",
+                    headers={"Origin": "https://somewebsite.com"},
+                )
+                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.json())
+
     def test_rejects_non_image_file_type(self) -> None:
         fake_file = SimpleUploadedFile(name="test_image.jpg", content=b"a fake image", content_type="text/csv")
         response = self.client.post(

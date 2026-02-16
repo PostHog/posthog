@@ -30,7 +30,8 @@ pub async fn evaluate_feature_flags(
         context.cohort_cache,
         Some(group_type_mapping_cache),
         context.groups,
-    );
+    )
+    .with_parallel_eval_threshold(context.parallel_eval_threshold);
 
     matcher
         .evaluate_all_feature_flags(
@@ -40,6 +41,7 @@ pub async fn evaluate_feature_flags(
             context.hash_key_override, // Aka $anon_distinct_id
             request_id,
             context.flag_keys,
+            context.optimize_experience_continuity_lookups,
         )
         .await
 }

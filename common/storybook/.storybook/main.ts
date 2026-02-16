@@ -22,9 +22,9 @@ const config: StorybookConfig = {
         const mainConfig = createEntry('main')
         return {
             ...config,
-            cache: {
-                type: 'filesystem',
-            },
+            // Disable filesystem cache in CI to avoid heap OOM during cache shutdown
+            // (especially on memory-constrained environments like Cloudflare Pages)
+            cache: process.env.CI ? false : { type: 'filesystem' },
             resolve: {
                 ...config.resolve,
                 extensions: [...config.resolve!.extensions!, ...mainConfig.resolve.extensions],

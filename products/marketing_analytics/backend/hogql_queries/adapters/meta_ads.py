@@ -7,8 +7,38 @@ from posthog.hogql import ast
 from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_FIELD_NAMES, INTEGRATION_PRIMARY_SOURCE
 from .base import MarketingSourceAdapter, MetaAdsConfig, ValidationResult
 
-# Purchase action types to extract from Meta's actions/action_values arrays
-META_PURCHASE_ACTION_TYPES = ["omni_purchase", "purchase"]
+# Omni action types are preferred as they're comprehensive metrics that include all channels.
+# We fallback to individual action types only if omni types return no results.
+META_OMNI_ACTION_TYPES = [
+    "omni_purchase",
+    "omni_lead",
+    "omni_complete_registration",
+    "omni_app_install",
+    "omni_subscribe",
+]
+
+# Fallback action types for accounts without omnichannel tracking or older data
+META_FALLBACK_ACTION_TYPES = [
+    # Purchase
+    "purchase",
+    "offsite_conversion.fb_pixel_purchase",
+    "app_custom_event.fb_mobile_purchase",
+    # Lead
+    "lead",
+    "offsite_conversion.fb_pixel_lead",
+    "onsite_conversion.lead_grouped",
+    # Registration
+    "complete_registration",
+    "offsite_conversion.fb_pixel_complete_registration",
+    "app_custom_event.fb_mobile_complete_registration",
+    "offsite_complete_registration_add_meta_leads",
+    # App install
+    "app_install",
+    "mobile_app_install",
+    # Subscribe
+    "subscribe",
+    "offsite_conversion.fb_pixel_subscribe",
+]
 
 
 class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
@@ -121,8 +151,8 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         # Currency column doesn't exist, return cost without conversion
         return ast.Call(name="SUM", args=[spend_float])
 
-    def _build_action_type_filter(self) -> ast.Expr:
-        """Build filter condition for purchase action types"""
+    def _build_action_type_filter(self, action_types: list[str]) -> ast.Expr:
+        """Build filter condition for specified action types"""
         return ast.Or(
             exprs=[
                 ast.CompareOperation(
@@ -132,8 +162,30 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                     op=ast.CompareOperationOp.Eq,
                     right=ast.Constant(value=action_type),
                 )
-                for action_type in META_PURCHASE_ACTION_TYPES
+                for action_type in action_types
             ]
+        )
+
+    def _build_array_sum_for_action_types(self, json_array_expr: ast.Expr, action_types: list[str]) -> ast.Expr:
+        """Build arraySum expression for specified action types"""
+        return ast.Call(
+            name="arraySum",
+            args=[
+                ast.Lambda(
+                    args=["x"],
+                    expr=ast.Call(
+                        name="JSONExtractFloat",
+                        args=[ast.Field(chain=["x"]), ast.Constant(value="value")],
+                    ),
+                ),
+                ast.Call(
+                    name="arrayFilter",
+                    args=[
+                        ast.Lambda(args=["x"], expr=self._build_action_type_filter(action_types)),
+                        ast.Call(name="JSONExtractArrayRaw", args=[json_array_expr]),
+                    ],
+                ),
+            ],
         )
 
     def _get_reported_conversion_field(self) -> ast.Expr:
@@ -143,37 +195,33 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         # if it's not used, it won't be in the response, therefore, won't be saved in the table and the column
         # won't be created in the table.
         try:
-            # Try to check if conversions column exists
             columns = getattr(self.config.stats_table, "columns", None)
             if columns and hasattr(columns, "__contains__") and "actions" in columns:
                 actions_field = ast.Field(chain=[stats_table_name, "actions"])
                 # Use coalesce to convert Nullable(String) to String, defaulting to empty array '[]'
-                # This prevents "Nested type Array(String) cannot be inside Nullable type" error
                 actions_non_null = ast.Call(name="coalesce", args=[actions_field, ast.Constant(value="[]")])
 
+                # Prefer omni action types (comprehensive metrics), fallback to individual types
+                omni_sum = self._build_array_sum_for_action_types(actions_non_null, META_OMNI_ACTION_TYPES)
+                fallback_sum = self._build_array_sum_for_action_types(actions_non_null, META_FALLBACK_ACTION_TYPES)
+
+                # Use IF to prefer omni, fallback if omni returns 0
                 array_sum = ast.Call(
-                    name="arraySum",
+                    name="if",
                     args=[
-                        ast.Lambda(
-                            args=["x"],
-                            expr=ast.Call(
-                                name="JSONExtractFloat",
-                                args=[ast.Field(chain=["x"]), ast.Constant(value="value")],
-                            ),
+                        ast.CompareOperation(
+                            left=omni_sum,
+                            op=ast.CompareOperationOp.Gt,
+                            right=ast.Constant(value=0),
                         ),
-                        ast.Call(
-                            name="arrayFilter",
-                            args=[
-                                ast.Lambda(args=["x"], expr=self._build_action_type_filter()),
-                                ast.Call(name="JSONExtractArrayRaw", args=[actions_non_null]),
-                            ],
-                        ),
+                        omni_sum,
+                        fallback_sum,
                     ],
                 )
+
                 sum_result = ast.Call(name="SUM", args=[array_sum])
                 return ast.Call(name="toFloat", args=[sum_result])
         except (TypeError, AttributeError, KeyError):
-            # If columns is not iterable, doesn't exist, or has unexpected structure, fall back to 0
             pass
         # Column doesn't exist or can't be checked, return 0
         return ast.Constant(value=0)
@@ -188,28 +236,28 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
             if columns and hasattr(columns, "__contains__") and "action_values" in columns:
                 action_values_field = ast.Field(chain=[stats_table_name, "action_values"])
                 # Use coalesce to convert Nullable(String) to String, defaulting to empty array '[]'
-                # This prevents "Nested type Array(String) cannot be inside Nullable type" error
                 action_values_non_null = ast.Call(name="coalesce", args=[action_values_field, ast.Constant(value="[]")])
 
+                # Prefer omni action types (comprehensive metrics), fallback to individual types
+                omni_sum = self._build_array_sum_for_action_types(action_values_non_null, META_OMNI_ACTION_TYPES)
+                fallback_sum = self._build_array_sum_for_action_types(
+                    action_values_non_null, META_FALLBACK_ACTION_TYPES
+                )
+
+                # Use IF to prefer omni, fallback if omni returns 0
                 array_sum = ast.Call(
-                    name="arraySum",
+                    name="if",
                     args=[
-                        ast.Lambda(
-                            args=["x"],
-                            expr=ast.Call(
-                                name="JSONExtractFloat",
-                                args=[ast.Field(chain=["x"]), ast.Constant(value="value")],
-                            ),
+                        ast.CompareOperation(
+                            left=omni_sum,
+                            op=ast.CompareOperationOp.Gt,
+                            right=ast.Constant(value=0),
                         ),
-                        ast.Call(
-                            name="arrayFilter",
-                            args=[
-                                ast.Lambda(args=["x"], expr=self._build_action_type_filter()),
-                                ast.Call(name="JSONExtractArrayRaw", args=[action_values_non_null]),
-                            ],
-                        ),
+                        omni_sum,
+                        fallback_sum,
                     ],
                 )
+
                 sum_result = ast.Call(name="SUM", args=[array_sum])
                 return ast.Call(name="toFloat", args=[sum_result])
         except (TypeError, AttributeError, KeyError):

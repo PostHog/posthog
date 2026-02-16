@@ -3,7 +3,6 @@ import json
 from typing import Any, Optional
 
 from django.conf import settings
-from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch.dispatcher import receiver
@@ -28,13 +27,10 @@ from posthog.models.user import User
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
-from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
+from products.error_tracking.backend.models import ErrorTrackingAutoCaptureControls, ErrorTrackingSuppressionRule
 from products.product_tours.backend.models import ProductTour
 
 tracer = trace.get_tracer(__name__)
-
-CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
-
 
 CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
     "posthog_remote_config_sync",
@@ -78,10 +74,6 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
 
     return joined
-
-
-def cache_key_for_team_token(team_token: str) -> str:
-    return f"remote_config/{team_token}/config"
 
 
 @tracer.start_as_current_span("RemoteConfig.sanitize_config_for_public_cdn")
@@ -139,6 +131,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.plugins.site import get_decide_site_apps
 
         from products.error_tracking.backend.api.suppression_rules import get_suppression_rules
+        from products.error_tracking.backend.models import get_autocapture_triggers
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -175,6 +168,17 @@ class RemoteConfig(UUIDTModel):
         config["errorTracking"] = {
             "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
             "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
+            **(
+                {"errorTrackingAutocaptureTriggers": get_autocapture_triggers(team.id)}
+                if team.autocapture_exceptions_opt_in
+                else {}
+            ),
+        }
+
+        # MARK: Logs
+        logs_settings = team.logs_settings or {}
+        config["logs"] = {
+            "captureConsoleLogs": logs_settings.get("capture_console_logs", False),
         }
 
         # MARK: Session recording
@@ -257,6 +261,29 @@ class RemoteConfig(UUIDTModel):
 
         config["heatmaps"] = True if team.heatmaps_opt_in else False
 
+        # MARK: Conversations
+        if team.conversations_enabled:
+            conv_settings = team.conversations_settings or {}
+            config["conversations"] = {
+                "enabled": True,
+                "widgetEnabled": conv_settings.get("widget_enabled", False),
+                "greetingText": conv_settings.get("widget_greeting_text") or "Hey, how can I help you today?",
+                "color": conv_settings.get("widget_color") or "#1d4aff",
+                "token": conv_settings.get("widget_public_token"),
+                # NOTE: domains is cached but stripped out at the api level depending on the caller
+                "domains": conv_settings.get("widget_domains") or [],
+                "requireEmail": conv_settings.get("widget_require_email", False),
+                "collectName": conv_settings.get("widget_collect_name", False),
+                "identificationFormTitle": conv_settings.get("widget_identification_form_title")
+                or "Before we start...",
+                "identificationFormDescription": conv_settings.get("widget_identification_form_description")
+                or "Please provide your details so we can help you better.",
+                "placeholderText": conv_settings.get("widget_placeholder_text") or "Type your message...",
+                "widgetPosition": conv_settings.get("widget_position") or "bottom_right",
+            }
+        else:
+            config["conversations"] = False
+
         surveys_opt_in = get_surveys_opt_in(team)
 
         if surveys_opt_in:
@@ -296,7 +323,6 @@ class RemoteConfig(UUIDTModel):
                 pass
 
         config["siteApps"] = site_apps
-
         # Array of JS objects to be included when building the final JS
         config["siteAppsJS"] = self._build_site_apps_js()
 
@@ -346,35 +372,22 @@ class RemoteConfig(UUIDTModel):
 
     @classmethod
     def _get_config_via_cache(cls, token: str) -> dict:
-        key = cache_key_for_team_token(token)
+        # source tells us where the result came from ("redis", "s3", or None).
+        # When data is None, source disambiguates: a cache hit returning None means
+        # the team was explicitly cached as missing, while no source means a true cache miss.
+        data, source = cls.get_hypercache().get_from_cache_with_source(token)
 
-        data = cache.get(key)
-        if data == "404":
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit_but_missing").inc()
+        if data is None:
+            if source in ("redis", "s3"):
+                REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit_but_missing").inc()
+            else:
+                REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
             raise cls.DoesNotExist()
 
-        if data:
+        if source in ("redis", "s3"):
             REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit").inc()
-            return data
-
-        REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
-        try:
-            remote_config = cls.objects.select_related("team").get(team__api_token=token)
-        except cls.DoesNotExist:
-            # Try to find the team and create RemoteConfig if it exists
-            try:
-                from posthog.models.team import Team
-
-                team = Team.objects.get(api_token=token)
-                remote_config = cls(team=team)  # type: ignore[assignment]
-            except Team.DoesNotExist:
-                cache.set(key, "404", timeout=CACHE_TIMEOUT)
-                REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
-                raise cls.DoesNotExist()
-
-        data = remote_config.build_config()
-        cache.set(key, data, timeout=CACHE_TIMEOUT)
-
+        else:
+            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
         return data
 
     @classmethod
@@ -439,8 +452,6 @@ class RemoteConfig(UUIDTModel):
                 logger.exception(f"Failed to update hypercache for team {self.team_id}")
                 capture_exception(e)
 
-            # Update the redis cache key for the config
-            cache.set(cache_key_for_team_token(self.team.api_token), config, timeout=CACHE_TIMEOUT)
             # Invalidate Cloudflare CDN cache
             self._purge_cdn()
 
@@ -586,6 +597,16 @@ def product_tour_deleted(sender, instance, **kwargs):
 
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender=ErrorTrackingAutoCaptureControls)
+def error_tracking_autocapture_controls_saved(sender, instance: "ErrorTrackingAutoCaptureControls", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_delete, sender=ErrorTrackingAutoCaptureControls)
+def error_tracking_autocapture_controls_deleted(sender, instance: "ErrorTrackingAutoCaptureControls", **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 

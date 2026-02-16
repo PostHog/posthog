@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 
 import { IconArrowRight } from '@posthog/icons'
 
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { IconAction } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -48,9 +49,47 @@ function getShortcutIcon(shortcut: AppShortcutType): JSX.Element | null {
     }
 }
 
+interface RenderKeybindProps {
+    keybind: string[][]
+    className?: string
+}
+
+export function RenderKeybind({ keybind, className }: RenderKeybindProps): JSX.Element {
+    return (
+        <span className={cn('inline-flex items-center gap-1', className)}>
+            {keybind.map((keybindOption, index) => {
+                const isSequence = keybindOption.includes('then')
+                if (isSequence) {
+                    const keys = keybindOption.filter((k) => k !== 'then')
+                    return (
+                        <React.Fragment key={index}>
+                            {index > 0 && <span className="text-xxs opacity-75">or</span>}
+                            {keys.map((key, keyIndex) => (
+                                <React.Fragment key={key}>
+                                    {keyIndex > 0 && <span className="opacity-50 lowercase text-xxs">then</span>}
+                                    <kbd className="KeyboardShortcut gap-x-0.5 text-xxs">{key}</kbd>
+                                </React.Fragment>
+                            ))}
+                        </React.Fragment>
+                    )
+                }
+                return (
+                    <React.Fragment key={index}>
+                        {index > 0 && <span className="text-xxs opacity-75">or</span>}
+                        <KeyboardShortcut
+                            {...Object.fromEntries(keybindOption.map((key: string) => [key, true]))}
+                            className="text-xs"
+                        />
+                    </React.Fragment>
+                )
+            })}
+        </span>
+    )
+}
+
 export function AppShortcutMenu(): JSX.Element | null {
-    const { appShortcutMenuOpen } = useValues(appShortcutLogic)
-    const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
+    const { appShortcutMenuOpen, disabledShortcutNames } = useValues(appShortcutLogic)
+    const { setAppShortcutMenuOpen, toggleShortcutDisabled } = useActions(appShortcutLogic)
     const { registeredAppShortcuts } = useValues(appShortcutLogic)
     const { activeTab } = useValues(sceneLogic)
     const comboboxRef = useRef<ListBoxHandle>(null)
@@ -241,6 +280,7 @@ export function AppShortcutMenu(): JSX.Element | null {
                                 </Combobox.Group>
                                 {group.shortcuts.map((shortcut, index) => {
                                     const isFirstItem = groupIndex === 0 && index === 0
+                                    const isDisabled = disabledShortcutNames.includes(shortcut.name)
                                     return (
                                         <Combobox.Group key={shortcut.name} value={[shortcut.intent]}>
                                             <Combobox.Item focusFirst={isFirstItem} asChild>
@@ -250,33 +290,40 @@ export function AppShortcutMenu(): JSX.Element | null {
                                                     onClick={(e) => {
                                                         e.preventDefault()
                                                         e.stopPropagation()
-                                                        handleItemClick(shortcut)
+                                                        if (!isDisabled) {
+                                                            handleItemClick(shortcut)
+                                                        }
                                                     }}
                                                     truncate
                                                 >
-                                                    <span className="flex items-center gap-2 truncate max-w-full">
+                                                    <span
+                                                        className={cn(
+                                                            'flex items-center gap-2 truncate max-w-full',
+                                                            isDisabled && 'opacity-50 line-through'
+                                                        )}
+                                                    >
                                                         {getShortcutIcon(shortcut)}
                                                         {shortcut.intent}
                                                     </span>
-                                                    <span className="ml-auto flex items-center gap-1">
-                                                        {(shortcut.keybind as string[][]).map(
-                                                            (keybindOption, index) => (
-                                                                <React.Fragment key={index}>
-                                                                    {index > 0 && (
-                                                                        <span className="text-xs opacity-75">or</span>
-                                                                    )}
-                                                                    <KeyboardShortcut
-                                                                        {...Object.fromEntries(
-                                                                            keybindOption.map((key: string) => [
-                                                                                key,
-                                                                                true,
-                                                                            ])
-                                                                        )}
-                                                                        className="text-xs"
-                                                                    />
-                                                                </React.Fragment>
-                                                            )
-                                                        )}
+                                                    <span className="ml-auto flex items-center gap-1.5">
+                                                        <RenderKeybind
+                                                            keybind={shortcut.keybind as string[][]}
+                                                            className={cn(isDisabled && 'opacity-50')}
+                                                        />
+                                                        <div
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                            }}
+                                                        >
+                                                            <LemonSwitch
+                                                                size="xxsmall"
+                                                                checked={!isDisabled}
+                                                                onChange={() => toggleShortcutDisabled(shortcut.name)}
+                                                                tooltip={
+                                                                    isDisabled ? 'Enable shortcut' : 'Disable shortcut'
+                                                                }
+                                                            />
+                                                        </div>
                                                     </span>
                                                 </ButtonPrimitive>
                                             </Combobox.Item>

@@ -1,10 +1,9 @@
 import logging
 
 from django.db import models
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 
 from posthog.models import Team
+from posthog.models.team.extensions import register_team_extension_signal
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 
@@ -30,12 +29,8 @@ class TeamCustomerAnalyticsConfig(models.Model):
         }
 
 
-@receiver(post_save, sender=Team)
-def create_team_revenue_analytics_config(sender, instance, created, **kwargs):
-    try:
-        if created:
-            TeamCustomerAnalyticsConfig.objects.get_or_create(
-                team=instance, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
-            )
-    except Exception as e:
-        logger.warning(f"Error creating team customer analytics config: {e}")
+register_team_extension_signal(
+    TeamCustomerAnalyticsConfig,
+    defaults={"activity_event": DEFAULT_ACTIVITY_EVENT},
+    logger=logger,
+)

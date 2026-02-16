@@ -380,6 +380,22 @@ class AddIndexAnalyzer(OperationAnalyzer):
         )
 
 
+class AddIndexConcurrentlyAnalyzer(OperationAnalyzer):
+    """Analyzer for AddIndexConcurrently - always safe as it's designed for non-locking index creation."""
+
+    operation_type = "AddIndexConcurrently"
+    default_score = 0
+
+    def analyze(self, op) -> OperationRisk:
+        model_name = getattr(op, "model_name", None)
+        return OperationRisk(
+            type=self.operation_type,
+            score=0,
+            reason="Concurrent index creation is safe (non-blocking)",
+            details={"model": model_name},
+        )
+
+
 class AddConstraintAnalyzer(OperationAnalyzer):
     operation_type = "AddConstraint"
     default_score = 3
@@ -574,7 +590,8 @@ class RunSQLAnalyzer(OperationAnalyzer):
                 details={"sql": sql},
             )
 
-        if "DROP" in sql:
+        # Check for actual DROP TABLE/COLUMN statements (not just "DROP" anywhere like ON COMMIT DROP)
+        if re.search(r"\bDROP\s+(TABLE|COLUMN)\b", sql, re.IGNORECASE):
             # Check for DROP COLUMN first (before DROP TABLE check)
             # ALTER TABLE ... DROP COLUMN can contain both "TABLE" and "DROP" keywords
             # Use regex to verify it's actually ALTER TABLE ... DROP COLUMN (not just "COLUMN" in table name)
@@ -822,6 +839,21 @@ class RemoveIndexAnalyzer(OperationAnalyzer):
             type=self.operation_type,
             score=0,
             reason="Removing index is safe (doesn't block reads/writes)",
+            details={"model": op.model_name if hasattr(op, "model_name") else "unknown"},
+        )
+
+
+class RemoveIndexConcurrentlyAnalyzer(OperationAnalyzer):
+    """Analyzer for RemoveIndexConcurrently - safe non-blocking index removal."""
+
+    operation_type = "RemoveIndexConcurrently"
+    default_score = 0
+
+    def analyze(self, op) -> OperationRisk:
+        return OperationRisk(
+            type=self.operation_type,
+            score=0,
+            reason="Concurrent index removal is safe (non-blocking)",
             details={"model": op.model_name if hasattr(op, "model_name") else "unknown"},
         )
 

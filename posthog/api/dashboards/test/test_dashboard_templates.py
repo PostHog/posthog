@@ -128,6 +128,22 @@ class TestDashboardTemplates(APIBaseTest):
             == "A dashboard template with this name already exists for this project."
         )
 
+    def test_create_dashboard_template_duplicate_name_for_soft_deleted(self) -> None:
+        # create first template (soft deleted)
+        self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "deleted": True},
+        )
+
+        # create second template
+        duplicate_response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            variable_template,
+        )
+
+        assert duplicate_response.status_code == status.HTTP_201_CREATED, duplicate_response
+        assert DashboardTemplate.objects_including_soft_deleted.count() == 4  # including 2 default ones
+
     def test_staff_can_make_dashboard_template_public(self) -> None:
         assert self.team.pk is not None
         response = self.client.post(

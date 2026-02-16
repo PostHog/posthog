@@ -1,0 +1,820 @@
+{
+    "id": "019b6fc7-ab48-0000-e2ac-82b2f714513a",
+    "name": "Onboarding started but not completed",
+    "description": "Remind users to finish onboarding if they start but don’t complete setup. Use this workflow to catch users who start onboarding but drop off, and send them a timely reminder to finish setting up your product – without bothering users who already completed onboarding.",
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Hoggies_cover_thumbnail_94a9b19d5a.png",
+    "scope": "global",
+    "created_at": "2025-12-30T15:01:55.145037Z",
+    "created_by": {
+        "id": 310726,
+        "uuid": "01999f57-b220-0000-5e66-8410527daa3c",
+        "distinct_id": "A9CjZG1AUbA0EKdinlV8Hm7oieSx9iPaHFsJRtXrBdc",
+        "first_name": "Sara",
+        "last_name": "Miteva",
+        "email": "sara@posthog.com",
+        "is_email_verified": true,
+        "hedgehog_config": null,
+        "role_at_organization": null
+    },
+    "updated_at": "2025-12-30T15:01:55.145049Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "events": [
+                {
+                    "id": "$pageview",
+                    "name": "$pageview",
+                    "type": "events",
+                    "uuid": "37df72f6-ef0c-464b-ae70-3db19665ddc2",
+                    "order": 0,
+                    "properties": [
+                        {
+                            "key": "$current_url",
+                            "type": "event",
+                            "value": "messaging/campaigns",
+                            "operator": "icontains"
+                        },
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": ["sara@posthog.com"],
+                            "operator": "exact"
+                        }
+                    ]
+                }
+            ],
+            "source": "events",
+            "actions": [],
+            "bytecode": [
+                "_H",
+                1,
+                32,
+                "$pageview",
+                32,
+                "event",
+                1,
+                1,
+                11,
+                32,
+                "%messaging/campaigns%",
+                32,
+                "$current_url",
+                32,
+                "properties",
+                1,
+                2,
+                2,
+                "toString",
+                1,
+                18,
+                32,
+                "sara@posthog.com",
+                32,
+                "email",
+                32,
+                "properties",
+                32,
+                "person",
+                1,
+                3,
+                11,
+                3,
+                2,
+                3,
+                2
+            ]
+        }
+    },
+    "trigger_masking": {
+        "ttl": null,
+        "threshold": null,
+        "hash": "{person.id}",
+        "bytecode": ["_H", 1, 32, "id", 32, "person", 1, 2]
+    },
+    "conversion": {
+        "filters": [],
+        "window_minutes": 0
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "to": "exit_node",
+            "from": "action_conditional_branch_25739f02-50fb-4ac4-82cf-b5dddb65c3ed",
+            "type": "continue"
+        },
+        {
+            "to": "action_function_email_f2e90f53-9194-4e33-8c8d-c77d9ff1e925",
+            "from": "action_conditional_branch_25739f02-50fb-4ac4-82cf-b5dddb65c3ed",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "to": "exit_node",
+            "from": "action_conditional_branch_90ac9c9b-b43e-43ec-ac87-a662ea0c927f",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "to": "action_function_email_f65eabe6-1f25-4ffc-8e1d-f83c62a783c3",
+            "from": "action_conditional_branch_90ac9c9b-b43e-43ec-ac87-a662ea0c927f",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_email_f65eabe6-1f25-4ffc-8e1d-f83c62a783c3",
+            "type": "continue"
+        },
+        {
+            "to": "action_delay_674ebb6f-514f-4cc8-a852-1f8c548f0e27",
+            "from": "trigger_node",
+            "type": "continue"
+        },
+        {
+            "to": "action_conditional_branch_25739f02-50fb-4ac4-82cf-b5dddb65c3ed",
+            "from": "action_delay_674ebb6f-514f-4cc8-a852-1f8c548f0e27",
+            "type": "continue"
+        },
+        {
+            "to": "action_delay_61f0becd-368b-4570-b6bd-ef72ebdc1b91",
+            "from": "action_function_email_f2e90f53-9194-4e33-8c8d-c77d9ff1e925",
+            "type": "continue"
+        },
+        {
+            "to": "action_conditional_branch_90ac9c9b-b43e-43ec-ac87-a662ea0c927f",
+            "from": "action_delay_61f0becd-368b-4570-b6bd-ef72ebdc1b91",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Onboarding started",
+            "description": "User has started onboarding.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
+                            "uuid": "37df72f6-ef0c-464b-ae70-3db19665ddc2",
+                            "order": 0,
+                            "properties": [
+                                {
+                                    "key": "$current_url",
+                                    "type": "event",
+                                    "value": "messaging/campaigns",
+                                    "operator": "icontains"
+                                },
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": ["sara@posthog.com"],
+                                    "operator": "exact"
+                                }
+                            ]
+                        }
+                    ],
+                    "source": "events",
+                    "actions": [],
+                    "bytecode": [
+                        "_H",
+                        1,
+                        32,
+                        "$pageview",
+                        32,
+                        "event",
+                        1,
+                        1,
+                        11,
+                        32,
+                        "%messaging/campaigns%",
+                        32,
+                        "$current_url",
+                        32,
+                        "properties",
+                        1,
+                        2,
+                        2,
+                        "toString",
+                        1,
+                        18,
+                        32,
+                        "sara@posthog.com",
+                        32,
+                        "email",
+                        32,
+                        "properties",
+                        32,
+                        "person",
+                        1,
+                        3,
+                        11,
+                        3,
+                        2,
+                        3,
+                        2
+                    ]
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_conditional_branch_25739f02-50fb-4ac4-82cf-b5dddb65c3ed",
+            "name": "Onboarding incomplete?",
+            "description": "Check whether the user has NOT completed onboarding.",
+            "on_error": null,
+            "created_at": 1762188828587,
+            "updated_at": 1762188828587,
+            "filters": null,
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {
+                        "filters": {
+                            "source": "events",
+                            "bytecode": ["_H", 1, 29]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_email_f2e90f53-9194-4e33-8c8d-c77d9ff1e925",
+            "name": "Reminder 1",
+            "description": "Send an onboarding reminder to the user.",
+            "on_error": null,
+            "created_at": 1767014463795,
+            "updated_at": 1767014463795,
+            "filters": null,
+            "type": "function_email",
+            "config": {
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "",
+                                "email": "{{ person.properties.email }}"
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n<!--[if gte mso 9]>\n<xml>\n  <o:OfficeDocumentSettings>\n    <o:AllowPNG/>\n    <o:PixelsPerInch>96</o:PixelsPerInch>\n  </o:OfficeDocumentSettings>\n</xml>\n<![endif]-->\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <!--[if !mso]><!--><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><!--<![endif]-->\n  <title></title>\n  \n    <style type=\"text/css\">\n      \n      @media only screen and (min-width: 520px) {\n        .u-row {\n          width: 500px !important;\n        }\n\n        .u-row .u-col {\n          vertical-align: top;\n        }\n\n        \n            .u-row .u-col-100 {\n              width: 500px !important;\n            }\n          \n      }\n\n      @media only screen and (max-width: 520px) {\n        .u-row-container {\n          max-width: 100% !important;\n          padding-left: 0px !important;\n          padding-right: 0px !important;\n        }\n\n        .u-row {\n          width: 100% !important;\n        }\n\n        .u-row .u-col {\n          display: block !important;\n          width: 100% !important;\n          min-width: 320px !important;\n          max-width: 100% !important;\n        }\n\n        .u-row .u-col > div {\n          margin: 0 auto;\n        }\n\n\n}\n    \nbody{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}.ie-container table,.mso-container table{table-layout:fixed}*{line-height:inherit}a[x-apple-data-detectors=true]{color:inherit!important;text-decoration:none!important}\n\n\ntable, td { color: #000000; } </style>\n  \n  \n\n</head>\n\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <!--[if IE]><div class=\"ie-container\"><![endif]-->\n  <!--[if mso]><div class=\"mso-container\"><![endif]-->\n  <table role=\"presentation\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;mso-table-lspace: 0pt;mso-table-rspace: 0pt;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n    <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\" style=\"background-color: #F7F8F9;\"><![endif]-->\n    \n  \n  \n<div class=\"u-row-container\" style=\"padding: 0px;background-color: transparent\">\n  <div class=\"u-row\" style=\"margin: 0 auto;min-width: 320px;max-width: 500px;overflow-wrap: break-word;word-wrap: break-word;word-break: break-word;background-color: transparent;\">\n    <div style=\"border-collapse: collapse;display: table;width: 100%;height: 100%;background-color: transparent;\">\n      <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"padding: 0px;background-color: transparent;\" align=\"center\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:500px;\"><tr style=\"background-color: transparent;\"><![endif]-->\n      \n<!--[if (mso)|(IE)]><td align=\"center\" width=\"500\" style=\"width: 500px;padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\" valign=\"top\"><![endif]-->\n<div class=\"u-col u-col-100\" style=\"max-width: 320px;min-width: 500px;display: table-cell;vertical-align: top;\">\n  <div style=\"height: 100%;width: 100% !important;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\">\n  <!--[if (!mso)&(!IE)]><!--><div style=\"box-sizing: border-box; height: 100%; padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\"><!--<![endif]-->\n  \n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">Send an email reminding the user to finish onboarding.</p>\n<p style=\"line-height: 140%;\">Typical content includes:</p>\n<ul>\n<li style=\"line-height: 19.6px;\">what&rsquo;s left to do</li>\n<li style=\"line-height: 19.6px;\">why completing onboarding matters</li>\n<li style=\"line-height: 19.6px;\">a clear call-to-action to return to the product</li>\n</ul>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n  <!--[if (!mso)&(!IE)]><!--></div><!--<![endif]-->\n  </div>\n</div>\n<!--[if (mso)|(IE)]></td><![endif]-->\n      <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n    </div>\n  </div>\n  </div>\n  \n\n\n    <!--[if (mso)|(IE)]></td></tr></table><![endif]-->\n    </td>\n  </tr>\n  </tbody>\n  </table>\n  <!--[if mso]></div><![endif]-->\n  <!--[if IE]></div><![endif]-->\n</body>\n\n</html>\n",
+                            "text": "Send an email reminding the user to finish onboarding.\n\nTypical content includes:\n\n* what’s left to do\n* why completing onboarding matters\n* a clear call-to-action to return to the product",
+                            "design": {
+                                "body": {
+                                    "id": "3F6LxVZZQS",
+                                    "rows": [
+                                        {
+                                            "id": "IVusdnqord",
+                                            "cells": [1],
+                                            "values": {
+                                                "_meta": {
+                                                    "htmlID": "u_row_1",
+                                                    "htmlClassNames": "u_row"
+                                                },
+                                                "anchor": "",
+                                                "locked": false,
+                                                "columns": false,
+                                                "padding": "0px",
+                                                "hideable": true,
+                                                "deletable": true,
+                                                "draggable": true,
+                                                "selectable": true,
+                                                "_styleGuide": null,
+                                                "hideDesktop": false,
+                                                "duplicatable": true,
+                                                "backgroundColor": "",
+                                                "backgroundImage": {
+                                                    "url": "",
+                                                    "size": "custom",
+                                                    "repeat": "no-repeat",
+                                                    "position": "center",
+                                                    "fullWidth": true,
+                                                    "customPosition": ["50%", "50%"]
+                                                },
+                                                "displayCondition": null,
+                                                "columnsBackgroundColor": ""
+                                            },
+                                            "columns": [
+                                                {
+                                                    "id": "tLqOY4DBpr",
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_1",
+                                                            "htmlClassNames": "u_column"
+                                                        },
+                                                        "border": {},
+                                                        "locked": false,
+                                                        "padding": "0px",
+                                                        "deletable": true,
+                                                        "borderRadius": "0px",
+                                                        "backgroundColor": ""
+                                                    },
+                                                    "contents": [
+                                                        {
+                                                            "id": "Pr4XhQM7MJ",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">Send an email reminding the user to finish onboarding.</p>\n<p style=\"line-height: 140%;\">Typical content includes:</p>\n<ul>\n<li style=\"line-height: 19.6px;\">what&rsquo;s left to do</li>\n<li style=\"line-height: 19.6px;\">why completing onboarding matters</li>\n<li style=\"line-height: 19.6px;\">a clear call-to-action to return to the product</li>\n</ul>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_1",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "values": {
+                                        "_meta": {
+                                            "htmlID": "u_body",
+                                            "htmlClassNames": "u_body"
+                                        },
+                                        "language": {},
+                                        "linkStyle": {
+                                            "body": true,
+                                            "linkColor": "#0000ee",
+                                            "linkUnderline": true,
+                                            "linkHoverColor": "#0000ee",
+                                            "linkHoverUnderline": true
+                                        },
+                                        "textColor": "#000000",
+                                        "fontFamily": {
+                                            "label": "Arial",
+                                            "value": "arial,helvetica,sans-serif"
+                                        },
+                                        "popupWidth": "600px",
+                                        "_styleGuide": null,
+                                        "popupHeight": "auto",
+                                        "borderRadius": "10px",
+                                        "contentAlign": "center",
+                                        "contentWidth": "500px",
+                                        "popupPosition": "center",
+                                        "preheaderText": "",
+                                        "backgroundColor": "#F7F8F9",
+                                        "backgroundImage": {
+                                            "url": "",
+                                            "size": "custom",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupDisplayDelay": 0,
+                                        "contentVerticalAlign": "center",
+                                        "popupBackgroundColor": "#FFFFFF",
+                                        "popupBackgroundImage": {
+                                            "url": "",
+                                            "size": "cover",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupCloseButton_action": {
+                                            "name": "close_popup",
+                                            "attrs": {
+                                                "onClick": "document.querySelector('.u-popup-container').style.display = 'none';"
+                                            }
+                                        },
+                                        "popupCloseButton_margin": "0px",
+                                        "popupCloseButton_position": "top-right",
+                                        "popupCloseButton_iconColor": "#000000",
+                                        "popupOverlay_backgroundColor": "rgba(0, 0, 0, 0.1)",
+                                        "popupCloseButton_borderRadius": "0px",
+                                        "popupCloseButton_backgroundColor": "#DDDDDD"
+                                    },
+                                    "footers": [],
+                                    "headers": []
+                                },
+                                "counters": {
+                                    "u_row": 1,
+                                    "u_column": 1,
+                                    "u_content_text": 1
+                                },
+                                "schemaVersion": 21
+                            },
+                            "replyTo": "",
+                            "subject": "Reminder to complete your onboarding",
+                            "preheader": ""
+                        }
+                    }
+                },
+                "template_id": "template-email"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_conditional_branch_90ac9c9b-b43e-43ec-ac87-a662ea0c927f",
+            "name": "Completed?",
+            "description": "Check whether the user completed onboarding",
+            "on_error": null,
+            "created_at": 1767014535694,
+            "updated_at": 1767014535694,
+            "filters": null,
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {
+                        "filters": {
+                            "source": "events",
+                            "bytecode": ["_H", 1, 29]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_email_f65eabe6-1f25-4ffc-8e1d-f83c62a783c3",
+            "name": "Reminder 2",
+            "description": "Send an email to the user.",
+            "on_error": null,
+            "created_at": 1767014630853,
+            "updated_at": 1767014630853,
+            "filters": null,
+            "type": "function_email",
+            "config": {
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "",
+                                "email": "{{ person.properties.email }}"
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n<!--[if gte mso 9]>\n<xml>\n  <o:OfficeDocumentSettings>\n    <o:AllowPNG/>\n    <o:PixelsPerInch>96</o:PixelsPerInch>\n  </o:OfficeDocumentSettings>\n</xml>\n<![endif]-->\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <!--[if !mso]><!--><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><!--<![endif]-->\n  <title></title>\n  \n    <style type=\"text/css\">\n      \n      @media only screen and (min-width: 520px) {\n        .u-row {\n          width: 500px !important;\n        }\n\n        .u-row .u-col {\n          vertical-align: top;\n        }\n\n        \n            .u-row .u-col-100 {\n              width: 500px !important;\n            }\n          \n      }\n\n      @media only screen and (max-width: 520px) {\n        .u-row-container {\n          max-width: 100% !important;\n          padding-left: 0px !important;\n          padding-right: 0px !important;\n        }\n\n        .u-row {\n          width: 100% !important;\n        }\n\n        .u-row .u-col {\n          display: block !important;\n          width: 100% !important;\n          min-width: 320px !important;\n          max-width: 100% !important;\n        }\n\n        .u-row .u-col > div {\n          margin: 0 auto;\n        }\n\n\n}\n    \nbody{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}.ie-container table,.mso-container table{table-layout:fixed}*{line-height:inherit}a[x-apple-data-detectors=true]{color:inherit!important;text-decoration:none!important}\n\n\ntable, td { color: #000000; } #u_body a { color: #0000ee; text-decoration: underline; }\n    </style>\n  \n  \n\n</head>\n\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <!--[if IE]><div class=\"ie-container\"><![endif]-->\n  <!--[if mso]><div class=\"mso-container\"><![endif]-->\n  <table role=\"presentation\" id=\"u_body\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;mso-table-lspace: 0pt;mso-table-rspace: 0pt;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n    <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\" style=\"background-color: #F7F8F9;\"><![endif]-->\n    \n  \n  \n<div class=\"u-row-container\" style=\"padding: 0px;background-color: transparent\">\n  <div class=\"u-row\" style=\"margin: 0 auto;min-width: 320px;max-width: 500px;overflow-wrap: break-word;word-wrap: break-word;word-break: break-word;background-color: transparent;\">\n    <div style=\"border-collapse: collapse;display: table;width: 100%;height: 100%;background-color: transparent;\">\n      <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"padding: 0px;background-color: transparent;\" align=\"center\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:500px;\"><tr style=\"background-color: transparent;\"><![endif]-->\n      \n<!--[if (mso)|(IE)]><td align=\"center\" width=\"500\" style=\"width: 500px;padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\" valign=\"top\"><![endif]-->\n<div class=\"u-col u-col-100\" style=\"max-width: 320px;min-width: 500px;display: table-cell;vertical-align: top;\">\n  <div style=\"height: 100%;width: 100% !important;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\">\n  <!--[if (!mso)&(!IE)]><!--><div style=\"box-sizing: border-box; height: 100%; padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\"><!--<![endif]-->\n  \n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">Hi there,</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Noticed you started setting things up but didn&rsquo;t quite finish.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Once onboarding is complete, you&rsquo;ll be able to get the most out of the product &ndash; from day one. If you got stuck or got distracted, no worries. It only takes a minute to pick up where you left off.</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <!--[if mso]><style>.v-button {background: transparent !important;}</style><![endif]-->\n<div align=\"center\">\n  <!--[if mso]><v:roundrect xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:w=\"urn:schemas-microsoft-com:office:word\" href=\"\" style=\"height:37px; v-text-anchor:middle; width:134px;\" arcsize=\"11%\"  stroke=\"f\" fillcolor=\"#0879A1\"><w:anchorlock/><center style=\"color:#FFFFFF;\"><![endif]-->\n    <a href=\"\" target=\"_blank\" class=\"v-button\" style=\"box-sizing: border-box;display: inline-block;text-decoration: none;-webkit-text-size-adjust: none;text-align: center;color: #FFFFFF; background-color: #0879A1; border-radius: 4px;-webkit-border-radius: 4px; -moz-border-radius: 4px; width:auto; max-width:100%; overflow-wrap: break-word; word-break: break-word; word-wrap:break-word; mso-border-alt: none;font-size: 14px;\">\n      <span style=\"display:block;padding:10px 20px;line-height:120%;\"><span style=\"line-height: 16.8px;\">Continue setup</span></span>\n    </a>\n    <!--[if mso]></center></v:roundrect><![endif]-->\n</div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n  <!--[if (!mso)&(!IE)]><!--></div><!--<![endif]-->\n  </div>\n</div>\n<!--[if (mso)|(IE)]></td><![endif]-->\n      <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n    </div>\n  </div>\n  </div>\n  \n\n\n  \n  \n<div class=\"u-row-container\" style=\"padding: 0px;background-color: transparent\">\n  <div class=\"u-row\" style=\"margin: 0 auto;min-width: 320px;max-width: 500px;overflow-wrap: break-word;word-wrap: break-word;word-break: break-word;background-color: transparent;\">\n    <div style=\"border-collapse: collapse;display: table;width: 100%;height: 100%;background-color: transparent;\">\n      <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"padding: 0px;background-color: transparent;\" align=\"center\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:500px;\"><tr style=\"background-color: transparent;\"><![endif]-->\n      \n<!--[if (mso)|(IE)]><td align=\"center\" width=\"500\" style=\"width: 500px;padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\" valign=\"top\"><![endif]-->\n<div class=\"u-col u-col-100\" style=\"max-width: 320px;min-width: 500px;display: table-cell;vertical-align: top;\">\n  <div style=\"height: 100%;width: 100% !important;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\">\n  <!--[if (!mso)&(!IE)]><!--><div style=\"box-sizing: border-box; height: 100%; padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\"><!--<![endif]-->\n  \n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">If something&rsquo;s blocking you, or you&rsquo;re not sure what to do next, this is a good time to jump back in or reach out for help.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">See you inside,<br>The team</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n  <!--[if (!mso)&(!IE)]><!--></div><!--<![endif]-->\n  </div>\n</div>\n<!--[if (mso)|(IE)]></td><![endif]-->\n      <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n    </div>\n  </div>\n  </div>\n  \n\n\n    <!--[if (mso)|(IE)]></td></tr></table><![endif]-->\n    </td>\n  </tr>\n  </tbody>\n  </table>\n  <!--[if mso]></div><![endif]-->\n  <!--[if IE]></div><![endif]-->\n</body>\n\n</html>\n",
+                            "text": "Hi there,\n\nNoticed you started setting things up but didn’t quite finish.\n\nOnce onboarding is complete, you’ll be able to get the most out of the product –\nfrom day one. If you got stuck or got distracted, no worries. It only takes a\nminute to pick up where you left off.\n\nContinue setup\nIf something’s blocking you, or you’re not sure what to do next, this is a good\ntime to jump back in or reach out for help.\n\nSee you inside,\nThe team",
+                            "design": {
+                                "body": {
+                                    "id": "pumHv3uiwJ",
+                                    "rows": [
+                                        {
+                                            "id": "uCai3F2rTd",
+                                            "cells": [1],
+                                            "values": {
+                                                "_meta": {
+                                                    "htmlID": "u_row_1",
+                                                    "htmlClassNames": "u_row"
+                                                },
+                                                "anchor": "",
+                                                "locked": false,
+                                                "columns": false,
+                                                "padding": "0px",
+                                                "hideable": true,
+                                                "deletable": true,
+                                                "draggable": true,
+                                                "selectable": true,
+                                                "_styleGuide": null,
+                                                "hideDesktop": false,
+                                                "duplicatable": true,
+                                                "backgroundColor": "",
+                                                "backgroundImage": {
+                                                    "url": "",
+                                                    "size": "custom",
+                                                    "repeat": "no-repeat",
+                                                    "position": "center",
+                                                    "fullWidth": true,
+                                                    "customPosition": ["50%", "50%"]
+                                                },
+                                                "displayCondition": null,
+                                                "columnsBackgroundColor": ""
+                                            },
+                                            "columns": [
+                                                {
+                                                    "id": "zcp56Go84z",
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_1",
+                                                            "htmlClassNames": "u_column"
+                                                        },
+                                                        "border": {},
+                                                        "locked": false,
+                                                        "padding": "0px",
+                                                        "deletable": true,
+                                                        "borderRadius": "0px",
+                                                        "backgroundColor": ""
+                                                    },
+                                                    "contents": [
+                                                        {
+                                                            "id": "kDrC5HZoGF",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">Hi there,</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Noticed you started setting things up but didn&rsquo;t quite finish.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Once onboarding is complete, you&rsquo;ll be able to get the most out of the product &ndash; from day one. If you got stuck or got distracted, no worries. It only takes a minute to pick up where you left off.</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_1",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "4o3H7MLAJv",
+                                                            "type": "button",
+                                                            "values": {
+                                                                "href": {
+                                                                    "name": "web",
+                                                                    "values": {
+                                                                        "href": "",
+                                                                        "target": "_blank"
+                                                                    }
+                                                                },
+                                                                "size": {
+                                                                    "width": "100%",
+                                                                    "autoWidth": true
+                                                                },
+                                                                "text": "<span style=\"line-height: 16.8px;\">Continue setup</span>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_button_1",
+                                                                    "htmlClassNames": "u_content_button"
+                                                                },
+                                                                "anchor": "",
+                                                                "border": {},
+                                                                "locked": false,
+                                                                "padding": "10px 20px",
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "textAlign": "center",
+                                                                "_languages": {},
+                                                                "lineHeight": "120%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "borderRadius": "4px",
+                                                                "buttonColors": {
+                                                                    "color": "#FFFFFF",
+                                                                    "hoverColor": "#FFFFFF",
+                                                                    "backgroundColor": "#0879A1",
+                                                                    "hoverBackgroundColor": "#0879A1"
+                                                                },
+                                                                "duplicatable": true,
+                                                                "calculatedWidth": 134,
+                                                                "calculatedHeight": 37,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "id": "LfBCvdKXzT",
+                                            "cells": [1],
+                                            "values": {
+                                                "_meta": {
+                                                    "htmlID": "u_row_2",
+                                                    "htmlClassNames": "u_row"
+                                                },
+                                                "anchor": "",
+                                                "locked": false,
+                                                "columns": false,
+                                                "padding": "0px",
+                                                "hideable": true,
+                                                "deletable": true,
+                                                "draggable": true,
+                                                "selectable": true,
+                                                "_styleGuide": null,
+                                                "duplicatable": true,
+                                                "backgroundColor": "",
+                                                "backgroundImage": {
+                                                    "url": "",
+                                                    "size": "custom",
+                                                    "repeat": "no-repeat",
+                                                    "position": "center",
+                                                    "fullWidth": true
+                                                },
+                                                "displayCondition": null,
+                                                "columnsBackgroundColor": ""
+                                            },
+                                            "columns": [
+                                                {
+                                                    "id": "lH0ALmjCuF",
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_2",
+                                                            "htmlClassNames": "u_column"
+                                                        },
+                                                        "border": {},
+                                                        "locked": false,
+                                                        "padding": "0px",
+                                                        "deletable": true,
+                                                        "borderRadius": "0px",
+                                                        "backgroundColor": ""
+                                                    },
+                                                    "contents": [
+                                                        {
+                                                            "id": "hb4bt9yktK",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">If something&rsquo;s blocking you, or you&rsquo;re not sure what to do next, this is a good time to jump back in or reach out for help.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">See you inside,<br>The team</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_2",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "values": {
+                                        "_meta": {
+                                            "htmlID": "u_body",
+                                            "htmlClassNames": "u_body"
+                                        },
+                                        "language": {},
+                                        "linkStyle": {
+                                            "body": true,
+                                            "linkColor": "#0000ee",
+                                            "linkUnderline": true,
+                                            "linkHoverColor": "#0000ee",
+                                            "linkHoverUnderline": true
+                                        },
+                                        "textColor": "#000000",
+                                        "fontFamily": {
+                                            "label": "Arial",
+                                            "value": "arial,helvetica,sans-serif"
+                                        },
+                                        "popupWidth": "600px",
+                                        "_styleGuide": null,
+                                        "popupHeight": "auto",
+                                        "borderRadius": "10px",
+                                        "contentAlign": "center",
+                                        "contentWidth": "500px",
+                                        "popupPosition": "center",
+                                        "preheaderText": "",
+                                        "backgroundColor": "#F7F8F9",
+                                        "backgroundImage": {
+                                            "url": "",
+                                            "size": "custom",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupDisplayDelay": 0,
+                                        "contentVerticalAlign": "center",
+                                        "popupBackgroundColor": "#FFFFFF",
+                                        "popupBackgroundImage": {
+                                            "url": "",
+                                            "size": "cover",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupCloseButton_action": {
+                                            "name": "close_popup",
+                                            "attrs": {
+                                                "onClick": "document.querySelector('.u-popup-container').style.display = 'none';"
+                                            }
+                                        },
+                                        "popupCloseButton_margin": "0px",
+                                        "popupCloseButton_position": "top-right",
+                                        "popupCloseButton_iconColor": "#000000",
+                                        "popupOverlay_backgroundColor": "rgba(0, 0, 0, 0.1)",
+                                        "popupCloseButton_borderRadius": "0px",
+                                        "popupCloseButton_backgroundColor": "#DDDDDD"
+                                    },
+                                    "footers": [],
+                                    "headers": []
+                                },
+                                "counters": {
+                                    "u_row": 2,
+                                    "u_column": 2,
+                                    "u_content_text": 2,
+                                    "u_content_button": 1
+                                },
+                                "schemaVersion": 21
+                            },
+                            "replyTo": "",
+                            "subject": "Still setting things up?",
+                            "preheader": "You’re just one step away from getting value."
+                        }
+                    }
+                },
+                "template_id": "template-email"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_delay_674ebb6f-514f-4cc8-a852-1f8c548f0e27",
+            "name": "Delay",
+            "description": "Wait for 4 days.",
+            "on_error": null,
+            "created_at": 1767018758609,
+            "updated_at": 1767018758609,
+            "filters": null,
+            "type": "delay",
+            "config": {
+                "delay_duration": "4d"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_delay_61f0becd-368b-4570-b6bd-ef72ebdc1b91",
+            "name": "Delay",
+            "description": "Wait for 7 days.",
+            "on_error": null,
+            "created_at": 1767018769680,
+            "updated_at": 1767018769680,
+            "filters": null,
+            "type": "delay",
+            "config": {
+                "delay_duration": "7d"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the campaign without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": []
+}

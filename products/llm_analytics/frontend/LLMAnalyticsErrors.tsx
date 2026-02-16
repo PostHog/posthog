@@ -14,11 +14,13 @@ import { isHogQLQuery } from '~/queries/utils'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { useSortableColumns } from './hooks/useSortableColumns'
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
 
 export function LLMAnalyticsErrors(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setErrorsSort } = useActions(llmAnalyticsLogic)
-    const { errorsQuery, errorsSort } = useValues(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { setErrorsSort } = useActions(llmAnalyticsErrorsLogic)
+    const { errorsQuery, errorsSort } = useValues(llmAnalyticsErrorsLogic)
     const { searchParams } = useValues(router)
 
     const { renderSortableColumnTitle } = useSortableColumns(errorsSort, setErrorsSort)
@@ -58,14 +60,6 @@ export function LLMAnalyticsErrors(): JSX.Element {
                             const displayValue =
                                 errorString.length > 80 ? errorString.slice(0, 77) + '...' : errorString
 
-                            // Extract the first 3 chunks of text between placeholders for filtering
-                            // These chunks are the stable parts of the error message
-                            const tokens = errorString
-                                .split(/<ID>|<TIMESTAMP>|<PATH>|<RESPONSE_ID>|<TOOL_CALL_ID>|<TOKEN_COUNT>|<N>/)
-                                .map((token) => token.trim())
-                                .filter((token) => token.length >= 3) // Only keep meaningful chunks
-                                .slice(0, 3) // Take first 3 chunks
-
                             return (
                                 <div className="flex items-center gap-1">
                                     <Tooltip title={errorString}>
@@ -74,24 +68,26 @@ export function LLMAnalyticsErrors(): JSX.Element {
                                                 combineUrl(urls.llmAnalyticsTraces(), {
                                                     ...searchParams,
                                                     filters: [
-                                                        // First filter: only show traces with errors
                                                         {
                                                             type: PropertyFilterType.Event,
                                                             key: '$ai_is_error',
                                                             operator: PropertyOperator.Exact,
                                                             value: 'true',
                                                         },
-                                                        // Then filter by key words from the error
-                                                        ...tokens.map((token) => ({
+                                                        {
                                                             type: PropertyFilterType.Event,
-                                                            key: '$ai_error',
-                                                            operator: PropertyOperator.IContains,
-                                                            value: token,
-                                                        })),
+                                                            key: '$ai_error_normalized',
+                                                            operator: PropertyOperator.Exact,
+                                                            // Escape backslashes and quotes to match HogQL's JSONExtractRaw extraction
+                                                            value: errorString
+                                                                .replace(/\\/g, '\\\\')
+                                                                .replace(/"/g, '\\"'),
+                                                        },
                                                     ],
                                                 }).url
                                             }
                                             className="font-mono text-sm"
+                                            data-attr="llm-errors-row-click"
                                         >
                                             {displayValue}
                                         </Link>

@@ -11,6 +11,8 @@ export const getStorybookAppContext = (): AppContext => ({
     current_project: MOCK_DEFAULT_PROJECT,
     current_user: undefined as any, // `undefined` triggers a fetch and lets us mock the data
     default_event_name: '$pageview',
+    has_pageview: true,
+    has_screen: true,
     persisted_feature_flags: [],
     commit_sha: undefined,
     preflight: null as any, // `null` triggers a fetch and lets us mock the data
@@ -72,6 +74,9 @@ export const getStorybookAppContext = (): AppContext => ({
         revenue_analytics: 'manager',
         survey: 'manager',
         experiment: 'manager',
+        external_data_source: 'manager',
         web_analytics: 'manager',
+        activity_log: 'viewer',
+        llm_analytics: 'manager',
     },
 })

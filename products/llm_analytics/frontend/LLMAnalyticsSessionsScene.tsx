@@ -15,22 +15,18 @@ import { isHogQLQuery } from '~/queries/utils'
 
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { useSortableColumns } from './hooks/useSortableColumns'
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
 import { formatLLMCost, getTraceTimestamp } from './utils'
 
 export function LLMAnalyticsSessionsScene(): JSX.Element {
-    const {
-        setDates,
-        setShouldFilterTestAccounts,
-        setPropertyFilters,
-        setSessionsSort,
-        toggleSessionExpanded,
-        toggleTraceExpanded,
-        toggleGenerationExpanded,
-    } = useActions(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
+
+    const { setSessionsSort, toggleSessionExpanded, toggleTraceExpanded, toggleGenerationExpanded } =
+        useActions(llmAnalyticsSessionsViewLogic)
     const {
         sessionsQuery,
-        dateFilter,
         sessionsSort,
         expandedSessionIds,
         expandedTraceIds,
@@ -39,7 +35,7 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
         loadingSessionTraces,
         loadingFullTraces,
         fullTraces,
-    } = useValues(llmAnalyticsLogic)
+    } = useValues(llmAnalyticsSessionsViewLogic)
 
     const { renderSortableColumnTitle } = useSortableColumns(sessionsSort, setSessionsSort)
 

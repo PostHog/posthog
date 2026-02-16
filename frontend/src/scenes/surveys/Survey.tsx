@@ -23,7 +23,6 @@ export const scene: SceneExport<SurveyLogicProps> = {
     component: SurveyComponent,
     logic: surveyLogic,
     paramsToProps: ({ params: { id } }) => ({ id }),
-    settingSectionId: 'environment-surveys',
 }
 
 export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
@@ -190,9 +189,19 @@ export function SurveyDisplaySummary({
                                     : 'once per user'}
                             </span>
                             ):
-                        </span>
+                        </span>{' '}
                         {survey.conditions?.events?.values.map((event) => (
                             <LemonTag key={event.name}>{event.name}</LemonTag>
+                        ))}
+                    </div>
+                </div>
+            )}
+            {(survey.conditions?.actions?.values?.length ?? 0) > 0 && (
+                <div className="flex flex-col font-medium gap-1">
+                    <div className="flex-row">
+                        <span>When the user sends the following actions:</span>{' '}
+                        {survey.conditions?.actions?.values.map((action) => (
+                            <LemonTag key={action.name}>{action.name}</LemonTag>
                         ))}
                     </div>
                 </div>

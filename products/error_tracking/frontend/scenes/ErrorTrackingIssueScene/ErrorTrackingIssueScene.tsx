@@ -145,6 +145,7 @@ const RightHandColumn = (): JSX.Element => {
             <PostHogSDKIssueBanner event={selectedEvent} />
             <ExceptionCard
                 issueId={issue?.id ?? 'no-issue'}
+                issueName={issue?.name ?? null}
                 loading={issueLoading || initialEventLoading}
                 event={selectedEvent ?? undefined}
                 label={tagRenderer(selectedEvent)}
@@ -169,6 +170,7 @@ const LeftHandColumn = (): JSX.Element => {
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
     const hasTasks = useFeatureFlag('TASKS')
+    const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
 
     return (
         <div
@@ -187,7 +189,7 @@ const LeftHandColumn = (): JSX.Element => {
             >
                 <div>
                     <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
-                        <TabsPrimitiveList className="flex justify-between space-x-0.5">
+                        <TabsPrimitiveList className="flex space-x-0.5 gap-2">
                             <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="exceptions">
                                 <IconList className="mr-1" />
                                 <span className="text-nowrap">Exceptions</span>
@@ -202,10 +204,12 @@ const LeftHandColumn = (): JSX.Element => {
                                     <span className="text-nowrap">Autofix</span>
                                 </TabsPrimitiveTrigger>
                             )}
-                            <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
-                                <IconSearch className="mr-1" />
-                                <span className="text-nowrap">Similar issues</span>
-                            </TabsPrimitiveTrigger>
+                            {hasSimilarIssues && (
+                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
+                                    <IconSearch className="mr-1" />
+                                    <span className="text-nowrap">Similar issues</span>
+                                </TabsPrimitiveTrigger>
+                            )}
                         </TabsPrimitiveList>
                     </ScrollableShadows>
                 </div>
@@ -222,9 +226,11 @@ const LeftHandColumn = (): JSX.Element => {
                         </div>
                     </TabsPrimitiveContent>
                 )}
-                <TabsPrimitiveContent value="similar_issues">
-                    <SimilarIssuesList />
-                </TabsPrimitiveContent>
+                {hasSimilarIssues && (
+                    <TabsPrimitiveContent value="similar_issues">
+                        <SimilarIssuesList />
+                    </TabsPrimitiveContent>
+                )}
             </TabsPrimitive>
 
             <Resizer {...resizerLogicProps} />

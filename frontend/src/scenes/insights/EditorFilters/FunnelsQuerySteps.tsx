@@ -76,6 +76,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
+                    TaxonomicFilterGroupType.EventMetadata,
                     ...groupsTaxonomicTypes,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,

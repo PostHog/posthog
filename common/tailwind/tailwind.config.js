@@ -11,6 +11,7 @@ const commonColors = {
     'accent-active': 'var(--color-accent-active)',
     'accent-highlight-primary': 'var(--color-accent-highlight-primary)',
     'accent-highlight-secondary': 'var(--color-accent-highlight-secondary)',
+    ai: 'var(--color-ai)',
 }
 
 const deprecatedColors = {
@@ -224,6 +225,22 @@ const deprecatedColors = {
     'lettermark-7-text': 'var(--lettermark-7-text)',
     'lettermark-8-bg': 'var(--lettermark-8-bg)',
     'lettermark-8-text': 'var(--lettermark-8-text)',
+    'lettermark-9-bg': 'var(--lettermark-9-bg)',
+    'lettermark-9-text': 'var(--lettermark-9-text)',
+    'lettermark-10-bg': 'var(--lettermark-10-bg)',
+    'lettermark-10-text': 'var(--lettermark-10-text)',
+    'lettermark-11-bg': 'var(--lettermark-11-bg)',
+    'lettermark-11-text': 'var(--lettermark-11-text)',
+    'lettermark-12-bg': 'var(--lettermark-12-bg)',
+    'lettermark-12-text': 'var(--lettermark-12-text)',
+    'lettermark-13-bg': 'var(--lettermark-13-bg)',
+    'lettermark-13-text': 'var(--lettermark-13-text)',
+    'lettermark-14-bg': 'var(--lettermark-14-bg)',
+    'lettermark-14-text': 'var(--lettermark-14-text)',
+    'lettermark-15-bg': 'var(--lettermark-15-bg)',
+    'lettermark-15-text': 'var(--lettermark-15-text)',
+    'lettermark-16-bg': 'var(--lettermark-16-bg)',
+    'lettermark-16-text': 'var(--lettermark-16-text)',
 
     // Modals
     // TODO: --color-modal-backdrop-blur: var(--modal-backdrop-blur);
@@ -619,6 +636,8 @@ const config = {
                 'pulse-5': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) 5',
                 // Pulsing glow effect for highlighting UI elements
                 'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
+                // Fade out after a delay
+                'fade-out-delayed': 'fade-out-delayed 5s ease-out forwards',
             },
             keyframes: {
                 'pulse-glow': {
@@ -628,6 +647,10 @@ const config = {
                     '50%': {
                         boxShadow: '0 0 6px 2px var(--color-accent)',
                     },
+                },
+                'fade-out-delayed': {
+                    '0%, 30%': { opacity: '1' },
+                    '100%': { opacity: '0' },
                 },
             },
             colors: {

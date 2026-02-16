@@ -652,6 +652,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "early_access_features",
+                "source": "web",
             },
         )
 
@@ -707,9 +708,9 @@ class TestEarlyAccessFeature(APIBaseTest):
         ).first()
 
         assert fs_entry is not None, "FileSystem entry not found for the newly created Early Access Feature."
-        assert (
-            "Special Folder/Early Access" in fs_entry.path
-        ), f"Expected 'Special Folder/Early Access' in {fs_entry.path}"
+        assert "Special Folder/Early Access" in fs_entry.path, (
+            f"Expected 'Special Folder/Early Access' in {fs_entry.path}"
+        )
 
 
 class TestPreviewList(BaseTest, QueryMatchingTest):

@@ -5,10 +5,13 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ModifiedRequest } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
+import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
+import './async-functions'
 import {
     CdpSourceWebhooksConsumer,
     CdpSourceWebhooksConsumerHub,
@@ -146,18 +149,33 @@ export class CdpApi {
             (req: ModifiedRequest, res: express.Response, next: express.NextFunction): Promise<void> =>
                 fn(req, res).catch(next)
 
+        // API routes (authentication handled globally by middleware)
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
         router.post('/api/projects/:team_id/hog_flows/:id/invocations', asyncHandler(this.postHogflowInvocation))
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/batch_invocations/:parent_run_id',
+            asyncHandler(this.postHogFlowBatchInvocation)
+        )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
         router.post('/api/messaging/generate_preferences_token', asyncHandler(this.generatePreferencesToken()))
         router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
-        router.post('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
+
+        const publicBodySizeLimit = (req: ModifiedRequest, res: express.Response, next: express.NextFunction): void => {
+            if (req.rawBody && req.rawBody.length > 512_000) {
+                res.status(413).json({ error: 'Request entity too large' })
+                return
+            }
+            next()
+        }
+
+        // Public routes (excluded from authentication by middleware)
+        router.post('/public/webhooks/:webhook_id', publicBodySizeLimit, asyncHandler(this.handleWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
-        router.post('/public/m/ses_webhook', express.text(), asyncHandler(this.postSesWebhook()))
+        router.post('/public/m/ses_webhook', publicBodySizeLimit, express.text(), asyncHandler(this.postSesWebhook()))
         router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
 
         return router
@@ -499,6 +517,57 @@ export class CdpApi {
         }
     }
 
+    private postHogFlowBatchInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            const { id, team_id, parent_run_id } = req.params
+
+            logger.info('⚡️', 'Received hogflow batch invocation', { id, team_id, parent_run_id })
+
+            const team = await this.hub.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            const hogFlow = await this.hogFlowManager.getHogFlow(id)
+
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return res.status(404).json({ error: 'Workflow not found' })
+            }
+
+            // Queue a message for the CDP batch producer to consume
+            const kafkaProducer = this.hub.kafkaProducer
+            if (!kafkaProducer) {
+                return res.status(500).json({ error: 'Kafka producer not available' })
+            }
+
+            if (hogFlow.trigger.type !== 'batch') {
+                return res.status(400).json({ error: 'Only batch Workflows are supported for batch jobs' })
+            }
+
+            const batchHogFlowRequest = {
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                parentRunId: parent_run_id,
+                filters: {
+                    properties: hogFlow.trigger.filters.properties || [],
+                    filter_test_accounts: req.body.filters?.filter_test_accounts || false,
+                },
+            }
+
+            await kafkaProducer.produce({
+                topic: KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
+                value: Buffer.from(JSON.stringify(batchHogFlowRequest)),
+                key: `${team.id}_${hogFlow.id}`,
+            })
+
+            res.json({ status: 'queued' })
+        } catch (e) {
+            logger.error('Error handling hogflow batch invocation', { error: e })
+            res.status(500).json({ error: [e.message] })
+        }
+    }
+
     private handleWebhook =
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
@@ -614,45 +683,19 @@ const buildHogExecutorAsyncOptions = (
     mockAsyncFunctions: boolean,
     logs: MinimalLogEntry[]
 ): HogExecutorExecuteAsyncOptions => {
+    let mockFunctions: Record<string, (...args: any[]) => any> | undefined
+
+    if (mockAsyncFunctions) {
+        mockFunctions = {}
+        for (const name of getRegisteredAsyncFunctionNames()) {
+            const handler = getAsyncFunctionHandler(name)!
+            mockFunctions[name] = (...args: any[]) => handler.mock(args, logs)
+        }
+    }
+
     return {
         maxAsyncFunctions: MAX_ASYNC_STEPS,
         asyncFunctionsNames: mockAsyncFunctions ? [] : undefined,
-        functions: mockAsyncFunctions
-            ? {
-                  fetch: (...args: any[]) => {
-                      logs.push({
-                          level: 'info',
-                          timestamp: DateTime.now(),
-                          message: `Async function 'fetch' was mocked with arguments:`,
-                      })
-                      logs.push({
-                          level: 'info',
-                          timestamp: DateTime.now(),
-                          message: `fetch('${args[0]}', ${JSON.stringify(args[1], null, 2)})`,
-                      })
-
-                      return {
-                          status: 200,
-                          body: {},
-                      }
-                  },
-                  sendEmail: (...args: any[]) => {
-                      logs.push({
-                          level: 'info',
-                          timestamp: DateTime.now(),
-                          message: `Async function 'sendEmail' was mocked with arguments:`,
-                      })
-                      logs.push({
-                          level: 'info',
-                          timestamp: DateTime.now(),
-                          message: `sendEmail(${JSON.stringify(args[0], null, 2)})`,
-                      })
-
-                      return {
-                          success: true,
-                      }
-                  },
-              }
-            : undefined,
+        functions: mockFunctions,
     }
 }

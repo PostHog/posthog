@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { type RenderResult, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { type RenderResult, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
@@ -75,25 +75,10 @@ describe('VariantsPanelCreateFeatureFlag', () => {
     })
 
     describe('rendering', () => {
-        it('renders feature flag key input', () => {
-            renderComponent(defaultExperiment)
-
-            expect(screen.getByLabelText('Feature flag key')).toBeInTheDocument()
-            expect(screen.getByPlaceholderText(/examples: new-landing-page/)).toBeInTheDocument()
-        })
-
-        it('displays current feature flag key value', () => {
-            renderComponent(defaultExperiment)
-
-            const input = screen.getByDisplayValue('test-experiment')
-            expect(input).toBeInTheDocument()
-        })
-
         it('renders variant keys section', () => {
             renderComponent(defaultExperiment)
 
-            expect(screen.getByText('Variant keys')).toBeInTheDocument()
-            expect(screen.getByText(/rollout percentage.*must add up to 100%/i)).toBeInTheDocument()
+            expect(screen.getByText('Variant key')).toBeInTheDocument()
         })
 
         it('renders default variants (control and test)', () => {
@@ -106,14 +91,12 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             expect(testInput).toBeInTheDocument()
         })
 
-        it('renders rollout percentages for each variant', () => {
-            const { container } = renderComponent(defaultExperiment)
+        it('renders variant split labels by default', () => {
+            renderComponent(defaultExperiment)
 
-            const percentageInputs = container.querySelectorAll(
-                '[data-attr="experiment-variant-rollout-percentage-input"]'
-            )
-
-            expect(percentageInputs).toHaveLength(2)
+            const splitLabels = screen.getAllByText('50%')
+            // 2 from the variants table + 2 from the distribution bar preview
+            expect(splitLabels).toHaveLength(4)
         })
 
         it('renders add variant button', () => {
@@ -127,99 +110,6 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             expect(screen.getByText(/persist flag across authentication steps/i)).toBeInTheDocument()
             expect(screen.getByRole('checkbox')).toBeInTheDocument()
-        })
-    })
-
-    describe('feature flag key input', () => {
-        it('calls onChange when key is typed', async () => {
-            const experimentWithoutKey = {
-                ...defaultExperiment,
-                feature_flag_key: '',
-            }
-
-            renderComponent(experimentWithoutKey)
-
-            const input = screen.getByPlaceholderText(/examples: new-landing-page/)
-            await userEvent.type(input, 'new-flag-key')
-
-            // Verify onChange was called with feature_flag_key parameter
-            expect(mockOnChange).toHaveBeenCalled()
-            expect(mockOnChange.mock.calls.some((call) => call[0].feature_flag_key !== undefined)).toBe(true)
-        })
-
-        it('replaces spaces with dashes automatically', async () => {
-            const experimentWithoutKey = {
-                ...defaultExperiment,
-                feature_flag_key: '',
-            }
-
-            renderComponent(experimentWithoutKey)
-
-            const input = screen.getByPlaceholderText(/examples: new-landing-page/)
-            await userEvent.type(input, 'my flag key')
-
-            // Verify onChange was called and all calls have dashes instead of spaces
-            expect(mockOnChange).toHaveBeenCalled()
-            const allCallsHaveDashes = mockOnChange.mock.calls.every(
-                (call) => !call[0].feature_flag_key || !call[0].feature_flag_key.includes(' ')
-            )
-            expect(allCallsHaveDashes).toBe(true)
-        })
-
-        it('shows validation spinner while validating', async () => {
-            renderComponent(defaultExperiment)
-
-            const input = screen.getByPlaceholderText(/examples: new-landing-page/)
-            await userEvent.type(input, 'test')
-
-            // Spinner should appear during validation (debounced)
-            await waitFor(() => {
-                const spinner = document.querySelector('.Spinner')
-                expect(spinner).toBeInTheDocument()
-            })
-        })
-
-        it('shows success checkmark for valid key', async () => {
-            const experimentWithoutKey = {
-                ...defaultExperiment,
-                feature_flag_key: '',
-            }
-
-            renderComponent(experimentWithoutKey)
-
-            const input = screen.getByPlaceholderText(/examples: new-landing-page/)
-            await userEvent.type(input, 'valid-new-key')
-
-            // Wait for validation (debounce is 300ms + API call)
-            await waitFor(
-                () => {
-                    // Should show success checkmark (IconCheck with text-success class)
-                    const checkmark = document.querySelector('.text-success')
-                    expect(checkmark).toBeInTheDocument()
-                },
-                { timeout: 1000 }
-            )
-        })
-
-        it.skip('shows error message for invalid key', async () => {
-            const experimentWithoutKey = {
-                ...defaultExperiment,
-                feature_flag_key: '',
-            }
-
-            renderComponent(experimentWithoutKey)
-
-            const input = screen.getByPlaceholderText(/examples: new-landing-page/)
-            await userEvent.type(input, 'existing-key')
-
-            // Wait for validation and check for error indicator
-            await waitFor(
-                () => {
-                    const errorText = screen.queryByText(/already exists/i)
-                    expect(errorText).toBeInTheDocument()
-                },
-                { timeout: 1000 }
-            )
         })
     })
 
@@ -286,20 +176,12 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             expect(hasVariantUpdate).toBe(true)
         })
 
-        it('updates variant description', async () => {
-            renderComponent(defaultExperiment)
-
-            const descriptionInputs = screen.getAllByPlaceholderText('Description')
-            await userEvent.type(descriptionInputs[0], 'Control group')
-
-            // Verify onChange was called with variant updates
-            expect(mockOnChange).toHaveBeenCalled()
-            const hasVariantUpdate = mockOnChange.mock.calls.some((call) => call[0].parameters?.feature_flag_variants)
-            expect(hasVariantUpdate).toBe(true)
-        })
-
-        it('updates rollout percentage', async () => {
+        it('updates rollout percentage after enabling custom split', async () => {
             const { container } = renderComponent(defaultExperiment)
+
+            // Click pencil button to enable custom split editing
+            const customizeButton = screen.getByRole('button', { name: /customize split/i })
+            await userEvent.click(customizeButton)
 
             const percentageInputs = container.querySelectorAll(
                 '[data-attr="experiment-variant-rollout-percentage-input"]'
@@ -382,8 +264,8 @@ describe('VariantsPanelCreateFeatureFlag', () => {
                 <VariantsPanelCreateFeatureFlag experiment={experimentWithThreeVariants} onChange={mockOnChange} />
             )
 
-            const rows = container.querySelectorAll('.grid.grid-cols-24')
-            const controlRow = rows[1] // First row after header
+            const rows = container.querySelectorAll('tbody tr')
+            const controlRow = rows[0] // First row (control variant)
 
             // Control variant should not have a delete button
             const deleteButton = controlRow.querySelector('[data-attr^="delete-prop-filter"]')
@@ -405,7 +287,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             renderComponent(unevenExperiment)
 
-            const balanceButton = screen.getByRole('button', { name: /normalize variant rollout/i })
+            const balanceButton = screen.getByRole('button', { name: /distribute split evenly/i })
             await userEvent.click(balanceButton)
 
             expect(mockOnChange).toHaveBeenCalledWith({
@@ -441,6 +323,143 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         })
     })
 
+    describe('rollout percentage', () => {
+        it('renders rollout percentage section with default value of 100', () => {
+            renderComponent(defaultExperiment)
+
+            expect(screen.getByText('Rollout')).toBeInTheDocument()
+            const slider = screen.getByRole('slider')
+            expect(slider).toHaveAttribute('aria-valuenow', '100')
+        })
+
+        it('renders rollout percentage from experiment parameters', () => {
+            const experimentWithRollout = {
+                ...defaultExperiment,
+                parameters: {
+                    ...defaultExperiment.parameters,
+                    rollout_percentage: 75,
+                },
+            }
+
+            renderComponent(experimentWithRollout)
+
+            const slider = screen.getByRole('slider')
+            expect(slider).toHaveAttribute('aria-valuenow', '75')
+        })
+
+        it('calls onChange with rollout_percentage when input value changes', async () => {
+            const { container } = renderComponent(defaultExperiment)
+
+            const rolloutInput = container.querySelector(
+                '[data-attr="experiment-rollout-percentage-input"]'
+            ) as HTMLInputElement
+
+            await userEvent.clear(rolloutInput)
+            await userEvent.type(rolloutInput, '50')
+
+            const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
+            expect(lastCall.parameters).toEqual(
+                expect.objectContaining({
+                    rollout_percentage: 50,
+                })
+            )
+        })
+
+        it('preserves rollout_percentage when variants are modified', async () => {
+            const experimentWithRollout = {
+                ...defaultExperiment,
+                parameters: {
+                    ...defaultExperiment.parameters,
+                    rollout_percentage: 75,
+                },
+            }
+
+            renderComponent(experimentWithRollout)
+
+            const addButton = screen.getByRole('button', { name: /add variant/i })
+            await userEvent.click(addButton)
+
+            const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
+            expect(lastCall.parameters.rollout_percentage).toBe(75)
+        })
+
+        it('preserves rollout_percentage when experience continuity is toggled', async () => {
+            const experimentWithRollout = {
+                ...defaultExperiment,
+                parameters: {
+                    ...defaultExperiment.parameters,
+                    rollout_percentage: 60,
+                },
+            }
+
+            renderComponent(experimentWithRollout)
+
+            const checkbox = screen.getByRole('checkbox')
+            await userEvent.click(checkbox)
+
+            const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
+            expect(lastCall.parameters.rollout_percentage).toBe(60)
+        })
+    })
+
+    describe('traffic preview with uneven splits', () => {
+        it.each([
+            {
+                name: '30/70 split at 50% rollout',
+                variants: [
+                    { key: 'control', rollout_percentage: 30 },
+                    { key: 'test', rollout_percentage: 70 },
+                ],
+                rolloutPercentage: 50,
+                expectedSlotWidths: ['30%', '70%'],
+                expectedLabels: ['15%', '35%'],
+            },
+            {
+                name: '90/10 split at 50% rollout',
+                variants: [
+                    { key: 'control', rollout_percentage: 90 },
+                    { key: 'test', rollout_percentage: 10 },
+                ],
+                rolloutPercentage: 50,
+                expectedSlotWidths: ['90%', '10%'],
+                expectedLabels: ['45%', '5%'],
+            },
+            {
+                name: '90/10 split at 80% rollout',
+                variants: [
+                    { key: 'control', rollout_percentage: 90 },
+                    { key: 'test', rollout_percentage: 10 },
+                ],
+                rolloutPercentage: 80,
+                expectedSlotWidths: ['90%', '10%'],
+                expectedLabels: ['72%', '8%'],
+            },
+        ])(
+            'renders correct slot widths and labels for $name',
+            ({ variants, rolloutPercentage, expectedSlotWidths, expectedLabels }) => {
+                const experiment = {
+                    ...defaultExperiment,
+                    parameters: {
+                        feature_flag_variants: variants,
+                        rollout_percentage: rolloutPercentage,
+                    },
+                }
+
+                const { container } = renderComponent(experiment)
+
+                const barSlots = container.querySelectorAll('.h-10 > .h-full.flex')
+                expect(barSlots).toHaveLength(variants.length)
+                expectedSlotWidths.forEach((width, i) => {
+                    expect((barSlots[i] as HTMLElement).style.width).toBe(width)
+                })
+
+                expectedLabels.forEach((label) => {
+                    expect(screen.getByText(label)).toBeInTheDocument()
+                })
+            }
+        )
+    })
+
     describe('edge cases', () => {
         it('handles experiment without parameters', () => {
             const experimentWithoutParams = {
@@ -454,18 +473,6 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             // Should render with default variants
             expect(screen.getByDisplayValue('control')).toBeInTheDocument()
             expect(screen.getByDisplayValue('test')).toBeInTheDocument()
-        })
-
-        it('handles empty feature flag key', () => {
-            const experimentWithEmptyKey = {
-                ...defaultExperiment,
-                feature_flag_key: '',
-            }
-
-            renderComponent(experimentWithEmptyKey)
-
-            const input = screen.getByPlaceholderText(/examples: new-landing-page/)
-            expect(input).toHaveValue('')
         })
 
         it('prevents adding more than maximum variants', async () => {

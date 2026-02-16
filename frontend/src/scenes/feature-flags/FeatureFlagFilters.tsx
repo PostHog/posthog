@@ -104,8 +104,6 @@ export function FeatureFlagFiltersSection({
                                     const { active, ...restFilters } = filters || {}
                                     if (status === 'all') {
                                         setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
-                                    } else if (status === 'STALE') {
-                                        setFeatureFlagsFilters({ ...restFilters, active: 'STALE', page: 1 }, true)
                                     } else {
                                         setFeatureFlagsFilters({ ...restFilters, active: status, page: 1 }, true)
                                     }
@@ -151,7 +149,7 @@ export function FeatureFlagFiltersSection({
                             />
                         </>
                     )}
-                    {config.tags && enabledFeaturesLogic.values.featureFlags?.[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
+                    {config.tags && (
                         <>
                             <span className="ml-1">
                                 <b>Tags</b>

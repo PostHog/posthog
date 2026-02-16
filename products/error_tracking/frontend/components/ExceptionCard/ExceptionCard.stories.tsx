@@ -36,7 +36,12 @@ export default meta
 export function ExceptionCardBase(): JSX.Element {
     return (
         <div className="w-[800px]">
-            <ExceptionCard issueId="issue-id" loading={false} event={TEST_EVENTS['javascript_resolved'] as any} />
+            <ExceptionCard
+                issueId="issue-id"
+                issueName="Test Issue"
+                loading={false}
+                event={TEST_EVENTS['javascript_resolved'] as any}
+            />
         </div>
     )
 }
@@ -44,7 +49,12 @@ export function ExceptionCardBase(): JSX.Element {
 export function ExceptionCardNoInApp(): JSX.Element {
     return (
         <div className="w-[800px]">
-            <ExceptionCard issueId="issue-id" loading={false} event={TEST_EVENTS['javascript_no_in_app'] as any} />
+            <ExceptionCard
+                issueId="issue-id"
+                issueName="Test Issue"
+                loading={false}
+                event={TEST_EVENTS['javascript_no_in_app'] as any}
+            />
         </div>
     )
 }
@@ -52,7 +62,7 @@ export function ExceptionCardNoInApp(): JSX.Element {
 export function ExceptionCardLoading(): JSX.Element {
     return (
         <div className="w-[800px]">
-            <ExceptionCard issueId="issue-id" loading={true} event={undefined} />
+            <ExceptionCard issueId="issue-id" issueName={null} loading={true} event={undefined} />
         </div>
     )
 }
@@ -77,7 +87,9 @@ function ExceptionCardWrapperAllEvents({
 export function ExceptionCardAllEvents(): JSX.Element {
     return (
         <ExceptionCardWrapperAllEvents>
-            {(issueId, event) => <ExceptionCard issueId={issueId} loading={false} event={event as ErrorEventType} />}
+            {(issueId, event) => (
+                <ExceptionCard issueId={issueId} issueName={null} loading={false} event={event as ErrorEventType} />
+            )}
         </ExceptionCardWrapperAllEvents>
     )
 }

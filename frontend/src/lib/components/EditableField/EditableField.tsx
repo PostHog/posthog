@@ -49,6 +49,12 @@ export interface EditableFieldProps {
         icon: React.ReactElement
         tooltip: string
     }
+    /** If true, single click on text enters edit mode (default is double-click). */
+    clickToEdit?: boolean
+    /** If true, uses a smaller pencil icon. */
+    compactIcon?: boolean
+    /** If true, hides the edit icon until hover. */
+    showEditIconOnHover?: boolean
 }
 
 export function EditableField({
@@ -73,6 +79,9 @@ export function EditableField({
     'data-attr': dataAttr,
     saveButtonText = 'Save',
     notice,
+    clickToEdit = false,
+    compactIcon = false,
+    showEditIconOnHover = false,
 }: EditableFieldProps): JSX.Element {
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const [localIsEditing, setLocalIsEditing] = useState(mode === 'edit')
@@ -149,12 +158,24 @@ export function EditableField({
         }
     }
 
-    const handleDoubleClick = (): void => {
+    const enterEditMode = (): void => {
         if (!isEditing) {
             guardAvailableFeature(paywallFeature, () => {
                 setLocalIsEditing(true)
                 onModeToggle?.('edit')
             })
+        }
+    }
+
+    const handleDoubleClick = (): void => {
+        if (!clickToEdit) {
+            enterEditMode()
+        }
+    }
+
+    const handleClick = (): void => {
+        if (clickToEdit) {
+            enterEditMode()
         }
     }
 
@@ -165,6 +186,7 @@ export function EditableField({
                 multiline && 'EditableField--multiline',
                 isEditing && 'EditableField--editing',
                 editingIndication === 'underlined' && 'EditableField--underlined',
+                showEditIconOnHover && 'group/editable',
                 className
             )}
             data-attr={dataAttr}
@@ -260,23 +282,28 @@ export function EditableField({
                                 placement="bottom-start"
                                 delayMs={0}
                             >
-                                <span className="EditableField__display" ref={displayRef}>
+                                <span
+                                    className={clsx('EditableField__display', clickToEdit && 'cursor-text')}
+                                    ref={displayRef}
+                                    onClick={handleClick}
+                                >
                                     {localTentativeValue || <i>{placeholder}</i>}
                                 </span>
                             </Tooltip>
                         )}
                         {(!mode || !!onModeToggle) && (
-                            <div className="EditableField__actions">
+                            <div
+                                className={clsx(
+                                    'EditableField__actions',
+                                    showEditIconOnHover &&
+                                        'opacity-0 group-hover/editable:opacity-100 transition-opacity'
+                                )}
+                            >
                                 <LemonButton
                                     title="Edit"
-                                    icon={<IconPencil />}
+                                    icon={<IconPencil className={compactIcon ? 'w-3 h-3' : undefined} />}
                                     size={compactButtons ? 'small' : undefined}
-                                    onClick={() => {
-                                        guardAvailableFeature(paywallFeature, () => {
-                                            setLocalIsEditing(true)
-                                            onModeToggle?.('edit')
-                                        })
-                                    }}
+                                    onClick={enterEditMode}
                                     data-attr={`edit-prop-${name}`}
                                     noPadding
                                 />

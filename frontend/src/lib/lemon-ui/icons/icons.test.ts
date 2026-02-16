@@ -1,6 +1,6 @@
 import * as packageIcons from '@posthog/icons'
 
-import { ELEMENTS, OBJECTS, TEAMS_AND_COMPANIES, TECHNOLOGY, UNUSED_ICONS } from './categories'
+import { ELEMENTS, OBJECTS, TEAMS_AND_COMPANIES, TECHNOLOGY } from './categories'
 
 describe('icons', () => {
     it('ensures all icons are categorised', async () => {
@@ -10,8 +10,6 @@ describe('icons', () => {
             .map((category) => Object.values(category))
             .flat(2)
 
-        const allIcons = [...categorisedIcons, ...UNUSED_ICONS]
-
-        expect(validPackageIcons.filter((i) => !allIcons.includes(i))).toEqual([])
+        expect(validPackageIcons.filter((i) => !categorisedIcons.includes(i))).toEqual([])
     })
 })

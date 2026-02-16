@@ -1,9 +1,11 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
-from posthog.models.exported_asset import ExportedAsset
+from parameterized import parameterized
+
+from posthog.models.exported_asset import SEVEN_DAYS, SIX_MONTHS, TWELVE_MONTHS, ExportedAsset
 
 
 class TestExportedAssetModel(APIBaseTest):
@@ -73,3 +75,108 @@ class TestExportedAssetModel(APIBaseTest):
             asset_that_is_not_expired,
             asset_that_has_no_expiry,
         ]
+
+
+class TestExportedAssetExpiresAfter(APIBaseTest):
+    @parameterized.expand(
+        [
+            (ExportedAsset.ExportFormat.PNG, SIX_MONTHS),
+            (ExportedAsset.ExportFormat.PDF, SIX_MONTHS),
+            (ExportedAsset.ExportFormat.CSV, SEVEN_DAYS),
+            (ExportedAsset.ExportFormat.XLSX, SEVEN_DAYS),
+            (ExportedAsset.ExportFormat.MP4, TWELVE_MONTHS),
+            (ExportedAsset.ExportFormat.WEBM, TWELVE_MONTHS),
+            (ExportedAsset.ExportFormat.GIF, TWELVE_MONTHS),
+            (ExportedAsset.ExportFormat.JSON, SIX_MONTHS),
+        ]
+    )
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_auto_sets_expires_after_based_on_format(self, export_format: str, expected_delta: timedelta) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=export_format,
+        )
+
+        expected_expiry = (datetime(2024, 6, 15, tzinfo=UTC) + expected_delta).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        assert asset.expires_after == expected_expiry
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_respects_explicit_expires_after(self) -> None:
+        custom_expiry = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            expires_after=custom_expiry,
+        )
+
+        assert asset.expires_after == custom_expiry
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_partial_save_does_not_overwrite_existing_expires_after(self) -> None:
+        custom_expiry = datetime(2025, 12, 22, 0, 0, 0, tzinfo=UTC)
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            expires_after=custom_expiry,
+        )
+
+        asset.exception = "some error"
+        asset.save(update_fields=["exception"])
+
+        asset.refresh_from_db()
+        assert asset.expires_after == custom_expiry
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_explicitly_updating_expires_after_field(self) -> None:
+        custom_expiry = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            expires_after=custom_expiry,
+        )
+        assert asset.expires_after == custom_expiry
+
+        new_expiry = datetime(2025, 12, 22, 0, 0, 0, tzinfo=UTC)
+        asset.expires_after = new_expiry
+        asset.save(update_fields=["expires_after"])
+        asset.refresh_from_db()
+        assert asset.expires_after == new_expiry
+
+
+class TestExportedAssetFilename(APIBaseTest):
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_filename_includes_timestamp(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+        )
+        assert asset.filename == "export-2024-06-15.csv"
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_filename_uses_custom_name_with_timestamp(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"filename": "My Cohort Name"},
+        )
+        assert asset.filename == "my-cohort-name-2024-06-15.csv"
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_filename_slugifies_special_characters(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"filename": "Power Users @ 50% Rollout"},
+        )
+        assert asset.filename == "power-users-50-rollout-2024-06-15.csv"
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_xlsx_format_extension(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.XLSX,
+            export_context={"filename": "cohort-test"},
+        )
+        assert asset.filename == "cohort-test-2024-06-15.xlsx"

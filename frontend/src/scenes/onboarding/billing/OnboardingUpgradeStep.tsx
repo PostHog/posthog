@@ -7,17 +7,17 @@ import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { SupermanHog } from 'lib/components/hedgehogs'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
-import type { BillingProductV2Type, OnboardingStepKey } from '~/types'
+import { type BillingProductV2Type, OnboardingStepKey } from '~/types'
 
 import { OnboardingStep } from '../OnboardingStep'
+import { OnboardingStepComponentType } from '../onboardingLogic'
 import PlanCards from './PlanCards'
 
-type Props = {
+type OnboardingUpgradeStepProps = {
     product: BillingProductV2Type
-    stepKey: OnboardingStepKey
 }
 
-export const OnboardingUpgradeStep = ({ product, stepKey }: Props): JSX.Element => {
+export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgradeStepProps> = ({ product }) => {
     const { billingLoading } = useValues(billingLogic)
 
     if (billingLoading) {
@@ -29,12 +29,13 @@ export const OnboardingUpgradeStep = ({ product, stepKey }: Props): JSX.Element 
     }
 
     return (
-        <OnboardingStep title="Select a plan" stepKey={stepKey} showContinue={!!product.subscribed}>
+        <OnboardingStep title="Select a plan" stepKey={OnboardingStepKey.PLANS} showContinue={!!product.subscribed}>
             {!product.subscribed && <PlanCards product={product} />}
             {product.subscribed && <ProductSubscribed product={product} />}
         </OnboardingStep>
     )
 }
+OnboardingUpgradeStep.stepKey = OnboardingStepKey.PLANS
 
 const ProductSubscribed = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { trigger, HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })

@@ -5,6 +5,8 @@ import React from 'react'
 
 import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
@@ -13,6 +15,7 @@ import {
     ContextMenuItem,
     ContextMenuTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
+import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -78,6 +81,7 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     tooltipPlacement?: TooltipProps['placement']
     tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
 
+    extraContextMenuItems?: React.ReactNode
     /** Skip the context menu */
     skipContext?: boolean
 }
@@ -138,6 +142,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             role,
             tabIndex,
             skipContext,
+            extraContextMenuItems,
             ...props
         },
         ref
@@ -163,8 +168,12 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             }
 
             const mountedSidePanelLogic = sidePanelStateLogic.findMounted()
+            const mountedFeatureFlagLogic = featureFlagLogic.findMounted()
+            const { featureFlags } = mountedFeatureFlagLogic?.values || {}
 
-            if (shouldOpenInDocsPanel && mountedSidePanelLogic) {
+            const isRemovingSidePanelFlag = featureFlags?.[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
+
+            if (shouldOpenInDocsPanel && mountedSidePanelLogic && !isRemovingSidePanelFlag) {
                 // TRICKY: We do this instead of hooks as there is some weird cyclic issue in tests
                 const { sidePanelOpen } = mountedSidePanelLogic.values
                 const { openSidePanel } = mountedSidePanelLogic.actions
@@ -263,10 +272,19 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         if (href && !externalLink && !skipContext) {
             element = (
                 <ContextMenu key={props.key}>
-                    <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
+                    <ContextMenuTrigger asChild>
+                        {/* Span so we can have both tooltip and context menu, without it the tooltip doesn't work with context menu */}
+                        <span className="contents">{element}</span>
+                    </ContextMenuTrigger>
                     <ContextMenuContent className="max-w-[300px]">
                         <ContextMenuGroup>
                             <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
+                            {extraContextMenuItems && (
+                                <>
+                                    <MenuSeparator />
+                                    {extraContextMenuItems}
+                                </>
+                            )}
                         </ContextMenuGroup>
                     </ContextMenuContent>
                 </ContextMenu>

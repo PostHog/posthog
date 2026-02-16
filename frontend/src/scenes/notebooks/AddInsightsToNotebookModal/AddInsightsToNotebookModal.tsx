@@ -7,24 +7,17 @@ import { AddSavedInsightsToNotebook } from 'scenes/saved-insights/AddSavedInsigh
 import { addInsightsToNotebookModalLogic } from './addInsightsToNotebookModalLogic'
 
 export function AddInsightsToNotebookModal(): JSX.Element {
-    const { toggleIsAddInsightsToNotebookModalOpen } = useActions(addInsightsToNotebookModalLogic)
-    const { isAddInsightsToNotebookModalOpen } = useValues(addInsightsToNotebookModalLogic)
+    const { closeModal } = useActions(addInsightsToNotebookModalLogic)
+    const { isAddInsightsToNotebookModalOpen, insertionPosition } = useValues(addInsightsToNotebookModalLogic)
 
     return (
         <LemonModal
             title="Add insight to notebook"
-            onClose={toggleIsAddInsightsToNotebookModalOpen}
+            onClose={closeModal}
             isOpen={isAddInsightsToNotebookModalOpen}
-            footer={
-                <LemonButton
-                    type="secondary"
-                    data-attr="notebook-cancel"
-                    onClick={toggleIsAddInsightsToNotebookModalOpen}
-                    children="Close"
-                />
-            }
+            footer={<LemonButton type="secondary" data-attr="notebook-cancel" onClick={closeModal} children="Close" />}
         >
-            <AddSavedInsightsToNotebook />
+            <AddSavedInsightsToNotebook insertionPosition={insertionPosition} />
         </LemonModal>
     )
 }

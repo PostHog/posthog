@@ -93,12 +93,12 @@ describe('hogFunctionHclExporter test', () => {
                 type: 'internal_destination',
             })
 
-            const result = generateHogFunctionHCL(hogFunction)
+            const result = generateHogFunctionHCL(hogFunction, { projectId: 1 })
             const hcl = result.hcl
 
             expect(hcl).toContain('import {')
             expect(hcl).toContain('to = posthog_hog_function.saved_function')
-            expect(hcl).toContain('id = "func-456"')
+            expect(hcl).toContain('id = "1/func-456"')
         })
 
         it('excludes import block for new hog functions', () => {

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -7,6 +8,7 @@ from boto3 import resource
 from botocore.client import Config
 
 from posthog.api.insight_variable import map_stale_to_latest
+from posthog.caching.fetch_from_cache import InsightResult
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Dashboard, ExportedAsset, Insight, InsightVariable
 from posthog.models.dashboard_tile import DashboardTile
@@ -19,6 +21,18 @@ from posthog.settings import (
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import image_exporter
+
+
+def make_insight_result(cache_key: str) -> InsightResult:
+    """Helper to create InsightResult with required fields for testing."""
+    return InsightResult(
+        result=[],
+        last_refresh=datetime.now(),
+        cache_key=cache_key,
+        is_cached=False,
+        timezone="UTC",
+    )
+
 
 TEST_PREFIX = "Test-Exports"
 
@@ -92,9 +106,9 @@ class TestImageExporter(APIBaseTest):
 
             assert self.exported_asset.content == b"image_data"
 
-    @patch("posthog.tasks.exports.image_exporter.process_query_dict")
-    def test_dashboard_export_calculates_all_insights(self, mock_process_query: Any, *args: Any) -> None:
-        mock_process_query.return_value = {"cache_key": "test_cache_key", "result": []}
+    @patch("posthog.tasks.exports.image_exporter.calculate_for_query_based_insight")
+    def test_dashboard_export_calculates_all_insights(self, mock_calculate: Any, *args: Any) -> None:
+        mock_calculate.return_value = make_insight_result("test_cache_key")
 
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
         insight_count = 3
@@ -122,27 +136,29 @@ class TestImageExporter(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(dashboard_asset)
 
-        assert (
-            mock_process_query.call_count == insight_count
-        ), f"Expected cache warming for {insight_count} insights, got {mock_process_query.call_count} calls"
+        assert mock_calculate.call_count == insight_count, (
+            f"Expected cache warming for {insight_count} insights, got {mock_calculate.call_count} calls"
+        )
 
-        for i, call in enumerate(mock_process_query.call_args_list):
+        for i, call in enumerate(mock_calculate.call_args_list):
             call_kwargs = call[1]
 
-            assert call_kwargs["dashboard_id"] == dashboard.id, f"Call {i+1} missing dashboard_id"
+            assert call_kwargs["dashboard"].id == dashboard.id, f"Call {i + 1} missing dashboard"
 
-            assert (
-                call_kwargs["execution_mode"] == ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-            ), f"Call {i+1} should use CALCULATE_BLOCKING_ALWAYS, got {call_kwargs['execution_mode']}"
+            assert call_kwargs["execution_mode"] == ExecutionMode.CALCULATE_BLOCKING_ALWAYS, (
+                f"Call {i + 1} should use CALCULATE_BLOCKING_ALWAYS, got {call_kwargs['execution_mode']}"
+            )
 
-            assert call_kwargs["insight_id"] in [
-                ins.id for ins in insights
-            ], f"Call {i+1} has unexpected insight_id {call_kwargs['insight_id']}"
+            # First positional arg is the insight
+            called_insight = call[0][0]
+            assert called_insight.id in [ins.id for ins in insights], (
+                f"Call {i + 1} has unexpected insight {called_insight.id}"
+            )
 
-    @patch("posthog.tasks.exports.image_exporter.process_query_dict")
+    @patch("posthog.tasks.exports.image_exporter.calculate_for_query_based_insight")
     def test_export_captures_cache_keys_and_passes_to_url(
         self,
-        mock_process_query: Any,
+        mock_calculate: Any,
         mock_remove: Any,
         mock_open: Any,
         mock_screenshot_asset: Any,
@@ -159,7 +175,7 @@ class TestImageExporter(APIBaseTest):
             insight=insight,
         )
 
-        mock_process_query.return_value = {"cache_key": "test_cache_key_123", "results": []}
+        mock_calculate.return_value = make_insight_result("test_cache_key_123")
 
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(exported_asset)
@@ -172,10 +188,10 @@ class TestImageExporter(APIBaseTest):
         assert "cache_keys=" in url_to_render, f"URL should contain cache_keys parameter: {url_to_render}"
         assert "test_cache_key_123" in url_to_render, f"URL should contain the cache key: {url_to_render}"
 
-    @patch("posthog.tasks.exports.image_exporter.process_query_dict")
+    @patch("posthog.tasks.exports.image_exporter.calculate_for_query_based_insight")
     def test_dashboard_export_captures_all_cache_keys(
         self,
-        mock_process_query: Any,
+        mock_calculate: Any,
         mock_remove: Any,
         mock_open: Any,
         mock_screenshot_asset: Any,
@@ -199,10 +215,10 @@ class TestImageExporter(APIBaseTest):
             dashboard=dashboard,
         )
 
-        def mock_process(team: Any, query: Any, insight_id: Any = None, **kwargs: Any) -> dict:
-            return {"cache_key": f"cache_key_for_insight_{insight_id}", "results": []}
+        def mock_calc(insight: Any, **kwargs: Any) -> InsightResult:
+            return make_insight_result(f"cache_key_for_insight_{insight.id}")
 
-        mock_process_query.side_effect = mock_process
+        mock_calculate.side_effect = mock_calc
 
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(dashboard_asset)
@@ -213,9 +229,9 @@ class TestImageExporter(APIBaseTest):
 
         # URL should contain cache_keys for all insights
         for insight in insights:
-            assert (
-                f"cache_key_for_insight_{insight.id}" in url_to_render
-            ), f"URL should contain cache key for insight {insight.id}"
+            assert f"cache_key_for_insight_{insight.id}" in url_to_render, (
+                f"URL should contain cache key for insight {insight.id}"
+            )
 
     @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
     @patch("posthog.tasks.exports.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
@@ -243,22 +259,56 @@ class TestImageExporter(APIBaseTest):
             insight=insight,
         )
 
-        with patch("posthog.tasks.exports.image_exporter.process_query_dict") as mock_process_query:
-            mock_process_query.return_value = {"cache_key": "test_key", "results": []}
+        with patch("posthog.tasks.exports.image_exporter.calculate_for_query_based_insight") as mock_calculate:
+            mock_calculate.return_value = make_insight_result("test_key")
 
             with self.settings(OBJECT_STORAGE_ENABLED=False):
                 image_exporter.export_image(exported_asset)
 
-            assert mock_process_query.call_count == 1
-            call_kwargs = mock_process_query.call_args[1]
+            assert mock_calculate.call_count == 1
+            call_kwargs = mock_calculate.call_args[1]
 
-            assert "variables_override_json" in call_kwargs, "variables_override_json parameter missing"
-            assert (
-                call_kwargs["variables_override_json"] is not None
-            ), "variables_override_json should not be None when dashboard has variables"
+            assert "variables_override" in call_kwargs, "variables_override parameter missing"
+            assert call_kwargs["variables_override"] is not None, (
+                "variables_override should not be None when dashboard has variables"
+            )
 
             variables = list(InsightVariable.objects.filter(team=self.team).all())
             expected_variables = map_stale_to_latest(dashboard.variables or {}, variables)
-            assert (
-                call_kwargs["variables_override_json"] == expected_variables
-            ), "variables_override_json should match the transformed dashboard variables"
+            assert call_kwargs["variables_override"] == expected_variables, (
+                "variables_override should match the transformed dashboard variables"
+            )
+
+    @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
+    @patch("posthog.tasks.exports.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
+    @patch("os.remove")
+    def test_export_includes_tile_filter_overrides(self, *args: Any) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard with Tile Filters")
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Test Insight",
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+        )
+        tile_filters = {"date_from": "-7d", "properties": [{"key": "$browser", "value": "Chrome"}]}
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight, filters_overrides=tile_filters)
+
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            dashboard=dashboard,
+            insight=insight,
+        )
+
+        with patch("posthog.tasks.exports.image_exporter.calculate_for_query_based_insight") as mock_calculate:
+            mock_calculate.return_value = make_insight_result("test_key")
+
+            with self.settings(OBJECT_STORAGE_ENABLED=False):
+                image_exporter.export_image(exported_asset)
+
+            assert mock_calculate.call_count == 1
+            call_kwargs = mock_calculate.call_args[1]
+
+            assert "tile_filters_override" in call_kwargs, "tile_filters_override parameter missing"
+            assert call_kwargs["tile_filters_override"] == tile_filters, (
+                "tile_filters_override should match tile filters"
+            )

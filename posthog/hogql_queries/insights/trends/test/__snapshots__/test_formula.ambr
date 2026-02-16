@@ -62,7 +62,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -106,7 +107,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -145,7 +147,8 @@
            GROUP BY breakdown_value)
         GROUP BY breakdown_value
         ORDER BY breakdown_value ASC)
-     ORDER BY total DESC, breakdown_value ASC)
+     ORDER BY total DESC,
+              breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
@@ -183,7 +186,8 @@
            GROUP BY breakdown_value)
         GROUP BY breakdown_value
         ORDER BY breakdown_value ASC)
-     ORDER BY total DESC, breakdown_value ASC)
+     ORDER BY total DESC,
+              breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
@@ -236,7 +240,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -280,7 +285,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -334,7 +340,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -388,7 +395,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -555,7 +563,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -616,7 +625,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -660,7 +670,8 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
@@ -704,12 +715,51 @@
                     breakdown_value)
         GROUP BY day_start,
                  breakdown_value
-        ORDER BY day_start ASC, breakdown_value ASC)
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
      GROUP BY breakdown_value
      ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestFormula.test_formula_with_hogql_math_no_matching_events
+  '''
+  SELECT ifNull(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 0) AS total
+  FROM events AS e
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'nonexistent_event_that_has_no_data'))
+  ORDER BY 1 DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestFormula.test_formula_with_hogql_math_no_matching_events.1
+  '''
+  SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total
+  FROM events AS e
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
+  ORDER BY 1 DESC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -931,7 +981,7 @@
               FROM raw_sessions
               WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
               GROUP BY raw_sessions.session_id_v7,
-                       raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
+                       raw_sessions.session_id_v7) AS e__session ON equals(e.`$session_id_uuid`, e__session.session_id_v7)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
                     e.`$session_id`,
@@ -1001,7 +1051,7 @@
            FROM raw_sessions
            WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
            GROUP BY raw_sessions.session_id_v7,
-                    raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
+                    raw_sessions.session_id_v7) AS e__session ON equals(e.`$session_id_uuid`, e__session.session_id_v7)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'), ifNull(greater(e__session.`$session_duration`, 12.0), 0))
         GROUP BY day_start)
      GROUP BY day_start
@@ -1068,7 +1118,7 @@
            FROM raw_sessions
            WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
            GROUP BY raw_sessions.session_id_v7,
-                    raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
+                    raw_sessions.session_id_v7) AS e__session ON equals(e.`$session_id_uuid`, e__session.session_id_v7)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, '$autocapture'), ifNull(less(e__session.`$session_duration`, 30.0), 0))
         GROUP BY day_start)
      GROUP BY day_start
@@ -1105,7 +1155,7 @@
            FROM raw_sessions
            WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
            GROUP BY raw_sessions.session_id_v7,
-                    raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
+                    raw_sessions.session_id_v7) AS e__session ON equals(e.`$session_id_uuid`, e__session.session_id_v7)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'), ifNull(greater(e__session.`$session_duration`, 500.0), 0))
         GROUP BY day_start)
      GROUP BY day_start

@@ -5,10 +5,28 @@ use bytesize::ByteSize;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
+/// Pipeline type for the deduplicator service.
+///
+/// Each pipeline type handles a different event format:
+/// - `IngestionEvents`: Events from capture (CapturedEvent/RawEvent format)
+/// - `ClickhouseEvents`: Events from ingestion pipeline (ClickhouseEvent format)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum_macros::EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum PipelineType {
+    #[default]
+    IngestionEvents,
+    ClickhouseEvents,
+}
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
+
+    /// Pipeline type determines the event format and processing logic.
+    /// Valid values: "ingestion_events" (default), "clickhouse_events"
+    #[envconfig(default = "ingestion_events")]
+    pub pipeline_type: PipelineType,
 
     // Kafka configuration
     #[envconfig(default = "localhost:9092")]
@@ -25,6 +43,17 @@ pub struct Config {
 
     #[envconfig(default = "30000")] // 30 seconds
     pub kafka_metadata_max_age_ms: u32,
+
+    // Session timeout: how long broker waits for heartbeats before declaring consumer dead.
+    // With static membership (group.instance.id), broker holds partition assignments for this
+    // duration after a consumer disappears. Should be longer than typical pod restart time.
+    #[envconfig(default = "60000")] // 60 seconds - covers slow pod restarts
+    pub kafka_session_timeout_ms: u32,
+
+    // Heartbeat interval: how often consumer sends heartbeats to broker.
+    // With 60s session timeout and 5s heartbeat, 12 heartbeats can miss before timeout.
+    #[envconfig(default = "5000")] // 5 seconds
+    pub kafka_heartbeat_interval_ms: u32,
 
     // supplied by k8s deploy env, used as part of kafka
     // consumer client ID for sticky partition mappings
@@ -77,6 +106,14 @@ pub struct Config {
     // 2 minutes default - interval for checking and cleaning up old data when capacity is exceeded
     pub cleanup_interval_secs: u64,
 
+    #[envconfig(default = "900")]
+    // 15 minutes default - minimum staleness (no recent WAL activity) before orphan directories can be deleted
+    pub orphan_cleanup_min_staleness_secs: u64,
+
+    #[envconfig(default = "16")]
+    // Max parallel directory deletions during rebalance cleanup (bounded scatter-gather)
+    pub rebalance_cleanup_parallelism: usize,
+
     // Consumer processing configuration
     #[envconfig(default = "100")]
     pub max_in_flight_messages: usize,
@@ -105,6 +142,10 @@ pub struct Config {
     #[envconfig(default = "200")] // 200ms (reduced from 500ms for lower latency)
     pub kafka_consumer_batch_timeout_ms: u64,
 
+    // Timeout for consumer.seek_partitions() after checkpoint import (seconds)
+    #[envconfig(default = "5")]
+    pub kafka_consumer_seek_timeout_secs: u64,
+
     // Kafka consumer fetch settings for throughput optimization
     #[envconfig(default = "1048576")] // 1MB minimum fetch size
     pub kafka_consumer_fetch_min_bytes: u32,
@@ -120,6 +161,10 @@ pub struct Config {
 
     #[envconfig(default = "102400")] // 100MB max bytes to prefetch (value is in KB)
     pub kafka_consumer_queued_max_messages_kbytes: u32,
+
+    #[envconfig(default = "300000")]
+    // 5 minutes - max time between poll() calls before consumer leaves group
+    pub kafka_max_poll_interval_ms: u32,
 
     // Partition worker channel buffer size for pipeline parallelism
     #[envconfig(default = "10")]
@@ -145,14 +190,31 @@ pub struct Config {
     #[envconfig(default = "deduplication-checkpoints")]
     pub s3_key_prefix: String,
 
-    #[envconfig(default = "us-east-1")]
-    pub aws_region: String,
+    pub aws_region: Option<String>,
 
     #[envconfig(default = "120")] // 2 minutes
     pub s3_operation_timeout_secs: u64,
 
     #[envconfig(default = "20")] // 20 seconds
     pub s3_attempt_timeout_secs: u64,
+
+    /// Maximum number of retries for S3 operations before giving up.
+    /// Works in conjunction with s3_operation_timeout which provides the total retry budget.
+    #[envconfig(default = "3")]
+    pub s3_max_retries: usize,
+
+    /// S3 endpoint URL (for non-AWS S3-compatible stores like MinIO)
+    pub s3_endpoint: Option<String>,
+
+    /// S3 access key (for local dev without IAM role)
+    pub s3_access_key_id: Option<String>,
+
+    /// S3 secret key (for local dev without IAM role)
+    pub s3_secret_access_key: Option<String>,
+
+    /// Force path-style S3 URLs (required for MinIO)
+    #[envconfig(default = "false")]
+    pub s3_force_path_style: bool,
 
     // Checkpoint configuration - integrated from checkpoint::config
     #[envconfig(default = "1800")] // 30 minutes in seconds
@@ -201,7 +263,25 @@ pub struct Config {
     #[envconfig(default = "24")]
     pub checkpoint_import_window_hours: u32,
 
-    //// End checkpoint config ////
+    // Maximum concurrent S3 file downloads during checkpoint import
+    // Limits memory usage by bounding the number of in-flight HTTP connections
+    // Critical during rebalance when many partitions are assigned simultaneously
+    // Higher values speed up rebalance; streaming bounds memory per download to ~8KB
+    #[envconfig(default = "100")]
+    pub max_concurrent_checkpoint_file_downloads: usize,
+
+    // Maximum concurrent S3 file uploads during checkpoint export
+    // Less critical than downloads since uploads are bounded by max_concurrent_checkpoints
+    #[envconfig(default = "100")]
+    pub max_concurrent_checkpoint_file_uploads: usize,
+
+    // Maximum time allowed for a complete checkpoint import for a single partition (seconds).
+    // This includes listing checkpoints, downloading metadata, and downloading all files.
+    // Should be less than kafka max.poll.interval.ms to prevent consumer group kicks.
+    #[envconfig(default = "240")]
+    pub checkpoint_partition_import_timeout_secs: u64,
+
+    //// End checkpoint configuration ////
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
 
@@ -227,38 +307,29 @@ impl Config {
 
     /// Validate configuration settings
     pub fn validate(&self) -> Result<()> {
-        // Check store path is writable
-        if let Err(e) = fs::create_dir_all(&self.store_path) {
-            return Err(anyhow::anyhow!(
-                "Cannot create RocksDB store directory '{}' for consumer group '{}': {}",
-                self.store_path,
-                self.kafka_consumer_group,
-                e
-            ));
-        }
+        fs::create_dir_all(&self.store_path).with_context(|| {
+            format!(
+                "Cannot create RocksDB store directory '{}' for consumer group '{}'",
+                self.store_path, self.kafka_consumer_group
+            )
+        })?;
 
-        // Check if we can write to the directory
         let test_file = self.store_path_buf().join(".write_test");
-        if let Err(e) = fs::write(&test_file, b"test") {
-            return Err(anyhow::anyhow!(
-                "RocksDB store path '{}' is not writable for consumer group '{}': {}",
-                self.store_path,
-                self.kafka_consumer_group,
-                e
-            ));
-        }
+        fs::write(&test_file, b"test").with_context(|| {
+            format!(
+                "RocksDB store path '{}' is not writable for consumer group '{}'",
+                self.store_path, self.kafka_consumer_group
+            )
+        })?;
         fs::remove_file(test_file).ok();
 
-        // Validate checkpoint path if S3 is configured
         if let Some(ref bucket) = self.s3_bucket {
-            if let Err(e) = fs::create_dir_all(&self.local_checkpoint_dir) {
-                return Err(anyhow::anyhow!(
-                    "Cannot create local checkpoint directory '{}' for S3 bucket '{}': {}",
-                    self.local_checkpoint_dir,
-                    bucket,
-                    e
-                ));
-            }
+            fs::create_dir_all(&self.local_checkpoint_dir).with_context(|| {
+                format!(
+                    "Cannot create local checkpoint directory '{}' for S3 bucket '{}'",
+                    self.local_checkpoint_dir, bucket
+                )
+            })?;
         }
 
         Ok(())
@@ -294,6 +365,11 @@ impl Config {
         Duration::from_millis(self.kafka_consumer_batch_timeout_ms)
     }
 
+    /// Get kafka consumer seek timeout as Duration (for seek_partitions after checkpoint import)
+    pub fn kafka_consumer_seek_timeout(&self) -> Duration {
+        Duration::from_secs(self.kafka_consumer_seek_timeout_secs)
+    }
+
     /// Get flush interval as Duration
     pub fn flush_interval(&self) -> Duration {
         Duration::from_secs(self.flush_interval_secs)
@@ -302,6 +378,11 @@ impl Config {
     /// Get cleanup interval as Duration
     pub fn cleanup_interval(&self) -> Duration {
         Duration::from_secs(self.cleanup_interval_secs)
+    }
+
+    /// Get orphan cleanup minimum staleness as Duration
+    pub fn orphan_cleanup_min_staleness(&self) -> Duration {
+        Duration::from_secs(self.orphan_cleanup_min_staleness_secs)
     }
 
     /// Get producer send timeout as Duration
@@ -345,12 +426,16 @@ impl Config {
 
     // Check multiple conditions for safe checkpoint export enablement
     pub fn checkpoint_export_enabled(&self) -> bool {
-        !self.aws_region.is_empty() && self.s3_bucket.is_some() && self.checkpoint_export_enabled
+        self.checkpoint_export_enabled
+            && self.s3_bucket.is_some()
+            && (self.s3_endpoint.is_some() || self.aws_region.is_some())
     }
 
-    // Check mulitple conditions for safe checkpoint import enablement
+    // Check multiple conditions for safe checkpoint import enablement
     pub fn checkpoint_import_enabled(&self) -> bool {
-        !self.aws_region.is_empty() && self.s3_bucket.is_some() && self.checkpoint_import_enabled
+        self.checkpoint_import_enabled
+            && self.s3_bucket.is_some()
+            && (self.s3_endpoint.is_some() || self.aws_region.is_some())
     }
 
     /// Get checkpoint interval as Duration
@@ -374,6 +459,54 @@ impl Config {
     /// Get S3 per-attempt timeout as Duration
     pub fn s3_attempt_timeout(&self) -> Duration {
         Duration::from_secs(self.s3_attempt_timeout_secs)
+    }
+
+    /// Get checkpoint partition import timeout as Duration
+    pub fn checkpoint_partition_import_timeout(&self) -> Duration {
+        Duration::from_secs(self.checkpoint_partition_import_timeout_secs)
+    }
+
+    /// Build Kafka consumer configuration for the group-based batch consumer.
+    /// Applies all relevant env-configured settings (connection, TLS, fetch/queued,
+    /// group membership, sticky assignment, offset reset).
+    pub fn build_batch_consumer_config(&self) -> rdkafka::ClientConfig {
+        use crate::kafka::config::ConsumerConfigBuilder;
+
+        ConsumerConfigBuilder::for_batch_consumer(&self.kafka_hosts, &self.kafka_consumer_group)
+            .with_tls(self.kafka_tls)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_topic_metadata_refresh_interval_ms(self.kafka_topic_metadata_refresh_interval_ms)
+            .with_metadata_max_age_ms(self.kafka_metadata_max_age_ms)
+            .with_sticky_partition_assignment(self.pod_hostname.as_deref())
+            .with_offset_reset(&self.kafka_consumer_offset_reset)
+            .with_fetch_min_bytes(self.kafka_consumer_fetch_min_bytes)
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
+            .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
+            .with_max_poll_interval_ms(self.kafka_max_poll_interval_ms)
+            .with_session_timeout_ms(self.kafka_session_timeout_ms)
+            .with_heartbeat_interval_ms(self.kafka_heartbeat_interval_ms)
+            .build()
+    }
+
+    /// Build Kafka consumer configuration for the assign-only watermark consumer.
+    /// Applies only connection, TLS, and fetch/queued settings — no group-coordination
+    /// options (session, heartbeat, max.poll, sticky, offset reset).
+    pub fn build_watermark_consumer_config(&self, group_id: &str) -> rdkafka::ClientConfig {
+        use crate::kafka::config::ConsumerConfigBuilder;
+
+        ConsumerConfigBuilder::for_watermark_consumer(&self.kafka_hosts, group_id)
+            .with_tls(self.kafka_tls)
+            .with_max_partition_fetch_bytes(self.kafka_consumer_max_partition_fetch_bytes)
+            .with_topic_metadata_refresh_interval_ms(self.kafka_topic_metadata_refresh_interval_ms)
+            .with_metadata_max_age_ms(self.kafka_metadata_max_age_ms)
+            .with_fetch_min_bytes(self.kafka_consumer_fetch_min_bytes)
+            .with_fetch_max_bytes(self.kafka_consumer_fetch_max_bytes)
+            .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
+            .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
+            .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
+            .build()
     }
 
     /// Build Kafka producer configuration
@@ -516,5 +649,97 @@ mod tests {
 
         config.max_store_capacity = "".to_string();
         assert!(config.parse_storage_capacity().is_err());
+    }
+
+    #[test]
+    fn test_checkpoint_export_enabled() {
+        let mut config = Config::init_with_defaults().unwrap();
+
+        // All disabled by default (no bucket, no endpoint, no region)
+        config.checkpoint_export_enabled = true;
+        assert!(!config.checkpoint_export_enabled());
+
+        // Flag disabled - should be false regardless of other settings
+        config.checkpoint_export_enabled = false;
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(!config.checkpoint_export_enabled());
+
+        // Production AWS: region + bucket (no endpoint)
+        config.checkpoint_export_enabled = true;
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        config.s3_endpoint = None;
+        assert!(config.checkpoint_export_enabled());
+
+        // Local dev MinIO: endpoint + bucket (no region)
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = None;
+        assert!(config.checkpoint_export_enabled());
+
+        // Local dev MinIO with region: endpoint + bucket + region
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(config.checkpoint_export_enabled());
+
+        // Missing bucket - should be false
+        config.s3_bucket = None;
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(!config.checkpoint_export_enabled());
+
+        // Missing both endpoint and region - should be false
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = None;
+        config.aws_region = None;
+        assert!(!config.checkpoint_export_enabled());
+    }
+
+    #[test]
+    fn test_checkpoint_import_enabled() {
+        let mut config = Config::init_with_defaults().unwrap();
+
+        // All disabled by default (no bucket, no endpoint, no region)
+        config.checkpoint_import_enabled = true;
+        assert!(!config.checkpoint_import_enabled());
+
+        // Flag disabled - should be false regardless of other settings
+        config.checkpoint_import_enabled = false;
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(!config.checkpoint_import_enabled());
+
+        // Production AWS: region + bucket (no endpoint)
+        config.checkpoint_import_enabled = true;
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        config.s3_endpoint = None;
+        assert!(config.checkpoint_import_enabled());
+
+        // Local dev MinIO: endpoint + bucket (no region)
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = None;
+        assert!(config.checkpoint_import_enabled());
+
+        // Local dev MinIO with region: endpoint + bucket + region
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(config.checkpoint_import_enabled());
+
+        // Missing bucket - should be false
+        config.s3_bucket = None;
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(!config.checkpoint_import_enabled());
+
+        // Missing both endpoint and region - should be false
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = None;
+        config.aws_region = None;
+        assert!(!config.checkpoint_import_enabled());
     }
 }

@@ -1,0 +1,1061 @@
+{
+    "id": "019b6fc6-ad68-0000-2c21-f701205f3f5c",
+    "name": "Trial started → upgrade nudge",
+    "description": "Use this workflow to convert trial users based on intent, not deadlines.\n\nInstead of blasting everyone with “your trial ends soon” emails, this workflow waits for signs that a user is actually using the product, then nudges them to upgrade, with a few well-timed reminders and a clear stop.",
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Elon_53dbe00271.jpg",
+    "scope": "global",
+    "created_at": "2025-12-30T15:00:50.152615Z",
+    "created_by": {
+        "id": 310726,
+        "uuid": "01999f57-b220-0000-5e66-8410527daa3c",
+        "distinct_id": "A9CjZG1AUbA0EKdinlV8Hm7oieSx9iPaHFsJRtXrBdc",
+        "first_name": "Sara",
+        "last_name": "Miteva",
+        "email": "sara@posthog.com",
+        "is_email_verified": true,
+        "hedgehog_config": null,
+        "role_at_organization": null
+    },
+    "updated_at": "2025-12-30T15:00:50.152629Z",
+    "trigger": {
+        "type": "event",
+        "filters": {}
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "window_minutes": 0
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "to": "exit_node",
+            "from": "action_conditional_branch_d2231965-2fb0-4b08-94cd-971e3117ad52",
+            "type": "continue"
+        },
+        {
+            "to": "action_function_email_35f4ff6b-ca9f-464b-a5e8-933de2cee4dd",
+            "from": "action_conditional_branch_d2231965-2fb0-4b08-94cd-971e3117ad52",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "to": "exit_node",
+            "from": "action_conditional_branch_5fced095-4ad7-4f32-a1f9-cfbe6c0925b5",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "to": "action_function_email_cc6de9bc-5b21-4ed5-a0ad-db345364f16f",
+            "from": "action_conditional_branch_5fced095-4ad7-4f32-a1f9-cfbe6c0925b5",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_conditional_branch_74180522-d166-48c3-a04e-52f12e67fd0e",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "to": "action_delay_cd033d4c-4726-4575-aa88-137e8de83b32",
+            "from": "action_conditional_branch_74180522-d166-48c3-a04e-52f12e67fd0e",
+            "type": "continue"
+        },
+        {
+            "to": "action_function_email_a72ed028-75bc-44ed-8915-c6f42d1b0edd",
+            "from": "action_delay_cd033d4c-4726-4575-aa88-137e8de83b32",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_email_a72ed028-75bc-44ed-8915-c6f42d1b0edd",
+            "type": "continue"
+        },
+        {
+            "to": "action_delay_000c0fb9-b333-4df9-85b6-bb7015c011ce",
+            "from": "action_function_email_35f4ff6b-ca9f-464b-a5e8-933de2cee4dd",
+            "type": "continue"
+        },
+        {
+            "to": "action_conditional_branch_5fced095-4ad7-4f32-a1f9-cfbe6c0925b5",
+            "from": "action_delay_000c0fb9-b333-4df9-85b6-bb7015c011ce",
+            "type": "continue"
+        },
+        {
+            "to": "action_delay_7f3e13f8-f8b3-4f02-a53a-8e5b5a334b1a",
+            "from": "trigger_node",
+            "type": "continue"
+        },
+        {
+            "to": "action_conditional_branch_d2231965-2fb0-4b08-94cd-971e3117ad52",
+            "from": "action_delay_7f3e13f8-f8b3-4f02-a53a-8e5b5a334b1a",
+            "type": "continue"
+        },
+        {
+            "to": "action_delay_61ca4701-1b23-44f1-8e57-c5dd6aed9956",
+            "from": "action_function_email_cc6de9bc-5b21-4ed5-a0ad-db345364f16f",
+            "type": "continue"
+        },
+        {
+            "to": "action_conditional_branch_74180522-d166-48c3-a04e-52f12e67fd0e",
+            "from": "action_delay_61ca4701-1b23-44f1-8e57-c5dd6aed9956",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Trial started",
+            "description": "A user has entered a trial period.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {}
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_conditional_branch_d2231965-2fb0-4b08-94cd-971e3117ad52",
+            "name": "High intent?",
+            "description": "Check if there are strong engagement signals.",
+            "on_error": null,
+            "created_at": 1767016079493,
+            "updated_at": 1767016079494,
+            "filters": null,
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {
+                        "filters": {
+                            "source": "events",
+                            "bytecode": ["_H", 1, 29]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_email_35f4ff6b-ca9f-464b-a5e8-933de2cee4dd",
+            "name": "Upgrade nudge",
+            "description": "Send an upgrade invite.",
+            "on_error": null,
+            "created_at": 1767016161100,
+            "updated_at": 1767016161100,
+            "filters": null,
+            "type": "function_email",
+            "config": {
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "",
+                                "email": "{{ person.properties.email }}"
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n<!--[if gte mso 9]>\n<xml>\n  <o:OfficeDocumentSettings>\n    <o:AllowPNG/>\n    <o:PixelsPerInch>96</o:PixelsPerInch>\n  </o:OfficeDocumentSettings>\n</xml>\n<![endif]-->\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <!--[if !mso]><!--><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><!--<![endif]-->\n  <title></title>\n  \n    <style type=\"text/css\">\n      \n      @media only screen and (min-width: 520px) {\n        .u-row {\n          width: 500px !important;\n        }\n\n        .u-row .u-col {\n          vertical-align: top;\n        }\n\n        \n            .u-row .u-col-100 {\n              width: 500px !important;\n            }\n          \n      }\n\n      @media only screen and (max-width: 520px) {\n        .u-row-container {\n          max-width: 100% !important;\n          padding-left: 0px !important;\n          padding-right: 0px !important;\n        }\n\n        .u-row {\n          width: 100% !important;\n        }\n\n        .u-row .u-col {\n          display: block !important;\n          width: 100% !important;\n          min-width: 320px !important;\n          max-width: 100% !important;\n        }\n\n        .u-row .u-col > div {\n          margin: 0 auto;\n        }\n\n\n}\n    \nbody{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}.ie-container table,.mso-container table{table-layout:fixed}*{line-height:inherit}a[x-apple-data-detectors=true]{color:inherit!important;text-decoration:none!important}\n\n\ntable, td { color: #000000; } #u_body a { color: #0000ee; text-decoration: underline; }\n    </style>\n  \n  \n\n</head>\n\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <!--[if IE]><div class=\"ie-container\"><![endif]-->\n  <!--[if mso]><div class=\"mso-container\"><![endif]-->\n  <table role=\"presentation\" id=\"u_body\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;mso-table-lspace: 0pt;mso-table-rspace: 0pt;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n    <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\" style=\"background-color: #F7F8F9;\"><![endif]-->\n    \n  \n  \n<div class=\"u-row-container\" style=\"padding: 0px;background-color: transparent\">\n  <div class=\"u-row\" style=\"margin: 0 auto;min-width: 320px;max-width: 500px;overflow-wrap: break-word;word-wrap: break-word;word-break: break-word;background-color: transparent;\">\n    <div style=\"border-collapse: collapse;display: table;width: 100%;height: 100%;background-color: transparent;\">\n      <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"padding: 0px;background-color: transparent;\" align=\"center\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:500px;\"><tr style=\"background-color: transparent;\"><![endif]-->\n      \n<!--[if (mso)|(IE)]><td align=\"center\" width=\"500\" style=\"width: 500px;padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\" valign=\"top\"><![endif]-->\n<div class=\"u-col u-col-100\" style=\"max-width: 320px;min-width: 500px;display: table-cell;vertical-align: top;\">\n  <div style=\"height: 100%;width: 100% !important;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\">\n  <!--[if (!mso)&(!IE)]><!--><div style=\"box-sizing: border-box; height: 100%; padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\"><!--<![endif]-->\n  \n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">Hi there,</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">You&rsquo;ve been putting the trial to good use &ndash; nice work.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">If things are clicking and you want to keep going without limits, upgrading unlocks the full experience (and saves you from any &ldquo;wait, why did this stop working?&rdquo; moments).</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <!--[if mso]><style>.v-button {background: transparent !important;}</style><![endif]-->\n<div align=\"center\">\n  <!--[if mso]><v:roundrect xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:w=\"urn:schemas-microsoft-com:office:word\" href=\"\" style=\"height:37px; v-text-anchor:middle; width:123px;\" arcsize=\"11%\"  stroke=\"f\" fillcolor=\"#0879A1\"><w:anchorlock/><center style=\"color:#FFFFFF;\"><![endif]-->\n    <a href=\"\" target=\"_blank\" class=\"v-button\" style=\"box-sizing: border-box;display: inline-block;text-decoration: none;-webkit-text-size-adjust: none;text-align: center;color: #FFFFFF; background-color: #0879A1; border-radius: 4px;-webkit-border-radius: 4px; -moz-border-radius: 4px; width:auto; max-width:100%; overflow-wrap: break-word; word-break: break-word; word-wrap:break-word; mso-border-alt: none;font-size: 14px;\">\n      <span style=\"display:block;padding:10px 20px;line-height:120%;\">Upgrade now</span>\n    </a>\n    <!--[if mso]></center></v:roundrect><![endif]-->\n</div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">No rush &ndash; just a friendly nudge while it&rsquo;s fresh.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Cheers,<br>The team</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n  <!--[if (!mso)&(!IE)]><!--></div><!--<![endif]-->\n  </div>\n</div>\n<!--[if (mso)|(IE)]></td><![endif]-->\n      <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n    </div>\n  </div>\n  </div>\n  \n\n\n    <!--[if (mso)|(IE)]></td></tr></table><![endif]-->\n    </td>\n  </tr>\n  </tbody>\n  </table>\n  <!--[if mso]></div><![endif]-->\n  <!--[if IE]></div><![endif]-->\n</body>\n\n</html>\n",
+                            "text": "Hi there,\n\nYou’ve been putting the trial to good use – nice work.\n\nIf things are clicking and you want to keep going without limits, upgrading\nunlocks the full experience (and saves you from any “wait, why did this stop\nworking?” moments).\n\nUpgrade now\nNo rush – just a friendly nudge while it’s fresh.\n\nCheers,\nThe team",
+                            "design": {
+                                "body": {
+                                    "id": "z6KwhsEM36",
+                                    "rows": [
+                                        {
+                                            "id": "hRyXdBXlFw",
+                                            "cells": [1],
+                                            "values": {
+                                                "_meta": {
+                                                    "htmlID": "u_row_1",
+                                                    "htmlClassNames": "u_row"
+                                                },
+                                                "anchor": "",
+                                                "locked": false,
+                                                "columns": false,
+                                                "padding": "0px",
+                                                "hideable": true,
+                                                "deletable": true,
+                                                "draggable": true,
+                                                "selectable": true,
+                                                "_styleGuide": null,
+                                                "hideDesktop": false,
+                                                "duplicatable": true,
+                                                "backgroundColor": "",
+                                                "backgroundImage": {
+                                                    "url": "",
+                                                    "size": "custom",
+                                                    "repeat": "no-repeat",
+                                                    "position": "center",
+                                                    "fullWidth": true,
+                                                    "customPosition": ["50%", "50%"]
+                                                },
+                                                "displayCondition": null,
+                                                "columnsBackgroundColor": ""
+                                            },
+                                            "columns": [
+                                                {
+                                                    "id": "8I9yuVJkWh",
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_1",
+                                                            "htmlClassNames": "u_column"
+                                                        },
+                                                        "border": {},
+                                                        "locked": false,
+                                                        "padding": "0px",
+                                                        "deletable": true,
+                                                        "borderRadius": "0px",
+                                                        "backgroundColor": ""
+                                                    },
+                                                    "contents": [
+                                                        {
+                                                            "id": "0dkwBhj6_v",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">Hi there,</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">You&rsquo;ve been putting the trial to good use &ndash; nice work.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">If things are clicking and you want to keep going without limits, upgrading unlocks the full experience (and saves you from any &ldquo;wait, why did this stop working?&rdquo; moments).</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_1",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "58_SeG26om",
+                                                            "type": "button",
+                                                            "values": {
+                                                                "href": {
+                                                                    "name": "web",
+                                                                    "values": {
+                                                                        "href": "",
+                                                                        "target": "_blank"
+                                                                    }
+                                                                },
+                                                                "size": {
+                                                                    "width": "100%",
+                                                                    "autoWidth": true
+                                                                },
+                                                                "text": "Upgrade now",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_button_1",
+                                                                    "htmlClassNames": "u_content_button"
+                                                                },
+                                                                "anchor": "",
+                                                                "border": {},
+                                                                "locked": false,
+                                                                "padding": "10px 20px",
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "textAlign": "center",
+                                                                "_languages": {},
+                                                                "lineHeight": "120%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "borderRadius": "4px",
+                                                                "buttonColors": {
+                                                                    "color": "#FFFFFF",
+                                                                    "hoverColor": "#FFFFFF",
+                                                                    "backgroundColor": "#0879A1",
+                                                                    "hoverBackgroundColor": "#0879A1"
+                                                                },
+                                                                "duplicatable": true,
+                                                                "calculatedWidth": 123,
+                                                                "calculatedHeight": 37,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "QacB8oZ5cO",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">No rush &ndash; just a friendly nudge while it&rsquo;s fresh.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Cheers,<br>The team</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_2",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "values": {
+                                        "_meta": {
+                                            "htmlID": "u_body",
+                                            "htmlClassNames": "u_body"
+                                        },
+                                        "language": {},
+                                        "linkStyle": {
+                                            "body": true,
+                                            "linkColor": "#0000ee",
+                                            "linkUnderline": true,
+                                            "linkHoverColor": "#0000ee",
+                                            "linkHoverUnderline": true
+                                        },
+                                        "textColor": "#000000",
+                                        "fontFamily": {
+                                            "label": "Arial",
+                                            "value": "arial,helvetica,sans-serif"
+                                        },
+                                        "popupWidth": "600px",
+                                        "_styleGuide": null,
+                                        "popupHeight": "auto",
+                                        "borderRadius": "10px",
+                                        "contentAlign": "center",
+                                        "contentWidth": "500px",
+                                        "popupPosition": "center",
+                                        "preheaderText": "",
+                                        "backgroundColor": "#F7F8F9",
+                                        "backgroundImage": {
+                                            "url": "",
+                                            "size": "custom",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupDisplayDelay": 0,
+                                        "contentVerticalAlign": "center",
+                                        "popupBackgroundColor": "#FFFFFF",
+                                        "popupBackgroundImage": {
+                                            "url": "",
+                                            "size": "cover",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupCloseButton_action": {
+                                            "name": "close_popup",
+                                            "attrs": {
+                                                "onClick": "document.querySelector('.u-popup-container').style.display = 'none';"
+                                            }
+                                        },
+                                        "popupCloseButton_margin": "0px",
+                                        "popupCloseButton_position": "top-right",
+                                        "popupCloseButton_iconColor": "#000000",
+                                        "popupOverlay_backgroundColor": "rgba(0, 0, 0, 0.1)",
+                                        "popupCloseButton_borderRadius": "0px",
+                                        "popupCloseButton_backgroundColor": "#DDDDDD"
+                                    },
+                                    "footers": [],
+                                    "headers": []
+                                },
+                                "counters": {
+                                    "u_row": 1,
+                                    "u_column": 1,
+                                    "u_content_text": 2,
+                                    "u_content_button": 1
+                                },
+                                "schemaVersion": 21
+                            },
+                            "replyTo": "",
+                            "subject": "Looks like you’re getting the hang of this 👀",
+                            "preheader": "Want to keep the momentum going?"
+                        }
+                    }
+                },
+                "template_id": "template-email"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_conditional_branch_5fced095-4ad7-4f32-a1f9-cfbe6c0925b5",
+            "name": "Upgraded?",
+            "description": "Check whether the user upgraded after the first nudge.",
+            "on_error": null,
+            "created_at": 1767016261124,
+            "updated_at": 1767016261124,
+            "filters": null,
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {
+                        "filters": {
+                            "source": "events",
+                            "bytecode": ["_H", 1, 29]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_email_cc6de9bc-5b21-4ed5-a0ad-db345364f16f",
+            "name": "Reminder email",
+            "description": "Send an upgrade reminder to the user.",
+            "on_error": null,
+            "created_at": 1767016289353,
+            "updated_at": 1767016289353,
+            "filters": null,
+            "type": "function_email",
+            "config": {
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "",
+                                "email": "{{ person.properties.email }}"
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n<!--[if gte mso 9]>\n<xml>\n  <o:OfficeDocumentSettings>\n    <o:AllowPNG/>\n    <o:PixelsPerInch>96</o:PixelsPerInch>\n  </o:OfficeDocumentSettings>\n</xml>\n<![endif]-->\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <!--[if !mso]><!--><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><!--<![endif]-->\n  <title></title>\n  \n    <style type=\"text/css\">\n      \n      @media only screen and (min-width: 520px) {\n        .u-row {\n          width: 500px !important;\n        }\n\n        .u-row .u-col {\n          vertical-align: top;\n        }\n\n        \n            .u-row .u-col-100 {\n              width: 500px !important;\n            }\n          \n      }\n\n      @media only screen and (max-width: 520px) {\n        .u-row-container {\n          max-width: 100% !important;\n          padding-left: 0px !important;\n          padding-right: 0px !important;\n        }\n\n        .u-row {\n          width: 100% !important;\n        }\n\n        .u-row .u-col {\n          display: block !important;\n          width: 100% !important;\n          min-width: 320px !important;\n          max-width: 100% !important;\n        }\n\n        .u-row .u-col > div {\n          margin: 0 auto;\n        }\n\n\n}\n    \nbody{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}.ie-container table,.mso-container table{table-layout:fixed}*{line-height:inherit}a[x-apple-data-detectors=true]{color:inherit!important;text-decoration:none!important}\n\n\ntable, td { color: #000000; } #u_body a { color: #0000ee; text-decoration: underline; }\n    </style>\n  \n  \n\n</head>\n\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <!--[if IE]><div class=\"ie-container\"><![endif]-->\n  <!--[if mso]><div class=\"mso-container\"><![endif]-->\n  <table role=\"presentation\" id=\"u_body\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;mso-table-lspace: 0pt;mso-table-rspace: 0pt;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n    <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\" style=\"background-color: #F7F8F9;\"><![endif]-->\n    \n  \n  \n<div class=\"u-row-container\" style=\"padding: 0px;background-color: transparent\">\n  <div class=\"u-row\" style=\"margin: 0 auto;min-width: 320px;max-width: 500px;overflow-wrap: break-word;word-wrap: break-word;word-break: break-word;background-color: transparent;\">\n    <div style=\"border-collapse: collapse;display: table;width: 100%;height: 100%;background-color: transparent;\">\n      <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"padding: 0px;background-color: transparent;\" align=\"center\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:500px;\"><tr style=\"background-color: transparent;\"><![endif]-->\n      \n<!--[if (mso)|(IE)]><td align=\"center\" width=\"500\" style=\"width: 500px;padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\" valign=\"top\"><![endif]-->\n<div class=\"u-col u-col-100\" style=\"max-width: 320px;min-width: 500px;display: table-cell;vertical-align: top;\">\n  <div style=\"height: 100%;width: 100% !important;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\">\n  <!--[if (!mso)&(!IE)]><!--><div style=\"box-sizing: border-box; height: 100%; padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\"><!--<![endif]-->\n  \n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">Hi there,</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Quick follow-up while you&rsquo;re still exploring.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">If the trial has been useful so far, upgrading lets you keep everything running smoothly &ndash; no interruptions, no surprises.</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <!--[if mso]><style>.v-button {background: transparent !important;}</style><![endif]-->\n<div align=\"center\">\n  <!--[if mso]><v:roundrect xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:w=\"urn:schemas-microsoft-com:office:word\" href=\"\" style=\"height:37px; v-text-anchor:middle; width:170px;\" arcsize=\"11%\"  stroke=\"f\" fillcolor=\"#0879A1\"><w:anchorlock/><center style=\"color:#FFFFFF;\"><![endif]-->\n    <a href=\"\" target=\"_blank\" class=\"v-button\" style=\"box-sizing: border-box;display: inline-block;text-decoration: none;-webkit-text-size-adjust: none;text-align: center;color: #FFFFFF; background-color: #0879A1; border-radius: 4px;-webkit-border-radius: 4px; -moz-border-radius: 4px; width:auto; max-width:100%; overflow-wrap: break-word; word-break: break-word; word-wrap:break-word; mso-border-alt: none;font-size: 14px;\">\n      <span style=\"display:block;padding:10px 20px;line-height:120%;\">Upgrade when ready</span>\n    </a>\n    <!--[if mso]></center></v:roundrect><![endif]-->\n</div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">And if now&rsquo;s not the moment, that&rsquo;s okay too.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">&ndash; The team</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n  <!--[if (!mso)&(!IE)]><!--></div><!--<![endif]-->\n  </div>\n</div>\n<!--[if (mso)|(IE)]></td><![endif]-->\n      <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n    </div>\n  </div>\n  </div>\n  \n\n\n    <!--[if (mso)|(IE)]></td></tr></table><![endif]-->\n    </td>\n  </tr>\n  </tbody>\n  </table>\n  <!--[if mso]></div><![endif]-->\n  <!--[if IE]></div><![endif]-->\n</body>\n\n</html>\n",
+                            "text": "Hi there,\n\nQuick follow-up while you’re still exploring.\n\nIf the trial has been useful so far, upgrading lets you keep everything running\nsmoothly – no interruptions, no surprises.\n\nUpgrade when ready\nAnd if now’s not the moment, that’s okay too.\n\n– The team",
+                            "design": {
+                                "body": {
+                                    "id": "qcZpgp3PDy",
+                                    "rows": [
+                                        {
+                                            "id": "raAlZJvm2u",
+                                            "cells": [1],
+                                            "values": {
+                                                "_meta": {
+                                                    "htmlID": "u_row_1",
+                                                    "htmlClassNames": "u_row"
+                                                },
+                                                "anchor": "",
+                                                "locked": false,
+                                                "columns": false,
+                                                "padding": "0px",
+                                                "hideable": true,
+                                                "deletable": true,
+                                                "draggable": true,
+                                                "selectable": true,
+                                                "_styleGuide": null,
+                                                "hideDesktop": false,
+                                                "duplicatable": true,
+                                                "backgroundColor": "",
+                                                "backgroundImage": {
+                                                    "url": "",
+                                                    "size": "custom",
+                                                    "repeat": "no-repeat",
+                                                    "position": "center",
+                                                    "fullWidth": true,
+                                                    "customPosition": ["50%", "50%"]
+                                                },
+                                                "displayCondition": null,
+                                                "columnsBackgroundColor": ""
+                                            },
+                                            "columns": [
+                                                {
+                                                    "id": "z73y8qEO8w",
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_1",
+                                                            "htmlClassNames": "u_column"
+                                                        },
+                                                        "border": {},
+                                                        "locked": false,
+                                                        "padding": "0px",
+                                                        "deletable": true,
+                                                        "borderRadius": "0px",
+                                                        "backgroundColor": ""
+                                                    },
+                                                    "contents": [
+                                                        {
+                                                            "id": "lSeVcuY3ko",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">Hi there,</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Quick follow-up while you&rsquo;re still exploring.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">If the trial has been useful so far, upgrading lets you keep everything running smoothly &ndash; no interruptions, no surprises.</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_1",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "M2NzXg-Uys",
+                                                            "type": "button",
+                                                            "values": {
+                                                                "href": {
+                                                                    "name": "web",
+                                                                    "values": {
+                                                                        "href": "",
+                                                                        "target": "_blank"
+                                                                    }
+                                                                },
+                                                                "size": {
+                                                                    "width": "100%",
+                                                                    "autoWidth": true
+                                                                },
+                                                                "text": "Upgrade when ready",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_button_1",
+                                                                    "htmlClassNames": "u_content_button"
+                                                                },
+                                                                "anchor": "",
+                                                                "border": {},
+                                                                "locked": false,
+                                                                "padding": "10px 20px",
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "textAlign": "center",
+                                                                "_languages": {},
+                                                                "lineHeight": "120%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "borderRadius": "4px",
+                                                                "buttonColors": {
+                                                                    "color": "#FFFFFF",
+                                                                    "hoverColor": "#FFFFFF",
+                                                                    "backgroundColor": "#0879A1",
+                                                                    "hoverBackgroundColor": "#0879A1"
+                                                                },
+                                                                "duplicatable": true,
+                                                                "calculatedWidth": 170,
+                                                                "calculatedHeight": 37,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "DksdXg9Akd",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">And if now&rsquo;s not the moment, that&rsquo;s okay too.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">&ndash; The team</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_2",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "values": {
+                                        "_meta": {
+                                            "htmlID": "u_body",
+                                            "htmlClassNames": "u_body"
+                                        },
+                                        "language": {},
+                                        "linkStyle": {
+                                            "body": true,
+                                            "linkColor": "#0000ee",
+                                            "linkUnderline": true,
+                                            "linkHoverColor": "#0000ee",
+                                            "linkHoverUnderline": true
+                                        },
+                                        "textColor": "#000000",
+                                        "fontFamily": {
+                                            "label": "Arial",
+                                            "value": "arial,helvetica,sans-serif"
+                                        },
+                                        "popupWidth": "600px",
+                                        "_styleGuide": null,
+                                        "popupHeight": "auto",
+                                        "borderRadius": "10px",
+                                        "contentAlign": "center",
+                                        "contentWidth": "500px",
+                                        "popupPosition": "center",
+                                        "preheaderText": "",
+                                        "backgroundColor": "#F7F8F9",
+                                        "backgroundImage": {
+                                            "url": "",
+                                            "size": "custom",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupDisplayDelay": 0,
+                                        "contentVerticalAlign": "center",
+                                        "popupBackgroundColor": "#FFFFFF",
+                                        "popupBackgroundImage": {
+                                            "url": "",
+                                            "size": "cover",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupCloseButton_action": {
+                                            "name": "close_popup",
+                                            "attrs": {
+                                                "onClick": "document.querySelector('.u-popup-container').style.display = 'none';"
+                                            }
+                                        },
+                                        "popupCloseButton_margin": "0px",
+                                        "popupCloseButton_position": "top-right",
+                                        "popupCloseButton_iconColor": "#000000",
+                                        "popupOverlay_backgroundColor": "rgba(0, 0, 0, 0.1)",
+                                        "popupCloseButton_borderRadius": "0px",
+                                        "popupCloseButton_backgroundColor": "#DDDDDD"
+                                    },
+                                    "footers": [],
+                                    "headers": []
+                                },
+                                "counters": {
+                                    "u_row": 1,
+                                    "u_column": 1,
+                                    "u_content_text": 2,
+                                    "u_content_button": 1
+                                },
+                                "schemaVersion": 21
+                            },
+                            "replyTo": "",
+                            "subject": "Still thinking it over?",
+                            "preheader": "Totally fair. Just one more thing."
+                        }
+                    }
+                },
+                "template_id": "template-email"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_conditional_branch_74180522-d166-48c3-a04e-52f12e67fd0e",
+            "name": "Upgraded?",
+            "description": "Check again if they've upgraded.",
+            "on_error": null,
+            "created_at": 1767016426723,
+            "updated_at": 1767016426723,
+            "filters": null,
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {
+                        "filters": {
+                            "source": "events",
+                            "bytecode": ["_H", 1, 29]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_delay_cd033d4c-4726-4575-aa88-137e8de83b32",
+            "name": "Delay",
+            "description": "Wait before last call",
+            "on_error": null,
+            "created_at": 1767016451639,
+            "updated_at": 1767016451639,
+            "filters": null,
+            "type": "delay",
+            "config": {
+                "delay_duration": "3d"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_email_a72ed028-75bc-44ed-8915-c6f42d1b0edd",
+            "name": "Last call",
+            "description": "Send final nudge",
+            "on_error": null,
+            "created_at": 1767016490955,
+            "updated_at": 1767016490955,
+            "filters": null,
+            "type": "function_email",
+            "config": {
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "",
+                                "email": "{{ person.properties.email }}"
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n<!--[if gte mso 9]>\n<xml>\n  <o:OfficeDocumentSettings>\n    <o:AllowPNG/>\n    <o:PixelsPerInch>96</o:PixelsPerInch>\n  </o:OfficeDocumentSettings>\n</xml>\n<![endif]-->\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <!--[if !mso]><!--><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><!--<![endif]-->\n  <title></title>\n  \n    <style type=\"text/css\">\n      \n      @media only screen and (min-width: 520px) {\n        .u-row {\n          width: 500px !important;\n        }\n\n        .u-row .u-col {\n          vertical-align: top;\n        }\n\n        \n            .u-row .u-col-100 {\n              width: 500px !important;\n            }\n          \n      }\n\n      @media only screen and (max-width: 520px) {\n        .u-row-container {\n          max-width: 100% !important;\n          padding-left: 0px !important;\n          padding-right: 0px !important;\n        }\n\n        .u-row {\n          width: 100% !important;\n        }\n\n        .u-row .u-col {\n          display: block !important;\n          width: 100% !important;\n          min-width: 320px !important;\n          max-width: 100% !important;\n        }\n\n        .u-row .u-col > div {\n          margin: 0 auto;\n        }\n\n\n}\n    \nbody{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}.ie-container table,.mso-container table{table-layout:fixed}*{line-height:inherit}a[x-apple-data-detectors=true]{color:inherit!important;text-decoration:none!important}\n\n\ntable, td { color: #000000; } #u_body a { color: #0000ee; text-decoration: underline; }\n    </style>\n  \n  \n\n</head>\n\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <!--[if IE]><div class=\"ie-container\"><![endif]-->\n  <!--[if mso]><div class=\"mso-container\"><![endif]-->\n  <table role=\"presentation\" id=\"u_body\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;mso-table-lspace: 0pt;mso-table-rspace: 0pt;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n    <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\" style=\"background-color: #F7F8F9;\"><![endif]-->\n    \n  \n  \n<div class=\"u-row-container\" style=\"padding: 0px;background-color: transparent\">\n  <div class=\"u-row\" style=\"margin: 0 auto;min-width: 320px;max-width: 500px;overflow-wrap: break-word;word-wrap: break-word;word-break: break-word;background-color: transparent;\">\n    <div style=\"border-collapse: collapse;display: table;width: 100%;height: 100%;background-color: transparent;\">\n      <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"padding: 0px;background-color: transparent;\" align=\"center\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:500px;\"><tr style=\"background-color: transparent;\"><![endif]-->\n      \n<!--[if (mso)|(IE)]><td align=\"center\" width=\"500\" style=\"width: 500px;padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\" valign=\"top\"><![endif]-->\n<div class=\"u-col u-col-100\" style=\"max-width: 320px;min-width: 500px;display: table-cell;vertical-align: top;\">\n  <div style=\"height: 100%;width: 100% !important;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\">\n  <!--[if (!mso)&(!IE)]><!--><div style=\"box-sizing: border-box; height: 100%; padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\"><!--<![endif]-->\n  \n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">Hi there,</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">This is our final upgrade nudge &ndash; promise.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">If the trial has been working for you and you want to keep everything running, you can upgrade anytime here:</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <!--[if mso]><style>.v-button {background: transparent !important;}</style><![endif]-->\n<div align=\"center\">\n  <!--[if mso]><v:roundrect xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:w=\"urn:schemas-microsoft-com:office:word\" href=\"\" style=\"height:37px; v-text-anchor:middle; width:123px;\" arcsize=\"11%\"  stroke=\"f\" fillcolor=\"#0879A1\"><w:anchorlock/><center style=\"color:#FFFFFF;\"><![endif]-->\n    <a href=\"\" target=\"_blank\" class=\"v-button\" style=\"box-sizing: border-box;display: inline-block;text-decoration: none;-webkit-text-size-adjust: none;text-align: center;color: #FFFFFF; background-color: #0879A1; border-radius: 4px;-webkit-border-radius: 4px; -moz-border-radius: 4px; width:auto; max-width:100%; overflow-wrap: break-word; word-break: break-word; word-wrap:break-word; mso-border-alt: none;font-size: 14px;\">\n      <span style=\"display:block;padding:10px 20px;line-height:120%;\"><span style=\"line-height: 16.8px;\">Upgrade now</span></span>\n    </a>\n    <!--[if mso]></center></v:roundrect><![endif]-->\n</div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">If not, no worries at all. We&rsquo;ll step back and let you explore on your own terms.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Thanks for trying things out,<br>The team</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n  <!--[if (!mso)&(!IE)]><!--></div><!--<![endif]-->\n  </div>\n</div>\n<!--[if (mso)|(IE)]></td><![endif]-->\n      <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n    </div>\n  </div>\n  </div>\n  \n\n\n    <!--[if (mso)|(IE)]></td></tr></table><![endif]-->\n    </td>\n  </tr>\n  </tbody>\n  </table>\n  <!--[if mso]></div><![endif]-->\n  <!--[if IE]></div><![endif]-->\n</body>\n\n</html>\n",
+                            "text": "Hi there,\n\nThis is our final upgrade nudge – promise.\n\nIf the trial has been working for you and you want to keep everything running,\nyou can upgrade anytime here:\n\nUpgrade now\nIf not, no worries at all. We’ll step back and let you explore on your own\nterms.\n\nThanks for trying things out,\nThe team",
+                            "design": {
+                                "body": {
+                                    "id": "A3AoDUULm_",
+                                    "rows": [
+                                        {
+                                            "id": "rEPj_az68m",
+                                            "cells": [1],
+                                            "values": {
+                                                "_meta": {
+                                                    "htmlID": "u_row_1",
+                                                    "htmlClassNames": "u_row"
+                                                },
+                                                "anchor": "",
+                                                "locked": false,
+                                                "columns": false,
+                                                "padding": "0px",
+                                                "hideable": true,
+                                                "deletable": true,
+                                                "draggable": true,
+                                                "selectable": true,
+                                                "_styleGuide": null,
+                                                "hideDesktop": false,
+                                                "duplicatable": true,
+                                                "backgroundColor": "",
+                                                "backgroundImage": {
+                                                    "url": "",
+                                                    "size": "custom",
+                                                    "repeat": "no-repeat",
+                                                    "position": "center",
+                                                    "fullWidth": true,
+                                                    "customPosition": ["50%", "50%"]
+                                                },
+                                                "displayCondition": null,
+                                                "columnsBackgroundColor": ""
+                                            },
+                                            "columns": [
+                                                {
+                                                    "id": "fshcuzlcdf",
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_1",
+                                                            "htmlClassNames": "u_column"
+                                                        },
+                                                        "border": {},
+                                                        "locked": false,
+                                                        "padding": "0px",
+                                                        "deletable": true,
+                                                        "borderRadius": "0px",
+                                                        "backgroundColor": ""
+                                                    },
+                                                    "contents": [
+                                                        {
+                                                            "id": "mvnK5vmNbN",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">Hi there,</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">This is our final upgrade nudge &ndash; promise.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">If the trial has been working for you and you want to keep everything running, you can upgrade anytime here:</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_1",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "4W1bd3Ape4",
+                                                            "type": "button",
+                                                            "values": {
+                                                                "href": {
+                                                                    "name": "web",
+                                                                    "values": {
+                                                                        "href": "",
+                                                                        "target": "_blank"
+                                                                    }
+                                                                },
+                                                                "size": {
+                                                                    "width": "100%",
+                                                                    "autoWidth": true
+                                                                },
+                                                                "text": "<span style=\"line-height: 16.8px;\">Upgrade now</span>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_button_1",
+                                                                    "htmlClassNames": "u_content_button"
+                                                                },
+                                                                "anchor": "",
+                                                                "border": {},
+                                                                "locked": false,
+                                                                "padding": "10px 20px",
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "textAlign": "center",
+                                                                "_languages": {},
+                                                                "lineHeight": "120%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "borderRadius": "4px",
+                                                                "buttonColors": {
+                                                                    "color": "#FFFFFF",
+                                                                    "hoverColor": "#FFFFFF",
+                                                                    "backgroundColor": "#0879A1",
+                                                                    "hoverBackgroundColor": "#0879A1"
+                                                                },
+                                                                "duplicatable": true,
+                                                                "calculatedWidth": 123,
+                                                                "calculatedHeight": 37,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        },
+                                                        {
+                                                            "id": "dXwrsVA1Ij",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">If not, no worries at all. We&rsquo;ll step back and let you explore on your own terms.</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Thanks for trying things out,<br>The team</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_2",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "values": {
+                                        "_meta": {
+                                            "htmlID": "u_body",
+                                            "htmlClassNames": "u_body"
+                                        },
+                                        "language": {},
+                                        "linkStyle": {
+                                            "body": true,
+                                            "linkColor": "#0000ee",
+                                            "linkUnderline": true,
+                                            "linkHoverColor": "#0000ee",
+                                            "linkHoverUnderline": true
+                                        },
+                                        "textColor": "#000000",
+                                        "fontFamily": {
+                                            "label": "Arial",
+                                            "value": "arial,helvetica,sans-serif"
+                                        },
+                                        "popupWidth": "600px",
+                                        "_styleGuide": null,
+                                        "popupHeight": "auto",
+                                        "borderRadius": "10px",
+                                        "contentAlign": "center",
+                                        "contentWidth": "500px",
+                                        "popupPosition": "center",
+                                        "preheaderText": "",
+                                        "backgroundColor": "#F7F8F9",
+                                        "backgroundImage": {
+                                            "url": "",
+                                            "size": "custom",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupDisplayDelay": 0,
+                                        "contentVerticalAlign": "center",
+                                        "popupBackgroundColor": "#FFFFFF",
+                                        "popupBackgroundImage": {
+                                            "url": "",
+                                            "size": "cover",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupCloseButton_action": {
+                                            "name": "close_popup",
+                                            "attrs": {
+                                                "onClick": "document.querySelector('.u-popup-container').style.display = 'none';"
+                                            }
+                                        },
+                                        "popupCloseButton_margin": "0px",
+                                        "popupCloseButton_position": "top-right",
+                                        "popupCloseButton_iconColor": "#000000",
+                                        "popupOverlay_backgroundColor": "rgba(0, 0, 0, 0.1)",
+                                        "popupCloseButton_borderRadius": "0px",
+                                        "popupCloseButton_backgroundColor": "#DDDDDD"
+                                    },
+                                    "footers": [],
+                                    "headers": []
+                                },
+                                "counters": {
+                                    "u_row": 1,
+                                    "u_column": 1,
+                                    "u_content_text": 2,
+                                    "u_content_button": 1
+                                },
+                                "schemaVersion": 21
+                            },
+                            "replyTo": "",
+                            "subject": "Last call (we promise)",
+                            "preheader": "After this, we’ll stop nudging."
+                        }
+                    }
+                },
+                "template_id": "template-email"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_delay_000c0fb9-b333-4df9-85b6-bb7015c011ce",
+            "name": "Delay",
+            "description": "Wait for 3 days.",
+            "on_error": null,
+            "created_at": 1767018690403,
+            "updated_at": 1767018690403,
+            "filters": null,
+            "type": "delay",
+            "config": {
+                "delay_duration": "3d"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_delay_7f3e13f8-f8b3-4f02-a53a-8e5b5a334b1a",
+            "name": "Delay",
+            "description": "Wait for 10 days.",
+            "on_error": null,
+            "created_at": 1767106738020,
+            "updated_at": 1767106738020,
+            "filters": null,
+            "type": "delay",
+            "config": {
+                "delay_duration": "10d"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_delay_61ca4701-1b23-44f1-8e57-c5dd6aed9956",
+            "name": "Delay",
+            "description": "Wait for 4 days.",
+            "on_error": null,
+            "created_at": 1767106823052,
+            "updated_at": 1767106823052,
+            "filters": null,
+            "type": "delay",
+            "config": {
+                "delay_duration": "4d"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": []
+}

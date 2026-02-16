@@ -150,5 +150,33 @@ describe('ExperimentForm Integration', () => {
                     experimentErrors: {},
                 })
         })
+
+        it('still prevents submission if data remains invalid after clearing old errors', async () => {
+            // First attempt - missing name
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({ ...NEW_EXPERIMENT, name: '' })
+                logic.actions.saveExperiment()
+            })
+                .toDispatchActions(['saveExperiment', 'saveExperimentFailure'])
+                .toMatchValues({
+                    experimentErrors: expect.objectContaining({
+                        name: 'Name is required',
+                    }),
+                })
+
+            // Second attempt - has name but missing feature_flag_key (still invalid)
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Valid Name',
+                    description: 'Valid Description',
+                    feature_flag_key: '', // Missing - should still fail
+                })
+                logic.actions.saveExperiment()
+            }).toDispatchActions(['saveExperiment', 'saveExperimentFailure'])
+
+            // Verify it didn't succeed
+            expect(routerPushSpy).not.toHaveBeenCalled()
+        })
     })
 })

@@ -181,7 +181,19 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
         metrics::counter!(FRAME_RESOLVED, "lang" => "javascript").increment(1);
 
         let resolved_name = match token.scope() {
-            ScopeLookupResult::NamedScope(name) => Some(sanitize_string(name.to_string())),
+            // The `$async$` prefix is a Dart/Flutter compiler artifact that appears in
+            // JavaScript source maps when Flutter code is compiled to JavaScript (web).
+            // This branch normalizes such Flutter-to-JavaScript async function names.
+            // See internal context: https://posthog.slack.com/archives/C07AA937K9A/p1768415443965209
+            ScopeLookupResult::NamedScope(name) => {
+                let scope_name = name.to_string();
+                let resolved = if name.starts_with("$async$") {
+                    token.name().map_or(scope_name.clone(), |n| n.to_owned())
+                } else {
+                    scope_name
+                };
+                Some(sanitize_string(resolved))
+            }
             ScopeLookupResult::AnonymousScope => Some("<anonymous>".to_string()),
             ScopeLookupResult::Unknown => None,
         };

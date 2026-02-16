@@ -12,7 +12,7 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import FailureMessage, HumanMessage
 
 from posthog.demo.matrix.manager import MatrixManager
-from posthog.models import Organization, Team, User
+from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 from ee.hogai.artifacts.manager import ArtifactManager
@@ -46,7 +46,9 @@ def call_root_for_insight_generation(demo_org_team_user):
         .compile(checkpointer=DjangoCheckpointer())
     )
 
-    async def callable(query_with_extra_context: str | tuple[str, str]) -> PlanAndQueryOutput:
+    async def callable(
+        query_with_extra_context: str | tuple[str, str],
+    ) -> PlanAndQueryOutput:
         # If query_with_extra_context is a tuple, the first element is the query, the second is the extra context
         # in case there's an ask_user tool call.
         query = query_with_extra_context[0] if isinstance(query_with_extra_context, tuple) else query_with_extra_context
@@ -67,7 +69,10 @@ def call_root_for_insight_generation(demo_org_team_user):
         if isinstance(query_with_extra_context, tuple) and not any(
             isinstance(m, ArtifactRefMessage | FailureMessage) for m in final_state.messages
         ):
-            final_state.messages = [*final_state.messages, HumanMessage(content=query_with_extra_context[1])]
+            final_state.messages = [
+                *final_state.messages,
+                HumanMessage(content=query_with_extra_context[1]),
+            ]
             final_state.graph_status = "resumed"
             final_state_raw = await graph.ainvoke(final_state, config)
             final_state = AssistantState.model_validate(final_state_raw)
@@ -85,7 +90,7 @@ def call_root_for_insight_generation(demo_org_team_user):
             }
 
         artifact_manager = ArtifactManager(team=demo_org_team_user[1], user=demo_org_team_user[2], config=config)
-        enriched_message = await artifact_manager.aget_enriched_message(final_state.messages[-3])
+        enriched_message = await artifact_manager.aenrich_message(final_state.messages[-3])
         content = unwrap_visualization_artifact_content(enriched_message)
         if content is None:
             return {
@@ -102,14 +107,17 @@ def call_root_for_insight_generation(demo_org_team_user):
     yield callable
 
 
-@pytest.fixture(scope="package")
-def demo_org_team_user(set_up_evals, django_db_blocker) -> Generator[tuple[Organization, Team, User], None, None]:  # noqa: F811
+@pytest.fixture(scope="session", autouse=True)
+def demo_org_team_user(
+    set_up_evals,  # noqa: F811
+    django_db_blocker,
+) -> Generator[tuple[Organization, Team, User], None, None]:
     with django_db_blocker.unblock():
         team: Team | None = Team.objects.order_by("-created_at").first()
         today = datetime.date.today()
         # If there's no eval team or it's older than today, we need to create a new one with fresh data
         if not team or team.created_at.date() < today:
-            print(f"Generating fresh demo data for evals...")  # noqa: T201
+            print("Generating fresh demo data for evals...")  # noqa: T201
 
             matrix = HedgeboxMatrix(
                 seed="b1ef3c66-5f43-488a-98be-6b46d92fbcef",  # this seed generates all events
@@ -126,7 +134,7 @@ def demo_org_team_user(set_up_evals, django_db_blocker) -> Generator[tuple[Organ
                     f"eval-{today.isoformat()}", EVAL_USER_FULL_NAME, "Hedgebox Inc."
                 )
         else:
-            print(f"Using existing demo data for evals...")  # noqa: T201
+            print("Using existing demo data for evals...")  # noqa: T201
             org = team.organization
             membership = org.memberships.first()
             assert membership is not None
@@ -135,7 +143,7 @@ def demo_org_team_user(set_up_evals, django_db_blocker) -> Generator[tuple[Organ
         yield org, team, user
 
 
-@pytest.fixture(scope="package", autouse=True)
+@pytest.fixture(scope="session", autouse=True)
 def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, None, None]:
     initial_memory = """Hedgebox is a cloud storage service enabling users to store, share, and access files across devices.
 
@@ -161,3 +169,170 @@ def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, 
             },
         )
     yield core_memory
+
+
+class DashboardWithInsightsFixture:
+    """Container for dashboard with insights fixture data."""
+
+    def __init__(
+        self,
+        dashboard: Dashboard,
+        insight_dau: Insight,
+        insight_funnel: Insight,
+        insight_retention: Insight,
+        insight_wau: Insight,
+    ):
+        self.dashboard = dashboard
+        self.insight_dau = insight_dau
+        self.insight_funnel = insight_funnel
+        self.insight_retention = insight_retention
+        self.insight_wau = insight_wau
+
+    @property
+    def insights(self) -> dict[str, Insight]:
+        return {
+            "dau": self.insight_dau,
+            "funnel": self.insight_funnel,
+            "retention": self.insight_retention,
+        }
+
+    @property
+    def replacement(self) -> Insight:
+        return self.insight_wau
+
+    def get_dashboard_context(self, include_wau_insight: bool = False) -> dict:
+        """Get the dashboard context dict for injection into tool config.
+
+        Args:
+            include_wau_insight: If True, include WAU insight in the dashboard (for testing replacement scenarios).
+        """
+        insights = [
+            {
+                "id": self.insight_dau.id,
+                "short_id": self.insight_dau.short_id,
+                "name": self.insight_dau.name,
+            },
+            {
+                "id": self.insight_funnel.id,
+                "short_id": self.insight_funnel.short_id,
+                "name": self.insight_funnel.name,
+            },
+            {
+                "id": self.insight_retention.id,
+                "short_id": self.insight_retention.short_id,
+                "name": self.insight_retention.name,
+            },
+        ]
+
+        # For replacement scenarios, include the WAU insight as a known insight
+        # (simulating it was previously created and is available)
+        if include_wau_insight:
+            insights.append(
+                {
+                    "id": self.insight_wau.id,
+                    "short_id": self.insight_wau.short_id,
+                    "name": self.insight_wau.name,
+                }
+            )
+
+        return {
+            "id": self.dashboard.id,
+            "name": self.dashboard.name,
+            "insights": insights,
+        }
+
+
+@pytest.fixture
+def dashboard_with_insights(
+    demo_org_team_user,
+) -> Generator[DashboardWithInsightsFixture, None, None]:
+    """Creates a dashboard with 3 insights and 1 replacement insight for testing UpsertDashboardTool."""
+    org, team, user = demo_org_team_user
+
+    # Create insights that will be on the dashboard
+    insight_dau = Insight.objects.create(
+        team=team,
+        name="Daily Active Users",
+        description="Shows daily active users over time",
+        saved=True,
+        created_by=user,
+        query={
+            "kind": "TrendsQuery",
+            "series": [{"event": "$pageview", "kind": "EventsNode"}],
+        },
+    )
+
+    insight_funnel = Insight.objects.create(
+        team=team,
+        name="Signup Funnel",
+        description="Conversion funnel from visit to signup",
+        saved=True,
+        created_by=user,
+        query={
+            "kind": "FunnelsQuery",
+            "series": [
+                {"event": "$pageview", "kind": "EventsNode"},
+                {"event": "signed_up", "kind": "EventsNode"},
+            ],
+        },
+    )
+
+    insight_retention = Insight.objects.create(
+        team=team,
+        name="User Retention",
+        description="User retention cohort analysis",
+        saved=True,
+        created_by=user,
+        query={
+            "kind": "RetentionQuery",
+            "retentionFilter": {"period": "Week"},
+        },
+    )
+
+    # Create the dashboard
+    dashboard = Dashboard.objects.create(
+        team=team,
+        name="Growth Dashboard",
+        description="Dashboard for tracking growth metrics",
+        created_by=user,
+    )
+
+    # Add tiles to dashboard
+    DashboardTile.objects.create(
+        dashboard=dashboard,
+        insight=insight_dau,
+        layouts={"lg": {"x": 0, "y": 0, "w": 6, "h": 4}},
+    )
+    DashboardTile.objects.create(
+        dashboard=dashboard,
+        insight=insight_funnel,
+        layouts={"lg": {"x": 6, "y": 0, "w": 6, "h": 4}},
+    )
+    DashboardTile.objects.create(
+        dashboard=dashboard,
+        insight=insight_retention,
+        layouts={"lg": {"x": 0, "y": 4, "w": 6, "h": 4}},
+    )
+
+    # Create replacement insight (not on dashboard yet)
+    insight_wau = Insight.objects.create(
+        team=team,
+        name="Weekly Active Users",
+        description="Shows weekly active users over time",
+        saved=True,
+        created_by=user,
+        query={
+            "kind": "TrendsQuery",
+            "series": [{"event": "$pageview", "kind": "EventsNode"}],
+            "interval": "week",
+        },
+    )
+
+    yield DashboardWithInsightsFixture(
+        dashboard=dashboard,
+        insight_dau=insight_dau,
+        insight_funnel=insight_funnel,
+        insight_retention=insight_retention,
+        insight_wau=insight_wau,
+    )
+    # No manual cleanup needed - Django's test framework handles rollback automatically

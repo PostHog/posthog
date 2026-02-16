@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -66,7 +66,9 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
             featureFlag="shopify-dwh",
         )
 
-    def validate_credentials(self, config: ShopifySourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: ShopifySourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         try:
             if validate_shopify_credentials(
                 config.shopify_store_id, config.shopify_client_id, config.shopify_client_secret

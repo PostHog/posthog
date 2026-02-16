@@ -5,6 +5,7 @@ from posthog.management.migration_analysis.operations import (
     AddConstraintAnalyzer,
     AddFieldAnalyzer,
     AddIndexAnalyzer,
+    AddIndexConcurrentlyAnalyzer,
     AlterFieldAnalyzer,
     AlterIndexTogetherAnalyzer,
     AlterModelTableAnalyzer,
@@ -13,6 +14,7 @@ from posthog.management.migration_analysis.operations import (
     DeleteModelAnalyzer,
     RemoveFieldAnalyzer,
     RemoveIndexAnalyzer,
+    RemoveIndexConcurrentlyAnalyzer,
     RenameFieldAnalyzer,
     RenameModelAnalyzer,
     RunPythonAnalyzer,
@@ -44,6 +46,7 @@ class RiskAnalyzer:
         "RenameModel": RenameModelAnalyzer(),
         "AlterModelTable": AlterModelTableAnalyzer(),
         "AddIndex": AddIndexAnalyzer(),
+        "AddIndexConcurrently": AddIndexConcurrentlyAnalyzer(),
         "AddConstraint": AddConstraintAnalyzer(),
         "RunSQL": RunSQLAnalyzer(),
         "RunPython": RunPythonAnalyzer(),
@@ -51,6 +54,7 @@ class RiskAnalyzer:
         "AlterUniqueTogether": AlterUniqueTogetherAnalyzer(),
         "AlterIndexTogether": AlterIndexTogetherAnalyzer(),
         "RemoveIndex": RemoveIndexAnalyzer(),
+        "RemoveIndexConcurrently": RemoveIndexConcurrentlyAnalyzer(),
         "SeparateDatabaseAndState": SeparateDatabaseAndStateAnalyzer(),
     }
 

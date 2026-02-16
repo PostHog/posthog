@@ -1,6 +1,5 @@
 import { DateTime } from 'luxon'
 
-import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, PipelineEvent, PreIngestionEvent, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
@@ -8,7 +7,7 @@ import { EventPipelineRunner, EventPipelineRunnerOptions } from '../../worker/in
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { PipelineResult, isOkResult } from '../pipelines/results'
+import { PipelineResult, drop, isOkResult } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface EventPipelineRunnerHeatmapStepInput {
@@ -28,7 +27,6 @@ export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelin
     kafkaProducer: KafkaProducerWrapper,
     teamManager: TeamManager,
     groupTypeManager: GroupTypeManager,
-    hogTransformer: HogTransformerService,
     personsStore: PersonsStore
 ): ProcessingStep<TInput, EventPipelineRunnerHeatmapStepResult<TInput>> {
     return async function eventPipelineRunnerHeatmapStep(
@@ -36,13 +34,17 @@ export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelin
     ): Promise<PipelineResult<EventPipelineRunnerHeatmapStepResult<TInput>>> {
         const { normalizedEvent, timestamp, team, headers, groupStoreForBatch } = input
 
+        // Skip heatmap processing if team has explicitly opted out
+        if (team.heatmaps_opt_in === false) {
+            return drop('heatmap_opt_in_disabled')
+        }
+
         const runner = new EventPipelineRunner(
             config,
             kafkaProducer,
             teamManager,
             groupTypeManager,
             normalizedEvent,
-            hogTransformer,
             personsStore,
             groupStoreForBatch,
             headers

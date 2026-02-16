@@ -14,6 +14,7 @@ const _commonActionFields = {
         .object({
             key: z.string(),
             result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
+            spread: z.boolean().optional().nullable(), // When true, spread object result into multiple variables as {key}_{property}
         })
         .optional()
         .nullable(),
@@ -124,6 +125,10 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('wait_until_time_window'),
         config: z.object({
             timezone: z.string().nullable(),
+            // When true, use the person's $geoip_time_zone property for timezone
+            use_person_timezone: z.boolean().optional(),
+            // Fallback timezone when use_person_timezone is true but person has no timezone set
+            fallback_timezone: z.string().nullable().optional(),
             // Date can be special values "weekday", "weekend" or a list of days of the week e.g. 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
             day: z.union([
                 z.literal('any'),
@@ -145,6 +150,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('function_email'),
         config: z.object({
             message_category_id: z.string().uuid().optional(),
+            message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(CyclotronInputSchema),
@@ -168,6 +174,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('function_sms'),
         config: z.object({
             message_category_id: z.string().uuid().optional(),
+            message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
             inputs: z.record(CyclotronInputSchema),
@@ -224,6 +231,7 @@ export const HogFlowSchema = z.object({
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
     variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),
+    billable_action_types: z.array(z.string()).optional().nullable(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen

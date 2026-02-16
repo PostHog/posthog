@@ -2,41 +2,107 @@ import re
 import logging
 import functools
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Optional, Union
-from urllib.parse import urlsplit
+from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
+from urllib.parse import parse_qs, urlparse, urlsplit
 
 from django.apps import apps
+from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 
 import jwt
+import structlog
 from prometheus_client import Counter
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
+from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models.oauth import OAuthAccessToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.passkey import verify_passkey_authentication_response
+
+
+class WebAuthnAuthenticationResponse(TypedDict):
+    """WebAuthn authentication response data structure."""
+
+    authenticatorData: str
+    clientDataJSON: str
+    signature: str
+    userHandle: str
+
 
 if TYPE_CHECKING:
     from posthog.models.share_password import SharePassword
 
 logger = logging.getLogger(__name__)
+structlog_logger = structlog.get_logger(__name__)
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
     "Requests where the personal api key is specified in a query parameter",
     labelnames=["user_uuid"],
 )
+
+AUTH_BRAND_COOKIE = "ph_auth_brand"
+
+
+def get_auth_brand_for_client_id(client_id: str | None) -> str | None:
+    if not client_id:
+        return None
+    try:
+        application = OAuthApplication.objects.only("auth_brand", "is_first_party").get(client_id=client_id)
+    except OAuthApplication.DoesNotExist:
+        return None
+    if not application.is_first_party:
+        return None
+    return application.auth_brand or None
+
+
+def get_auth_brand_from_next_param(next_param: str | None) -> str | None:
+    if not next_param:
+        return None
+    try:
+        parsed = urlparse(next_param)
+        client_id = parse_qs(parsed.query).get("client_id", [None])[0]
+        return get_auth_brand_for_client_id(client_id)
+    except (ValueError, IndexError, KeyError):
+        # Only catch expected parsing errors
+        return None
+
+
+def normalize_auth_brand(value: str | None) -> str | None:
+    if not value:
+        return None
+    allowed_brands = {brand.value for brand in OAuthApplicationAuthBrand}
+    return value if value in allowed_brands else None
+
+
+def apply_auth_brand_cookie(request: HttpRequest, response: JsonResponse | HttpResponse) -> JsonResponse | HttpResponse:
+    brand = get_auth_brand_for_client_id(request.GET.get("client_id")) or get_auth_brand_from_next_param(
+        request.GET.get("next")
+    )
+    brand = normalize_auth_brand(brand)
+    if brand:
+        response.set_cookie(
+            key=AUTH_BRAND_COOKIE,
+            value=brand,
+            max_age=60 * 30,
+            samesite="Lax",
+            secure=request.is_secure(),
+            httponly=True,
+        )
+    return response
 
 
 class ZxcvbnValidator:
@@ -519,23 +585,149 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         return self.keyword
 
 
-def authenticate_secondarily(endpoint):
+class WidgetAuthentication(authentication.BaseAuthentication):
     """
-    DEPRECATED: Used for supporting legacy endpoints not on DRF.
-    Authentication for function views.
+    Authenticate widget requests via conversations_settings.widget_public_token.
+    This provides team-level authentication only. User-level scoping
+    is enforced via widget_session_id validation in each endpoint.
+    """
+
+    def authenticate(self, request: Request) -> Optional[tuple[None, Any]]:
+        """
+        Returns (None, team) on success.
+        No user object since this is public widget auth.
+        """
+        token = request.headers.get("X-Conversations-Token")
+        if not token:
+            return None  # Let other authenticators try
+
+        try:
+            Team = apps.get_model(app_label="posthog", model_name="Team")
+            team = Team.objects.get(conversations_settings__widget_public_token=token, conversations_enabled=True)
+        except Team.DoesNotExist:
+            raise AuthenticationFailed("Invalid token or conversations not enabled")
+
+        return (None, team)
+
+
+def session_auth_required(endpoint):
+    """
+    DEPRECATED: Require session authentication for function-based views.
+
+    Returns 401 if user is not authenticated via session.
     """
 
     @functools.wraps(endpoint)
     def wrapper(request: HttpRequest):
         if not request.user.is_authenticated:
-            try:
-                auth_result = PersonalAPIKeyAuthentication().authenticate(request)
-                if isinstance(auth_result, tuple) and auth_result[0].__class__.__name__ == "User":
-                    request.user = auth_result[0]
-                else:
-                    raise AuthenticationFailed("Authentication credentials were not provided.")
-            except AuthenticationFailed as e:
-                return JsonResponse({"detail": e.detail}, status=401)
+            return JsonResponse(
+                {"detail": "Authentication credentials were not provided."},
+                status=401,
+            )
         return endpoint(request)
 
     return wrapper
+
+
+class WebauthnBackend(BaseBackend):
+    """
+    Custom authentication backend for WebAuthn/passkey login.
+
+    Handles the complete WebAuthn authentication flow:
+    1. Extracts challenge from session
+    2. Extracts userHandle and credential_id from request data
+    3. Looks up user and credential
+    4. Verifies the authentication response
+    5. Updates credential sign count
+    """
+
+    name = "webauthn"
+
+    def authenticate(
+        self,
+        request: Optional[Union[HttpRequest, Request]],
+        credential_id: Optional[str] = None,
+        challenge: Optional[str] = None,
+        response: Optional[WebAuthnAuthenticationResponse] = None,
+        **kwargs: Any,
+    ) -> Optional[User]:
+        """
+        Authenticate a user via WebAuthn.
+
+        Verifies the WebAuthn assertion and returns the authenticated user.
+
+        Args:
+            request: The HTTP request object
+            credential_id: The base64url-encoded credential ID (rawId)
+            challenge: The base64url-encoded challenge
+            response: The WebAuthn authentication response containing userHandle, authenticatorData, clientDataJSON, and signature
+        """
+        if challenge is None or credential_id is None or response is None:
+            structlog_logger.warning(
+                "no request, response, or credential id while authenticating webauthn credential",
+                credential_id=credential_id,
+                challenge=challenge,
+                response=response,
+            )
+            return None
+
+        try:
+            # Decode credential ID
+            credential_id_bytes = base64url_to_bytes(credential_id)
+
+            # Find the credential
+            credential = (
+                WebauthnCredential.objects.filter(credential_id=credential_id_bytes, verified=True)
+                .select_related("user")
+                .first()
+            )
+
+            if not credential:
+                structlog_logger.warning("webauthn_login_credential_not_found", credential_id=credential_id)
+                return None
+
+            user = credential.user
+            # Check if user is active
+            if not user.is_active:
+                structlog_logger.warning("webauthn_login_user_inactive", user_id=user.pk)
+                return None
+
+            # Construct credential dict for webauthn library
+            # The library expects both 'id' and 'rawId' to be present
+            credential_dict = {
+                "id": credential_id,
+                "rawId": credential_id,
+                "response": response,
+                "type": "public-key",
+            }
+
+            # Verify the authentication response
+            expected_challenge = base64url_to_bytes(challenge)
+            verification = verify_passkey_authentication_response(
+                credential=credential_dict,
+                expected_challenge=expected_challenge,
+                credential_public_key=credential.public_key,
+                credential_current_sign_count=credential.counter,
+            )
+
+            # Update sign count
+            credential.counter = verification.new_sign_count
+            credential.save()
+
+            structlog_logger.info("webauthn_login_success", user_id=user.pk, credential_id=credential.pk)
+
+            return user
+
+        except Exception as e:
+            structlog_logger.exception("webauthn_login_error", error=str(e))
+            return None
+
+    def get_user(self, user_id: int) -> Optional[User]:
+        """Get a user by their primary key.
+
+        Required by Django's authentication system to load the user on subsequent requests.
+        """
+        try:
+            return User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return None

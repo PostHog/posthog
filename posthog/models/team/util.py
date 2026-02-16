@@ -2,15 +2,20 @@ import time
 from datetime import timedelta
 from typing import Any
 
-from posthog.batch_exports.service import batch_export_delete_schedule
+import structlog
+
+from posthog.batch_exports.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
 from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
+
+logger = structlog.get_logger(__name__)
 
 actions_that_require_current_team = [
     "rotate_secret_token",
     "delete_secret_token_backup",
     "reset_token",
+    "generate_conversations_public_token",
 ]
 
 
@@ -24,8 +29,14 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     from posthog.models.insight_caching_state import InsightCachingState
     from posthog.models.person import Person, PersonDistinctId, PersonlessDistinctId
 
+    from products.data_modeling.backend.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
     from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+
+    # Delete data modeling nodes and edges first to not block Team deletion.
+    # Team cascades to DataWarehouseSavedQuery, but it has PROTECT on delete.
+    _raw_delete(Edge.objects.filter(team_id__in=team_ids))
+    _raw_delete(Node.objects.filter(team_id__in=team_ids))
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))
@@ -104,13 +115,19 @@ def delete_batch_exports(team_ids: list[int]):
 
     temporal = sync_connect()
 
-    for batch_export in BatchExport.objects.filter(team_id__in=team_ids):
+    for batch_export in BatchExport.objects.filter(team_id__in=team_ids, deleted=False):
         schedule_id = batch_export.id
 
         batch_export.delete()
         batch_export.destination.delete()
 
-        batch_export_delete_schedule(temporal, str(schedule_id))
+        try:
+            batch_export_delete_schedule(temporal, str(schedule_id))
+        except BatchExportServiceScheduleNotFound as e:
+            logger.warning(
+                "Schedule not found during team deletion",
+                schedule_id=e.schedule_id,
+            )
 
 
 can_enable_actor_on_events = False

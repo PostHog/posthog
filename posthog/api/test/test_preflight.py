@@ -161,6 +161,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                         "instance_preferences": {
                             "debug_queries": False,
                             "disable_paid_fs": False,
+                            "cloudflare_proxy_enabled": False,
                         },
                         "site_url": "https://app.posthog.com",
                         "email_service_available": True,

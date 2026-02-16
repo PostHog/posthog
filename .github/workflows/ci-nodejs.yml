@@ -27,16 +27,19 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run Node.js checks
+        permissions:
+            contents: read
+            pull-requests: read
         outputs:
             nodejs: ${{ steps.filter.outputs.nodejs || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   clean: false
 
-            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -58,20 +61,27 @@ jobs:
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   clean: false
 
             - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 24.13.0
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
+              env:
+                  npm_config_fetch_retries: 3
+                  npm_config_fetch_retry_mintimeout: 10000
+                  npm_config_fetch_retry_maxtimeout: 60000
               run: |
                   pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   bin/turbo --filter=@posthog/nodejs prepare
@@ -88,20 +98,27 @@ jobs:
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   clean: false
 
             - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 24.13.0
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
+              env:
+                  npm_config_fetch_retries: 3
+                  npm_config_fetch_retry_mintimeout: 10000
+                  npm_config_fetch_retry_maxtimeout: 60000
               run: |
                   pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   bin/turbo --filter=@posthog/nodejs prepare
@@ -140,7 +157,7 @@ jobs:
 
         steps:
             - name: Code check out
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -152,30 +169,35 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml up -d --wait
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               working-directory: rust
@@ -192,12 +214,15 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 24.13.0
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
 
@@ -206,20 +231,65 @@ jobs:
                   ./bin/download-mmdb
 
             - name: Install package.json dependencies with pnpm
+              env:
+                  npm_config_fetch_retries: 3
+                  npm_config_fetch_retry_mintimeout: 10000
+                  npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
-            - name: Wait for Clickhouse, Redis, Kafka
+            - name: Wait for Clickhouse, Redis, Kafka, Localstack
               run: |
-                  docker compose -f docker-compose.dev.yml up kafka redis clickhouse maildev -d --wait
+                  docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
                   bin/check_kafka_clickhouse_up
 
-            - name: Set up databases
+            - name: Fetch base branch for diff
+              if: github.event_name == 'pull_request'
+              run: git fetch origin ${{ github.base_ref }} --depth=1
+
+            - name: Check for migrations in this PR
+              id: check_migrations
+              if: github.event_name == 'pull_request'
+              run: |
+                  if git diff --name-only origin/${{ github.base_ref }}..HEAD | grep -E '(migrations/|rust/.*migrate)'; then
+                    echo "has_migrations=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "has_migrations=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Set up databases (fast path - restore schema)
+              if: github.event_name == 'pull_request' && steps.check_migrations.outputs.has_migrations == 'false'
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # Download pre-migrated schema from CI
+                  ./bin/hogli db:download-schema
 
+                  # Create test databases
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
+
+                  # Restore schema to test database
+                  echo "Restoring schema to test_posthog database..."
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
+                  echo "✅ Schema restored"
+
+                  # Run Rust migrations for test databases
+                  cd nodejs && pnpm run setup:test:rust
+
+                  # Set up ClickHouse test database and schema
+                  cd .. && TEST=1 SECRET_KEY='abcdef' python manage.py setup_test_environment --only-clickhouse
+
+            - name: Set up databases (slow path - run migrations)
+              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'true'
+              env:
+                  TEST: 'true'
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
               run: pnpm --filter=@posthog/nodejs setup:test
 
             - name: Test with Jest
@@ -234,6 +304,8 @@ jobs:
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
                   LOG_LEVEL: info
+                  # Enable localstack integration tests for DynamoDB/KMS
+                  LOCALSTACK_ENABLED: '1'
               run: bin/turbo run test --filter=@posthog/nodejs
 
             - name: Output logs on failure

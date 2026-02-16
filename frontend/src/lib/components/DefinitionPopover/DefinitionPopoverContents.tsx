@@ -118,7 +118,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         definition,
         localDefinition,
         type,
-        hasTaxonomyFeatures,
         isAction,
         isEvent,
         isCohort,
@@ -133,12 +132,14 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     const { selectedItemMeta, dataWarehousePopoverFields } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
 
-    // Use effect here to make definition view stateful. TaxonomicFilterLogic won't mount within definitionPopoverLogic
+    // Pre-populate field mappings from the insight filter.
+    // Only apply to data warehouse - for events/properties, selectedItemMeta.id is the
+    // event name which would incorrectly overwrite the event definition's UUID.
     useEffect(() => {
-        if (selectedItemMeta && definition.name == selectedItemMeta.id) {
+        if (isDataWarehouse && selectedItemMeta && definition.name === selectedItemMeta.id) {
             setLocalDefinition(selectedItemMeta)
         }
-    }, [definition]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [definition, isDataWarehouse]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const hasSentAsLabel = useMemo(() => {
         const _definition = definition as PropertyDefinition
@@ -174,7 +175,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <DefinitionPopover.DescriptionEmpty />
             )}
             <DefinitionPopover.Example value={group?.getValue?.(definition)?.toString()} />
-            {hasTaxonomyFeatures && definition && 'tags' in definition && !!definition.tags?.length && (
+            {definition && 'tags' in definition && !!definition.tags?.length && (
                 <ObjectTags
                     className="definition-popover-tags"
                     tags={definition.tags}
@@ -479,7 +480,6 @@ function DefinitionEdit(): JSX.Element {
         localDefinition,
         definitionLoading,
         singularType,
-        hasTaxonomyFeatures,
         isViewable,
         hideView,
         type,
@@ -489,13 +489,12 @@ function DefinitionEdit(): JSX.Element {
     } = useValues(definitionPopoverLogic)
     const { setLocalDefinition, handleCancel, handleSave } = useActions(definitionPopoverLogic)
 
-    if (!definition || !hasTaxonomyFeatures) {
+    if (!definition) {
         return <></>
     }
 
-    const showHiddenOption = hasTaxonomyFeatures && 'hidden' in localDefinition
-    const allowVerification =
-        hasTaxonomyFeatures && !isCoreFilter(definition.name || '') && 'verified' in localDefinition
+    const showHiddenOption = 'hidden' in localDefinition
+    const allowVerification = !isCoreFilter(definition.name || '') && 'verified' in localDefinition
 
     return (
         <>
@@ -611,14 +610,15 @@ export function ControlledDefinitionPopover({
 
     const icon = group.getIcon?.(definition || item)
 
-    // Must use `useEffect` here to hydrate popover card with the newest item, since lifecycle of `ItemPopover` is controlled
-    // independently by `infiniteListLogic`
-    useEffect(() => {
-        setDefinition(item)
-    }, [item, setDefinition])
-
     // Supports all types specified in selectedItemHasPopover
     const value = group.getValue?.(item)
+
+    // Hydrate popover card with the newest item. Compare by value identity (not reference)
+    // to avoid cascading re-renders when taxonomicGroups re-evaluates and creates new item
+    // objects with the same logical identity.
+    useEffect(() => {
+        setDefinition(item)
+    }, [value, setDefinition, item])
 
     if (!value || !item) {
         return null

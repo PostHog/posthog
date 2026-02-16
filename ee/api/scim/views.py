@@ -2,6 +2,7 @@ from typing import cast
 
 from django.db.models import Q, QuerySet
 
+import structlog
 from django_scim import constants
 from django_scim.filters import GroupFilterQuery, UserFilterQuery
 from rest_framework import (
@@ -22,9 +23,11 @@ from posthog.models.organization_domain import OrganizationDomain
 from ee.api.scim.auth import SCIMBearerTokenAuthentication
 from ee.api.scim.group import PostHogSCIMGroup
 from ee.api.scim.user import PostHogSCIMUser, SCIMUserConflict
-from ee.api.scim.utils import detect_identity_provider
+from ee.api.scim.utils import detect_identity_provider, mask_scim_filter, mask_scim_payload, normalize_scim_operations
 from ee.models.rbac.role import Role
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
+
+logger = structlog.get_logger(__name__)
 
 SCIM_USER_ATTR_MAP = {
     ("emails", "value", None): "email",
@@ -56,6 +59,33 @@ class SCIMBaseView(APIView):
     authentication_classes = [SCIMBearerTokenAuthentication]
     renderer_classes = [SCIMJSONRenderer, JSONRenderer]
     parser_classes = [SCIMJSONParser, JSONParser]
+
+    def dispatch(self, request, *args, **kwargs):
+        response = super().dispatch(request, *args, **kwargs)
+
+        drf_request = self.request
+        log_data: dict = {
+            "method": drf_request.method,
+            "path": drf_request.path,
+            "idp": detect_identity_provider(drf_request).value,
+            "response_status": response.status_code,
+        }
+
+        if drf_request.auth:
+            organization_domain = cast(OrganizationDomain, drf_request.auth)
+            log_data["organization_domain"] = organization_domain.domain
+
+        if drf_request.method in ("POST", "PUT", "PATCH"):
+            payload = drf_request.data
+            if payload is not None:
+                log_data["payload"] = mask_scim_payload(payload)
+        filter_param = drf_request.GET.get("filter")
+        if filter_param:
+            log_data["filter"] = mask_scim_filter(filter_param)
+
+        logger.info("scim_request", **log_data)
+
+        return response
 
     def handle_exception(self, exc):
         if isinstance(exc, drf_exceptions.NotAuthenticated):
@@ -230,6 +260,7 @@ class SCIMUserDetailView(SCIMBaseView):
         scim_user = self.get_object(user_id)
         try:
             operations = request.data.get("Operations", [])
+            operations = normalize_scim_operations(operations)
             scim_user.handle_operations(operations)
             return Response(scim_user.to_dict())
         except Exception as e:

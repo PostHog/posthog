@@ -173,7 +173,7 @@ class TestFetchLogByUuid(ClickhouseTestMixin, APIBaseTest):
             sync_execute(sql)
 
     def test_returns_none_for_nonexistent_uuid(self):
-        result = fetch_log_by_uuid(self.team.id, "nonexistent-uuid", "2025-12-16T09:01:22")
+        result = fetch_log_by_uuid(self.team, "nonexistent-uuid", "2025-12-16T09:01:22")
         assert result is None
 
     def test_returns_log_data_for_existing_uuid(self):
@@ -187,7 +187,7 @@ class TestFetchLogByUuid(ClickhouseTestMixin, APIBaseTest):
                 {json.dumps(log_item)}
             """)
 
-        result = fetch_log_by_uuid(self.team.id, log_item["uuid"], log_item["timestamp"])
+        result = fetch_log_by_uuid(self.team, log_item["uuid"], log_item["timestamp"])
         assert result is not None
         assert result["uuid"] == log_item["uuid"]
         assert result["service_name"] == log_item["service_name"]
@@ -206,7 +206,7 @@ class TestFetchLogByUuid(ClickhouseTestMixin, APIBaseTest):
                 {json.dumps(log_item)}
             """)
 
-        result = fetch_log_by_uuid(self.team.id, log_item["uuid"], log_item["timestamp"])
+        result = fetch_log_by_uuid(self.team, log_item["uuid"], log_item["timestamp"])
         assert result is None
 
 

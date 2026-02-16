@@ -5,16 +5,18 @@ import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { DateRange } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/logsExportLogic'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
-import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
 import { LogDetailsModal } from './LogDetailsModal'
-import { LogsSelectionToolbar } from './LogsSelectionToolbar'
-import { LogsSparkline, LogsSparklineData } from './LogsViewerSparkline'
+import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
+import { LogsSparkline } from './LogsViewerSparkline'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
 import { logsViewerLogic } from './logsViewerLogic'
 
@@ -22,101 +24,59 @@ const SCROLL_INTERVAL_MS = 16 // ~60fps
 const SCROLL_AMOUNT_PX = 8
 
 export interface LogsViewerProps {
-    tabId: string
-    logs: ParsedLogMessage[]
-    loading: boolean
-    totalLogsCount?: number
-    hasMoreLogsToLoad?: boolean
-    orderBy: LogsOrderBy
-    onChangeOrderBy: (orderBy: LogsOrderBy) => void
-    onRefresh?: () => void
-    onLoadMore?: () => void
-    onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
-    sparklineData: LogsSparklineData
-    sparklineLoading: boolean
-    onDateRangeChange: (dateRange: DateRange) => void
+    id: string
 }
 
-export function LogsViewer({
-    tabId,
-    logs,
-    loading,
-    totalLogsCount,
-    hasMoreLogsToLoad,
-    orderBy,
-    onChangeOrderBy,
-    onRefresh,
-    onLoadMore,
-    onAddFilter,
-    sparklineData,
-    sparklineLoading,
-    onDateRangeChange,
-}: LogsViewerProps): JSX.Element {
+export function LogsViewer({ id }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
-            <LogsViewerContent
-                loading={loading}
-                totalLogsCount={totalLogsCount}
-                hasMoreLogsToLoad={hasMoreLogsToLoad}
-                orderBy={orderBy}
-                onChangeOrderBy={onChangeOrderBy}
-                onRefresh={onRefresh}
-                onLoadMore={onLoadMore}
-                sparklineData={sparklineData}
-                sparklineLoading={sparklineLoading}
-                onDateRangeChange={onDateRangeChange}
-            />
+        <BindLogic logic={logsViewerFiltersLogic} props={{ id }}>
+            <BindLogic logic={logsViewerConfigLogic} props={{ id }}>
+                <BindLogic logic={logsViewerDataLogic} props={{ id }}>
+                    <BindLogic logic={logDetailsModalLogic} props={{ id }}>
+                        <BindLogic logic={logsViewerLogic} props={{ id }}>
+                            <BindLogic logic={logsExportLogic} props={{ id }}>
+                                <LogsViewerContent />
+                            </BindLogic>
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </BindLogic>
         </BindLogic>
     )
 }
 
-interface LogsViewerContentProps {
-    loading: boolean
-    totalLogsCount?: number
-    hasMoreLogsToLoad?: boolean
-    orderBy: LogsOrderBy
-    onChangeOrderBy: (orderBy: LogsOrderBy) => void
-    onRefresh?: () => void
-    onLoadMore?: () => void
-    sparklineData: LogsSparklineData
-    sparklineLoading: boolean
-    onDateRangeChange: (dateRange: DateRange) => void
-}
-
-function LogsViewerContent({
-    loading,
-    totalLogsCount,
-    hasMoreLogsToLoad,
-    orderBy,
-    onChangeOrderBy,
-    onRefresh,
-    onLoadMore,
-    sparklineData,
-    sparklineLoading,
-    onDateRangeChange,
-}: LogsViewerContentProps): JSX.Element {
+function LogsViewerContent(): JSX.Element {
     const {
-        tabId,
+        id,
         wrapBody,
         prettifyJson,
         pinnedLogsArray,
         isFocused,
+        cursorIndex,
         cursorLogId,
-        logs,
         timezone,
         isSelectionActive,
+        keyboardNavEnabled,
+        isLogDetailsOpen,
     } = useValues(logsViewerLogic)
     const {
         moveCursorDown,
         moveCursorUp,
-        toggleExpandLog,
+        openLogDetails,
+        closeLogDetails,
         resetCursor,
         toggleSelectLog,
         clearSelection,
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
-    const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ tabId }))
-    const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ tabId }))
+    const { orderBy, sparklineBreakdownBy } = useValues(logsViewerConfigLogic)
+    const { setOrderBy, setSparklineBreakdownBy } = useActions(logsViewerConfigLogic)
+    const { logsLoading, parsedLogs, sparklineData, sparklineLoading, hasMoreLogsToLoad, totalLogsMatchingFilters } =
+        useValues(logsViewerDataLogic)
+    const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
+    const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
+    const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
+    const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
     const messageScrollLeft = cellScrollLefts['message'] ?? 0
     const scrollLeftRef = useRef(messageScrollLeft)
     scrollLeftRef.current = messageScrollLeft
@@ -212,24 +172,24 @@ function LogsViewerContent({
 
     useKeyboardHotkeys(
         {
-            arrowdown: { action: handleMoveDown, disabled: !isFocused },
-            j: { action: handleMoveDown, disabled: !isFocused },
-            arrowup: { action: handleMoveUp, disabled: !isFocused },
-            k: { action: handleMoveUp, disabled: !isFocused },
+            arrowdown: { action: handleMoveDown, disabled: !keyboardNavEnabled },
+            j: { action: handleMoveDown, disabled: !keyboardNavEnabled },
+            arrowup: { action: handleMoveUp, disabled: !keyboardNavEnabled },
+            k: { action: handleMoveUp, disabled: !keyboardNavEnabled },
             // arrowleft, arrowright, h, l handled by native keydown/keyup for smooth 60fps scrolling
             enter: {
                 action: () => {
-                    if (cursorLogId) {
-                        toggleExpandLog(cursorLogId)
+                    if (cursorIndex !== null && parsedLogs[cursorIndex]) {
+                        openLogDetails(parsedLogs[cursorIndex])
                     }
                 },
-                disabled: !isFocused,
+                disabled: !keyboardNavEnabled,
             },
             r: {
                 action: () => {
-                    if (onRefresh && !loading) {
+                    if (!logsLoading) {
                         resetCursor()
-                        onRefresh()
+                        runQuery()
                     }
                 },
                 disabled: !isFocused,
@@ -245,11 +205,13 @@ function LogsViewerContent({
             },
             escape: {
                 action: () => {
-                    if (isSelectionActive) {
+                    if (isLogDetailsOpen) {
+                        closeLogDetails()
+                    } else if (isSelectionActive) {
                         clearSelection()
                     }
                 },
-                disabled: !isFocused,
+                disabled: !keyboardNavEnabled,
             },
             p: {
                 action: () => {
@@ -262,10 +224,14 @@ function LogsViewerContent({
         },
         [
             isFocused,
-            cursorLogId,
-            toggleExpandLog,
-            onRefresh,
-            loading,
+            keyboardNavEnabled,
+            isLogDetailsOpen,
+            cursorIndex,
+            parsedLogs,
+            openLogDetails,
+            closeLogDetails,
+            runQuery,
+            logsLoading,
             resetCursor,
             moveCursorDown,
             moveCursorUp,
@@ -277,16 +243,22 @@ function LogsViewerContent({
     )
 
     return (
-        <div className="flex flex-col gap-2 h-full">
+        <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
+            <LogsFilterBar />
             <LogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
-                onDateRangeChange={onDateRangeChange}
+                onDateRangeChange={setDateRange}
                 displayTimezone={timezone}
+                breakdownBy={sparklineBreakdownBy}
+                onBreakdownByChange={setSparklineBreakdownBy}
             />
             <SceneDivider />
-            <LogsViewerToolbar totalLogsCount={totalLogsCount} orderBy={orderBy} onChangeOrderBy={onChangeOrderBy} />
-            <LogsSelectionToolbar />
+            <LogsViewerToolbar
+                totalLogsCount={sparklineLoading ? undefined : totalLogsMatchingFilters}
+                orderBy={orderBy}
+                onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'toolbar')}
+            />
             {pinnedLogsArray.length > 0 && (
                 <VirtualizedLogsList
                     dataSource={pinnedLogsArray}
@@ -297,18 +269,23 @@ function LogsViewerContent({
                     fixedHeight={250}
                     disableInfiniteScroll
                     disableCursor
+                    orderBy={orderBy}
+                    onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'header')}
                 />
             )}
 
             <VirtualizedLogsList
-                dataSource={logs}
-                loading={loading}
+                dataSource={parsedLogs}
+                loading={logsLoading}
                 wrapBody={wrapBody}
                 prettifyJson={prettifyJson}
                 tzLabelFormat={tzLabelFormat}
                 showPinnedWithOpacity
                 hasMoreLogsToLoad={hasMoreLogsToLoad}
-                onLoadMore={onLoadMore}
+                onLoadMore={fetchNextLogsPage}
+                onExpandTimeRange={() => zoomDateRange(2)}
+                orderBy={orderBy}
+                onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'header')}
             />
 
             <LogDetailsModal timezone={timezone} />

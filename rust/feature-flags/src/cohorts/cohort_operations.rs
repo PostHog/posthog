@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use super::cohort_models::CohortPropertyType;
 use super::cohort_models::CohortValues;
+use crate::cohorts::cohort_cache_manager::CohortFetchError;
 use crate::cohorts::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
 use crate::database::get_connection_with_metrics;
 use crate::properties::property_matching::match_property;
@@ -18,7 +19,7 @@ impl Cohort {
     pub async fn list_from_pg(
         client: PostgresReader,
         team_id: TeamId,
-    ) -> Result<Vec<Cohort>, FlagError> {
+    ) -> Result<Vec<Cohort>, CohortFetchError> {
         let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "fetch_cohorts")
             .await
             .map_err(|e| {
@@ -27,7 +28,7 @@ impl Cohort {
                     team_id,
                     e
                 );
-                FlagError::DatabaseUnavailable
+                CohortFetchError::DatabaseUnavailable
             })?;
 
         let query = r#"
@@ -61,7 +62,7 @@ impl Cohort {
                     team_id,
                     e
                 );
-                FlagError::Internal(format!("Database query error: {e}"))
+                CohortFetchError::QueryFailed(format!("Database query error: {e}"))
             })?;
 
         Ok(cohorts)

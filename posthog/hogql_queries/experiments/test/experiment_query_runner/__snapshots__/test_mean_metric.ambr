@@ -29,7 +29,7 @@
      LEFT JOIN
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+               coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
         FROM events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -42,18 +42,18 @@
      GROUP BY exposures.entity_id,
               exposures.variant) AS entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_outlier_handling_for_count_metric
@@ -90,7 +90,7 @@
         LEFT JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                  1 AS value
+                  coalesce(accurateCastOrNull(1, 'Float64'), 0) AS value
            FROM events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -129,7 +129,7 @@
            LEFT JOIN
              (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                     1 AS value
+                     coalesce(accurateCastOrNull(1, 'Float64'), 0) AS value
               FROM events
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -142,18 +142,18 @@
            GROUP BY exposures.entity_id,
                     exposures.variant) AS entity_metrics) AS percentiles) AS winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_outlier_handling_for_sum_metric
@@ -190,7 +190,7 @@
         LEFT JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                  accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+                  coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
            FROM events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -229,7 +229,7 @@
            LEFT JOIN
              (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                     accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+                     coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
               FROM events
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -242,18 +242,18 @@
            GROUP BY exposures.entity_id,
                     exposures.variant) AS entity_metrics) AS percentiles) AS winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_outlier_handling_with_ignore_zeros
@@ -290,7 +290,7 @@
         LEFT JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                  accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+                  coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
            FROM events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -329,7 +329,7 @@
            LEFT JOIN
              (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                     accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+                     coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
               FROM events
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -342,18 +342,18 @@
            GROUP BY exposures.entity_id,
                     exposures.variant) AS entity_metrics) AS percentiles) AS winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_property_avg_metric
@@ -365,7 +365,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            avg(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
+            coalesce(avg(accurateCastOrNull(metric_events.value, 'Float64')), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -386,7 +386,7 @@
      LEFT JOIN
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+               coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
         FROM events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -399,18 +399,18 @@
      GROUP BY exposures.entity_id,
               exposures.variant) AS entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_property_max_metric
@@ -422,7 +422,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            max(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
+            coalesce(max(accurateCastOrNull(metric_events.value, 'Float64')), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -443,7 +443,7 @@
      LEFT JOIN
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+               coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
         FROM events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -456,18 +456,18 @@
      GROUP BY exposures.entity_id,
               exposures.variant) AS entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_property_min_metric
@@ -479,7 +479,7 @@
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
-            min(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
+            coalesce(min(accurateCastOrNull(metric_events.value, 'Float64')), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -500,7 +500,7 @@
      LEFT JOIN
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+               coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
         FROM events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -513,18 +513,18 @@
      GROUP BY exposures.entity_id,
               exposures.variant) AS entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_property_sum_metric
@@ -557,7 +557,7 @@
      LEFT JOIN
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+               coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
         FROM events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -570,18 +570,18 @@
      GROUP BY exposures.entity_id,
               exposures.variant) AS entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentMeanMetric.test_unique_sessions_math_type
@@ -627,17 +627,17 @@
      GROUP BY exposures.entity_id,
               exposures.variant) AS entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---

@@ -39,6 +39,7 @@ ActivityScope = Literal[
     "PropertyDefinition",
     "Notebook",
     "Endpoint",
+    "EndpointVersion",
     "Dashboard",
     "Replay",
     "Experiment",
@@ -73,6 +74,10 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "LLMTrace",
+    "WebAnalyticsFilterPreset",
+    "CustomerProfileConfig",
+    "Log",
+    "ProductTour",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out"
@@ -224,6 +229,14 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     ],
     "OrganizationDomain": [
         "scim_bearer_token",
+        "verification_challenge",
+        "saml_x509_cert",
+    ],
+    "User": [
+        "email",
+        "password",
+        "temporary_token",
+        "pending_email",
     ],
 }
 
@@ -250,6 +263,15 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     "ExternalDataSchema": {
         "should_sync": "enabled",
     },
+    "OrganizationDomain": {
+        "jit_provisioning_enabled": "just-in-time provisioning",
+        "sso_enforcement": "SSO enforcement",
+        "saml_entity_id": "SAML entity ID",
+        "saml_acs_url": "SAML ACS URL",
+        "saml_x509_cert": "SAML X.509 certificate",
+        "scim_enabled": "SCIM provisioning",
+        "verified_at": "domain verification",
+    },
 }
 
 # Fields that prevent activity signal triggering entirely when only these fields change
@@ -265,19 +287,41 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "PersonalAPIKey": [
         "last_used_at",
     ],
+    "User": [
+        "last_login",
+        "date_joined",
+        "current_organization",
+        "current_team",
+        "current_organization_id",
+        "current_team_id",
+    ],
+    "OrganizationDomain": [
+        "last_verification_retry",
+    ],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
-# Used to hide sensitive activities (e.g., impersonated logins) from non-staff users
-activity_visibility_restrictions: dict[ActivityScope, dict[str, Any]] = {
-    "User": {
+# Used to hide sensitive activities (e.g., impersonated logins, user account changes) from non-staff users
+activity_visibility_restrictions: list[dict[str, Any]] = [
+    {
+        "scope": "User",
         "activities": ["logged_in", "logged_out"],
         "exclude_when": {"was_impersonated": True},
         "allow_staff": True,
     },
-}
+    {
+        "scope": "User",
+        "activities": ["created", "updated"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+]
 
 field_exclusions: dict[ActivityScope, list[str]] = {
+    "OrganizationDomain": [
+        "organization",
+        "scim_provisioned_users",
+    ],
     "Cohort": [
         "version",
         "pending_version",
@@ -295,7 +339,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "text_content",
     ],
     "FeatureFlag": [
-        "is_simple_flag",
         "experiment",
         "featureflagoverride",
         "usage_dashboard",
@@ -388,6 +431,10 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     ],
     "Endpoint": [
         "saved_query",
+        "current_version",
+    ],
+    "EndpointVersion": [
+        "saved_query",
     ],
     "Organization": [
         "teams",
@@ -436,16 +483,41 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "last_rolled_at",
     ],
     "User": [
-        "password",
+        # ForeignKey fields
+        "current_organization",
+        "current_team",
+        # With _id suffix for direct attribute access
         "current_organization_id",
         "current_team_id",
-        "temporary_token",
+        # System/internal fields
         "distinct_id",
         "partial_notification_settings",
-        "anonymize_data",
-        "is_email_verified",
         "_billing_plan_details",
         "strapi_id",
+        # Reverse relations and many-to-many fields
+        "organization",
+        "logentry_set",
+        "groups",
+        "user_permissions",
+        "social_auth",
+        "organization_memberships",
+        "totp_device_set",
+        "staticdevice_set",
+        "activitylog_set",
+        "personal_api_keys",
+        "organizations",
+        "plugin_set",
+        "insightviewed_set",
+        "text_set",
+        "insight_set",
+        "sharingconfiguration_set",
+        "exportedasset_set",
+        "uploaded_media",
+        "accesscontrol_set",
+        "rolemembership_set",
+        "totp_devices",
+        "static_devices",
+        "recovery_devices",
     ],
     "AlertConfiguration": [
         "last_checked_at",

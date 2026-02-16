@@ -8,7 +8,11 @@ import { PhonePairHogs } from 'lib/components/hedgehogs'
 import { CommentWithReplies } from './Comment'
 import { CommentsLogicProps, commentsLogic } from './commentsLogic'
 
-export const CommentsList = (props: CommentsLogicProps): JSX.Element => {
+export interface CommentsListProps extends CommentsLogicProps {
+    noun?: string
+}
+
+export const CommentsList = ({ noun = 'page', ...props }: CommentsListProps): JSX.Element => {
     const { key, commentsWithReplies, commentsLoading } = useValues(commentsLogic(props))
     const { loadComments } = useActions(commentsLogic(props))
 
@@ -31,8 +35,8 @@ export const CommentsList = (props: CommentsLogicProps): JSX.Element => {
                         </div>
                         <h2>Start the discussion!</h2>
                         <p>
-                            You can add comments about this page for your team members to see. Great for sharing context
-                            or ideas without getting in the way of the thing you are commenting on
+                            You can add comments about this {noun} for your team members to see. Great for sharing
+                            context or ideas without getting in the way of the thing you are commenting on
                         </p>
                     </div>
                 ) : null}

@@ -355,7 +355,6 @@ class TestBillingAPI(APILicensedTest):
 
         assert response.json() == {
             "customer_id": "cus_123",
-            "customer_id": "cus_123",
             "customer_trust_scores": {
                 "data_warehouse": 15,
                 "feature_flags": 15,
@@ -511,7 +510,6 @@ class TestBillingAPI(APILicensedTest):
                     "unit_amount_usd": "0.00",
                     "usage_limit": None,
                     "image_url": "https://posthog.com/static/images/product-os.png",
-                    "percentage_usage": 0,
                     "usage_key": "events",
                     "addons": [
                         {
@@ -883,67 +881,23 @@ class TestPortalBillingAPI(APILicensedTest):
 
 
 class TestActivateBillingAPI(APILicensedTest):
-    def test_activate_success(self):
+    @patch("ee.billing.billing_manager.BillingManager.activate_subscription")
+    def test_activate_post_success(self, mock_activate_subscription):
+        mock_activate_subscription.return_value = {"success": True, "products": ["product_analytics"]}
+
         url = "/api/billing/activate"
-        data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
+        data = {"products": "all_products:"}
 
-        response = self.client.get(url, data=data)
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        response = self.client.post(url, data, content_type="application/json")
 
-        self.assertIn("/activate", response.url)
-        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
-        url_pattern = r"redirect_uri=http://[^/]+/custom/path"
-        self.assertRegex(response.url, url_pattern)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True, "products": ["product_analytics"]})
+        mock_activate_subscription.assert_called_once_with(self.organization, {"products": "all_products:"})
 
-    def test_deprecated_activation_success(self):
+    def test_activate_get_returns_405(self):
         url = "/api/billing/activate"
-        data = {"products": "product_1:plan_1,product_2:plan_2", "redirect_path": "custom/path"}
-
-        response = self.client.get(url, data=data)
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-
-        self.assertIn("/activate", response.url)
-        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
-        url_pattern = r"redirect_uri=http://[^/]+/custom/path"
-        self.assertRegex(response.url, url_pattern)
-
-    def test_activate_with_default_redirect_path(self):
-        url = "/api/billing/activate"
-        data = {
-            "products": "product_1:plan_1,product_2:plan_2",
-        }
-
-        response = self.client.get(url, data)
-
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertIn("products=product_1:plan_1,product_2:plan_2", response.url)
-        url_pattern = r"redirect_uri=http://[^/]+/organization/billing"
-        self.assertRegex(response.url, url_pattern)
-
-    def test_activate_failure(self):
-        url = "/api/billing/activate"
-        data = {"none": "nothing"}
-
-        response = self.client.get(url, data)
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_activate_with_plan_error(self):
-        url = "/api/billing/activate"
-        data = {"plan": "plan"}
-
-        response = self.client.get(url, data)
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "attr": "plan",
-                "code": "invalid_input",
-                "detail": "The 'plan' parameter is no longer supported. Please use the 'products' parameter instead.",
-                "type": "validation_error",
-            },
-        )
+        response = self.client.get(url, {"products": "product_1:plan_1"})
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
     @patch("ee.billing.billing_manager.BillingManager.deactivate_products")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
@@ -957,7 +911,7 @@ class TestActivateBillingAPI(APILicensedTest):
         url = "/api/billing/deactivate"
         data = {"products": "product_1"}
 
-        response = self.client.get(url, data)
+        response = self.client.post(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_deactivate_products.assert_called_once_with(self.organization, "product_1")
@@ -967,7 +921,7 @@ class TestActivateBillingAPI(APILicensedTest):
         url = "/api/billing/deactivate"
         data = {"none": "nothing"}
 
-        response = self.client.get(url, data)
+        response = self.client.post(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 

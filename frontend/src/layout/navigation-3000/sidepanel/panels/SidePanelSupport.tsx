@@ -8,9 +8,12 @@ import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { useOpenAi } from 'scenes/max/useOpenAi'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -18,6 +21,9 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType, SidePanelTab } from '~/types'
 
+import { SidePanelTickets } from 'products/conversations/frontend/components/SidePanel/SidePanelTickets'
+
+import { SidePanelContentContainer } from '../SidePanelContentContainer'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
 import { sidePanelStatusIncidentIoLogic } from './sidePanelStatusIncidentIoLogic'
@@ -260,12 +266,15 @@ const SupportResponseTimesTable = ({
 
 export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     useValues(userLogic)
     const { isEmailFormOpen, title: supportPanelTitle, targetArea } = useValues(supportLogic)
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
-    const { openSidePanel } = useActions(sidePanelLogic)
+    const { openAi } = useOpenAi()
+
+    const useProductSupportSidePanel = featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]
 
     const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
     const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
@@ -281,6 +290,8 @@ export function SidePanelSupport(): JSX.Element {
     const showEmailSupport = (preflight?.cloud || process.env.NODE_ENV === 'development') && canEmail
     const showMaxAI = preflight?.cloud || process.env.NODE_ENV === 'development'
     const isBillingLoaded = !billingLoading && billing !== undefined
+
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const handleOpenEmailForm = (): void => {
         if (showEmailSupport && isBillingLoaded) {
@@ -338,12 +349,26 @@ export function SidePanelSupport(): JSX.Element {
     }
 
     return (
-        <div className="SidePanelSupport">
-            <SidePanelPaneHeader title={isEmailFormOpen ? supportPanelTitle : 'Help'} />
+        <div
+            className={cn('SidePanelSupport', {
+                contents: isRemovingSidePanelFlag,
+            })}
+        >
+            {!isRemovingSidePanelFlag && <SidePanelPaneHeader title={isEmailFormOpen ? supportPanelTitle : 'Help'} />}
 
-            <div className="overflow-y-auto flex flex-col h-full">
-                <div className="p-3 max-w-160 w-full mx-auto flex-1 flex flex-col justify-center">
-                    {isEmailFormOpen && showEmailSupport && isBillingLoaded ? (
+            <SidePanelContentContainer flagOffClassName="overflow-y-auto flex flex-col h-full">
+                {isRemovingSidePanelFlag && (
+                    <SidePanelPaneHeader
+                        showCloseButton={false}
+                        title={isEmailFormOpen ? supportPanelTitle : isRemovingSidePanelFlag ? 'Support' : 'Help'}
+                    />
+                )}
+                <div
+                    className={cn('p-3 max-w-160 w-full mx-auto flex-1 flex flex-col justify-center', {
+                        'p-0 justify-start flex-none px-1': isRemovingSidePanelFlag,
+                    })}
+                >
+                    {isEmailFormOpen && showEmailSupport && isBillingLoaded && !useProductSupportSidePanel ? (
                         <SupportFormBlock
                             onCancel={() => {
                                 closeEmailForm()
@@ -366,7 +391,7 @@ export function SidePanelSupport(): JSX.Element {
                                             fullWidth
                                             center
                                             onClick={() => {
-                                                openSidePanel(SidePanelTab.Max)
+                                                openAi()
                                             }}
                                             targetBlank={false}
                                             className="mt-2"
@@ -377,7 +402,15 @@ export function SidePanelSupport(): JSX.Element {
                                 </Section>
                             )}
 
-                            {showEmailSupport && isBillingLoaded && (
+                            {showEmailSupport && isBillingLoaded && useProductSupportSidePanel && (
+                                <Section title="Contact us">
+                                    <StatusPageAlert />
+                                    <p>Can't find what you need and PostHog AI unable to help?</p>
+                                    <SidePanelTickets />
+                                </Section>
+                            )}
+
+                            {showEmailSupport && isBillingLoaded && !useProductSupportSidePanel && (
                                 <Section title="Contact us">
                                     <StatusPageAlert />
                                     <p>Can't find what you need and PostHog AI unable to help?</p>
@@ -476,7 +509,7 @@ export function SidePanelSupport(): JSX.Element {
                         </>
                     )}
                 </div>
-            </div>
+            </SidePanelContentContainer>
         </div>
     )
 }

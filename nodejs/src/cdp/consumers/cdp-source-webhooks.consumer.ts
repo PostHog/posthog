@@ -272,7 +272,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<CdpSourceWebhooks
                     {} as HogFunctionFilterGlobals
                 )
 
-                const scheduledAt = req.body?.$scheduled_at
+                const scheduledAt = hogFlow.trigger && 'scheduled_at' in hogFlow.trigger && hogFlow.trigger.scheduled_at
                 if (scheduledAt) {
                     const scheduledDateTime = DateTime.fromISO(scheduledAt)
                     if (!scheduledDateTime.isValid) {

@@ -1,6 +1,6 @@
 import './ToolbarLaunch.scss'
 
-import { IconFlag, IconPieChart, IconSearch, IconTestTube, IconToolbar } from '@posthog/icons'
+import { IconFlag, IconFlask, IconPieChart, IconSearch } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
@@ -14,10 +14,11 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
-    settingSectionId: 'environment-details',
+    productKey: ProductKey.TOOLBAR,
 }
 
 export function ToolbarLaunch(): JSX.Element {
@@ -54,7 +55,7 @@ export function ToolbarLaunch(): JSX.Element {
                   {
                       title: 'Experiments',
                       caption: 'Run experiments and A/B test your website.',
-                      icon: <IconTestTube />,
+                      icon: <IconFlask />,
                   },
               ]
             : []),
@@ -67,7 +68,6 @@ export function ToolbarLaunch(): JSX.Element {
                 description="PostHog toolbar launches PostHog right in your app or website."
                 resourceType={{
                     type: 'toolbar',
-                    forceIcon: <IconToolbar />,
                 }}
             />
 

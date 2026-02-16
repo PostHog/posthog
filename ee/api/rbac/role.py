@@ -2,6 +2,7 @@ from typing import cast
 
 from django.db import IntegrityError
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
@@ -77,14 +78,12 @@ class RoleSerializer(serializers.ModelSerializer):
         return organization.default_role_id == role.id
 
 
+@extend_schema(tags=["core"])
 class RoleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = RoleSerializer
     queryset = Role.objects.all()
     permission_classes = [RolePermissions, TimeSensitiveActionPermission]
-
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(**self.request.GET.dict())
 
 
 class RoleMembershipSerializer(serializers.ModelSerializer):
@@ -102,6 +101,7 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
         user_uuid = validated_data.pop("user_uuid")
 
         try:
+            # nosemgrep: idor-lookup-without-org (organization filter on next line)
             role = Role.objects.get(id=self.context["role_id"])
         except Role.DoesNotExist:
             raise serializers.ValidationError("Role does not exist.")
@@ -127,6 +127,7 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
 class RoleMembershipViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,

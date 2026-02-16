@@ -1,6 +1,9 @@
 import { useValues } from 'kea'
 import React, { Children, ReactNode, createContext, isValidElement, useContext, useMemo } from 'react'
 
+import { StepProps, StepsProps } from '@posthog/shared-onboarding/steps'
+import { StepDefinition, StepModifier } from '@posthog/shared-onboarding/steps'
+
 import { CodeSnippet, getLanguage } from 'lib/components/CodeSnippet'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -10,16 +13,9 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
-interface OnboardingComponents {
-    Steps: React.ComponentType<{ children: ReactNode }>
-    Step: React.ComponentType<{
-        title: string
-        subtitle?: string
-        badge?: 'required' | 'optional'
-        checkpoint?: boolean
-        docsOnly?: boolean
-        children: ReactNode
-    }>
+export interface OnboardingComponentsContext {
+    Steps: React.ComponentType<StepsProps>
+    Step: React.ComponentType<StepProps>
     CodeBlock: React.ComponentType<{
         blocks?: Array<{ language: string; code: string; file?: string }>
         language?: string
@@ -55,9 +51,9 @@ interface OnboardingComponents {
     setSelectedFile?: (file: string) => void
 }
 
-const OnboardingContext = createContext<OnboardingComponents | null>(null)
+const OnboardingContext = createContext<OnboardingComponentsContext | null>(null)
 
-function Steps({ children }: { children: ReactNode }): JSX.Element {
+function Steps({ children }: StepsProps): JSX.Element {
     let stepNumber = 0
 
     const processedChildren = Children.map(children, (child) => {
@@ -86,15 +82,7 @@ function Step({
     docsOnly,
     stepNumber,
     children,
-}: {
-    title: string
-    subtitle?: string
-    badge?: 'required' | 'optional'
-    checkpoint?: boolean
-    docsOnly?: boolean
-    stepNumber?: number
-    children: ReactNode
-}): JSX.Element | null {
+}: StepProps & { stepNumber?: number }): JSX.Element | null {
     if (docsOnly) {
         return null
     }
@@ -106,13 +94,16 @@ function Step({
             <div className="flex items-center gap-2">
                 <h3 className="m-0">{numberedTitle}</h3>
                 {badge && (
-                    <LemonTag type={badge === 'required' ? 'default' : 'option'} className="text-xs">
+                    <LemonTag
+                        type={badge === 'required' ? 'default' : badge === 'recommended' ? 'success' : 'option'}
+                        className="text-xs"
+                    >
                         {badge}
                     </LemonTag>
                 )}
             </div>
             {subtitle && <p className="text-muted text-sm m-0">{subtitle}</p>}
-            <div>{children}</div>
+            <div className="space-y-4">{children}</div>
         </div>
     )
 }
@@ -332,11 +323,11 @@ export function OnboardingDocsContentWrapper({
 }: {
     children: ReactNode
     snippets?: Record<string, React.ComponentType<any>>
-    createSnippets?: (components: OnboardingComponents) => Record<string, React.ComponentType<any>>
+    createSnippets?: (components: OnboardingComponentsContext) => Record<string, React.ComponentType<any>>
 }): JSX.Element {
     const [selectedFile, setSelectedFile] = React.useState<string | null>(null)
 
-    const baseComponents = useMemo<Omit<OnboardingComponents, 'snippets'>>(
+    const baseComponents = useMemo<Omit<OnboardingComponentsContext, 'snippets'>>(
         () => ({
             Steps,
             Step,
@@ -356,28 +347,28 @@ export function OnboardingDocsContentWrapper({
 
     const finalSnippets = useMemo(() => {
         if (createSnippets) {
-            return createSnippets(baseComponents as OnboardingComponents)
+            return createSnippets(baseComponents as OnboardingComponentsContext)
         }
         return snippets
     }, [createSnippets, snippets, baseComponents])
 
-    const components = useMemo<OnboardingComponents>(
+    const components = useMemo<OnboardingComponentsContext>(
         () =>
             ({
                 ...baseComponents,
                 snippets: finalSnippets,
-            }) as OnboardingComponents,
+            }) as OnboardingComponentsContext,
         [baseComponents, finalSnippets]
     )
 
     return (
         <OnboardingContext.Provider value={components}>
-            <div className="max-w-screen-md mx-auto">{children}</div>
+            <div className="w-full">{children}</div>
         </OnboardingContext.Provider>
     )
 }
 
-export function useMDXComponents(): OnboardingComponents {
+export function useMDXComponents(): OnboardingComponentsContext {
     const context = useContext(OnboardingContext)
     if (!context) {
         throw new Error('useMDXComponents must be used within OnboardingDocsContentWrapper')
@@ -410,4 +401,31 @@ export function dedent(strings: TemplateStringsArray | string, ...values: any[])
         .map((line) => (line.length >= indent ? line.slice(indent) : line))
         .join('\n')
         .trim()
+}
+
+/**
+ * Creates an Installation component from a steps function.
+ */
+export function createInstallation(
+    getSteps: (ctx: OnboardingComponentsContext) => StepDefinition[]
+): React.ComponentType<StepModifier> {
+    return function Installation({ modifySteps }: StepModifier = {}) {
+        const components = useMDXComponents()
+        const { Steps, Step } = components
+
+        let steps = getSteps(components)
+        if (modifySteps) {
+            steps = modifySteps(steps)
+        }
+
+        return (
+            <Steps>
+                {steps.map((step, index) => (
+                    <Step key={index} title={step.title} badge={step.badge}>
+                        {step.content}
+                    </Step>
+                ))}
+            </Steps>
+        )
+    }
 }

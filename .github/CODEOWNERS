@@ -31,3 +31,8 @@ posthog/hogql/** @PostHog/hogql
 # And of course modifying this file can bring us problems so let's have the security team own it.
 # This does not affect CODEOWNERS-soft which is used for assigning non-required reviewers and it's much safer to change.
 CODEOWNERS @PostHog/team-security
+
+# Critical authentication logic
+posthog/api/authentication.py @PostHog/team-security
+posthog/auth.py @PostHog/team-security
+ee/api/scim/auth.py @PostHog/team-security

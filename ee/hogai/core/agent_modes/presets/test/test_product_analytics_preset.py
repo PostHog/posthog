@@ -5,7 +5,7 @@ from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
-from posthog.schema import AgentMode, AssistantMessage, AssistantToolCall, HumanMessage
+from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
 from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
 from ee.hogai.context import AssistantContextManager
@@ -63,6 +63,7 @@ class TestProductAnalyticsAgentNode(BaseTest):
                 ],
             ),
         ):
+            state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
             context_manager = AssistantContextManager(
                 team=self.team, user=self.user, config=RunnableConfig(configurable={})
             )
@@ -73,11 +74,10 @@ class TestProductAnalyticsAgentNode(BaseTest):
                     NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),
                 ),
                 context_manager=context_manager,
-                mode=AgentMode.PRODUCT_ANALYTICS,
+                state=state_1,
             )
             node = mode_manager.node
 
-            state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
             next_state = await node.arun(state_1, {})
             assert isinstance(next_state, PartialAssistantState)
             # The state includes context messages + original message + generated message

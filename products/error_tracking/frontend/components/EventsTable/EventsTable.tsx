@@ -121,7 +121,7 @@ const Person = ({ person }: { person: ErrorEventType['person'] }): JSX.Element =
 const Actions = (record: ErrorEventType): JSX.Element => {
     const sessionId = getSessionId(record.properties)
     const recordingStatus = getRecordingStatus(record.properties)
-    const hasRecording = record.properties.has_recording as boolean | undefined
+    const hasRecording = record.properties.$has_recording as boolean | undefined
 
     return (
         <div className="flex justify-end gap-1">

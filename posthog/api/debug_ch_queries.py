@@ -133,6 +133,7 @@ class DebugCHQueries(viewsets.ViewSet):
             params["query"] = f"/* user_id:{request.user.pk} %"
             params["start_time"] = (now() - relativedelta(minutes=10)).timestamp()
 
+        # nosemgrep: clickhouse-fstring-param-audit - where_clause/limit_clause from internal builder
         response = sync_execute(
             f"""
             SELECT

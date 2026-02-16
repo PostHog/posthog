@@ -1,5 +1,5 @@
 use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
-use common_types::error_tracking::{ExceptionData, FrameData, RawFrameId};
+use common_types::error_tracking::RawFrameId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha512};
@@ -16,6 +16,18 @@ use crate::frames::{Frame, RawFrame};
 use crate::issue_resolution::Issue;
 use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
 
+mod exception;
+mod stacktrace;
+
+pub mod batch;
+pub mod event;
+pub mod exception_properties;
+pub mod operator;
+pub mod stage;
+
+pub use exception::*;
+pub use stacktrace::*;
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Mechanism {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -29,34 +41,21 @@ pub struct Mechanism {
     pub synthetic: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum Stacktrace {
-    Raw { frames: Vec<RawFrame> },
-    Resolved { frames: Vec<Frame> },
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Exception {
-    #[serde(rename = "id", skip_serializing_if = "Option::is_none")]
-    pub exception_id: Option<String>,
-    #[serde(rename = "type")]
-    pub exception_type: String,
-    #[serde(rename = "value", default)]
-    pub exception_message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mechanism: Option<Mechanism>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub module: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "stacktrace")]
-    pub stack: Option<Stacktrace>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ExceptionList(pub Vec<Exception>);
+
+impl From<Vec<Exception>> for ExceptionList {
+    fn from(exceptions: Vec<Exception>) -> Self {
+        ExceptionList(exceptions)
+    }
+}
+
+impl From<&[Exception]> for ExceptionList {
+    fn from(exceptions: &[Exception]) -> Self {
+        ExceptionList(exceptions.to_vec())
+    }
+}
 
 impl Deref for ExceptionList {
     type Target = Vec<Exception>;
@@ -68,6 +67,15 @@ impl Deref for ExceptionList {
 impl DerefMut for ExceptionList {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl IntoIterator for ExceptionList {
+    type Item = Exception;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 
@@ -110,28 +118,6 @@ impl ExceptionList {
     }
 }
 
-impl From<&ExceptionList> for Vec<ExceptionData> {
-    fn from(exception_list: &ExceptionList) -> Self {
-        exception_list
-            .iter()
-            .map(|exception| ExceptionData {
-                exception_type: exception.exception_type.clone(),
-                exception_value: exception.exception_message.clone(),
-                frames: exception
-                    .stack
-                    .as_ref()
-                    .map(|stack| match stack {
-                        Stacktrace::Raw { frames: _ } => vec![], // Exception
-                        Stacktrace::Resolved { frames } => {
-                            frames.clone().into_iter().map(FrameData::from).collect()
-                        }
-                    })
-                    .unwrap_or_default(),
-            })
-            .collect()
-    }
-}
-
 // Given a Clickhouse Event's properties, we care about the contents
 // of only a small subset. This struct is used to give us a strongly-typed
 // "view" of those event properties we care about.
@@ -148,6 +134,8 @@ pub struct RawErrProps {
     pub issue_name: Option<String>, // Clients can send us custom issue names, which we'll use if present
     #[serde(rename = "$issue_description", skip_serializing_if = "Option::is_none")]
     pub issue_description: Option<String>, // Clients can send us custom issue descriptions, which we'll use if present
+    #[serde(rename = "$exception_handled", skip_serializing_if = "Option::is_none")]
+    pub handled: Option<bool>, // Clients can send us handled status, which we'll use if present
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
     pub other: HashMap<String, Value>,
@@ -160,11 +148,12 @@ pub struct FingerprintedErrProps {
     pub proposed_issue_name: Option<String>,
     pub proposed_issue_description: Option<String>,
     pub proposed_fingerprint: String, // We suggest a fingerprint, based on hashes, but let users override client-side
+    pub handled: Option<bool>,
     pub other: HashMap<String, Value>,
 }
 
 // We emit this
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OutputErrProps {
     #[serde(rename = "$exception_list")]
     pub exception_list: ExceptionList,
@@ -184,7 +173,8 @@ pub struct OutputErrProps {
     pub handled: bool,
     #[serde(
         rename = "$exception_releases",
-        skip_serializing_if = "HashMap::is_empty"
+        skip_serializing_if = "HashMap::is_empty",
+        default
     )]
     pub releases: HashMap<String, ReleaseInfo>,
     // Search metadata (materialized)
@@ -197,6 +187,20 @@ pub struct OutputErrProps {
     #[serde(rename = "$exception_functions")]
     pub functions: Vec<String>,
 }
+
+const RESERVED_PROPERTIES: [&str; 11] = [
+    "$exception_list",
+    "$exception_fingerprint",
+    "$exception_issue_id",
+    "$exception_fingerprint_record",
+    "$exception_proposed_fingerprint",
+    "$exception_handled",
+    "$exception_releases",
+    "$exception_types",
+    "$exception_values",
+    "$exception_sources",
+    "$exception_functions",
+];
 
 impl FingerprintComponent for Exception {
     fn update(&self, fp: &mut FingerprintBuilder) {
@@ -280,6 +284,7 @@ impl RawErrProps {
             proposed_issue_name: self.issue_name,
             proposed_issue_description: self.issue_description,
             proposed_fingerprint,
+            handled: self.handled,
             other: self.other,
         }
     }
@@ -292,7 +297,16 @@ impl FingerprintedErrProps {
         let releases = self.exception_list.get_release_map();
         let types = self.exception_list.get_unique_types();
         let values = self.exception_list.get_unique_messages();
-        let handled = self.exception_list.get_is_handled();
+        let handled: bool = self
+            .handled
+            .unwrap_or_else(|| self.exception_list.get_is_handled());
+
+        // If users send properties that are reserved, it will results in property keys being duplicated
+        let sanitized_others = self
+            .other
+            .into_iter()
+            .filter(|(k, _)| !RESERVED_PROPERTIES.contains(&k.as_str()))
+            .collect();
 
         OutputErrProps {
             exception_list: self.exception_list,
@@ -300,7 +314,7 @@ impl FingerprintedErrProps {
             issue_id,
             proposed_fingerprint: self.proposed_fingerprint,
             fingerprint_record: self.fingerprint.record,
-            other: self.other,
+            other: sanitized_others,
 
             types,
             values,
@@ -437,6 +451,13 @@ impl Stacktrace {
         Some(Stacktrace::Resolved {
             frames: resolved_frames,
         })
+    }
+
+    pub fn get_raw_frames(&self) -> &[RawFrame] {
+        match self {
+            Stacktrace::Raw { frames } => frames,
+            _ => &[],
+        }
     }
 
     pub fn get_frames(&self) -> &[Frame] {

@@ -154,7 +154,7 @@ class Command(BaseCommand):
 
                 # Compute the new filters with inline bytecode and cohort_type
                 clean_filters, computed_type, _ = validate_filters_and_compute_realtime_support(
-                    cohort.filters, cohort.team, current_cohort_type=cohort.cohort_type
+                    cohort.filters, cohort.team, current_cohort_type=cohort.cohort_type, cohort_count=cohort.count
                 )
 
                 # Check if any directly referenced cohorts have dependencies

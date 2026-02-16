@@ -124,7 +124,7 @@ def reduce_by_uniform_sampling(
                 sampled.append(body_lines[idx])
         pct = (len(sampled) / len(body_lines)) * 100
         hdr = SAMPLED_VIEW_HEADER.format(percent=pct, total=total_lines)
-        result_lines = header_lines[:2] + [hdr] + header_lines[2:] + sampled
+        result_lines = [*header_lines[:2], hdr, *header_lines[2:], *sampled]
         return sampled, hdr, "\n".join(result_lines)
 
     _, _, result = sample_lines(target_body_lines)

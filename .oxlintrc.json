@@ -17,9 +17,10 @@
         "common/hogvm/__tests__/__snapshots__",
         "common/hogvm/__tests__/__snapshots__/**",
         "frontend/src/queries/validators.js",
+        "frontend/src/generated/**",
         "services/mcp/**/generated.ts",
         "services/mcp/schema/tool-inputs.json",
-        "services/mcp/python"
+        "products/**/frontend/generated/**"
     ],
     "rules": {
         "no-constant-condition": "off",
@@ -239,6 +240,23 @@
             "files": ["*.stories.tsx"],
             "rules": {
                 "react-hooks/rules-of-hooks": "off"
+            }
+        },
+        {
+            "files": ["services/mcp/src/ui-apps/**/*.ts"],
+            "rules": {
+                "no-console": [
+                    "error",
+                    {
+                        "allow": ["debug", "info", "warn", "error"]
+                    }
+                ]
+            }
+        },
+        {
+            "files": ["docs/onboarding/**/*.tsx"],
+            "rules": {
+                "react/forbid-elements": "off"
             }
         }
     ]

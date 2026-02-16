@@ -309,9 +309,9 @@ def create_resources(
                 paginate_resource,
                 **resource_kwargs,  # TODO: implement typing.Unpack
             )(
-                method=endpoint_config.get("method", "get"),
-                path=endpoint_config.get("path"),
-                params=request_params,
+                method=endpoint_config.get("method", "get"),  # type: ignore[arg-type]
+                path=endpoint_config.get("path"),  # type: ignore[arg-type]
+                params=request_params,  # type: ignore[arg-type]
                 json=request_json,
                 paginator=paginator,
                 data_selector=endpoint_config.get("data_selector"),

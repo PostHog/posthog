@@ -18,7 +18,6 @@ import {
     HumanMessage,
     MultiVisualizationMessage,
     NotebookArtifactContent,
-    NotebookUpdateMessage,
     RootAssistantMessage,
     SubagentUpdateEvent,
     VisualizationArtifactContent,
@@ -26,7 +25,7 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import {
     DashboardFilter,
-    DataVisualizationNode,
+    DataTableNode,
     HogQLVariable,
     InsightVizNode,
     NodeKind,
@@ -40,7 +39,15 @@ import { Scene } from '../sceneTypes'
 import { EnhancedToolCall } from './Thread'
 import { MODE_DEFINITIONS } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
-import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
+import {
+    MaxActionContext,
+    MaxContextType,
+    MaxDashboardContext,
+    MaxErrorTrackingIssueContext,
+    MaxEventContext,
+    MaxInsightContext,
+    MaxUIContext,
+} from './maxTypes'
 
 export function isMultiVisualizationMessage(
     message: RootAssistantMessage | undefined | null
@@ -82,12 +89,6 @@ export function isSubagentUpdateEvent(
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
     return message?.type === AssistantMessageType.Failure
-}
-
-export function isNotebookUpdateMessage(
-    message: RootAssistantMessage | undefined | null
-): message is NotebookUpdateMessage {
-    return message?.type === AssistantMessageType.Notebook
 }
 
 export function isMultiQuestionFormMessage(
@@ -174,20 +175,6 @@ export function formatSuggestion(suggestion: string): string {
     return `${suggestion.replace(/[<>]/g, '').replace(/…$/, '').trim()}${suggestion.endsWith('…') ? '…' : ''}`
 }
 
-export function isDeepResearchReportNotebook(
-    notebook: { category?: string | null; notebook_type?: string | null } | null | undefined
-): boolean {
-    return !!(notebook && notebook.category === 'deep_research' && notebook.notebook_type === 'report')
-}
-
-export function isDeepResearchReportCompletion(message: NotebookUpdateMessage): boolean {
-    return (
-        message.notebook_type === 'deep_research' &&
-        Array.isArray(message.conversation_notebooks) &&
-        message.conversation_notebooks.some((nb) => isDeepResearchReportNotebook(nb))
-    )
-}
-
 // Utility functions for transforming data to max context
 export const insightToMaxContext = (
     insight: Partial<QueryBasedInsightModel>,
@@ -237,6 +224,41 @@ export const actionToMaxContextPayload = (action: ActionType): MaxActionContext 
     }
 }
 
+export const errorTrackingIssueToMaxContextPayload = (issue: {
+    id: string
+    name?: string | null
+}): MaxErrorTrackingIssueContext => {
+    return {
+        type: MaxContextType.ERROR_TRACKING_ISSUE,
+        id: issue.id,
+        name: issue.name,
+    }
+}
+
+/**
+ * Generic context that can be passed when opening PostHog AI.
+ */
+export interface MaxOpenContext {
+    /** Error tracking issue context */
+    errorTrackingIssue?: {
+        id: string
+        name?: string | null
+    }
+}
+
+/**
+ * Converts MaxOpenContext to MaxUIContext
+ */
+export function convertToMaxUIContext(openContext: MaxOpenContext): Partial<MaxUIContext> {
+    const uiContext: Partial<MaxUIContext> = {}
+
+    if (openContext.errorTrackingIssue) {
+        uiContext.error_tracking_issues = [errorTrackingIssueToMaxContextPayload(openContext.errorTrackingIssue)]
+    }
+
+    return uiContext
+}
+
 export const createSuggestionGroup = (label: string, icon: JSX.Element, suggestions: string[]): SuggestionGroup => {
     return {
         label,
@@ -278,7 +300,7 @@ export function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
         return null
     }
     for (const [mode, def] of Object.entries(MODE_DEFINITIONS)) {
-        if (def.scenes.has(sceneId)) {
+        if (def.scenes?.has(sceneId)) {
             return mode as AgentMode
         }
     }
@@ -290,7 +312,7 @@ export const visualizationTypeToQuery = (
 ): QuerySchema | null => {
     const source = castAssistantQuery('answer' in visualization ? visualization.answer : visualization.query)
     if (isHogQLQuery(source)) {
-        return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
+        return { kind: NodeKind.DataTableNode, source: source } satisfies DataTableNode
     }
     if (isInsightQueryNode(source)) {
         return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode

@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -26,7 +27,7 @@ import { urls } from 'scenes/urls'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import { ActorsQuery, DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,
@@ -44,6 +45,9 @@ export type CohortLogicProps = {
     id?: CohortType['id']
     tabId?: string
 }
+
+const checkIsPendingCalculation = (cohort: CohortType): boolean =>
+    cohort.pending_version != null && (cohort.version == null || cohort.pending_version !== cohort.version)
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
@@ -89,7 +93,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         setQuery: (query: Node) => ({ query }),
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
         updateCohortCount: true,
-        setCreationPersonQuery: (query: Node) => ({ query }),
+        setCreationPersonQuery: (query: ActorsQuery) => ({ query }),
         addPersonToCreateStaticCohort: (personId: string) => ({ personId }),
         removePersonFromCreateStaticCohort: (personId: string) => ({ personId }),
         removePersonFromCohort: (personId: string) => ({ personId }),
@@ -226,22 +230,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         ],
         creationPersonQuery: [
             {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.ActorsQuery,
-                    fixedProperties: [],
-                    select: ['id', 'person_display_name -- Person'],
-                },
-                showPropertyFilter: false,
-                showEventFilter: false,
-                showExport: false,
-                showSearch: true,
-                showActions: false,
-                showElapsedTime: false,
-                showTimings: false,
-            } as DataTableNode,
+                kind: NodeKind.ActorsQuery,
+                fixedProperties: [],
+                select: ['id', 'person_display_name -- Person'],
+            } as ActorsQuery,
             {
-                setCreationPersonQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
+                setCreationPersonQuery: (_state, { query }) => query,
             },
         ],
         personsToCreateStaticCohort: [
@@ -266,6 +260,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             (s) => [s.cohort],
             (cohort: CohortType) => {
                 return cohort.is_static && typeof cohort.id === 'number'
+            },
+        ],
+        isPendingCalculation: [(s) => [s.cohort], (cohort: CohortType) => checkIsPendingCalculation(cohort)],
+        isCalculatingOrPending: [
+            (s) => [s.cohort, s.isPendingCalculation],
+            (cohort: CohortType, isPendingCalculation: boolean) => {
+                return cohort.is_calculating || isPendingCalculation
             },
         ],
     }),
@@ -351,6 +352,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         } else {
                             cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
                             cohortsModel.actions.cohortCreated(cohort)
+                            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpCohorts)
                         }
                     } catch (error: any) {
                         breakpoint()
@@ -451,7 +453,16 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     try {
                         await breakpoint(200)
                         if (asStatic) {
-                            cohort = await api.cohorts.duplicate(values.cohort.id)
+                            const sourceTable = values.cohort.is_static ? 'static_cohort_people' : 'cohort_people'
+                            const query: HogQLQuery = {
+                                kind: NodeKind.HogQLQuery,
+                                query: `SELECT person_id FROM ${sourceTable} WHERE cohort_id = ${values.cohort.id}`,
+                            }
+                            cohort = await api.create('api/cohort', {
+                                is_static: true,
+                                name: `${values.cohort.name} (static copy)`,
+                                query,
+                            })
                         } else {
                             const data = { ...values.cohort }
                             data.name += ' (dynamic copy)'
@@ -512,7 +523,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             })
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
-            if (cohort.is_calculating) {
+            const isPendingCalculation = checkIsPendingCalculation(cohort)
+            const isCalculatingOrPending = cohort.is_calculating || isPendingCalculation
+
+            if (isCalculatingOrPending) {
                 actions.setPollTimeout(
                     window.setTimeout(async () => {
                         const newCohort = await api.cohorts.get(cohort.id)
@@ -527,6 +541,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     errors_calculating: cohort.errors_calculating,
                     last_calculation: cohort.last_calculation,
                     count: cohort.count,
+                    version: cohort.version,
+                    pending_version: cohort.pending_version,
                 }
                 actions.setCohort({ ...values.cohort, ...calculationFields })
                 cohortsModel.actions.updateCohort(cohort)

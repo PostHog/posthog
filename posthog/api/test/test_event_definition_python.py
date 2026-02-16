@@ -459,9 +459,7 @@ strict = false
             )
             if install_result.returncode != 0:
                 self.fail(
-                    f"Failed to install posthog SDK:\n"
-                    f"STDOUT: {install_result.stdout}\n"
-                    f"STDERR: {install_result.stderr}"
+                    f"Failed to install posthog SDK:\nSTDOUT: {install_result.stdout}\nSTDERR: {install_result.stderr}"
                 )
 
             # Define test cases: name -> (code, should_pass, expected_error_text)

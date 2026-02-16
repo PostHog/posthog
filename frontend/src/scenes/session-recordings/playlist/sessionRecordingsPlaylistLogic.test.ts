@@ -13,6 +13,7 @@ import {
     DEFAULT_RECORDING_FILTERS,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
+    getDefaultFilters,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
@@ -702,7 +703,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
     })
 
     describe('convertUniversalFiltersToRecordingsQuery', () => {
-        it('expands the visited_page filter to a pageview with $current_url property', () => {
+        it('passes the visited_page filter as a recording property', () => {
             const result = convertUniversalFiltersToRecordingsQuery({
                 ...DEFAULT_RECORDING_FILTERS,
                 filter_group: {
@@ -730,21 +731,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 console_log_filters: [],
                 date_from: '-3d',
                 date_to: null,
-                events: [
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        properties: [
-                            {
-                                key: '$current_url',
-                                operator: 'exact',
-                                type: 'event',
-                                value: ['https://example-url.com'],
-                            },
-                        ],
-                        type: 'events',
-                    },
-                ],
+                events: [],
                 filter_test_accounts: false,
                 having_predicates: [
                     {
@@ -758,7 +745,53 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 operand: 'AND',
                 order: 'console_error_count',
                 order_direction: 'DESC',
+                properties: [
+                    {
+                        key: 'visited_page',
+                        operator: 'exact',
+                        type: 'recording',
+                        value: ['https://example-url.com'],
+                    },
+                ],
+            })
+        })
+
+        it('passes through session_ids when provided', () => {
+            const result = convertUniversalFiltersToRecordingsQuery({
+                ...DEFAULT_RECORDING_FILTERS,
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [],
+                        },
+                    ],
+                },
+                session_ids: ['session-1', 'session-2', 'session-3'],
+            })
+
+            expect(result).toEqual({
+                actions: [],
+                console_log_filters: [],
+                date_from: '-3d',
+                date_to: null,
+                events: [],
+                filter_test_accounts: false,
+                having_predicates: [
+                    {
+                        key: 'active_seconds',
+                        operator: 'gt',
+                        type: 'recording',
+                        value: 5,
+                    },
+                ],
+                kind: 'RecordingsQuery',
+                operand: 'AND',
+                order: 'start_time',
+                order_direction: 'DESC',
                 properties: [],
+                session_ids: ['session-1', 'session-2', 'session-3'],
             })
         })
     })
@@ -850,6 +883,39 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 order: 'start_time',
                 order_direction: 'DESC',
             })
+        })
+    })
+
+    describe('getDefaultFilters', () => {
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        it('returns filter_test_accounts as false when localStorage is empty', () => {
+            const result = getDefaultFilters()
+            expect(result.filter_test_accounts).toBe(false)
+        })
+
+        it('returns filter_test_accounts as true when localStorage has default_filter_test_accounts set to true', () => {
+            localStorage.setItem('default_filter_test_accounts', 'true')
+            const result = getDefaultFilters()
+            expect(result.filter_test_accounts).toBe(true)
+        })
+
+        it('returns filter_test_accounts as false when localStorage has default_filter_test_accounts set to false', () => {
+            localStorage.setItem('default_filter_test_accounts', 'false')
+            const result = getDefaultFilters()
+            expect(result.filter_test_accounts).toBe(false)
+        })
+
+        it('returns date_from as -30d for person recordings', () => {
+            const result = getDefaultFilters('person-uuid')
+            expect(result.date_from).toBe('-30d')
+        })
+
+        it('returns date_from as -3d for non-person recordings', () => {
+            const result = getDefaultFilters()
+            expect(result.date_from).toBe('-3d')
         })
     })
 })

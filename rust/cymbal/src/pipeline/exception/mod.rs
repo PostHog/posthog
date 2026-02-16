@@ -9,19 +9,22 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 pub mod issue_processing;
+pub mod spike_detection;
 pub mod stack_processing;
 
 use crate::{
     app_context::AppContext,
     error::{EventError, PipelineFailure, PipelineResult, UnhandledError},
-    issue_buckets,
-    issue_resolution::IssueStatus,
+    issue_resolution::{Issue, IssueStatus},
     metric_consts::{
-        ISSUE_PROCESSING_TIME, STACK_PROCESSING_TIME, SUPPRESSED_ISSUE_DROPPED_EVENTS,
+        ISSUE_PROCESSING_TIME, SPIKE_DETECTION_TIME, STACK_PROCESSING_TIME,
+        SUPPRESSED_ISSUE_DROPPED_EVENTS,
     },
     recursively_sanitize_properties,
     types::RawErrProps,
 };
+
+pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
 
 pub async fn do_exception_handling(
     mut events: Vec<PipelineResult>,
@@ -66,6 +69,7 @@ pub async fn do_exception_handling(
     // Unfreeze, as we're about to replace the event properties.
     let mut events = events;
     let mut issue_counts: std::collections::HashMap<Uuid, u32> = std::collections::HashMap::new();
+    let mut issues_by_id: std::collections::HashMap<Uuid, Issue> = std::collections::HashMap::new();
     for (index, fingerprinted) in fingerprinted.into_iter() {
         let issue = issues
             .get(&fingerprinted.fingerprint.value)
@@ -83,12 +87,15 @@ pub async fn do_exception_handling(
         };
 
         let output = fingerprinted.to_output(issue.id);
-        event.properties = Some(serde_json::to_string(&output).map_err(|e| (index, e.into()))?);
+        event.properties =
+            Some(serde_json::to_string(&output).map_err(|e| (index, Arc::new(e.into())))?);
         *issue_counts.entry(issue.id).or_insert(0) += 1;
+        issues_by_id.entry(issue.id).or_insert(issue);
     }
 
-    issue_buckets::try_increment_issue_buckets(&*context.issue_buckets_redis_client, issue_counts)
-        .await;
+    let spike_timer = common_metrics::timing_guard(SPIKE_DETECTION_TIME, &[]);
+    spike_detection::do_spike_detection(context, issues_by_id, issue_counts).await;
+    spike_timer.fin();
 
     Ok(events)
 }
@@ -118,12 +125,26 @@ pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
         recursively_sanitize_properties(event.uuid, v, 0)?;
     }
 
-    let props: RawErrProps = match serde_json::from_value(properties) {
+    let mut props: RawErrProps = match serde_json::from_value(properties) {
         Ok(r) => r,
         Err(e) => {
             return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
         }
     };
+
+    for exception in props.exception_list.iter_mut() {
+        if exception.exception_message.len() > MAX_EXCEPTION_VALUE_LENGTH {
+            let truncate_at = exception
+                .exception_message
+                .char_indices()
+                .take_while(|(i, _)| *i < MAX_EXCEPTION_VALUE_LENGTH)
+                .last()
+                .map(|(i, c)| i + c.len_utf8())
+                .unwrap_or(0);
+            exception.exception_message.truncate(truncate_at);
+            exception.exception_message.push_str("...");
+        }
+    }
 
     if props.exception_list.is_empty() {
         return Err(EventError::EmptyExceptionList(event.uuid));
@@ -151,4 +172,55 @@ pub fn add_error_to_event(
     );
     event.set_raw_properties(props)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn make_exception_event(exception_value: &str) -> ClickHouseEvent {
+        let props = serde_json::json!({
+            "$exception_list": [{
+                "type": "Error",
+                "value": exception_value
+            }]
+        });
+        ClickHouseEvent {
+            uuid: Uuid::now_v7(),
+            team_id: 1,
+            project_id: Some(1),
+            event: "$exception".to_string(),
+            distinct_id: "test".to_string(),
+            properties: Some(props.to_string()),
+            timestamp: "2021-01-01T00:00:00Z".to_string(),
+            created_at: "2021-01-01T00:00:00Z".to_string(),
+            elements_chain: None,
+            person_id: None,
+            person_created_at: None,
+            person_properties: None,
+            group0_properties: None,
+            group1_properties: None,
+            group2_properties: None,
+            group3_properties: None,
+            group4_properties: None,
+            group0_created_at: None,
+            group1_created_at: None,
+            group2_created_at: None,
+            group3_created_at: None,
+            group4_created_at: None,
+            person_mode: common_types::PersonMode::Full,
+            captured_at: None,
+            historical_migration: None,
+        }
+    }
+
+    #[test]
+    fn test_exception_value_truncation() {
+        let long_value = "x".repeat(MAX_EXCEPTION_VALUE_LENGTH + 100);
+        let event = make_exception_event(&long_value);
+        let props = get_props(&event).unwrap();
+
+        let expected = format!("{}...", "x".repeat(MAX_EXCEPTION_VALUE_LENGTH));
+        assert_eq!(props.exception_list[0].exception_message, expected);
+    }
 }

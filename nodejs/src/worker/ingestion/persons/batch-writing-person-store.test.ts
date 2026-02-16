@@ -66,6 +66,7 @@ describe('BatchWritingPersonStore', () => {
             is_user_id: null,
             is_identified: false,
             uuid: '1',
+            last_seen_at: null,
         }
 
         mockPostgres = {
@@ -93,6 +94,8 @@ describe('BatchWritingPersonStore', () => {
             fetchPerson: jest.fn().mockResolvedValue(person),
             fetchPersonDistinctIds: jest.fn().mockResolvedValue([]),
             fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
+            countPersonsByProperties: jest.fn().mockResolvedValue(0),
+            fetchPersonsByProperties: jest.fn().mockResolvedValue([]),
             createPerson: jest.fn().mockResolvedValue([person, []]),
             updatePerson: jest.fn().mockResolvedValue([person, [], false]),
             updatePersonAssertVersion: jest.fn().mockResolvedValue([person.version + 1, []]),
@@ -738,6 +741,59 @@ describe('BatchWritingPersonStore', () => {
                 expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
                 expect(mockRepo.updatePerson).toHaveBeenCalled() // Fallback was attempted
                 expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
+            })
+
+            it('should use individual updates when useBatchUpdates is false', async () => {
+                const personStore = new BatchWritingPersonsStore(mockRepo, mockKafkaProducer, {
+                    dbWriteMode: 'NO_ASSERT',
+                    useBatchUpdates: false,
+                })
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(
+                    person,
+                    { new_value: 'new_value' },
+                    [],
+                    {},
+                    'test'
+                )
+                await personStore.flush()
+
+                // Individual mode should call updatePerson, not updatePersonsBatch
+                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+                expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
+                expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
+            })
+
+            it('should retry individual updates on error when useBatchUpdates is false', async () => {
+                const personStore = new BatchWritingPersonsStore(mockRepo, mockKafkaProducer, {
+                    dbWriteMode: 'NO_ASSERT',
+                    useBatchUpdates: false,
+                    maxOptimisticUpdateRetries: 2,
+                    optimisticUpdateRetryInterval: 1,
+                })
+
+                // Mock updatePerson to fail twice then succeed
+                let callCount = 0
+                mockRepo.updatePerson = jest.fn().mockImplementation(() => {
+                    callCount++
+                    if (callCount <= 2) {
+                        return Promise.reject(new Error('Temporary error'))
+                    }
+                    return Promise.resolve([person, []])
+                })
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(
+                    person,
+                    { new_value: 'new_value' },
+                    [],
+                    {},
+                    'test'
+                )
+                await personStore.flush()
+
+                // Should have retried
+                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(3)
+                expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
             })
         })
 
@@ -2119,6 +2175,120 @@ describe('BatchWritingPersonStore', () => {
             })
             // personPropertyKeyUpdateCounter should NOT be called for 'ignored' outcomes
             expect(mockPersonPropertyKeyUpdateCounter.labels).not.toHaveBeenCalled()
+        })
+
+        it('should write to database when last_seen_at changes', async () => {
+            const mockRepo = createMockRepository()
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockKafkaProducer)
+
+            const personWithLastSeen = {
+                ...person,
+                last_seen_at: DateTime.fromISO('2024-01-01T10:00:00Z'),
+            }
+
+            // Update person with only last_seen_at change (via otherUpdates)
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithLastSeen,
+                {}, // no property changes
+                [],
+                { last_seen_at: DateTime.fromISO('2024-01-01T11:00:00Z') }, // new hour
+                'test'
+            )
+
+            await personStore.flush()
+
+            // Should write because last_seen_at changed
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+        })
+
+        it('should NOT write to database when last_seen_at is unchanged', async () => {
+            const mockRepo = createMockRepository()
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockKafkaProducer)
+
+            const lastSeenTime = DateTime.fromISO('2024-01-01T10:00:00Z')
+            const personWithLastSeen = {
+                ...person,
+                last_seen_at: lastSeenTime,
+            }
+
+            // Update person with same last_seen_at (no actual change)
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithLastSeen,
+                {}, // no property changes
+                [],
+                { last_seen_at: lastSeenTime }, // same timestamp - should not trigger change
+                'test'
+            )
+
+            await personStore.flush()
+
+            // Should NOT write because nothing changed
+            expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
+            expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+        })
+
+        it('should take the newer last_seen_at when multiple updates occur', async () => {
+            const mockRepo = createMockRepository()
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockKafkaProducer)
+
+            const personWithLastSeen = {
+                ...person,
+                last_seen_at: DateTime.fromISO('2024-01-01T10:00:00Z'),
+            }
+
+            // First update with a newer timestamp
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithLastSeen,
+                {},
+                [],
+                { last_seen_at: DateTime.fromISO('2024-01-01T12:00:00Z') },
+                'test'
+            )
+
+            // Second update with an older timestamp (should be ignored)
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithLastSeen,
+                {},
+                [],
+                { last_seen_at: DateTime.fromISO('2024-01-01T11:00:00Z') },
+                'test'
+            )
+
+            await personStore.flush()
+
+            // Should write with the newer timestamp
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    last_seen_at: DateTime.fromISO('2024-01-01T12:00:00Z'),
+                }),
+            ])
+        })
+
+        it('should write to database when last_seen_at changes from null', async () => {
+            const mockRepo = createMockRepository()
+            const personStore = new BatchWritingPersonsStore(mockRepo, mockKafkaProducer)
+
+            const personWithNoLastSeen = {
+                ...person,
+                last_seen_at: null,
+            }
+
+            // Update person setting last_seen_at for the first time
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                personWithNoLastSeen,
+                {},
+                [],
+                { last_seen_at: DateTime.fromISO('2024-01-01T10:00:00Z') },
+                'test'
+            )
+
+            await personStore.flush()
+
+            // Should write because last_seen_at changed from null
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
         })
     })
 

@@ -122,6 +122,10 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def __str__(self):
         return self.name or self.derived_name or self.short_id
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._original_query = self.query
+
     def save(self, *args, **kwargs) -> None:
         # generate query metadata if needed
         if self._state.adding or self.query != self._original_query or self.query_metadata is None:
@@ -140,10 +144,6 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 )
                 capture_exception(e)
         super().save(*args, **kwargs)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._original_query = self.query
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Insight"]:

@@ -60,6 +60,7 @@ export function SessionRecordingPlayerExplorer({
                 <iframe
                     key={iframeKey}
                     srcDoc={html}
+                    sandbox=""
                     width={width}
                     height={height}
                     className="origin-top-left ph-no-capture"

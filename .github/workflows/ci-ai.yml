@@ -30,7 +30,7 @@ jobs:
             pull-requests: write
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
               with:
                   # Check out the actual branch instead of merge commit with master,
                   # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
@@ -47,17 +47,18 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml up -d --wait
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
               with:
                   python-version-file: 'pyproject.toml'
 
             - name: Install uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install python dependencies
@@ -67,11 +68,15 @@ jobs:
             - name: Install Rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
@@ -83,7 +88,7 @@ jobs:
               run: bin/check_kafka_clickhouse_up
 
             - name: Run LLM evals
-              run: pytest ee/hogai/eval/ci -vv
+              run: pytest ee/hogai/eval/ci -vv --junitxml=junit.xml
               env:
                   EVAL_MODE: ci
                   EXPORT_EVAL_RESULTS: true
@@ -98,9 +103,15 @@ jobs:
             - name: Post eval summary to PR
               # always() because we want to post even if `pytest` exited with an error (likely just one eval suite errored)
               if: always() && github.event_name == 'pull_request'
-              uses: actions/github-script@v8
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   script: |
                       const fs = require("fs")
                       const script = require('.github/scripts/post-eval-summary.js')
                       script({ github, context, fs })
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-ai-evals
+                  path: junit.xml

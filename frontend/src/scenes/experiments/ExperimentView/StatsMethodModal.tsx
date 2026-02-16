@@ -5,15 +5,10 @@ import { LemonModal } from '@posthog/lemon-ui'
 
 import { ExperimentStatsMethod } from '~/types'
 
-import { SelectableCard } from '../components/SelectableCard'
+import { StatsMethodSelector } from '../components/StatsMethodSelector'
+import { CONFIDENCE_LEVEL_OPTIONS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-
-const CONFIDENCE_LEVEL_OPTIONS = [
-    { value: 0.9, label: '90%' },
-    { value: 0.95, label: '95%' },
-    { value: 0.99, label: '99%' },
-]
 
 export function StatsMethodModal(): JSX.Element {
     const { experiment, statsMethod } = useValues(experimentLogic)
@@ -81,36 +76,21 @@ export function StatsMethodModal(): JSX.Element {
                 </div>
             }
         >
-            <div className="flex gap-4 mb-4">
-                <SelectableCard
-                    title="Bayesian"
-                    description="Gives you a clear win probability, showing how likely one variant is to be better than another. Great for product engineers new to experimentation."
-                    selected={statsMethod === ExperimentStatsMethod.Bayesian}
-                    onClick={() => {
+            <div className="mb-4">
+                <StatsMethodSelector
+                    value={statsMethod}
+                    onChange={(newStatsMethod) => {
                         setExperiment({
                             stats_config: {
                                 ...experiment.stats_config,
-                                method: ExperimentStatsMethod.Bayesian,
-                            },
-                        })
-                    }}
-                />
-                <SelectableCard
-                    title="Frequentist"
-                    description="Uses p-values to determine statistical significance. Often preferred by data scientists and teams experienced with traditional A/B testing."
-                    selected={statsMethod === ExperimentStatsMethod.Frequentist}
-                    onClick={() => {
-                        setExperiment({
-                            stats_config: {
-                                ...experiment.stats_config,
-                                method: ExperimentStatsMethod.Frequentist,
+                                method: newStatsMethod,
                             },
                         })
                     }}
                 />
             </div>
             <div className="flex flex-col gap-2">
-                <LemonLabel>'Confidence level'</LemonLabel>
+                <LemonLabel>Confidence level</LemonLabel>
                 <LemonSelect
                     value={currentConfidenceLevel}
                     onChange={handleConfidenceLevelChange}

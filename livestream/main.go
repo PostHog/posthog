@@ -67,8 +67,7 @@ func main() {
 	go stats.KeepStats(statsChan)
 	go sessionStats.KeepStats(ctx, sessionStatsChan)
 
-	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka.Brokers, config.Kafka.SecurityProtocol, config.Kafka.GroupID, config.Kafka.Topic, geolocator, phEventChan,
-		statsChan, config.Parallelism)
+	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka, geolocator, phEventChan, statsChan, config.Parallelism)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
@@ -153,7 +152,8 @@ func main() {
 				return nil
 			}
 			// Write directly to stdout without log prefix since JSON already has time field
-			os.Stdout.Write(append(jsonBytes, '\n'))
+			_, _ = os.Stdout.Write(append(jsonBytes, '\n'))
+
 			return nil
 		},
 	}))
@@ -224,11 +224,18 @@ func main() {
 	}
 
 	// Start HTTP server in goroutine
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	go func() {
-		if err := e.Start(":8080"); err != nil && err != http.ErrServerClosed {
+		if err := e.Start(":" + port); err != nil && err != http.ErrServerClosed {
 			e.Logger.Fatal(err)
 		}
 	}()
+
+	log.Printf("Livestream server starting on %s", port)
 
 	// Wait for shutdown signal
 	<-shutdownHTTP

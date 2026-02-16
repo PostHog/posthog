@@ -1,7 +1,7 @@
 """Data models for trace clustering workflow."""
 
-from dataclasses import dataclass
-from typing import TypedDict
+from dataclasses import dataclass, field
+from typing import Any, Literal, TypedDict
 
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_LOOKBACK_DAYS,
@@ -9,6 +9,21 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_MAX_SAMPLES,
     DEFAULT_MIN_K,
 )
+
+# Analysis level determines whether we cluster traces or individual generations
+AnalysisLevel = Literal["trace", "generation"]
+
+
+@dataclass
+class ClusterItem:
+    """Represents an item being clustered with explicit trace and generation IDs.
+
+    For trace-level clustering: trace_id is set, generation_id is None
+    For generation-level clustering: both trace_id (parent) and generation_id are set
+    """
+
+    trace_id: str  # Always set - the trace ID (or parent trace for generations)
+    generation_id: str | None = None  # Only set for generation-level clustering
 
 
 @dataclass
@@ -20,10 +35,23 @@ class ClusteringWorkflowInputs:
     """
 
     team_id: int
+    analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
     lookback_days: int = DEFAULT_LOOKBACK_DAYS
     max_samples: int = DEFAULT_MAX_SAMPLES
     min_k: int = DEFAULT_MIN_K
     max_k: int = DEFAULT_MAX_K
+    embedding_normalization: str = "l2"  # "none" or "l2" - whether to L2 normalize embeddings before clustering
+    dimensionality_reduction_method: str = "umap"  # "none", "umap", or "pca"
+    dimensionality_reduction_ndims: int = 100  # target dimensions for umap/pca (ignored if method is "none")
+    run_label: str = ""  # optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)
+    clustering_method: str = "hdbscan"  # "hdbscan" or "kmeans"
+    # Method-specific params. For HDBSCAN: min_cluster_size_fraction, min_samples
+    # For k-means: min_k, max_k (uses silhouette score to pick best k)
+    clustering_method_params: dict[str, Any] = field(default_factory=dict)
+    visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
+    # Optional property filters to scope which traces are included in clustering
+    # Uses PostHog's standard property filter format (same as evaluations, feature flags, etc.)
+    trace_filters: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -36,9 +64,19 @@ class ClusteringActivityInputs:
     team_id: int
     window_start: str  # ISO format, required
     window_end: str  # ISO format, required
+    analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
     max_samples: int = DEFAULT_MAX_SAMPLES
     min_k: int = DEFAULT_MIN_K
     max_k: int = DEFAULT_MAX_K
+    embedding_normalization: str = "l2"  # "none" or "l2" - whether to L2 normalize embeddings before clustering
+    dimensionality_reduction_method: str = "umap"  # "none", "umap", or "pca"
+    dimensionality_reduction_ndims: int = 100  # target dimensions for umap/pca (ignored if method is "none")
+    run_label: str = ""  # optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)
+    clustering_method: str = "hdbscan"  # "hdbscan" or "kmeans"
+    clustering_method_params: dict[str, Any] = field(default_factory=dict)
+    visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
+    # Optional property filters to scope which traces are included in clustering
+    trace_filters: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -49,11 +87,21 @@ class ClusterLabel:
     description: str
 
 
-class TraceClusterMetadata(TypedDict):
-    """Metadata for a trace within a cluster."""
+@dataclass
+class TraceClusterMetadata:
+    """Metadata for a trace or generation within a cluster.
+
+    For trace-level: trace_id is set, generation_id is None
+    For generation-level: both trace_id (parent) and generation_id are set
+    """
 
     distance_to_centroid: float
     rank: int
+    x: float  # UMAP 2D x coordinate for scatter plot visualization
+    y: float  # UMAP 2D y coordinate for scatter plot visualization
+    timestamp: str  # First event timestamp of the trace/generation (ISO format) for efficient linking
+    trace_id: str  # Always set - the trace ID (or parent trace for generations)
+    generation_id: str | None = None  # Only set for generation-level clustering
 
 
 @dataclass
@@ -66,13 +114,15 @@ class ClusterData:
     description: str
     traces: dict[str, TraceClusterMetadata]
     centroid: list[float]
+    centroid_x: float  # UMAP 2D x coordinate for scatter plot visualization
+    centroid_y: float  # UMAP 2D y coordinate for scatter plot visualization
 
 
 @dataclass
 class ClusteringMetrics:
     """Metrics from the clustering algorithm."""
 
-    total_traces_analyzed: int = 0
+    total_items_analyzed: int = 0
     num_clusters: int = 0
     duration_seconds: float = 0.0
 
@@ -91,19 +141,22 @@ class ClusteringResult:
 
 
 class TraceSummary(TypedDict):
-    """Summary of a trace for labeling."""
+    """Summary of a trace or generation for labeling."""
 
     title: str
     flow_diagram: str
     bullets: str
     interesting_notes: str
+    trace_timestamp: str  # First event timestamp of the trace/generation (ISO format)
+    trace_id: str  # The trace ID (same as key for trace-level, parent for generation-level)
 
 
 # Type aliases for data access
-TraceId = str
-TraceEmbeddings = dict[TraceId, list[float]]
-TraceSummaries = dict[TraceId, TraceSummary]
-ClusterRepresentatives = dict[int, list[TraceId]]  # cluster_id -> list of representative trace IDs
+ItemId = str  # Can be trace_id or generation_id depending on analysis_level
+BatchRunId = str
+ItemEmbeddings = dict[ItemId, list[float]]  # Maps item_id -> embedding vector
+ItemBatchRunIds = dict[ItemId, BatchRunId]  # Maps item_id -> batch_run_id from embeddings
+ItemSummaries = dict[ItemId, TraceSummary]  # Maps item_id -> summary
 
 
 @dataclass
@@ -115,26 +168,68 @@ class KMeansResult:
 
 
 @dataclass
+class HDBSCANResult:
+    """Result of HDBSCAN clustering.
+
+    Unlike k-means, HDBSCAN can assign -1 to noise points (outliers).
+    Centroids are computed as the mean of cluster members.
+    """
+
+    labels: list[int]  # Cluster assignment for each sample (-1 = noise/outlier)
+    centroids: list[list[float]]  # Cluster centroids (mean of members), excludes noise
+    probabilities: list[float]  # Cluster membership probability per sample (0 for noise)
+    num_noise_points: int  # Count of points assigned to noise cluster (-1)
+
+
+@dataclass
 class ClusteringComputeResult:
     """Output from the compute activity - passed to labeling and emission."""
 
     clustering_run_id: str
-    trace_ids: list[str]
-    labels: list[int]  # cluster assignment per trace
-    centroids: list[list[float]]  # k centroids, each 384-dim
-    distances: list[list[float]]  # n_traces x k_clusters distance matrix
-    representative_trace_ids: ClusterRepresentatives  # cluster_id -> trace_ids
+    items: list[ClusterItem]  # Items being clustered with explicit trace_id and generation_id
+    labels: list[int]  # cluster assignment per item (-1 = noise/outlier for HDBSCAN)
+    centroids: list[list[float]]  # k centroids (excludes noise cluster)
+    distances: list[list[float]]  # n_items x k_clusters distance matrix
+    coords_2d: list[list[float]]  # UMAP 2D coordinates per item, shape (n_items, 2)
+    centroid_coords_2d: list[list[float]]  # UMAP 2D coordinates per centroid, shape (k, 2)
+    probabilities: list[float]  # Cluster membership probability per sample (0 for noise)
+    # Fields with defaults must come after fields without defaults
+    analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
+    num_noise_points: int = 0  # Count of noise/outlier points
+    batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
+
+
+@dataclass
+class TraceLabelingMetadata:
+    """Per-trace metadata for the labeling activity.
+
+    Precomputed from distances matrix to avoid O(n × k) payload size.
+    """
+
+    x: float  # UMAP 2D x coordinate
+    y: float  # UMAP 2D y coordinate
+    distance_to_centroid: float  # Distance to own cluster's centroid
+    rank: int  # Rank within cluster (1 = closest to centroid)
 
 
 @dataclass
 class GenerateLabelsActivityInputs:
-    """Input for the LLM labeling activity."""
+    """Input for the LLM labeling activity.
+
+    Contains precomputed per-item metadata for the labeling agent.
+    Payload size is O(n) instead of O(n × k) by precomputing ranks/distances.
+    """
 
     team_id: int
-    labels: list[int]
-    representative_trace_ids: ClusterRepresentatives
+    items: list[ClusterItem]  # Items being clustered with explicit trace_id and generation_id
+    labels: list[int]  # cluster assignment per item (-1 = noise)
+    item_metadata: list[TraceLabelingMetadata]  # per-item: x, y, distance, rank
+    centroid_coords_2d: list[list[float]]  # UMAP 2D coordinates per centroid
     window_start: str
     window_end: str
+    # Fields with defaults must come after fields without defaults
+    analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
+    batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
 
 
 @dataclass
@@ -145,6 +240,19 @@ class GenerateLabelsActivityOutputs:
 
 
 @dataclass
+class ClusteringParams:
+    """Parameters used for a clustering run, stored with the event for debugging/analysis."""
+
+    clustering_method: str  # "hdbscan" or "kmeans"
+    clustering_method_params: dict[str, Any]  # Method-specific params
+    embedding_normalization: str  # "none" or "l2"
+    dimensionality_reduction_method: str  # "none", "umap", or "pca"
+    dimensionality_reduction_ndims: int  # Target dimensions
+    visualization_method: str  # "umap", "pca", or "tsne"
+    max_samples: int  # Max traces to sample
+
+
+@dataclass
 class EmitEventsActivityInputs:
     """Input for the event emission activity."""
 
@@ -152,8 +260,14 @@ class EmitEventsActivityInputs:
     clustering_run_id: str
     window_start: str
     window_end: str
-    trace_ids: list[str]
+    items: list[ClusterItem]  # Items being clustered with explicit trace_id and generation_id
     labels: list[int]
     centroids: list[list[float]]
     distances: list[list[float]]
     cluster_labels: dict[int, ClusterLabel]
+    coords_2d: list[list[float]]  # UMAP 2D coordinates per item
+    centroid_coords_2d: list[list[float]]  # UMAP 2D coordinates per centroid
+    # Fields with defaults must come after fields without defaults
+    analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
+    batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
+    clustering_params: ClusteringParams | None = None  # Params used for this run

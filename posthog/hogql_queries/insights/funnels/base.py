@@ -134,25 +134,6 @@ class FunnelBase(ABC):
     def get_step_counts_without_aggregation_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    # This is a simple heuristic to reduce the number of events we look at in UDF funnels (thus are serialized and sent over)
-    # We remove an event if it matches one or zero steps and there was already the same type of event before and after it (that don't have the same timestamp)
-    # arrayRotateRight turns [1,2,3] into [3,1,2]
-    # arrayRotateLeft turns [1,2,3] into [2,3,1]
-    # For some reason, using these uses much less memory than using indexing in clickhouse to check the previous and next element
-    def event_array_filter(self, timestamp_index: int, prop_val_index: int, steps_index: int):
-        return f"""arrayFilter(
-                    (x, x_before, x_after) -> not (
-                        length(x.{steps_index}) <= 1
-                        and x.{steps_index} == x_before.{steps_index}
-                        and x.{steps_index} == x_after.{steps_index}
-                        and x.{prop_val_index} == x_before.{prop_val_index}
-                        and x.{prop_val_index} == x_after.{prop_val_index}
-                        and x.{timestamp_index} > x_before.{timestamp_index}
-                        and x.{timestamp_index} < x_after.{timestamp_index}),
-                    events_array,
-                    arrayRotateRight(events_array, 1),
-                    arrayRotateLeft(events_array, 1))"""
-
     @cached_property
     def breakdown_cohorts(self) -> list[Cohort]:
         team, breakdown = self.context.team, self.context.breakdown
@@ -214,7 +195,7 @@ class FunnelBase(ABC):
                 serialized_result.update(
                     {
                         "breakdown": (
-                            get_breakdown_cohort_name(breakdown_value)
+                            get_breakdown_cohort_name(breakdown_value, self.context.team)
                             if self.context.breakdownFilter.breakdown_type == "cohort"
                             else breakdown_value
                         ),
@@ -473,7 +454,7 @@ class FunnelBase(ABC):
         ):
             for i in range(0, max_steps):
                 exprs.append(parse_expr(f"groupArray(10)(step_{i}_matching_event) AS step_{i}_matching_events"))
-            exprs.append(parse_expr(f"groupArray(10)(final_matching_event) AS final_matching_events"))
+            exprs.append(parse_expr("groupArray(10)(final_matching_event) AS final_matching_events"))
         return exprs
 
     def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False) -> list[ast.Expr]:
@@ -591,7 +572,11 @@ class FunnelBase(ABC):
         exprs: list[ast.Expr] = []
 
         for prop in self.context.includeProperties:
-            exprs.append(parse_expr(f"any({prop}) as {prop}") if aggregate else parse_expr(prop))
+            prop_expr = parse_expr(prop)
+            if aggregate:
+                exprs.append(ast.Alias(alias=prop, expr=ast.Call(name="any", args=[prop_expr])))
+            else:
+                exprs.append(prop_expr)
 
         return exprs
 

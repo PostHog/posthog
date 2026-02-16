@@ -187,7 +187,9 @@ async fn main() -> Result<()> {
         } else {
             // production: use JSON format Loki/Grafana can extract useful filter tags from
             base.json()
-                .with_span_list(false)
+                .flatten_event(true)
+                .with_span_list(true)
+                .with_current_span(true)
                 .with_filter(
                     EnvFilter::builder()
                         .with_default_directive(LevelFilter::INFO.into())
@@ -217,12 +219,20 @@ async fn main() -> Result<()> {
         .with(otel_layer)
         .init();
 
+    // Create a root span with pod hostname for all logs
+    // This adds "pod" field to every log line for Loki/Grafana filtering
+    let pod = config
+        .pod_hostname
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
+    let _root_span = tracing::info_span!("service", pod = %pod).entered();
+
     // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
     // NOTE: Must be after tracing is initialized so logs are visible
     let _profiling_agent = match config.continuous_profiling.start_agent() {
         Ok(agent) => agent,
         Err(e) => {
-            tracing::warn!("Failed to start continuous profiling agent: {e}");
+            tracing::warn!("Failed to start continuous profiling agent: {e:#}");
             None
         }
     };

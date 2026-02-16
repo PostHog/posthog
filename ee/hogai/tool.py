@@ -1,4 +1,5 @@
 import json
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from functools import cached_property
@@ -9,9 +10,10 @@ import structlog
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel
+from langgraph.types import interrupt
+from pydantic import BaseModel, ValidationError
 
-from posthog.schema import AssistantTool
+from posthog.schema import ApprovalResumePayload, AssistantTool
 
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
@@ -22,7 +24,7 @@ from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.core.context import get_node_path, set_node_path
 from ee.hogai.core.mixins import AssistantContextMixin, AssistantDispatcherMixin
 from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL
-from ee.hogai.tool_errors import MaxToolAccessDeniedError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
 
 logger = structlog.get_logger(__name__)
@@ -32,6 +34,23 @@ class ToolMessagesArtifact(BaseModel):
     """Return messages directly. Use with `artifact`."""
 
     messages: Sequence[AssistantMessageUnion]
+
+
+PENDING_APPROVAL_STATUS: Literal["pending_approval"] = "pending_approval"
+
+
+class ApprovalRequest(BaseModel):
+    """
+    Interrupt payload when a tool operation requires user approval.
+    This is passed to interrupt() and surfaced to the FE. When the user approves or rejects,
+    """
+
+    status: Literal["pending_approval"] = PENDING_APPROVAL_STATUS
+    proposal_id: str
+    tool_name: str
+    preview: str
+    payload: dict[str, Any]
+    original_tool_call_id: str | None = None
 
 
 class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
@@ -63,33 +82,45 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         """Tool execution, which should return a tuple of (content, artifact)"""
         raise NotImplementedError
 
-    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+    async def is_dangerous_operation(self, *args, **kwargs) -> bool:
         """
-        Declare what resource-level access this tool requires to be used.
+        Override to mark certain operations as requiring user approval.
 
-        Override this method to specify access requirements for your tool.
-        The check runs before `_arun_impl` is called.
-
-        Returns:
-            List of (resource, required_level) tuples.
-            Empty list means no access control check (default for backward compatibility).
-
-        Examples:
-            # Tool that creates feature flags
-            return [("feature_flag", "editor")]
-
-            # Tool that reads insights
-            return [("insight", "viewer")]
-
-            # Tool that needs multiple permissions
-            return [("dashboard", "editor"), ("insight", "viewer")]
+        Returns True if the operation should require explicit user approval
+        before being executed. The default implementation returns False.
         """
-        return []
+        return False
+
+    async def format_dangerous_operation_preview(self, *args, **kwargs) -> str:
+        """
+        Override to provide a human-readable preview of the dangerous operation.
+        This is shown to the user when asking for approval. Should clearly
+        describe what will happen if the operation is approved.
+
+        This method can make async calls (e.g., database queries) to build a rich preview.
+        """
+        return f"Execute {self.name} operation"
+
+    def _get_conversation_id(self) -> str | None:
+        """Extract conversation_id from the config."""
+        configurable = self._config.get("configurable", {})
+        thread_id = configurable.get("thread_id")
+        # Ensure we return a string for consistent cache key matching
+        return str(thread_id) if thread_id is not None else None
+
+    @property
+    def _original_tool_call_id(self) -> str | None:
+        """Get the original tool_call_id from the AssistantMessage that invoked this tool."""
+        if self._node_path:
+            # Find the first NodePath with a tool_call_id
+            for path in reversed(self._node_path):
+                if path.tool_call_id:
+                    return path.tool_call_id
+        return None
 
     # -------------------------------------------------------------------------
-    # Access Control (Resource-level)
+    # Access Control
     # -------------------------------------------------------------------------
-    # TODO: Implement object-level access check after retrieval in the ArtifactManager
 
     @cached_property
     def user_access_control(self) -> UserAccessControl:
@@ -99,19 +130,6 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
             team=self._team,
             organization_id=str(self._team.organization_id),
         )
-
-    def _check_access_control(self) -> None:
-        """
-        Checks all resource-level access requirements declared in `get_required_resource_access()`.
-        Raises MaxToolAccessDeniedError if any check fails.
-        """
-        required_access = self.get_required_resource_access()
-        if not required_access:
-            return
-
-        for resource, required_level in required_access:
-            if not self.user_access_control.check_access_level_for_resource(resource, required_level):
-                raise MaxToolAccessDeniedError(resource, required_level, action="use")
 
     def __init__(
         self,
@@ -160,7 +178,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
         """LangChain default runner."""
-        self._check_access_control()
+        self._check_resource_access()
         try:
             return self._run_with_context(*args, **kwargs)
         except NotImplementedError:
@@ -170,7 +188,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
         """LangChain default runner."""
         # using database_sync_to_async because UserAccessControl is fully sync
-        await database_sync_to_async(self._check_access_control)()
+        await database_sync_to_async(self._check_resource_access)()
         try:
             return await self._arun_with_context(*args, **kwargs)
         except NotImplementedError:
@@ -180,12 +198,39 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     def _run_with_context(self, *args, **kwargs):
         """Sets the context for the tool."""
         with set_node_path(self.node_path):
+            if permission_check_result := async_to_sync(self._check_dangerous_operation)(**kwargs):
+                return permission_check_result
             return self._run_impl(*args, **kwargs)
 
     async def _arun_with_context(self, *args, **kwargs):
-        """Sets the context for the tool."""
+        """Sets the context for the tool. Checks for approved/dangerous operations before executing."""
         with set_node_path(self.node_path):
+            if permission_check_result := await self._check_dangerous_operation(**kwargs):
+                return permission_check_result
             return await self._arun_impl(*args, **kwargs)
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        """
+        Declare what resource-level access this tool requires to be used.
+
+        Override this method to specify access requirements for your tool.
+        The check runs before `_arun_impl` is called.
+
+        Returns:
+            List of (resource, required_level) tuples.
+            Empty list means no access control check (default for backward compatibility).
+
+        Examples:
+            # Tool that creates feature flags
+            return [("feature_flag", "editor")]
+
+            # Tool that reads insights
+            return [("insight", "viewer")]
+
+            # Tool that needs multiple permissions
+            return [("dashboard", "editor"), ("insight", "viewer")]
+        """
+        return []
 
     @property
     def node_name(self) -> str:
@@ -241,6 +286,132 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         return cls(
             team=team, user=user, node_path=node_path, state=state, config=config, context_manager=context_manager
         )
+
+    def _check_resource_access(self) -> None:
+        """
+        Checks all resource-level access requirements declared in `get_required_resource_access()`.
+        Raises MaxToolAccessDeniedError if any check fails.
+        """
+        required_access = self.get_required_resource_access()
+        if not required_access:
+            return
+
+        for resource, required_level in required_access:
+            if not self.user_access_control.check_access_level_for_resource(resource, required_level):
+                raise MaxToolAccessDeniedError(resource, required_level, action="use")
+
+    async def check_object_access(
+        self,
+        obj,
+        required_level: AccessControlLevel,
+        *,
+        resource: str | None = None,
+        action: str = "access",
+    ) -> None:
+        """
+        Check object-level access for a specific model instance.
+        Raises MaxToolAccessDeniedError if user lacks required access.
+
+        Args:
+            obj: The model instance to check access for (Insight, Dashboard, etc.)
+            required_level: Minimum access level required ("viewer", "editor", etc.)
+            resource: Resource name for error message. If None, derived from model._meta.model_name.
+            action: Verb for error message ("read", "edit", "delete")
+        """
+        has_access = await database_sync_to_async(self.user_access_control.check_access_level_for_object)(
+            obj, required_level
+        )
+        if not has_access:
+            resource_name = resource or obj._meta.model_name
+            raise MaxToolAccessDeniedError(resource_name, required_level, action=action)
+
+    async def _check_dangerous_operation(self, **kwargs) -> tuple[str, Any] | None:
+        if not await self.is_dangerous_operation(**kwargs):
+            return None
+
+        # Handle dangerous operation approval flow
+        # Pre-compute preview before calling _handle_dangerous_operation
+        preview = await self.format_dangerous_operation_preview(**kwargs)
+        dangerous_result = self._handle_dangerous_operation(preview=preview, **kwargs)
+        if dangerous_result is not None:
+            return dangerous_result
+        return None
+
+    def _handle_dangerous_operation(self, preview: str | None = None, **kwargs) -> tuple[str, Any] | None:
+        """
+        Handle dangerous operation approval flow using LangGraph's interrupt().
+
+        If the operation is dangerous, this method calls interrupt() which pauses execution
+        and returns an ApprovalRequest to the frontend. When the user approves or rejects,
+        the graph is resumed with a Command(resume=payload) and interrupt() returns that payload.
+
+        Args:
+            preview: Human-readable preview of the operation. Must be provided when the operation
+                     is dangerous (pre-computed async by the caller).
+        """
+        if preview is None:
+            raise ValueError("preview must be provided for dangerous operations")
+
+        proposal_id = str(uuid.uuid4())
+        serialized_payload = self._serialize_kwargs_for_storage(kwargs)
+
+        approval_request = ApprovalRequest(
+            proposal_id=proposal_id,
+            tool_name=self.name,
+            preview=preview,
+            payload=serialized_payload,
+            original_tool_call_id=self._original_tool_call_id,
+        )
+
+        # Call interrupt() - execution pauses here and ApprovalRequest is sent to frontend
+        # When resumed with Command(resume=response), interrupt() returns the response
+        response = interrupt(approval_request)
+        try:
+            approval_resume_payload = ApprovalResumePayload.model_validate(response)
+        except ValidationError as e:
+            raise MaxToolRetryableError(f"Invalid response from the user: {e}")
+
+        # Handle the response from the user
+        if approval_resume_payload.action == "approve":
+            if updated_payload := approval_resume_payload.payload:
+                # User approved - update kwargs with any modifications and proceed
+                kwargs.update(self._reconstruct_kwargs_from_payload(updated_payload))
+            return None  # Continue with _arun_impl
+        else:
+            # User rejected
+            feedback = approval_resume_payload.feedback or ""
+            if feedback:
+                return (
+                    f"The user rejected this operation with the following feedback: {feedback}. "
+                    "Please acknowledge their feedback and adjust your approach accordingly.",
+                    None,
+                )
+            return (
+                "The user rejected this operation. "
+                "Please acknowledge their decision and ask if they would like to proceed differently.",
+                None,
+            )
+
+    def _reconstruct_kwargs_from_payload(self, payload: dict) -> dict:
+        """Reconstruct kwargs from stored payload (Pydantic deserialization)."""
+        args_schema = getattr(self, "args_schema", None)
+        if args_schema is not None and isinstance(args_schema, type) and issubclass(args_schema, BaseModel):
+            try:
+                validated_args = args_schema.model_validate(payload)
+                return {field_name: getattr(validated_args, field_name) for field_name in validated_args.model_fields}
+            except Exception as e:
+                logger.warning(f"Failed to reconstruct kwargs from payload: {e}, using raw payload")
+        return payload
+
+    def _serialize_kwargs_for_storage(self, kwargs: dict) -> dict:
+        """Serialize kwargs for cache storage, converting Pydantic models to dicts."""
+        serialized = {}
+        for key, value in kwargs.items():
+            if isinstance(value, BaseModel):
+                serialized[key] = value.model_dump()
+            else:
+                serialized[key] = value
+        return serialized
 
 
 class MaxSubtool(AssistantDispatcherMixin, ABC):

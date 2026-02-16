@@ -7,7 +7,6 @@ import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { AnalyzeResponsesButton } from 'scenes/surveys/components/AnalyzeResponsesButton'
 import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-visualizations/MultipleChoiceQuestionViz'
-import { ResponseSummariesButton } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummarizer'
 import { OpenQuestionViz } from 'scenes/surveys/components/question-visualizations/OpenQuestionViz'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
@@ -29,7 +28,12 @@ function QuestionTitle({
     questionIndex,
     totalResponses = 0,
 }: Props & { totalResponses?: number }): JSX.Element {
-    const { isSurveyAnalysisMaxToolEnabled } = useValues(surveyLogic)
+    // only show analzye button if there's text to analyze
+    const shouldShowAnalyzeButton =
+        question.type === SurveyQuestionType.Open ||
+        (question.type === SurveyQuestionType.SingleChoice && question.hasOpenChoice) ||
+        (question.type === SurveyQuestionType.MultipleChoice && question.hasOpenChoice)
+
     return (
         <div className="flex flex-col">
             <div className="inline-flex gap-1 max-w-fit font-semibold text-secondary items-center">
@@ -59,10 +63,8 @@ function QuestionTitle({
                 <h3 className="text-xl font-bold mb-0">
                     Question {questionIndex + 1}: {question.question}
                 </h3>
-                {question.type === SurveyQuestionType.Open && totalResponses > 5 && !isSurveyAnalysisMaxToolEnabled && (
-                    <ResponseSummariesButton questionIndex={questionIndex} questionId={question.id} />
-                )}
-                {isSurveyAnalysisMaxToolEnabled && <AnalyzeResponsesButton />}
+
+                {shouldShowAnalyzeButton && <AnalyzeResponsesButton />}
             </div>
         </div>
     )
@@ -176,12 +178,19 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
                         (demoData.type === SurveyQuestionType.SingleChoice ||
                             demoData.type === SurveyQuestionType.MultipleChoice) && (
                             <MultipleChoiceQuestionViz
+                                question={question}
+                                questionIndex={questionIndex}
                                 responseData={demoData.data}
                                 totalResponses={demoData.totalResponses}
                             />
                         )}
                     {question.type === SurveyQuestionType.Open && demoData.type === SurveyQuestionType.Open && (
-                        <OpenQuestionViz question={question} responseData={demoData.data} />
+                        <OpenQuestionViz
+                            question={question}
+                            questionIndex={questionIndex}
+                            responseData={demoData.data}
+                            totalResponses={demoData.totalResponses}
+                        />
                     )}
                 </div>
             </div>
@@ -237,12 +246,19 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
                         (processedData.type === SurveyQuestionType.SingleChoice ||
                             processedData.type === SurveyQuestionType.MultipleChoice) && (
                             <MultipleChoiceQuestionViz
+                                question={question}
+                                questionIndex={questionIndex}
                                 responseData={processedData.data}
                                 totalResponses={processedData.totalResponses}
                             />
                         )}
                     {question.type === SurveyQuestionType.Open && processedData.type === SurveyQuestionType.Open && (
-                        <OpenQuestionViz question={question} responseData={processedData.data} />
+                        <OpenQuestionViz
+                            question={question}
+                            questionIndex={questionIndex}
+                            responseData={processedData.data}
+                            totalResponses={processedData.totalResponses}
+                        />
                     )}
                 </ErrorBoundary>
             </div>

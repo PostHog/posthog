@@ -106,7 +106,15 @@ export function InsightVizDisplay({
         }
 
         if (validationError) {
-            return <InsightValidationError query={query} detail={validationError} />
+            return (
+                <InsightValidationError
+                    query={query}
+                    detail={validationError}
+                    onRetry={() => {
+                        loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
+                    }}
+                />
+            )
         }
 
         // Insight specific empty states - note order is important here
@@ -292,23 +300,26 @@ export function InsightVizDisplay({
                 {disableHeader ? null : <InsightDisplayConfig />}
                 {showingResults && (
                     <>
-                        {!embedded && (isFunnels || isPaths || showComputationMetadata) && (
-                            <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
-                                <div className="flex items-center gap-2">
-                                    {showComputationMetadata && (
-                                        <InsightResultMetadata
-                                            disableLastComputation={disableLastComputation}
-                                            disableLastComputationRefresh={disableLastComputationRefresh}
-                                        />
-                                    )}
-                                </div>
+                        {!embedded &&
+                            ((isFunnels && hasFunnelResults) ||
+                                isPaths ||
+                                (showComputationMetadata && !BlockingEmptyState)) && (
+                                <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
+                                    <div className="flex items-center gap-2">
+                                        {showComputationMetadata && (
+                                            <InsightResultMetadata
+                                                disableLastComputation={disableLastComputation}
+                                                disableLastComputationRefresh={disableLastComputationRefresh}
+                                            />
+                                        )}
+                                    </div>
 
-                                <div className="flex items-center gap-2">
-                                    {isPaths && isUsingPathsV1 && <PathCanvasLabel />}
-                                    {isFunnels && <FunnelCanvasLabel />}
+                                    <div className="flex items-center gap-2">
+                                        {isPaths && isUsingPathsV1 && <PathCanvasLabel />}
+                                        {isFunnels && <FunnelCanvasLabel />}
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
 
                         <div
                             className={clsx(

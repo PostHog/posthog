@@ -13,7 +13,7 @@ from langchain_core.messages import (
     ToolMessage as LangchainToolMessage,
 )
 from langchain_core.runnables import RunnableConfig
-from langgraph.errors import NodeInterrupt
+from langgraph.errors import GraphInterrupt
 from langgraph.types import Send
 from posthoganalytics import capture_exception
 from pydantic import ValidationError
@@ -196,12 +196,17 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         else:
             new_messages = cast(list[AssistantMessageUnion], generated_messages)
 
+        # NOTE: We intentionally do NOT extract the mode from switch_mode tool calls here.
+        # The mode should only change AFTER the tools node validates and executes the tool.
+        # If we set agent_mode prematurely, the tools node will use the wrong mode_registry
+        # to validate the switch_mode call (e.g., trying to validate "plan" against the
+        # plan mode registry which doesn't have "plan" as a valid mode).
         return PartialAssistantState(
             messages=new_messages,
             root_tool_calls_count=tool_call_count,
             root_conversation_start_id=window_id,
             start_id=start_id,
-            agent_mode=self._get_updated_agent_mode(generated_messages[-1], state.agent_mode_or_default),
+            agent_mode=state.agent_mode_or_default,
         )
 
     def router(self, state: AssistantState):
@@ -220,7 +225,11 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             stream_usage=True,
             user=self._user,
             team=self._team,
-            betas=["interleaved-thinking-2025-05-14", "context-1m-2025-08-07"],
+            betas=[
+                "interleaved-thinking-2025-05-14",
+                "context-1m-2025-08-07",
+                "fine-grained-tool-streaming-2025-05-14",
+            ],
             max_tokens=8192,
             thinking=self.THINKING_CONFIG,
             conversation_start_dt=state.start_dt,
@@ -309,25 +318,34 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         """Process the output message."""
         return normalize_ai_message(message)
 
-    def _get_updated_agent_mode(self, generated_message: AssistantMessage, current_mode: AgentMode) -> AgentMode | None:
-        for tool_call in generated_message.tool_calls or []:
-            if tool_call.name == AssistantTool.SWITCH_MODE and (new_mode := tool_call.args.get("new_mode")):
-                return new_mode
-        return current_mode
-
 
 class AgentToolsExecutable(BaseAgentLoopExecutable):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
-
         reset_state = PartialAssistantState(root_tool_call_id=None)
-        # Should never happen, but just in case.
-        if not isinstance(last_message, AssistantMessage) or not last_message.id or not state.root_tool_call_id:
+
+        # Check if we're resuming from an interrupted approval flow
+        tool_call_message = None
+        if isinstance(last_message, AssistantToolCallMessage) and state.root_tool_call_id:
+            # Look for the original AssistantMessage with the tool call
+            for msg in reversed(state.messages[:-1]):
+                if isinstance(msg, AssistantMessage) and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        if tc.id == state.root_tool_call_id:
+                            tool_call_message = msg
+                            break
+                    if tool_call_message:
+                        break
+        elif isinstance(last_message, AssistantMessage):
+            tool_call_message = last_message
+
+        if not tool_call_message or not tool_call_message.id or not state.root_tool_call_id:
             return reset_state
 
-        # Find the current tool call in the last message.
+        # Find the current tool call in the message.
         tool_call = next(
-            (tool_call for tool_call in last_message.tool_calls or [] if tool_call.id == state.root_tool_call_id), None
+            (tool_call for tool_call in tool_call_message.tool_calls or [] if tool_call.id == state.root_tool_call_id),
+            None,
         )
         if not tool_call:
             return reset_state
@@ -358,7 +376,7 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
         tool.set_node_path(
             (
                 *self.node_path[:-1],
-                NodePath(name=AssistantNodeName.ROOT_TOOLS, message_id=last_message.id, tool_call_id=tool_call.id),
+                NodePath(name=AssistantNodeName.ROOT_TOOLS, message_id=tool_call_message.id, tool_call_id=tool_call.id),
             )
         )
 
@@ -369,6 +387,19 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             if not isinstance(result, LangchainToolMessage):
                 raise ValueError(
                     f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
+                )
+
+            # Track successful tool execution
+            user_distinct_id = self._get_user_distinct_id(config)
+            if user_distinct_id:
+                posthoganalytics.capture(
+                    distinct_id=user_distinct_id,
+                    event="ai tool executed",
+                    properties={
+                        **self._get_debug_props(config),
+                        "tool_name": tool_call.name,
+                    },
+                    groups=groups(None, self._team),
                 )
         except MaxToolError as e:
             logger.exception(
@@ -423,8 +454,9 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
                     )
                 ],
             )
-        except NodeInterrupt:
-            # Let NodeInterrupt propagate to the graph engine for tool interrupts
+        except GraphInterrupt:
+            # GraphInterrupt is raised when a tool calls interrupt() for approval flow.
+            # Let it propagate up to be handled by LangGraph's interrupt
             raise
         except Exception as e:
             logger.exception("Error calling tool", extra={"tool_name": tool_call.name, "error": str(e)})
@@ -443,7 +475,7 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
 
         if isinstance(result.artifact, ToolMessagesArtifact):
             return PartialAssistantState(
-                messages=result.artifact.messages,
+                messages=list(result.artifact.messages),
             )
 
         tool_message = AssistantToolCallMessage(
@@ -453,8 +485,27 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             tool_call_id=tool_call.id,
         )
 
+        # Extract agent_mode from switch_mode tool result
+        # The switch_mode tool returns (content, new_mode) where new_mode is stored in artifact
+        agent_mode: AgentMode | None = None
+        if tool_call.name == AssistantTool.SWITCH_MODE and result.artifact:
+            agent_mode = result.artifact
+            user_distinct_id = self._get_user_distinct_id(config)
+            if user_distinct_id:
+                posthoganalytics.capture(
+                    distinct_id=user_distinct_id,
+                    event="ai mode executed",
+                    properties={
+                        **self._get_debug_props(config),
+                        "mode": agent_mode,
+                        "previous_mode": state.agent_mode_or_default,
+                    },
+                    groups=groups(None, self._team),
+                )
+
         return PartialAssistantState(
             messages=[tool_message],
+            agent_mode=agent_mode,
         )
 
     def router(self, state: AssistantState) -> Literal["root", "end"]:
