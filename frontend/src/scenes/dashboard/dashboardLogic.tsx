@@ -295,6 +295,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 loadDashboard: async ({ action }, breakpoint) => {
                     actions.loadingDashboardItemsStarted(action)
+
                     await breakpoint(200)
 
                     try {
@@ -304,8 +305,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
 
-                        const result = getQueryBasedDashboard(dashboard)
-                        return result
+                        return getQueryBasedDashboard(dashboard)
                     } catch (error: any) {
                         if (error.status === 404) {
                             return null
@@ -345,6 +345,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         },
                         // onError callback
                         (error) => {
+                            console.error('❌ Tile streaming error:', error)
                             actions.tileStreamingFailure(error)
                         }
                     )
@@ -586,6 +587,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         .map((tile) => tile.dashboard_id)
                         .concat(extraDashboardIds || [])
                     if (!targetDashboards.includes(props.id)) {
+                        // this update is not for this dashboard
                         return state
                     }
 
@@ -605,6 +607,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             } else if (!insight.dashboards?.includes(props.id)) {
                                 newTiles.splice(tileIndex, 1)
                             }
+                        } else {
+                            // we can't create tiles in this reducer
+                            // will reload all items in a listener to pick up the new tile
                         }
 
                         return {
@@ -1413,12 +1418,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 .map((tile) => tile.dashboard_id)
                 .concat(extraDashboardIds || [])
             if (!targetDashboards.includes(props.id)) {
+                // this update is not for this dashboard
                 return
             }
 
             const tileIndex = values.tiles.findIndex((t) => !!t.insight && t.insight.short_id === insight.short_id)
 
             if (tileIndex === -1) {
+                // this is a new tile created from an insight context we need to reload the dashboard
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
