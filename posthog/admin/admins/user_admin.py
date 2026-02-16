@@ -23,7 +23,6 @@ from posthog.api.two_factor_reset import TwoFactorResetVerifier
 from posthog.models import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.tasks.email import send_two_factor_reset_email
-from posthog.workos_radar import add_radar_bypass_email, is_radar_bypass_email, remove_radar_bypass_email
 
 
 class UserChangeForm(DjangoUserChangeForm):
@@ -73,7 +72,6 @@ class UserAdmin(DjangoUserAdmin):
                     "strapi_id",
                     "revoke_sessions_link",
                     "two_factor_status",
-                    "suspicious_signup_checks_status",
                     "allow_impersonation",
                 )
             },
@@ -107,7 +105,6 @@ class UserAdmin(DjangoUserAdmin):
         "email_verification_status",
         "revoke_sessions_link",
         "two_factor_status",
-        "suspicious_signup_checks_status",
         "allow_impersonation",
         "last_login",
         "date_joined",
@@ -174,19 +171,6 @@ class UserAdmin(DjangoUserAdmin):
         else:
             return format_html('<p style="color: gray;">✗ Not configured</p>')
 
-    @admin.display(description="Suspicious signup checks")
-    def suspicious_signup_checks_status(self, user: User):
-        if is_radar_bypass_email(user.email):
-            return format_html(
-                '<p style="color: orange;">✗ Disabled</p><br>'
-                '<a href="#" class="button" id="toggle_radar_bypass_button">Enable checks</a>'
-            )
-        else:
-            return format_html(
-                '<p style="color: green;">✓ Enabled</p><br>'
-                '<a href="#" class="button" id="toggle_radar_bypass_button">Disable checks</a>'
-            )
-
     def change_view(self, request, object_id, form_url="", extra_context=None):
         """Override change view to handle email verification button."""
         user = self.get_object(request, object_id)
@@ -248,24 +232,6 @@ class UserAdmin(DjangoUserAdmin):
                 messages.error(request, f"Failed to send 2FA reset email: {str(e)}")
 
             # Redirect back to the change form
-            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
-
-        if request.POST.get("toggle_radar_bypass") == "1":
-            try:
-                if user:
-                    if is_radar_bypass_email(user.email):
-                        remove_radar_bypass_email(user.email)
-                        self.log_change(request, user, "Removed Radar bypass.")
-                        messages.success(request, f"Radar bypass removed for {user.email}")
-                    else:
-                        add_radar_bypass_email(user.email)
-                        self.log_change(request, user, "Added Radar bypass.")
-                        messages.success(request, f"Radar bypass added for {user.email}")
-                else:
-                    messages.warning(request, "User not found.")
-            except Exception as e:
-                messages.error(request, f"Failed to toggle Radar bypass: {str(e)}")
-
             return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
 
         return super().change_view(request, object_id, form_url, extra_context)

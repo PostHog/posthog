@@ -107,6 +107,7 @@ if settings.ADMIN_PORTAL_ENABLED:
     from posthog.admin.admins.backfill_precalculated_person_properties_admin import (
         backfill_precalculated_person_properties_view,
     )
+    from posthog.admin.admins.radar_bypass_admin import radar_bypass_view
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
 
@@ -121,6 +122,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/realtime-cohorts-calculation/",
             admin.site.admin_view(analyze_realtime_cohort_calculation_view),
             name="realtime-cohorts-calculation",
+        ),
+        path(
+            "admin/radar-bypass/",
+            admin.site.admin_view(radar_bypass_view),
+            name="radar-bypass",
         ),
         path(
             "admin/resave-cohorts/",

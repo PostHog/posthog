@@ -1,0 +1,79 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ super }}
+<style>
+    .form-row { margin-bottom: 15px; }
+    .help { font-size: 11px; color: #666; }
+    .submit-row { margin-top: 20px; }
+    .email-list { margin-top: 20px; }
+    .email-list table { width: 100%; border-collapse: collapse; }
+    .email-list th, .email-list td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #ddd; }
+    .email-list th { background: #f8f8f8; font-weight: bold; }
+    .remove-btn { color: #ba2121; cursor: pointer; background: none; border: none; text-decoration: underline; }
+    .remove-btn:hover { color: #a41515; }
+    .empty-state { color: #666; font-style: italic; padding: 12px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{% if messages %}
+    {% for message in messages %}
+        <div class="messagelist"><ul class="messagelist"><li class="{{ message.tags }}">{{ message }}</li></ul></div>
+    {% endfor %}
+{% endif %}
+
+<div class="email-list">
+    <fieldset class="module aligned">
+        <h2>Bypassed emails ({{ bypass_emails|length }})</h2>
+
+        {% if bypass_emails %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Email</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for email in bypass_emails %}
+                <tr>
+                    <td>{{ email }}</td>
+                    <td>
+                        <form method="post" style="display: inline;">
+                            {% csrf_token %}
+                            <input type="hidden" name="remove_email" value="{{ email }}" />
+                            <button type="submit" class="remove-btn" onclick="return confirm('Remove {{ email }} from bypass list?')">Remove</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty-state">No emails are currently bypassed.</p>
+        {% endif %}
+    </fieldset>
+</div>
+
+<form method="post" style="margin-top: 30px;">
+    {% csrf_token %}
+
+    <fieldset class="module aligned">
+        <h2>Add email</h2>
+
+        <div class="form-row">
+            <label for="{{ form.email.id_for_label }}">{{ form.email.label }}:</label>
+            {{ form.email }}
+            {% if form.email.help_text %}<p class="help">{{ form.email.help_text }}</p>{% endif %}
+            {{ form.email.errors }}
+        </div>
+    </fieldset>
+
+    <div class="submit-row">
+        <input type="submit" value="Add to bypass list" class="default" />
+    </div>
+</form>
+{% endblock %}
