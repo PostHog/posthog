@@ -8,6 +8,22 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AppleDebugImage {
+    pub debug_id: String,
+    pub image_addr: String,
+    #[serde(default)]
+    pub image_vmaddr: Option<String>,
+    #[serde(default)]
+    pub image_size: Option<u64>,
+    #[serde(default)]
+    pub code_file: Option<String>,
+    #[serde(default, rename = "type")]
+    pub image_type: Option<String>,
+    #[serde(default)]
+    pub arch: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RawAppleFrame {
     pub instruction_addr: Option<String>,
     pub symbol_addr: Option<String>,
