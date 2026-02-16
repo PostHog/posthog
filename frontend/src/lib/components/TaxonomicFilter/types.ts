@@ -210,7 +210,7 @@ export enum TaxonomicFilterGroupType {
     MaxAIContext = 'max_ai_context',
     // Workflows execution variables
     WorkflowVariables = 'workflow_variables',
-    QuickFilters = 'quick_filters',
+    SuggestedFilters = 'suggested_filters',
     Empty = 'empty',
 }
 

@@ -493,6 +493,9 @@ export interface PluginsServerConfig
     POSTHOG_API_KEY: string
     POSTHOG_HOST_URL: string
 
+    // Internal API authentication
+    INTERNAL_API_SECRET: string
+
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 

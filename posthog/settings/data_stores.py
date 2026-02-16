@@ -429,6 +429,9 @@ CDP_API_URL = get_from_env("CDP_API_URL", "")
 if not CDP_API_URL:
     CDP_API_URL = "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
 
+# Shared secret for internal API authentication between Django and Node.js services
+INTERNAL_API_SECRET = get_from_env("INTERNAL_API_SECRET", "")
+
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table

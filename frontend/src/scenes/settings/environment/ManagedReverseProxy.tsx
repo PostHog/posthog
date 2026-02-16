@@ -18,6 +18,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { payGateMiniLogic } from 'lib/components/PayGateMini/payGateMiniLogic'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -143,7 +144,7 @@ export function ManagedReverseProxy(): JSX.Element {
 
     return (
         <PayGateMini feature={AvailableFeature.MANAGED_REVERSE_PROXY}>
-            <div className="deprecated-space-y-2">
+            <div className="flex flex-col gap-2">
                 {recordsWithMessages.map((r) => (
                     <LemonBanner type="warning" key={r.id}>
                         <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
@@ -157,6 +158,9 @@ export function ManagedReverseProxy(): JSX.Element {
                         expandedRowRender: (record) => <ExpandedRow record={record} />,
                     }}
                 />
+
+                <WaitingRecords />
+
                 {formState === 'collapsed' ? (
                     maxRecordsReached ? (
                         <LemonBanner type="info">
@@ -246,7 +250,7 @@ function CloudflareOptInBanner({
 
 const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
     return (
-        <div className="pb-4 pr-4">
+        <div className="pb-4 pr-4 space-y-2">
             <LemonTabs
                 size="small"
                 activeKey="cname"
@@ -262,29 +266,52 @@ const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
                     },
                 ]}
             />
+            {record.status === 'waiting' && (
+                <DomainConnectBanner
+                    logicKey={`proxy-${record.id}`}
+                    domain={record.domain}
+                    context="proxy"
+                    proxyRecordId={record.id}
+                />
+            )}
         </div>
     )
 }
 
 function CreateRecordForm(): JSX.Element {
-    const { formState, proxyRecordsLoading, proxyRecords } = useValues(proxyLogic)
+    const { formState, proxyRecordsLoading } = useValues(proxyLogic)
     const { collapseForm } = useActions(proxyLogic)
-
-    const waitingRecords = proxyRecords.filter((r) => r.status === 'waiting')
 
     return (
         <div className="bg-surface-primary rounded border px-5 py-4 deprecated-space-y-2">
-            {formState == 'active' ? (
+            {formState == 'active' && (
                 <Form
                     logic={proxyLogic}
                     formKey="createRecord"
                     enableFormOnSubmit
                     className="w-full deprecated-space-y-2"
                 >
-                    <LemonField name="domain">
+                    <LemonBanner type="warning">
+                        <p className="font-semibold mb-1">
+                            Avoid domains that ad-blockers may flag as analytics or advertising related.
+                        </p>
+                        <ul className="list-disc pl-5 space-y-0.5 mb-1">
+                            <li>
+                                <strong>Do not use</strong> subdomains containing words related to tracking, analytics,
+                                or advertising (e.g. <code>analytics.mydomain.com</code>,{' '}
+                                <code>posthog.mydomain.com</code>). These are commonly blocked by ad-blockers and will
+                                cause data loss.
+                            </li>
+                            <li>
+                                <strong>Use a generic subdomain</strong> such as <code>t.mydomain.com</code> or{' '}
+                                <code>app.mydomain.com</code> instead.
+                            </li>
+                        </ul>
+                    </LemonBanner>
+                    <LemonField name="domain" label="Domain">
                         <LemonInput
                             autoFocus
-                            placeholder="Enter a domain (e.g. ph.mydomain.com)"
+                            placeholder="Enter a domain (e.g. t.mydomain.com)"
                             data-attr="domain-input"
                         />
                     </LemonField>
@@ -306,27 +333,44 @@ function CreateRecordForm(): JSX.Element {
                         </LemonButton>
                     </div>
                 </Form>
-            ) : (
-                <>
-                    <div className="text-xl font-semibold leading-tight">Almost there</div>
-                    <div>
-                        You need to set the following <b>CNAME</b> records in your DNS provider:
-                    </div>
-                    {waitingRecords.map((r) => (
-                        <div key={r.id} className="deprecated-space-y-1">
-                            <span className="font-semibold">{r.domain}</span>
-                            <CodeSnippet key={r.id} language={Language.HTTP}>
-                                {r.target_cname}
-                            </CodeSnippet>
-                        </div>
-                    ))}
-                    <div className="flex justify-end">
-                        <LemonButton onClick={collapseForm} type="primary">
-                            Done
-                        </LemonButton>
-                    </div>
-                </>
             )}
+        </div>
+    )
+}
+
+const WaitingRecords = (): JSX.Element | null => {
+    const { proxyRecords } = useValues(proxyLogic)
+
+    const waitingRecords = proxyRecords.filter((r) => r.status === 'waiting')
+
+    if (waitingRecords.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="flex flex-col gap-2 bg-surface-primary rounded border px-5 py-4">
+            <div className="text-xl font-semibold leading-tight">Almost there</div>
+            <div>
+                You need to set the following <b>CNAME</b> records in your DNS provider:
+            </div>
+            <div className="flex flex-col gap-1">
+                {waitingRecords.map((r) => (
+                    <div key={r.id}>
+                        <span className="font-semibold">{r.domain}</span>
+                        <CodeSnippet key={r.id} language={Language.HTTP}>
+                            {r.target_cname}
+                        </CodeSnippet>
+
+                        <DomainConnectBanner
+                            logicKey={`proxy-${r.id}`}
+                            domain={r.domain}
+                            context="proxy"
+                            proxyRecordId={r.id}
+                            className="mt-2"
+                        />
+                    </div>
+                ))}
+            </div>
         </div>
     )
 }
