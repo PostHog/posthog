@@ -8,9 +8,18 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { FunnelsQuery, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    BaseMathType,
+    FunnelsQuery,
+    GroupNode,
+    InsightVizNode,
+    Node,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    FilterLogicalOperator,
     FunnelVizType,
     InsightLogicProps,
     InsightShortId,
@@ -355,6 +364,124 @@ describe('insightNavLogic', () => {
                                 ],
                             },
                         },
+                    } as Node),
+                ])
+            })
+
+            it('cleans math from nested GroupNode events when switching from trends to funnels', async () => {
+                const trendsWithGroupNode: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.GroupNode,
+                                operator: FilterLogicalOperator.Or,
+                                nodes: [
+                                    {
+                                        kind: NodeKind.EventsNode,
+                                        name: '$pageview',
+                                        event: '$pageview',
+                                        math: BaseMathType.UniqueUsers,
+                                    },
+                                    {
+                                        kind: NodeKind.EventsNode,
+                                        name: '$pageleave',
+                                        event: '$pageleave',
+                                        math: BaseMathType.WeeklyActiveUsers,
+                                    },
+                                ],
+                            } as GroupNode,
+                        ],
+                        trendsFilter: {},
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsWithGroupNode)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toDispatchActions([
+                    builtInsightDataLogic.actionCreators.setQuery({
+                        kind: 'InsightVizNode',
+                        source: expect.objectContaining({
+                            kind: 'FunnelsQuery',
+                            series: [
+                                expect.objectContaining({
+                                    kind: 'GroupNode',
+                                    nodes: [
+                                        { kind: 'EventsNode', name: '$pageview', event: '$pageview' },
+                                        { kind: 'EventsNode', name: '$pageleave', event: '$pageleave' },
+                                    ],
+                                }),
+                            ],
+                        }),
+                    } as Node),
+                ])
+            })
+
+            it('adds math to nested GroupNode events when switching from funnels to trends', async () => {
+                const funnelsWithGroupNode: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.GroupNode,
+                                operator: FilterLogicalOperator.Or,
+                                nodes: [
+                                    {
+                                        kind: NodeKind.EventsNode,
+                                        name: '$pageview',
+                                        event: '$pageview',
+                                    },
+                                    {
+                                        kind: NodeKind.EventsNode,
+                                        name: '$pageleave',
+                                        event: '$pageleave',
+                                    },
+                                ],
+                            } as GroupNode,
+                        ],
+                        funnelsFilter: {
+                            funnelVizType: FunnelVizType.Steps,
+                        },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(funnelsWithGroupNode)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toDispatchActions([
+                    builtInsightDataLogic.actionCreators.setQuery({
+                        kind: 'InsightVizNode',
+                        source: expect.objectContaining({
+                            kind: 'TrendsQuery',
+                            series: [
+                                expect.objectContaining({
+                                    kind: 'GroupNode',
+                                    nodes: [
+                                        expect.objectContaining({
+                                            kind: 'EventsNode',
+                                            name: '$pageview',
+                                            event: '$pageview',
+                                            math: 'total',
+                                        }),
+                                        expect.objectContaining({
+                                            kind: 'EventsNode',
+                                            name: '$pageleave',
+                                            event: '$pageleave',
+                                            math: 'total',
+                                        }),
+                                    ],
+                                }),
+                            ],
+                        }),
                     } as Node),
                 ])
             })

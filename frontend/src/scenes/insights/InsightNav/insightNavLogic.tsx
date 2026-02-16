@@ -98,6 +98,13 @@ const cleanSeriesEntityMath = (
 ): AnyEntityNode | GroupNode => {
     const { math, math_property, math_group_type_index, math_hogql, ...baseEntity } = entity
 
+    // Recursively clean nested nodes in GroupNode
+    if ('nodes' in baseEntity && Array.isArray(baseEntity.nodes)) {
+        baseEntity.nodes = baseEntity.nodes.map(
+            (node) => cleanSeriesEntityMath(node, mathAvailability) as AnyEntityNode
+        )
+    }
+
     // TODO: This should be improved to keep a math that differs from the default.
     // For this we need to know wether the math was actively changed e.g.
     // On which insight type the math properties have been set.
