@@ -1,6 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
@@ -28,7 +27,6 @@ export interface HeatmapSubpipelineConfig {
     }
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
-    hogTransformer: HogTransformerService
     personsStore: PersonsStore
     kafkaProducer: KafkaProducerWrapper
 }
@@ -37,21 +35,12 @@ export function createHeatmapSubpipeline<TInput extends HeatmapSubpipelineInput,
     builder: StartPipelineBuilder<TInput, TContext>,
     config: HeatmapSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, hogTransformer, personsStore, kafkaProducer } = config
+    const { options, teamManager, groupTypeManager, personsStore, kafkaProducer } = config
 
     return builder
         .pipe(createDisablePersonProcessingStep())
         .pipe(createNormalizeEventStep(options.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE))
-        .pipe(
-            createEventPipelineRunnerHeatmapStep(
-                options,
-                kafkaProducer,
-                teamManager,
-                groupTypeManager,
-                hogTransformer,
-                personsStore
-            )
-        )
+        .pipe(createEventPipelineRunnerHeatmapStep(options, kafkaProducer, teamManager, groupTypeManager, personsStore))
         .pipe(
             createExtractHeatmapDataStep({
                 kafkaProducer,

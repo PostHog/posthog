@@ -122,6 +122,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onSendMessage={sendMessage}
                         onLoadOlderMessages={loadOlderMessages}
                         showPrivateOption
+                        unreadCustomerCount={ticket?.unread_customer_count}
+                        showDeliveryStatus={ticket?.channel_source === 'widget'}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} />

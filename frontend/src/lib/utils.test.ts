@@ -2,7 +2,7 @@ import tk from 'timekeeper'
 
 import { dayjs } from 'lib/dayjs'
 
-import { ElementType, EventType, PropertyType, TimeUnitType } from '~/types'
+import { ElementType, EventType, PropertyOperator, PropertyType, TimeUnitType } from '~/types'
 
 import {
     areDatesValidForInterval,
@@ -38,6 +38,7 @@ import {
     is12HoursOrLess,
     isExternalLink,
     isLessThan2Days,
+    isOperatorMulti,
     isURL,
     median,
     midEllipsis,
@@ -1566,6 +1567,25 @@ describe('lib/utils', () => {
                 'test-error'
             )
             expect(shouldRetry).toHaveBeenCalledWith(testError)
+        })
+    })
+
+    describe('isOperatorMulti', () => {
+        it('returns true for operators that support multiple values', () => {
+            expect(isOperatorMulti(PropertyOperator.Exact)).toBe(true)
+            expect(isOperatorMulti(PropertyOperator.IsNot)).toBe(true)
+            expect(isOperatorMulti(PropertyOperator.IContainsMulti)).toBe(true)
+            expect(isOperatorMulti(PropertyOperator.NotIContainsMulti)).toBe(true)
+        })
+
+        it('returns false for operators that do not support multiple values', () => {
+            expect(isOperatorMulti(PropertyOperator.IContains)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.NotIContains)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.GreaterThan)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.LessThan)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.IsSet)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.IsNotSet)).toBe(false)
+            expect(isOperatorMulti(PropertyOperator.Regex)).toBe(false)
         })
     })
 })

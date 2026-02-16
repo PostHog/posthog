@@ -477,7 +477,7 @@ describe('insightLogic', () => {
         })
 
         await expectLogic(logic, () => {
-            logic.actions.setInsightMetadata({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
+            logic.actions.setInsightMetadataLocal({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
         }).toMatchValues({
             insight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
             savedInsight: partial({ name: '', description: '', tags: [] }),

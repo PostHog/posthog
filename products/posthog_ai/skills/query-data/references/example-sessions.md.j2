@@ -1,0 +1,5 @@
+# Sessions (listing sessions with duration, pageviews, and bounce rate)
+
+```sql
+{{ render_hogql_example({"kind": "SessionsQuery", "filterTestAccounts": false, "select": ["session_id", "$start_timestamp", "$end_timestamp", "$session_duration", "$pageview_count", "$is_bounce", "$entry_current_url", "$end_current_url"], "orderBy": ["$start_timestamp DESC"], "after": "-24h"}) }}
+```

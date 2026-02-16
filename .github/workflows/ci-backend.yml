@@ -112,11 +112,9 @@ jobs:
                         - docker-compose.dev.yml
                         - docker-compose.profiles.yml
                         - docker-compose.base.yml
+                        - bin/wait-for-docker
                         - frontend/public/email/*
                         - docker/clickhouse
-                        # These scripts are used in the CI
-                        - bin/check_temporal_up
-                        - bin/check_kafka_clickhouse_up
                       migrations:
                         - docker/clickhouse
                         - 'posthog/migrations/*.py'
@@ -258,10 +256,8 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
 
-            - name: Wait for services to be available
-              run: |
-                  bin/check_postgres_up
-                  bin/check_kafka_clickhouse_up
+            - name: Wait for Docker services
+              run: bin/wait-for-docker
 
             - name: Run migrations up to master
               run: |
@@ -824,17 +820,13 @@ jobs:
                   touch frontend/dist/exporter.html
                   ./bin/download-mmdb
 
-            - name: Wait for services to be available
+            - name: Wait for Docker services
               shell: bash
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
-
-            - name: Wait for Temporal
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
-              shell: bash
-              run: |
-                  bin/check_temporal_up
+              # Read-only health poll for core services only. Can't use --wait here
+              # because it blocks on ALL project containers including temporal, which
+              # boots slowly (auto-setup runs DB migrations). Temporal was started in
+              # background above and will be ready by the time temporal tests run.
+              run: bin/wait-for-docker
 
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
@@ -1294,11 +1286,9 @@ jobs:
                   touch frontend/dist/layout.html
                   touch frontend/dist/exporter.html
 
-            - name: Wait for services to be available
+            - name: Wait for Docker services
               shell: bash
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
+              run: bin/wait-for-docker
 
             - name: Run async migrations tests
               run: |
@@ -1315,8 +1305,8 @@ jobs:
         name: Calculate running time
         needs: [django_tests, async-migrations]
         runs-on: ubuntu-latest
-        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
-            always() && (
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
+            always() && github.actor != 'dependabot[bot]' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
