@@ -44,7 +44,7 @@ function CategoryPillContent({
     const canInteract =
         totalListCount > 0 ||
         taxonomicFilterGroupTypesWithEmptyStates.includes(groupType) ||
-        groupType === TaxonomicFilterGroupType.QuickFilters
+        groupType === TaxonomicFilterGroupType.SuggestedFilters
     const showLoading = isLoading && hasRemoteDataSource
 
     return (

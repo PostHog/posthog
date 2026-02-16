@@ -17,6 +17,7 @@ from django.utils import timezone
 from django_otp.oath import totp
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.util import random_hex
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.parsers import JSONParser
@@ -1686,6 +1687,42 @@ class TestTimeSensitivePermissions(APIBaseTest):
             res = self.client.patch(
                 "/api/users/@me",
                 {"set_current_organization": str(self.organization.id)},
+            )
+            assert res.status_code == 200
+
+    @parameterized.expand(
+        [
+            ("set_current_team", {"set_current_team": "1"}),
+            ("events_column_config", {"events_column_config": {"active": "type"}}),
+            ("role_at_organization", {"role_at_organization": "engineering"}),
+        ]
+    )
+    def test_user_can_update_non_sensitive_fields_without_recent_authentication(self, _name, payload):
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch("/api/users/@me", payload, format="json")
+            assert res.status_code != 403, f"Field update should not require re-authentication, got: {res.json()}"
+
+    def test_user_can_update_hedgehog_config_without_recent_authentication(self):
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch(
+                "/api/users/@me/hedgehog_config",
+                {"enabled": True, "color": "red"},
+                format="json",
+            )
+            assert res.status_code == 200
+
+    def test_user_can_update_scene_personalisation_without_recent_authentication(self):
+        from posthog.models.dashboard import Dashboard
+
+        dashboard = Dashboard.objects.create(team=self.team, name="Test")
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.post(
+                "/api/users/@me/scene_personalisation",
+                {"scene": "Person", "dashboard": dashboard.id},
+                format="json",
             )
             assert res.status_code == 200
 

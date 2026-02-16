@@ -273,18 +273,9 @@ export const settingsLogic = kea<settingsLogicType>([
                 if (selectedSectionId) {
                     settings = sections.find((x) => x.id === selectedSectionId)?.settings || []
                 } else {
-                    const seen = new Set<string>()
                     settings = sections
                         .filter((section) => section.level === selectedLevel)
-                        .reduce((acc, section) => {
-                            for (const setting of section.settings) {
-                                if (!seen.has(setting.id)) {
-                                    seen.add(setting.id)
-                                    acc.push(setting)
-                                }
-                            }
-                            return acc
-                        }, [] as Setting[])
+                        .reduce((acc, section) => acc.concat(section.settings), [] as Setting[])
                 }
 
                 return settings.filter((x) => {
