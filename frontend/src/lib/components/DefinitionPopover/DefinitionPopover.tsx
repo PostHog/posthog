@@ -6,10 +6,8 @@ import { useActions, useValues } from 'kea'
 import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
@@ -136,9 +134,7 @@ function Example({ value }: { value?: string }): JSX.Element {
     return (
         <div className={clsx('flex flex-col gap-2', hasContent && 'mb-4')}>
             {textExample}
-            <FlaggedFeature flag={FEATURE_FLAGS.EVENT_MEDIA_PREVIEWS}>
-                <ImageCarousel imageUrls={mediaPreviews} />
-            </FlaggedFeature>
+            <ImageCarousel imageUrls={mediaPreviews} />
         </div>
     )
 }

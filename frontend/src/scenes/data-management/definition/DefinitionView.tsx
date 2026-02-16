@@ -255,19 +255,17 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     />
                 )}
 
-                <FlaggedFeature flag={FEATURE_FLAGS.EVENT_MEDIA_PREVIEWS}>
-                    {!!(definition as EventDefinition).media_preview_urls?.length && (
-                        <div className="mt-4">
-                            <h5 className="mb-2">
-                                Preview{' '}
-                                <Tooltip title="Previews show where a client side event is triggered. Upload a screenshot or design.">
-                                    <IconInfo className="text-sm" />
-                                </Tooltip>
-                            </h5>
-                            <ImageCarousel imageUrls={(definition as EventDefinition).media_preview_urls!} />
-                        </div>
-                    )}
-                </FlaggedFeature>
+                {!!(definition as EventDefinition).media_preview_urls?.length && (
+                    <div className="mt-4">
+                        <h5 className="mb-2">
+                            Preview{' '}
+                            <Tooltip title="Previews show where a client side event is triggered. Upload a screenshot or design.">
+                                <IconInfo className="text-sm" />
+                            </Tooltip>
+                        </h5>
+                        <ImageCarousel imageUrls={(definition as EventDefinition).media_preview_urls!} />
+                    </div>
+                )}
                 <UserActivityIndicator at={definition.updated_at} by={definition.updated_by} />
             </div>
 

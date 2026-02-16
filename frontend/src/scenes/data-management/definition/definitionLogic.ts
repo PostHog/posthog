@@ -1,12 +1,10 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -50,9 +48,6 @@ export const definitionLogic = kea<definitionLogicType>([
         }),
         deleteMediaPreview: (previewId: string) => ({ previewId }),
     }),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
-    })),
     reducers(() => ({
         definitionMissing: [
             false,
@@ -189,12 +184,7 @@ export const definitionLogic = kea<definitionLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadDefinitionSuccess: () => {
-            if (
-                !!values.featureFlags[FEATURE_FLAGS.EVENT_MEDIA_PREVIEWS] &&
-                values.isEvent &&
-                values.definition.id &&
-                values.definition.id !== 'new'
-            ) {
+            if (values.isEvent && values.definition.id && values.definition.id !== 'new') {
                 actions.loadPreviews()
             }
         },
