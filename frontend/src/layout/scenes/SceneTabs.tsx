@@ -5,7 +5,7 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dn
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React, { Fragment, useEffect, useRef, useState } from 'react'
+import React, { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 
@@ -40,6 +40,28 @@ export function SceneTabs(): JSX.Element {
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+
+    const tabRowRef = useRef<HTMLDivElement>(null)
+    const [frozenWidths, setFrozenWidths] = useState<Record<string, number> | null>(null)
+
+    const handleBeforeTabClose = useCallback((tabId: string) => {
+        const tabRow = tabRowRef.current
+        if (!tabRow) {
+            return
+        }
+        const widths: Record<string, number> = {}
+        tabRow.querySelectorAll<HTMLElement>('[data-tab-id]').forEach((el) => {
+            const id = el.getAttribute('data-tab-id')
+            if (id && id !== tabId) {
+                widths[id] = el.getBoundingClientRect().width
+            }
+        })
+        setFrozenWidths(widths)
+    }, [])
+
+    const handleTabRowMouseLeave = useCallback(() => {
+        setFrozenWidths(null)
+    }, [])
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -93,7 +115,11 @@ export function SceneTabs(): JSX.Element {
                     items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
                     strategy={horizontalListSortingStrategy}
                 >
-                    <div className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2">
+                    <div
+                        ref={tabRowRef}
+                        className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2"
+                        onMouseLeave={handleTabRowMouseLeave}
+                    >
                         {tabs.map((tab, index) => {
                             const sortableId = getSortableId(tab, index)
                             const isLastPinned =
@@ -108,6 +134,8 @@ export function SceneTabs(): JSX.Element {
                                         index={index}
                                         sortableId={sortableId}
                                         onConfigurePinnedTabs={() => setIsConfigurePinnedTabsOpen(true)}
+                                        frozenWidth={frozenWidths?.[tab.id]}
+                                        onBeforeClose={handleBeforeTabClose}
                                     />
                                     {isLastPinned && (
                                         <div
@@ -159,6 +187,8 @@ interface SortableSceneTabProps {
     sortableId: string
     containerClassName?: string
     onConfigurePinnedTabs: () => void
+    frozenWidth?: number
+    onBeforeClose: (tabId: string) => void
 }
 
 function SortableSceneTab({
@@ -167,6 +197,8 @@ function SortableSceneTab({
     sortableId,
     containerClassName,
     onConfigurePinnedTabs,
+    frozenWidth,
+    onBeforeClose,
 }: SortableSceneTabProps): JSX.Element {
     const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
         id: sortableId,
@@ -176,6 +208,7 @@ function SortableSceneTab({
         transform: CSS.Translate.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : undefined,
+        ...(frozenWidth != null ? { width: frozenWidth, flex: '0 0 auto', minWidth: 0, maxWidth: 'none' } : {}),
     }
 
     const isPinned = !!tab.pinned
@@ -186,7 +219,9 @@ function SortableSceneTab({
             style={style}
             {...attributes}
             {...listeners}
-            className={cn(isPinned ? 'shrink-0' : 'w-full flex-1 min-w-[100px] max-w-[250px]')}
+            className={cn(
+                isPinned ? 'shrink-0' : frozenWidth != null ? '' : 'w-full flex-1 min-w-[100px] max-w-[250px]'
+            )}
             data-tab-id={tab.id}
         >
             <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
@@ -195,6 +230,7 @@ function SortableSceneTab({
                     isDragging={isDragging}
                     containerClassName={containerClassName}
                     index={index}
+                    onBeforeClose={onBeforeClose}
                 />
             </SceneTabContextMenu>
         </div>
@@ -207,9 +243,17 @@ interface SceneTabProps {
     isDragging?: boolean
     containerClassName?: string
     index: number
+    onBeforeClose?: (tabId: string) => void
 }
 
-function SceneTabComponent({ tab, className, isDragging, containerClassName, index }: SceneTabProps): JSX.Element {
+function SceneTabComponent({
+    tab,
+    className,
+    isDragging,
+    containerClassName,
+    index,
+    onBeforeClose,
+}: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const isPinned = !!tab.pinned
     const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
@@ -254,6 +298,9 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                                 e.stopPropagation()
                                 e.preventDefault()
                                 const source = e.detail === 0 ? 'keyboard_shortcut' : 'close_button'
+                                if (e.detail !== 0) {
+                                    onBeforeClose?.(tab.id)
+                                }
                                 removeTab(tab, { source })
                             }}
                             tooltip={!tab.active ? 'Close tab' : 'Close active tab'}
@@ -280,6 +327,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         e.stopPropagation()
                         e.preventDefault()
                         if (e.button === 1 && !isDragging && canRemoveTab) {
+                            onBeforeClose?.(tab.id)
                             removeTab(tab, { source: 'middle_click' })
                         }
                     }}
