@@ -1398,7 +1398,9 @@ jobs:
                 async-migrations,
                 turbo-discover,
                 turbo-tests,
-                handle-snapshots, check-idor-coverage,]
+                handle-snapshots,
+                check-idor-coverage,
+            ]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
