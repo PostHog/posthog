@@ -13,7 +13,7 @@ from posthog.approvals.exceptions import (
     PreconditionFailed,
     ReasonRequiredError,
 )
-from posthog.approvals.models import Approval, ApprovalDecision, ChangeRequest, ChangeRequestState
+from posthog.approvals.models import Approval, ApprovalDecision, ChangeRequest, ChangeRequestState, ValidationStatus
 from posthog.approvals.notifications import send_approval_applied_notification, send_approval_decision_notification
 from posthog.event_usage import report_user_action
 from posthog.models import User
@@ -322,6 +322,10 @@ class ChangeRequestService:
     def cancel(self, reason: str = "Canceled by requester") -> CancelResult:
         if self.change_request.state != ChangeRequestState.PENDING:
             raise InvalidStateError("Only pending change requests can be canceled")
+
+        has_approvals = self.change_request.approvals.filter(decision=ApprovalDecision.APPROVED).exists()
+        if has_approvals and self.change_request.validation_status != ValidationStatus.STALE:
+            raise InvalidStateError("Cannot cancel a change request that has approvals")
 
         with transaction.atomic():
             change_request = ChangeRequest.objects.select_for_update().get(pk=self.change_request.pk)

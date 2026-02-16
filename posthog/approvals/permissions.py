@@ -62,12 +62,13 @@ class CanApprove(permissions.BasePermission):
 class CanCancel(permissions.BasePermission):
     """
     Only the requester can cancel their own pending change request.
+    Canceling is blocked when there are 1+ approvals, unless the CR is stale.
     """
 
     message = "You can only cancel your own change requests"
 
     def has_object_permission(self, request, view, obj):
-        from posthog.approvals.models import ChangeRequestState
+        from posthog.approvals.models import ApprovalDecision, ChangeRequestState, ValidationStatus
 
         if obj.state != ChangeRequestState.PENDING:
             self.message = "Only pending change requests can be canceled"
@@ -75,6 +76,11 @@ class CanCancel(permissions.BasePermission):
 
         if obj.created_by != request.user:
             self.message = "You can only cancel your own change requests"
+            return False
+
+        has_approvals = obj.approvals.filter(decision=ApprovalDecision.APPROVED).exists()
+        if has_approvals and obj.validation_status != ValidationStatus.STALE:
+            self.message = "Cannot cancel a change request that has approvals"
             return False
 
         return True
