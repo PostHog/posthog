@@ -15,7 +15,7 @@ export function AnalyticsStep(): JSX.Element {
             <div className="space-y-4">
                 <div>
                     <h3 className="text-lg font-semibold mb-1">Who is included in the analysis?</h3>
-                    <ExposureCriteriaPanel experiment={experiment} onChange={setExposureCriteria} />
+                    <ExposureCriteriaPanel experiment={experiment} onChange={setExposureCriteria} compact />
                 </div>
 
                 <div>
