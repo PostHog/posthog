@@ -103,12 +103,14 @@ jobs:
                         - playwright/**
 
             - uses: actions/checkout@v6
+              if: github.event_name == 'push' || steps.changes.outputs.shouldRun == 'true'
               with:
                   sparse-checkout: .github/clickhouse-versions.json
                   sparse-checkout-cone-mode: false
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
+              if: github.event_name == 'push' || steps.changes.outputs.shouldRun == 'true'
               run: |
                   oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then

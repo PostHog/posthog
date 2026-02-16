@@ -73,6 +73,7 @@ jobs:
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
+              if: github.event_name == 'push' || steps.filter.outputs.dagster == 'true'
               run: |
                   oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then

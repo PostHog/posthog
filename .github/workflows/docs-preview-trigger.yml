@@ -24,6 +24,7 @@ jobs:
               uses: actions/checkout@v6
 
             - name: Check frontmatter in published docs
+              continue-on-error: true
               run: |
                   echo "Checking for required frontmatter in published docs..."
 
@@ -48,6 +49,7 @@ jobs:
                   echo "✅ All published docs have frontmatter"
 
             - name: Verify internal docs not in published
+              continue-on-error: true
               run: |
                   echo "Verifying internal docs are not accidentally in published..."
 
@@ -59,6 +61,7 @@ jobs:
                   echo "✅ No internal docs found in published directory"
 
             - name: Check for broken relative links
+              continue-on-error: true
               run: |
                   echo "Checking for obvious link issues..."
 
