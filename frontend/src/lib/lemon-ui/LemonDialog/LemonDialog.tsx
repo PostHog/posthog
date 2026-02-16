@@ -15,6 +15,8 @@ export type LemonFormDialogProps = LemonDialogFormPropsType &
         onSubmit: (values: Record<string, any>) => void | Promise<void>
         shouldAwaitSubmit?: boolean
         content?: ((isLoading: boolean) => ReactNode) | ReactNode
+        /** Override props on the auto-generated submit button (e.g. status, children) */
+        primaryButtonProps?: Partial<Pick<LemonButtonProps, 'children' | 'status' | 'type' | 'icon'>>
     }
 
 export type LemonDialogProps = Pick<
@@ -164,6 +166,7 @@ export const LemonFormDialog = ({
     onSubmit,
     errors,
     content,
+    primaryButtonProps,
     ...props
 }: LemonFormDialogProps): JSX.Element => {
     const logic = lemonDialogLogic({ errors })
@@ -179,6 +182,7 @@ export const LemonFormDialog = ({
     const primaryButton: LemonDialogProps['primaryButton'] = {
         type: 'primary',
         children: 'Submit',
+        ...primaryButtonProps,
         htmlType: 'submit',
         // eslint-disable-next-line @typescript-eslint/no-misused-promises
         onClick: props.shouldAwaitSubmit ? async () => await onSubmit(form) : () => void onSubmit(form),

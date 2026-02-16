@@ -17,8 +17,9 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SearchResultGroup } from './settingsLogic'
 import { settingsLogic } from './settingsLogic'
-import { SettingLevelId, SettingsLogicProps } from './types'
+import { SettingId, SettingLevelId, SettingSectionId, SettingsLogicProps } from './types'
 
 export interface SettingOption {
     key: string
@@ -40,6 +41,8 @@ export function Settings({
         settings,
         isCompactNavigationOpen,
         searchTerm,
+        isSearching,
+        searchResults,
         filteredLevels,
         filteredSections,
         collapsedLevels,
@@ -47,12 +50,12 @@ export function Settings({
     } = useValues(settingsLogic(props))
     const {
         selectSection,
-        selectLevel,
         selectSetting,
         openCompactNavigation,
         setSearchTerm,
         toggleLevelCollapse,
         toggleGroupCollapse,
+        navigateToSetting,
     } = useActions(settingsLogic(props))
     const { currentTeam } = useValues(teamLogic)
 
@@ -96,7 +99,6 @@ export function Settings({
         : filteredLevels.map((level) => {
               const levelSections = filteredSections.filter((x) => x.level === level)
               const isCollapsed = collapsedLevels[level]
-              const hasItems = levelSections.length > 0
 
               // Separate danger zone sections (always rendered last)
               const dangerZoneSections = levelSections.filter((s) => s.id.endsWith('-danger-zone'))
@@ -194,20 +196,12 @@ export function Settings({
                   content: (
                       <OptionButton
                           handleLocally={handleLocally}
-                          active={selectedLevel === level && !selectedSectionId}
-                          onClick={() => {
-                              if (hasItems) {
-                                  toggleLevelCollapse(level)
-                              } else {
-                                  selectLevel(level)
-                              }
-                          }}
+                          active={false}
+                          onClick={() => toggleLevelCollapse(level)}
                           sideIcon={
-                              hasItems ? (
-                                  <IconChevronDown
-                                      className={clsx('w-4 h-4 transition-transform', isCollapsed && '-rotate-90')}
-                                  />
-                              ) : undefined
+                              <IconChevronDown
+                                  className={clsx('w-4 h-4 transition-transform', isCollapsed && '-rotate-90')}
+                              />
                           }
                       >
                           <span className="text-secondary">{SettingLevelNames[level]}</span>
@@ -233,17 +227,28 @@ export function Settings({
                     {showOptions ? (
                         <div className="Settings__sections">
                             {!settingsInSidebar && (
-                                <LemonInput
-                                    type="search"
-                                    placeholder="Search settings..."
-                                    value={searchTerm}
-                                    onChange={setSearchTerm}
-                                    size="small"
-                                    fullWidth
-                                    className="mb-2"
-                                />
+                                <div className="Settings__sections__search">
+                                    <LemonInput
+                                        type="search"
+                                        placeholder="Search settings..."
+                                        value={searchTerm}
+                                        onChange={setSearchTerm}
+                                        size="small"
+                                        fullWidth
+                                    />
+                                </div>
                             )}
-                            <OptionGroup options={options} />
+                            <div className="Settings__sections__list">
+                                {isSearching && !settingsInSidebar ? (
+                                    <SearchResults
+                                        results={searchResults}
+                                        onSelect={navigateToSetting}
+                                        handleLocally={handleLocally}
+                                    />
+                                ) : (
+                                    <OptionGroup options={options} />
+                                )}
+                            </div>
                         </div>
                     ) : (
                         <LemonButton fullWidth sideIcon={<IconChevronRight />} onClick={() => openCompactNavigation()}>
@@ -255,7 +260,7 @@ export function Settings({
             )}
 
             <AuthenticationAreaComponent>
-                <div className="flex-1 w-full min-w-0 space-y-2 self-start mt-2">
+                <div className="flex-1 w-full min-w-0 min-h-screen space-y-2 self-start">
                     {!hideSections && selectedLevel === 'project' && (
                         <LemonBanner type="info">
                             These settings only apply to the current project{' '}
@@ -275,6 +280,52 @@ export function Settings({
     )
 }
 
+function SearchResults({
+    results,
+    onSelect,
+    handleLocally,
+}: {
+    results: SearchResultGroup[]
+    onSelect: (sectionId: SettingSectionId, settingId: SettingId) => void
+    handleLocally: boolean
+}): JSX.Element {
+    if (results.length === 0) {
+        return <div className="text-muted text-sm p-2">No settings found</div>
+    }
+
+    return (
+        <ul className="gap-y-px">
+            {results.map((group) => (
+                <React.Fragment key={group.sectionId}>
+                    <li className="text-muted text-xs font-semibold uppercase pt-2 pb-1 px-2">
+                        {group.sectionTitle}
+                        <span className="text-muted-alt ml-1">({SettingLevelNames[group.level]})</span>
+                    </li>
+                    {group.results.map((result) => (
+                        <li key={`${result.sectionId}-${result.settingId}`}>
+                            <LemonButton
+                                fullWidth
+                                size="small"
+                                onClick={
+                                    handleLocally
+                                        ? (e) => {
+                                              onSelect(result.sectionId, result.settingId)
+                                              e.preventDefault()
+                                          }
+                                        : () => onSelect(result.sectionId, result.settingId)
+                                }
+                                data-attr={`settings-search-result-${result.settingId}`}
+                            >
+                                {result.settingTitle}
+                            </LemonButton>
+                        </li>
+                    ))}
+                </React.Fragment>
+            ))}
+        </ul>
+    )
+}
+
 function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }): JSX.Element {
     const { settings: allSettings, selectedLevel, selectedSectionId, selectedSetting } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
@@ -284,7 +335,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
     const settings = settingsInSidebar ? [selectedSetting] : allSettings
 
     return (
-        <div className="flex flex-col gap-y-8 pb-[80vh]">
+        <div className="flex flex-col gap-y-8 pb-[30vh]">
             {settings.length ? (
                 settings.map((x, index) => (
                     <div key={`${x.id}-${index}`} className="relative last:mb-4">
