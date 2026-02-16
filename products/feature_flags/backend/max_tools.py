@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from pydantic import BaseModel, Field
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import FeatureFlagGroupType
 
@@ -262,40 +263,10 @@ class CreateFeatureFlagTool(MaxTool):
             @database_sync_to_async
             def create_flag_via_serializer():
                 serializer = FeatureFlagSerializer(data=serializer_data, context=context)
-                if not serializer.is_valid():
-                    return None, serializer.errors
-                return serializer.save(), None
+                serializer.is_valid(raise_exception=True)
+                return serializer.save()
 
-            flag, errors = await create_flag_via_serializer()
-
-            if errors:
-                # Provide a helpful message with URL for duplicate key errors
-                if "key" in errors:
-                    key_errors = errors["key"]
-                    if any("already" in str(e).lower() for e in key_errors):
-
-                        @database_sync_to_async
-                        def get_existing_flag():
-                            return FeatureFlag.objects.filter(
-                                team=self._team, key=flag_schema.key, deleted=False
-                            ).first()
-
-                        existing = await get_existing_flag()
-                        if existing:
-                            flag_url = f"/project/{self._team.project_id}/feature_flags/{existing.id}"
-                            return (
-                                f"A feature flag with key '{flag_schema.key}' already exists. You can view it at {flag_url}",
-                                {"flag_id": existing.id},
-                            )
-
-                error_messages = []
-                for field, field_errors in errors.items():
-                    for error in field_errors if isinstance(field_errors, list) else [field_errors]:
-                        error_messages.append(f"{field}: {error}")
-                return (
-                    f"Failed to create feature flag: {'; '.join(error_messages)}",
-                    {"error": "validation_error", "details": errors},
-                )
+            flag = await create_flag_via_serializer()
 
             flag_url = f"/project/{self._team.project_id}/feature_flags/{flag.id}"
             targeting_info = self._format_targeting_info(flag_schema, group_type_display_name)
@@ -310,6 +281,36 @@ class CreateFeatureFlagTool(MaxTool):
                 },
             )
 
+        except ValidationError as e:
+            errors = e.detail if hasattr(e, "detail") else str(e)
+
+            if isinstance(errors, dict) and "key" in errors:
+                key_errors = errors["key"]
+                if any("already" in str(err).lower() for err in key_errors):
+
+                    @database_sync_to_async
+                    def get_existing_flag():
+                        return FeatureFlag.objects.filter(team=self._team, key=flag_schema.key, deleted=False).first()
+
+                    existing = await get_existing_flag()
+                    if existing:
+                        flag_url = f"/project/{self._team.project_id}/feature_flags/{existing.id}"
+                        return (
+                            f"A feature flag with key '{flag_schema.key}' already exists. You can view it at {flag_url}",
+                            {"flag_id": existing.id},
+                        )
+
+            if isinstance(errors, dict):
+                error_messages = []
+                for field, field_errors in errors.items():
+                    for error in field_errors if isinstance(field_errors, list) else [field_errors]:
+                        error_messages.append(f"{field}: {error}")
+                return (
+                    f"Failed to create feature flag: {'; '.join(error_messages)}",
+                    {"error": "validation_error", "details": errors},
+                )
+
+            return f"Failed to create feature flag: {errors}", {"error": "validation_error"}
         except ValueError as e:
             return f"Failed to create feature flag: {str(e)}", {"error": str(e)}
         except Exception as e:
