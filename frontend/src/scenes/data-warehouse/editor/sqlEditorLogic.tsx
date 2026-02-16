@@ -41,12 +41,11 @@ import {
     ChartDisplayType,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
+    EndpointType,
     ExportContext,
     LineageGraph,
     QueryBasedInsightModel,
 } from '~/types'
-
-import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewEmptyState } from './ViewLoadingState'
@@ -73,6 +72,7 @@ export const NEW_QUERY = 'Untitled'
 export interface QueryTab {
     uri: Uri
     view?: DataWarehouseSavedQuery
+    endpoint?: EndpointType
     name: string
     sourceQuery?: DataVisualizationNode
     insight?: QueryBasedInsightModel
@@ -115,6 +115,9 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     }
     if (values.activeTab?.view) {
         hash['view'] = values.activeTab.view.id
+    }
+    if (values.activeTab?.endpoint) {
+        hash['endpoint'] = values.activeTab.endpoint.name
     }
     if (values.activeTab?.insight) {
         hash['insight'] = values.activeTab.insight.short_id
@@ -161,8 +164,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
-            endpointLogic,
-            ['setIsUpdateMode', 'setSelectedEndpointName'],
         ],
     })),
     actions(() => ({
@@ -203,7 +204,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setMetadataLoading: (loading: boolean) => ({ loading }),
         setInsightLoading: (loading: boolean) => ({ loading }),
         editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
+        stopEditingView: true,
+        editEndpoint: (query: string, endpoint: EndpointType) => ({ query, endpoint }),
+        stopEditingEndpoint: true,
         editInsight: (query: string, insight: QueryBasedInsightModel) => ({ query, insight }),
+        stopEditingInsight: true,
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
         _setSuggestionPayload: (payload: SuggestionPayload | null) => ({ payload }),
         setSuggestedQueryInput: (suggestedQueryInput: string, source?: SuggestionPayload['source']) => ({
@@ -583,6 +588,31 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         },
         editView: ({ query, view }) => {
             actions.createTab(query, view)
+        },
+        stopEditingView: () => {
+            if (values.activeTab) {
+                const { view: _, ...tab } = values.activeTab
+                actions.updateTab(tab as QueryTab)
+            }
+        },
+        editEndpoint: ({ query, endpoint }) => {
+            actions.createTab(query)
+            if (values.activeTab) {
+                actions.updateTab({ ...values.activeTab, endpoint })
+            }
+            actions.setActiveTab(OutputTab.Endpoint)
+        },
+        stopEditingEndpoint: () => {
+            if (values.activeTab) {
+                const { endpoint: _, ...tab } = values.activeTab
+                actions.updateTab(tab as QueryTab)
+            }
+        },
+        stopEditingInsight: () => {
+            if (values.activeTab) {
+                const { insight: _, ...tab } = values.activeTab
+                actions.updateTab(tab as QueryTab)
+            }
         },
         editInsight: ({ query, insight }) => {
             actions.createTab(query, undefined, insight)
@@ -1026,6 +1056,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return activeTab?.view
             },
         ],
+        editingEndpoint: [
+            (s) => [s.activeTab],
+            (activeTab: QueryTab | null): EndpointType | undefined => {
+                return activeTab?.endpoint
+            },
+        ],
         changesToSave: [
             (s) => [s.editingView, s.queryInput],
             (editingView, queryInput) => {
@@ -1155,6 +1191,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         createTab: () => {
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
+        stopEditingView: () => {
+            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
+        },
+        stopEditingEndpoint: () => {
+            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
+        },
+        stopEditingInsight: () => {
+            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
+        },
     })),
     tabAwareUrlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
@@ -1162,10 +1207,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !searchParams.open_query &&
                 !searchParams.open_view &&
                 !searchParams.open_insight &&
+                !searchParams.open_endpoint &&
                 !searchParams.open_draft &&
                 !searchParams.output_tab &&
                 !hashParams.q &&
                 !hashParams.view &&
+                !hashParams.endpoint &&
                 !hashParams.insight &&
                 values.queryInput !== null
             ) {
@@ -1177,10 +1224,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             const createQueryTab = async (): Promise<void> => {
                 if (searchParams.output_tab) {
                     actions.setActiveTab(searchParams.output_tab as OutputTab)
-                }
-                if (searchParams.endpoint_name) {
-                    actions.setIsUpdateMode(true)
-                    actions.setSelectedEndpointName(searchParams.endpoint_name)
                 }
                 if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
                     const draftId = searchParams.open_draft || hashParams.draft
@@ -1296,6 +1339,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
+                } else if (searchParams.open_endpoint || (hashParams.endpoint && values.queryInput === null)) {
+                    // Open endpoint
+                    const endpointName = searchParams.open_endpoint || hashParams.endpoint
+                    try {
+                        const endpoint = await api.endpoint.get(endpointName)
+                        actions.editEndpoint((endpoint.query as HogQLQuery).query ?? '', endpoint)
+                        tabAdded = true
+                        router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
+                    } catch {
+                        lemonToast.error('Endpoint not found')
+                    }
                 } else if (searchParams.open_query) {
                     // Open query string
                     actions.createTab(searchParams.open_query)

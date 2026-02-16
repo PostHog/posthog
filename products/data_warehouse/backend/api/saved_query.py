@@ -486,6 +486,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 ),
             )
             .exclude(deleted=True)
+            .exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
             .order_by(self.ordering)
         )
 

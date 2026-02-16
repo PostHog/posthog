@@ -1,16 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCode2 } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonInput,
-    LemonSelect,
-    LemonSwitch,
-    LemonTag,
-    LemonTextArea,
-    Link,
-    lemonToast,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag, LemonTextArea, Link, lemonToast } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -18,7 +9,6 @@ import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Var
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
-import { endpointsLogic } from 'products/endpoints/frontend/endpointsLogic'
 
 import { sqlEditorLogic } from '../sqlEditorLogic'
 
@@ -27,21 +17,13 @@ interface EndpointProps {
 }
 
 export function Endpoint({ tabId }: EndpointProps): JSX.Element {
-    const {
-        setEndpointName,
-        setEndpointDescription,
-        setIsUpdateMode,
-        setSelectedEndpointName,
-        createEndpoint,
-        updateEndpoint,
-    } = useActions(endpointLogic({ tabId }))
-    const { endpointName, endpointDescription, isUpdateMode, selectedEndpointName } = useValues(
+    const { setEndpointName, setEndpointDescription, createEndpoint, updateEndpoint } = useActions(
         endpointLogic({ tabId })
     )
-    const { endpoints } = useValues(endpointsLogic({ tabId }))
+    const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
 
     const { variablesForInsight } = useValues(variablesLogic)
-    const { queryInput } = useValues(sqlEditorLogic)
+    const { queryInput, editingEndpoint } = useValues(sqlEditorLogic)
 
     const handleSubmit = (): void => {
         const sqlQuery = queryInput || ''
@@ -50,12 +32,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
             return
         }
 
-        if (isUpdateMode && !selectedEndpointName) {
-            lemonToast.error('You need to select an endpoint to update.')
-            return
-        }
-
-        if (!isUpdateMode && !endpointName) {
+        if (!editingEndpoint && !endpointName) {
             lemonToast.error('You need to name your endpoint.')
             return
         }
@@ -78,9 +55,9 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
             variables: transformedVariables,
         }
 
-        if (isUpdateMode && selectedEndpointName) {
+        if (editingEndpoint) {
             updateEndpoint(
-                selectedEndpointName,
+                editingEndpoint.name,
                 {
                     description: endpointDescription || undefined,
                     query: queryPayload,
@@ -112,36 +89,16 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
                     </Link>
                 </p>
 
-                <div className="flex items-center gap-2">
-                    <LemonSwitch
-                        checked={isUpdateMode}
-                        onChange={(checked) => {
-                            setIsUpdateMode(checked)
-                            if (checked) {
-                                setEndpointName('')
-                            } else {
-                                setSelectedEndpointName(null)
-                            }
-                        }}
-                        label="Update existing endpoint"
-                    />
-                </div>
-
-                {isUpdateMode ? (
-                    <LemonField.Pure label="Select endpoint">
-                        <LemonSelect
-                            value={selectedEndpointName}
-                            onChange={(value) => setSelectedEndpointName(value)}
-                            options={endpoints.map((endpoint) => ({
-                                value: endpoint.name,
-                                label: endpoint.name,
-                            }))}
-                            placeholder="Select an endpoint to update"
+                <LemonField.Pure label="Endpoint name">
+                    {editingEndpoint ? (
+                        <LemonInput
+                            id={`endpoint-name-${tabId}`}
+                            type="text"
+                            value={editingEndpoint.name}
+                            disabledReason="Editing existing endpoint."
                             className="max-w-prose"
                         />
-                    </LemonField.Pure>
-                ) : (
-                    <LemonField.Pure label="Endpoint name">
+                    ) : (
                         <LemonInput
                             id={`endpoint-name-${tabId}`}
                             type="text"
@@ -149,8 +106,8 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
                             value={endpointName || ''}
                             className="max-w-prose"
                         />
-                    </LemonField.Pure>
-                )}
+                    )}
+                </LemonField.Pure>
 
                 <LemonField.Pure label="Endpoint description">
                     <LemonTextArea
@@ -163,7 +120,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
                 </LemonField.Pure>
 
                 <LemonButton type="primary" onClick={handleSubmit} icon={<IconCode2 />} size="medium">
-                    {isUpdateMode ? 'Update endpoint' : 'Create endpoint'}
+                    {editingEndpoint ? 'Update endpoint' : 'Create endpoint'}
                 </LemonButton>
             </div>
         </div>

@@ -151,7 +151,7 @@ export const QueryDatabase = (): JSX.Element => {
             case 'managed-view':
                 return 'managed view'
             case 'endpoint':
-                return 'endpoint'
+                return item.record.endpoint?.is_materialized ? 'materialized endpoint' : 'endpoint'
             case 'view':
             case 'view-table':
                 return item.record.view?.is_materialized ? 'materialized view' : 'view'
@@ -212,8 +212,8 @@ export const QueryDatabase = (): JSX.Element => {
                     router.actions.push(urls.sqlEditor({ draftId: item.record.draft.id }))
                 }
 
-                // Copy column name when clicking on a column
-                if (item && item.record?.type === 'column') {
+                // Copy column name when clicking on a column (skip endpoint columns)
+                if (item && item.record?.type === 'column' && !item.record?.isEndpointColumn) {
                     const currentQueryInput = builtTabLogic.values.queryInput
                     setQueryInput(
                         buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName)
@@ -230,7 +230,9 @@ export const QueryDatabase = (): JSX.Element => {
                 const hasMatches = matches && matches.length > 0
                 const isColumn = item.record?.type === 'column'
                 const columnType = isColumn ? item.record?.field?.type : null
-                const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
+                const isEndpoint = item.record?.type === 'endpoint'
+                const tableKindLabel =
+                    !isColumn && (item.children?.length || isEndpoint) ? getTableKindLabel(item) : null
 
                 return (
                     <span className="truncate">
@@ -546,13 +548,11 @@ export const QueryDatabase = (): JSX.Element => {
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    sceneLogic.actions.newTab(
-                                        urls.sqlEditor({
-                                            query: item.record?.endpoint?.query.query,
-                                            outputTab: OutputTab.Endpoint,
-                                            endpointName: item.record?.endpoint?.name,
-                                        })
-                                    )
+                                    if (item.record?.endpoint) {
+                                        sceneLogic.actions.newTab(
+                                            urls.sqlEditor({ endpointName: item.record.endpoint.name })
+                                        )
+                                    }
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Edit endpoint query</ButtonPrimitive>

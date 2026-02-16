@@ -6,6 +6,12 @@ from typing import Any
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database, _constant_type_to_serialized_field_type
+from posthog.hogql.parser import parse_select
+from posthog.hogql.resolver import resolve_types
+
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
@@ -67,6 +73,11 @@ class EndpointVersion(models.Model):
     is_active = models.BooleanField(
         default=True,
         help_text="Whether this version is available for execution. Inactive versions cannot be run.",
+    )
+    columns = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="SELECT column names parsed from the query at creation time",
     )
 
     class Meta:
@@ -133,6 +144,77 @@ class EndpointVersion(models.Model):
                 return False, "Query is empty or invalid."
 
         return True, ""
+
+    @staticmethod
+    def _constant_value_type(value: object) -> str | None:
+        if isinstance(value, bool):
+            return "boolean"
+        if isinstance(value, int):
+            return "integer"
+        if isinstance(value, float):
+            return "float"
+        if isinstance(value, str):
+            return "string"
+        return None
+
+    @staticmethod
+    def extract_columns(query: dict, team_id: int) -> list[dict]:
+        """Extract SELECT column names and resolved types from a HogQL query."""
+        if query.get("kind") != "HogQLQuery":
+            return []
+        hogql_string = query.get("query", "")
+        if not hogql_string:
+            return []
+        try:
+            parsed = parse_select(hogql_string)
+
+            col_types: dict[str, str] = {}
+            try:
+                database = Database.create_for(team_id=team_id)
+                context = HogQLContext(
+                    team_id=team_id,
+                    enable_select_queries=True,
+                    database=database,
+                )
+                resolved = resolve_types(parsed, context, dialect="clickhouse")
+
+                resolved_select = resolved
+                if isinstance(resolved_select, ast.SelectSetQuery):
+                    resolved_select = resolved_select.initial_select_query
+                if isinstance(resolved_select, ast.SelectQuery) and resolved_select.type is not None:
+                    for col_name, col_type in resolved_select.type.columns.items():
+                        try:
+                            constant_type = col_type.resolve_constant_type(context)
+                            field_type = _constant_type_to_serialized_field_type(constant_type)
+                            col_types[col_name] = field_type.value if field_type else "unknown"
+                        except Exception:
+                            col_types[col_name] = "unknown"
+            except Exception:
+                pass
+
+            # Extract column names from the (unresolved) parsed AST
+            if isinstance(parsed, ast.SelectSetQuery):
+                parsed = parsed.initial_select_query
+            if not isinstance(parsed, ast.SelectQuery):
+                return []
+
+            columns: list[tuple[str, str | None]] = []
+            for expr in parsed.select:
+                if isinstance(expr, ast.Alias):
+                    columns.append((expr.alias, None))
+                elif isinstance(expr, ast.Field):
+                    columns.append((".".join(str(c) for c in expr.chain), None))
+                elif isinstance(expr, ast.Constant):
+                    columns.append((str(expr.value), EndpointVersion._constant_value_type(expr.value)))
+
+            if not columns:
+                return []
+
+            return [
+                {"name": name, "type": col_types.get(name, None) or inferred or "unknown"} for name, inferred in columns
+            ]
+        except Exception:
+            return []
 
 
 class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -220,6 +302,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         self.save(update_fields=["current_version", "updated_at"])
 
         # Create new version, inheriting settings from previous version
+        columns = EndpointVersion.extract_columns(query, team_id=self.team_id)
         version = EndpointVersion.objects.create(
             endpoint=self,
             version=self.current_version,
@@ -228,6 +311,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
             cache_age_seconds=previous_cache_age,
             description=previous_description,
             is_materialized=False,
+            columns=columns,
         )
 
         return version

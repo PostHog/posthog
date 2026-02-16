@@ -7,7 +7,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { debounce, slugify } from 'lib/utils'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { queryDatabaseLogic } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -198,6 +198,7 @@ export const endpointLogic = kea<endpointLogicType>([
                 actions.setEndpointName('')
                 actions.setEndpointDescription('')
                 actions.loadEndpoints()
+                queryDatabaseLogic.findMounted()?.actions.loadEndpoints()
                 lemonToast.success(<>Endpoint created</>, {
                     button: {
                         label: 'View',
@@ -243,6 +244,7 @@ export const endpointLogic = kea<endpointLogicType>([
             updateEndpointSuccess: ({ response, endpointName, options }) => {
                 actions.setEndpointDescription(null)
                 actions.loadEndpoints()
+                queryDatabaseLogic.findMounted()?.actions.loadEndpoints()
                 // Reload versions if we updated a specific version
                 if (options?.version) {
                     actions.loadVersions(endpointName)
@@ -318,5 +320,4 @@ export const endpointLogic = kea<endpointLogicType>([
             },
         }
     }),
-    permanentlyMount(),
 ])

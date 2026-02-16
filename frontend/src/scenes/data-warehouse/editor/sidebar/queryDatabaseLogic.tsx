@@ -27,7 +27,14 @@ import {
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseViewLink, QueryTabState } from '~/types'
+import { isHogQLQuery } from '~/queries/utils'
+import {
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryDraft,
+    DataWarehouseViewLink,
+    EndpointType,
+    QueryTabState,
+} from '~/types'
 
 import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
@@ -108,7 +115,7 @@ const systemTablesFuse = new Fuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
 const dataWarehouseTablesFuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], FUSE_OPTIONS)
 const savedQueriesFuse = new Fuse<DataWarehouseSavedQuery>([], FUSE_OPTIONS)
 const managedViewsFuse = new Fuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIONS)
-const endpointTablesFuse = new Fuse<DatabaseSchemaEndpointTable>([], FUSE_OPTIONS)
+const endpointsFuse = new Fuse<EndpointType>([], FUSE_OPTIONS)
 const draftsFuse = new Fuse<DataWarehouseSavedQueryDraft>([], FUSE_OPTIONS)
 // Factory functions for creating tree nodes
 type TableLookupEntry = {
@@ -694,6 +701,7 @@ const createTableLookup = ({
     dataWarehouseTables,
     dataWarehouseSavedQueries,
     managedViews,
+    endpointTables,
     savedQuerySchemaTables,
 }: {
     posthogTables: DatabaseSchemaTable[]
@@ -701,6 +709,7 @@ const createTableLookup = ({
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
     dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
     managedViews: DatabaseSchemaManagedViewTable[]
+    endpointTables: DatabaseSchemaEndpointTable[]
     savedQuerySchemaTables?: Record<string, DatabaseSchemaTable>
 }): TableLookup => {
     return Object.fromEntries(
@@ -718,6 +727,7 @@ const createTableLookup = ({
                     : [view.name, createSavedQueryLookupEntry(view)]
             }),
             ...managedViews.map((view) => [view.name, { name: view.name, fields: view.fields }]),
+            ...endpointTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
         ].map(([name, entry]) => [normalizeTableLookupKey(name ? String(name) : null) ?? name, entry])
     )
 }
@@ -868,7 +878,7 @@ const createManagedViewNode = (
 }
 
 const createEndpointNode = (
-    endpoint: DatabaseSchemaEndpointTable,
+    endpoint: EndpointType,
     matches: FuseSearchMatch[] | null = null,
     isSearch = false,
     tableLookup?: TableLookup,
@@ -878,15 +888,48 @@ const createEndpointNode = (
 ): TreeDataItem => {
     const endpointChildren: TreeDataItem[] = []
 
-    sortFieldsWithPrimary(endpoint.name, Object.values(endpoint.fields))
-        .filter((field) => !shouldHideField(field))
-        .forEach((field: DatabaseSchemaField) => {
-            endpointChildren.push(
-                createFieldNode(endpoint.name, field, isSearch, field.name, tableLookup, {
-                    expandedLazyNodeIds: options?.expandedLazyNodeIds,
+    // Try to get rich fields from the schema table (via DatabaseSchemaQuery)
+    // Endpoint saved queries use a versioned name format: {name}_v{version}
+    if (tableLookup) {
+        const versionedName = `${endpoint.name}_v${endpoint.current_version}`
+        const lookupKey = normalizeTableLookupKey(versionedName)
+        const schemaTable = lookupKey ? tableLookup[lookupKey] : undefined
+
+        if (schemaTable?.fields && Object.keys(schemaTable.fields).length > 0) {
+            sortFieldsWithPrimary(endpoint.name, Object.values(schemaTable.fields))
+                .filter((field) => !shouldHideField(field))
+                .forEach((field: DatabaseSchemaField) => {
+                    endpointChildren.push(
+                        createFieldNode(endpoint.name, field, isSearch, field.name, tableLookup, {
+                            expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                        })
+                    )
                 })
+        }
+    }
+
+    // Fallback: use columns from the endpoint API response
+    if (endpointChildren.length === 0 && endpoint.columns?.length) {
+        endpoint.columns.forEach((col) => {
+            endpointChildren.push(
+                createColumnNode(
+                    endpoint.name,
+                    {
+                        name: col.name,
+                        hogql_value: col.name,
+                        type: col.type as DatabaseSchemaField['type'],
+                        schema_valid: true,
+                    },
+                    col.name,
+                    isSearch
+                )
             )
         })
+    }
+
+    for (const child of endpointChildren) {
+        child.record = { ...child.record, isEndpointColumn: true }
+    }
 
     const endpointId = `${isSearch ? 'search-' : ''}endpoint-${endpoint.id}`
 
@@ -1195,6 +1238,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 },
             },
         ],
+        allEndpoints: [
+            [] as EndpointType[],
+            {
+                loadEndpoints: async () => {
+                    const response = await api.endpoint.list()
+                    return (response.results || []).filter((endpoint: EndpointType) => isHogQLQuery(endpoint.query))
+                },
+            },
+        ],
     })),
     selectors(({ actions }) => ({
         hasNonPosthogSources: [
@@ -1252,6 +1304,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 searchTerm: string
             ): [DataWarehouseSavedQuery, FuseSearchMatch[] | null][] => {
                 if (searchTerm) {
+                    // savedQueriesFuse is already filtered to exclude endpoint-origin queries
                     return savedQueriesFuse
                         .search(searchTerm)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
@@ -1273,18 +1326,21 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 return managedViews.map((view) => [view, null])
             },
         ],
+        endpoints: [
+            (s) => [s.allEndpoints],
+            (allEndpoints: EndpointType[]): EndpointType[] => {
+                return allEndpoints.filter((endpoint) => endpoint.is_active)
+            },
+        ],
         relevantEndpointTables: [
-            (s) => [s.endpointTables, s.searchTerm],
-            (
-                endpointTables: DatabaseSchemaEndpointTable[],
-                searchTerm: string
-            ): [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][] => {
+            (s) => [s.endpoints, s.searchTerm],
+            (endpoints: EndpointType[], searchTerm: string): [EndpointType, FuseSearchMatch[] | null][] => {
                 if (searchTerm) {
-                    return endpointTablesFuse
+                    return endpointsFuse
                         .search(searchTerm)
                         .map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
-                return endpointTables.map((table) => [table, null])
+                return endpoints.map((endpoint) => [endpoint, null])
             },
         ],
         relevantDrafts: [
@@ -1308,6 +1364,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.dataWarehouseTables,
                 s.dataWarehouseSavedQueries,
                 s.managedViews,
+                s.endpointTables,
                 s.relevantPosthogTables,
                 s.relevantSystemTables,
                 s.relevantDataWarehouseTables,
@@ -1326,12 +1383,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
                 dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
                 managedViews: DatabaseSchemaManagedViewTable[],
+                endpointTables: DatabaseSchemaEndpointTable[],
                 relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][],
                 relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][],
                 relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][],
-                relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][],
+                relevantEndpointTables: [EndpointType, FuseSearchMatch[] | null][],
                 relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][],
                 searchTerm: string,
                 featureFlags: FeatureFlagsSet,
@@ -1348,6 +1406,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     dataWarehouseTables,
                     dataWarehouseSavedQueries,
                     managedViews,
+                    endpointTables,
                     savedQuerySchemaTables: allTablesMap,
                 })
                 const expandedLazyNodeIds = new Set(expandedSearchFolders.filter(isLazyNodeId))
@@ -1486,8 +1545,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.dataWarehouseSavedQueries,
                 s.managedViews,
                 s.endpointTables,
+                s.endpoints,
                 s.databaseLoading,
                 s.dataWarehouseSavedQueriesLoading,
+                s.allEndpointsLoading,
                 s.drafts,
                 s.draftsResponseLoading,
                 s.hasMoreDrafts,
@@ -1504,8 +1565,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
                 managedViews: DatabaseSchemaManagedViewTable[],
                 endpointTables: DatabaseSchemaEndpointTable[],
+                endpoints: EndpointType[],
                 databaseLoading: boolean,
                 dataWarehouseSavedQueriesLoading: boolean,
+                endpointsLoading: boolean,
                 drafts: DataWarehouseSavedQueryDraft[],
                 draftsResponseLoading: boolean,
                 hasMoreDrafts: boolean,
@@ -1521,6 +1584,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     dataWarehouseTables,
                     dataWarehouseSavedQueries,
                     managedViews,
+                    endpointTables,
                     savedQuerySchemaTables: allTablesMap,
                 })
                 const expandedLazyNodeIds = new Set(expandedFolders.filter(isLazyNodeId))
@@ -1580,10 +1644,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 // Add loading indicator for views if still loading
                 if (
-                    dataWarehouseSavedQueriesLoading &&
+                    (dataWarehouseSavedQueriesLoading || endpointsLoading) &&
                     dataWarehouseSavedQueries.length === 0 &&
                     managedViews.length === 0 &&
-                    endpointTables.length === 0
+                    endpoints.length === 0
                 ) {
                     viewsChildren.push({
                         id: 'views-loading/',
@@ -1613,7 +1677,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         })
                     }
                 } else {
-                    // Add saved queries
                     dataWarehouseSavedQueries.forEach((view) => {
                         const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
                         viewsChildren.push(
@@ -1630,7 +1693,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                     // Add endpoints
                     if (featureFlags[FEATURE_FLAGS.ENDPOINTS]) {
-                        endpointTables.forEach((endpoint) => {
+                        endpoints.forEach((endpoint) => {
                             endpointChildren.push(
                                 createEndpointNode(endpoint, null, false, tableLookup, tableNodeOptions)
                             )
@@ -1874,8 +1937,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         managedViews: (managedViews: DatabaseSchemaManagedViewTable[]) => {
             managedViewsFuse.setCollection(managedViews)
         },
-        endpointTables: (endpointTables: DatabaseSchemaEndpointTable[]) => {
-            endpointTablesFuse.setCollection(endpointTables)
+        endpoints: (endpoints: EndpointType[]) => {
+            endpointsFuse.setCollection(endpoints)
         },
         drafts: (drafts: DataWarehouseSavedQueryDraft[]) => {
             draftsFuse.setCollection(drafts)
@@ -1887,6 +1950,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 actions.loadDrafts()
             }
             actions.loadQueryTabState()
+            if (values.featureFlags[FEATURE_FLAGS.ENDPOINTS]) {
+                actions.loadEndpoints()
+            }
         },
     })),
 ])

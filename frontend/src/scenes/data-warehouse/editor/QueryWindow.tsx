@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { memo, useMemo } from 'react'
 
-import { IconBook, IconDownload, IconInfo, IconPlayFilled } from '@posthog/icons'
+import { IconBook, IconDownload, IconInfo, IconPlayFilled, IconX } from '@posthog/icons'
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -45,6 +45,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         activeTab,
         queryInput,
         editingView,
+        editingEndpoint,
         editingInsight,
         insightLoading,
         sourceQuery,
@@ -67,6 +68,9 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         updateView,
         setSuggestedQueryInput,
         reportAIQueryPromptOpen,
+        stopEditingEndpoint,
+        stopEditingInsight,
+        stopEditingView,
     } = useActions(sqlEditorLogic)
     const { openHistoryModal } = useActions(sqlEditorLogic)
 
@@ -98,8 +102,30 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
 
     return (
         <div className="flex grow flex-col overflow-hidden">
-            {(editingView || editingInsight || insightLoading) && (
-                <div className="h-5 bg-warning-highlight">
+            {(editingView || editingInsight || editingEndpoint || insightLoading) && (
+                <div className="flex items-center h-5 bg-warning-highlight">
+                    {(editingView || editingInsight || editingEndpoint) && (
+                        <LemonButton
+                            size="xxsmall"
+                            noPadding
+                            icon={<IconX />}
+                            onClick={
+                                editingView
+                                    ? stopEditingView
+                                    : editingInsight
+                                      ? stopEditingInsight
+                                      : stopEditingEndpoint
+                            }
+                            tooltip={
+                                editingView
+                                    ? 'Stop editing view'
+                                    : editingInsight
+                                      ? 'Stop editing insight'
+                                      : 'Stop editing endpoint'
+                            }
+                            className="ml-1"
+                        />
+                    )}
                     <span className="pl-2 text-xs">
                         {editingView ? (
                             <>
@@ -108,8 +134,13 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                             </>
                         ) : editingInsight ? (
                             <>
-                                Editing insight "
-                                <Link to={urls.insightView(editingInsight.short_id)}>{editingInsight.name}</Link>"
+                                Editing insight{' '}
+                                <Link to={urls.insightView(editingInsight.short_id)}>{editingInsight.name}</Link>
+                            </>
+                        ) : editingEndpoint ? (
+                            <>
+                                Editing endpoint{' '}
+                                <Link to={urls.endpoint(editingEndpoint.name)}>{editingEndpoint.name}</Link>
                             </>
                         ) : insightLoading ? (
                             'Loading insight...'

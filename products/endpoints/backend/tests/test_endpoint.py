@@ -936,3 +936,47 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("abc123xyz", response_data["derived_from_insight"])
         endpoint = Endpoint.objects.get(name="test_with_insight", team=self.team)
         self.assertEqual(endpoint.derived_from_insight, "abc123xyz")
+
+
+class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "simple_select_with_alias",
+                {"kind": "HogQLQuery", "query": "SELECT event AS ev FROM events"},
+                [{"name": "ev", "type": "string"}],
+            ),
+            (
+                "multiple_columns",
+                {"kind": "HogQLQuery", "query": "SELECT event, distinct_id, timestamp FROM events"},
+                [
+                    {"name": "event", "type": "string"},
+                    {"name": "distinct_id", "type": "string"},
+                    {"name": "timestamp", "type": "datetime"},
+                ],
+            ),
+            (
+                "non_hogql_query",
+                {"kind": "TrendsQuery", "series": [{"kind": "EventsNode"}]},
+                [],
+            ),
+            (
+                "empty_query",
+                {"kind": "HogQLQuery", "query": ""},
+                [],
+            ),
+            (
+                "literal_expressions",
+                {"kind": "HogQLQuery", "query": "SELECT 100 AS total, 'hello' AS greeting"},
+                [
+                    {"name": "total", "type": "integer"},
+                    {"name": "greeting", "type": "string"},
+                ],
+            ),
+        ]
+    )
+    def test_extract_columns(self, _name: str, query: dict, expected: list[dict]):
+        from products.endpoints.backend.models import EndpointVersion
+
+        result = EndpointVersion.extract_columns(query, team_id=self.team.pk)
+        self.assertEqual(result, expected)
