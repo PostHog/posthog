@@ -53,11 +53,6 @@ export function ExperimentWizard(): JSX.Element {
                         )}
                     </div>
                     <div className="flex items-center gap-2">
-                        {!isLastStep && (
-                            <LemonButton type="secondary" onClick={saveExperiment} loading={isExperimentSubmitting}>
-                                Save as draft
-                            </LemonButton>
-                        )}
                         {isLastStep ? (
                             <LemonButton type="primary" onClick={saveExperiment} loading={isExperimentSubmitting}>
                                 Save as draft
