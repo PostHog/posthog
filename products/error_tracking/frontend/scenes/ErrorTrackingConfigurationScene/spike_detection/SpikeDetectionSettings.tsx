@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { LemonBanner } from '@posthog/lemon-ui'
@@ -11,7 +11,8 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { spikeDetectionConfigLogic } from './spikeDetectionConfigLogic'
 
 export function SpikeDetectionSettings(): JSX.Element {
-    const { configLoading, configFormChanged, isConfigFormSubmitting } = useValues(spikeDetectionConfigLogic)
+    const { config, configLoading, configFormChanged, isConfigFormSubmitting } = useValues(spikeDetectionConfigLogic)
+    const { enableSpikeDetection } = useActions(spikeDetectionConfigLogic)
 
     if (configLoading) {
         return (
@@ -23,11 +24,25 @@ export function SpikeDetectionSettings(): JSX.Element {
         )
     }
 
+    if (!config) {
+        return (
+            <div className="space-y-4">
+                <p className="text-muted-foreground">
+                    Spike detection monitors your error tracking issues and alerts you when an issue receives
+                    significantly more exceptions than its baseline.
+                </p>
+                <LemonButton type="primary" onClick={enableSpikeDetection}>
+                    Enable spike detection
+                </LemonButton>
+            </div>
+        )
+    }
+
     return (
         <Form logic={spikeDetectionConfigLogic} formKey="configForm" enableFormOnSubmit className="space-y-4">
             <LemonBanner type="info" action={{ children: 'Send feedback', id: 'spike-detection-feedback-button' }}>
                 <p>
-                    Spike detection is in alpha. We may make changes to the defaults or replace these serrings as we
+                    Spike detection is in alpha. We may make changes to the defaults or replace these settings as we
                     iterate. We'd love your feedback!
                 </p>
             </LemonBanner>

@@ -5,8 +5,6 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 
 import structlog
 from django_deprecate_fields import deprecate_field
@@ -524,12 +522,3 @@ class ErrorTrackingSpikeDetectionConfig(models.Model):
 
     class Meta:
         db_table = "posthog_errortrackingspikedetectionconfig"
-
-
-@receiver(post_save, sender="posthog.Team")
-def create_error_tracking_spike_detection_config(sender, instance, created, **kwargs):
-    try:
-        if created:
-            ErrorTrackingSpikeDetectionConfig.objects.get_or_create(team=instance)
-    except Exception as e:
-        logger.warning(f"Error creating error tracking spike detection config: {e}")
