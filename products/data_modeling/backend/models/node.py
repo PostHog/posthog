@@ -45,12 +45,12 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             ),
             models.UniqueConstraint(
                 condition=models.Q(saved_query__isnull=False),
-                name="saved_query_unique_within_team_dag_text",
-                fields=["team", "dag_id_text", "saved_query"],
+                name="saved_query_unique_within_team_dag",
+                fields=["team", "dag", "saved_query"],
             ),
             models.UniqueConstraint(
                 condition=models.Q(saved_query__isnull=True),
-                name="name_unique_within_team_dag_text_for_tables",
-                fields=["team", "dag_id_text", "name"],
+                name="name_unique_within_team_dag_for_tables",
+                fields=["team", "dag", "name"],
             ),
         ]
