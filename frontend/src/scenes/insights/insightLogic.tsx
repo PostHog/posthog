@@ -202,28 +202,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     if (!insightId) {
                         throw new Error('Cannot update insight: unable to resolve insight id')
                     }
-                    console.warn(
-                        `[DASH-DEBUG] insightLogic.updateInsight: PATCH started insightId=${insightId} t=${performance.now().toFixed(1)}`
-                    )
                     const response = await insightsApi.update(insightId, insightUpdate)
-                    console.warn(
-                        `[DASH-DEBUG] insightLogic.updateInsight: PATCH completed insightId=${values.insight.id} dashboards=${JSON.stringify(response.dashboards)} t=${performance.now().toFixed(1)}`
-                    )
                     // Call the callback before breakpoint so it fires even if a newer loader
                     // action was dispatched while the API call was in flight. The API call
                     // succeeded, so the callback (e.g. navigation after adding to dashboard)
                     // should run regardless.
-                    console.warn(
-                        `[DASH-DEBUG] insightLogic.updateInsight: calling callback t=${performance.now().toFixed(1)}`
-                    )
                     callback?.()
-                    console.warn(
-                        `[DASH-DEBUG] insightLogic.updateInsight: callback done, calling breakpoint t=${performance.now().toFixed(1)}`
-                    )
                     breakpoint()
-                    console.warn(
-                        `[DASH-DEBUG] insightLogic.updateInsight: breakpoint passed t=${performance.now().toFixed(1)}`
-                    )
                     const updatedInsight: QueryBasedInsightModel = {
                         ...response,
                         result: response.result || values.insight.result,
@@ -232,13 +217,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     const removedDashboards = (values.insight.dashboards || []).filter(
                         (d) => !updatedInsight.dashboards?.includes(d)
                     )
-                    console.warn(
-                        `[DASH-DEBUG] insightLogic.updateInsight: dispatching updateDashboardInsight dashboard_tiles=${JSON.stringify(updatedInsight.dashboard_tiles?.map((t) => t.dashboard_id))} removedDashboards=${JSON.stringify(removedDashboards)} t=${performance.now().toFixed(1)}`
-                    )
                     dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
-                    console.warn(
-                        `[DASH-DEBUG] insightLogic.updateInsight: updateDashboardInsight dispatched, returning t=${performance.now().toFixed(1)}`
-                    )
                     values.insight.short_id && refreshTreeItem('insight', String(values.insight.short_id))
                     return updatedInsight
                 },
