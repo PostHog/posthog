@@ -26,7 +26,6 @@ import { ClickHouseEvent, Hub, Person, PluginsServerConfig, Team } from '../../s
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
-import { normalizeEventStep } from '../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { fetchDistinctIdValues, fetchPersons } from '../../src/worker/ingestion/persons/repositories/test-helpers'
@@ -96,16 +95,19 @@ describe('processEvent', () => {
         timestamp: DateTime,
         eventUuid: string
     ): Promise<void> {
-        const pluginEvent: PluginEvent = {
+        const normalizedEvent: PluginEvent = {
             distinct_id: distinctId,
             site_url: _siteUrl,
             team_id: teamId,
-            timestamp: timestamp.toUTC().toISO(),
-            now: timestamp.toUTC().toISO(),
-            ip: ip,
+            timestamp: timestamp.toUTC().toISO()!,
+            now: timestamp.toUTC().toISO()!,
+            ip: null,
             uuid: eventUuid,
+            properties: { $ip: ip },
+            event: 'default event',
             ...data,
-        } as any as PluginEvent
+        }
+        const eventTimestamp = timestamp.toUTC()
 
         const personsStoreForBatch = new BatchWritingPersonsStore(
             new PostgresPersonRepository(hub.postgres),
@@ -116,7 +118,6 @@ describe('processEvent', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
-        const [normalizedEvent, eventTimestamp] = await normalizeEventStep(pluginEvent, true)
         const runner = new EventPipelineRunner(
             {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -255,17 +256,18 @@ describe('processEvent', () => {
         properties: any = {},
         personRepository?: PostgresPersonRepository
     ) => {
-        const event = {
+        const normalizedEvent = {
             event: eventName,
             distinct_id: properties.distinct_id ?? state.currentDistinctId,
-            properties: properties,
+            properties: { ...properties, $ip: '127.0.0.1' },
             now: new Date().toISOString(),
             sent_at: new Date().toISOString(),
-            ip: '127.0.0.1',
+            ip: null,
             site_url: 'https://posthog.com',
             team_id: team.id,
             uuid: new UUIDT().toString(),
         }
+        const eventTimestamp = DateTime.fromISO(normalizedEvent.now, { zone: 'utc' })
         const personsStoreForBatch = new BatchWritingPersonsStore(
             personRepository || new PostgresPersonRepository(hub.postgres),
             hub.kafkaProducer
@@ -274,10 +276,6 @@ describe('processEvent', () => {
             hub.kafkaProducer,
             hub.groupRepository,
             hub.clickhouseGroupRepository
-        )
-        const [normalizedEvent, eventTimestamp] = await normalizeEventStep(
-            { ...event, team_id: event.team_id ?? team.id },
-            true
         )
         const runner = new EventPipelineRunner(
             {
