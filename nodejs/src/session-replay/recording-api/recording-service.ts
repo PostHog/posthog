@@ -25,6 +25,7 @@ export type DeleteRecordingResult =
     | { ok: false; error: 'not_found' }
     | { ok: false; error: 'already_deleted'; deletedAt?: number }
     | { ok: false; error: 'not_supported' }
+    | { ok: false; error: 'cleanup_failed'; metadataError?: unknown; postgresError?: unknown }
 
 export class RecordingService {
     constructor(
@@ -118,13 +119,16 @@ export class RecordingService {
                 this.emitDeletionEvent(sessionId, teamId),
                 this.deletePostgresRecords(sessionId, teamId),
             ])
-            if (metadataResult.status === 'rejected' || postgresResult.status === 'rejected') {
+            const metadataError = metadataResult.status === 'rejected' ? metadataResult.reason : undefined
+            const postgresError = postgresResult.status === 'rejected' ? postgresResult.reason : undefined
+            if (metadataError || postgresError) {
                 logger.error('[RecordingService] Post-deletion cleanup failed', {
                     sessionId,
                     teamId,
-                    metadataError: metadataResult.status === 'rejected' ? metadataResult.reason : null,
-                    postgresError: postgresResult.status === 'rejected' ? postgresResult.reason : null,
+                    metadataError: metadataError ?? null,
+                    postgresError: postgresError ?? null,
                 })
+                return { ok: false, error: 'cleanup_failed', metadataError, postgresError }
             }
             return { ok: true }
         }
@@ -190,8 +194,10 @@ export class RecordingService {
             ),
         ])
 
+        const failures: string[] = []
         for (const [i, result] of results.entries()) {
             if (result.status === 'rejected') {
+                failures.push(tables[i])
                 logger.error('[RecordingService] Postgres deletion failed', {
                     sessionId,
                     teamId,
@@ -209,6 +215,10 @@ export class RecordingService {
             [teamId, sessionId],
             'deleteSessionRecording'
         )
+
+        if (failures.length > 0) {
+            throw new Error(`Failed to delete from: ${failures.join(', ')}`)
+        }
 
         logger.info('[RecordingService] PostgreSQL records deleted', { sessionId, teamId })
     }

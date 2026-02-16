@@ -426,6 +426,20 @@ describe('RecordingApi', () => {
                 })
             })
 
+            it('should return 500 when post-deletion cleanup fails', async () => {
+                mockService.deleteRecording.mockResolvedValue({
+                    ok: false,
+                    error: 'cleanup_failed',
+                    metadataError: new Error('Kafka error'),
+                    postgresError: undefined,
+                })
+
+                const res = await supertest(app).delete('/api/projects/1/recordings/session-123')
+
+                expect(res.status).toBe(500)
+                expect(res.body).toEqual({ error: 'Recording key deleted but post-deletion cleanup failed' })
+            })
+
             it('should return 501 when deletion is not supported', async () => {
                 mockService.deleteRecording.mockResolvedValue({ ok: false, error: 'not_supported' })
 

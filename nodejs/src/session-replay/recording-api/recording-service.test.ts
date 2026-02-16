@@ -253,28 +253,40 @@ describe('RecordingService', () => {
             expect(result).toEqual({ ok: false, error: 'not_supported' })
         })
 
-        it('still returns ok when metadata store fails after key deletion', async () => {
+        it('returns cleanup_failed when metadata store fails after key deletion', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({ deleted: true })
-            mockMetadataStore.storeSessionBlocks.mockRejectedValue(new Error('Kafka connection lost'))
+            const kafkaError = new Error('Kafka connection lost')
+            mockMetadataStore.storeSessionBlocks.mockRejectedValue(kafkaError)
 
             const result = await service.deleteRecording('session-123', 1)
 
-            expect(result).toEqual({ ok: true })
+            expect(result).toEqual({
+                ok: false,
+                error: 'cleanup_failed',
+                metadataError: kafkaError,
+                postgresError: undefined,
+            })
             // Promise.allSettled runs both independently, so postgres is still called
             expect(mockPostgres.query).toHaveBeenCalled()
         })
 
-        it('still returns ok when postgres fails after key deletion', async () => {
+        it('returns cleanup_failed when postgres fails after key deletion', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({ deleted: true })
-            mockPostgres.query.mockRejectedValue(new Error('Postgres connection lost'))
+            const pgError = new Error('Postgres connection lost')
+            mockPostgres.query.mockRejectedValue(pgError)
 
             const result = await service.deleteRecording('session-123', 1)
 
-            expect(result).toEqual({ ok: true })
+            expect(result).toEqual({
+                ok: false,
+                error: 'cleanup_failed',
+                metadataError: undefined,
+                postgresError: pgError,
+            })
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalled()
         })
 
-        it('still runs cascade delete when a preceding query fails', async () => {
+        it('still runs cascade delete but returns cleanup_failed when a preceding query fails', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({ deleted: true })
             const queryResult = { rows: [], command: '', rowCount: 0, oid: 0, fields: [] }
             mockPostgres.query
@@ -285,7 +297,13 @@ describe('RecordingService', () => {
 
             const result = await service.deleteRecording('session-123', 1)
 
-            expect(result).toEqual({ ok: true })
+            expect(result).toEqual({
+                ok: false,
+                error: 'cleanup_failed',
+                metadataError: undefined,
+                postgresError: expect.objectContaining({ message: 'Failed to delete from: ee_single_session_summary' }),
+            })
+            // Cascade delete still runs despite the partial failure
             expect(mockPostgres.query).toHaveBeenCalledTimes(4)
             expect(mockPostgres.query).toHaveBeenLastCalledWith(
                 expect.anything(),
