@@ -17,7 +17,7 @@ class TestAITemporalModuleIntegrity:
             "VideoSegmentClusteringWorkflow",
             "VideoSegmentClusteringCoordinatorWorkflow",
         ]
-        actual_workflow_names = [workflow.__name__ for workflow in ai.WORKFLOWS]
+        actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS + ai.SIGNALS_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
             f"Workflow count mismatch. Expected {len(expected_workflows)}, got {len(actual_workflow_names)}. "
             "If you're adding/removing workflows, update this test accordingly."
@@ -67,7 +67,7 @@ class TestAITemporalModuleIntegrity:
             "persist_reports_activity",
             "get_proactive_tasks_enabled_team_ids_activity",
         ]
-        actual_activity_names = [activity.__name__ for activity in ai.ACTIVITIES]
+        actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES + ai.SIGNALS_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
             f"Activity count mismatch. Expected {len(expected_activities)}, got {len(actual_activity_names)}. "
             "If you're adding/removing activities, update this test accordingly."

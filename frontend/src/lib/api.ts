@@ -10,6 +10,7 @@ import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
+import { SignalReport, SignalReportArtefactResponse } from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -23,6 +24,7 @@ import {
     DashboardFilter,
     DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
+    DomainConnectProviderName,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
     EndpointRunRequest,
@@ -147,6 +149,7 @@ import {
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     type OAuthApplicationPublicMetadata,
+    ObjectMediaPreview,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
@@ -195,6 +198,7 @@ import {
     WebAnalyticsFilterPresetType,
 } from '~/types'
 
+import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
@@ -727,6 +731,14 @@ export class ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('event_definitions').addPathComponent(eventDefinitionId)
     }
 
+    public objectMediaPreviews(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('object_media_previews')
+    }
+
+    public objectMediaPreviewDetail(previewId: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.objectMediaPreviews(projectId).addPathComponent(previewId)
+    }
+
     public propertyDefinitions(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('property_definitions')
     }
@@ -809,6 +821,14 @@ export class ApiRequest {
 
     public customerProfileConfigsDetail(id: CustomerProfileConfigType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.customerProfileConfigs(teamId).addPathComponent(id)
+    }
+
+    public customerJourneys(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('customer_journeys')
+    }
+
+    public customerJourneysDetail(id: CustomerJourneyApi['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.customerJourneys(teamId).addPathComponent(id)
     }
 
     // Recordings
@@ -1092,6 +1112,15 @@ export class ApiRequest {
             return this.addPathComponent('users').withQueryString({ email })
         }
         return this.addPathComponent('users')
+    }
+
+    // # Signal Reports
+    public signalReports(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('signal_reports')
+    }
+
+    public signalReport(id: SignalReport['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.signalReports(teamId).addPathComponent(id)
     }
 
     // # Tasks
@@ -1455,6 +1484,14 @@ export class ApiRequest {
 
     public integrationEmailVerify(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('email/verify')
+    }
+
+    public integrationsDomainConnectCheck(teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent('domain-connect/check')
+    }
+
+    public integrationsDomainConnectApplyUrl(teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent('domain-connect/apply-url')
     }
 
     // # Organization Integrations
@@ -1942,6 +1979,9 @@ const api = {
                     })
                 )
                 .get()
+        },
+        async list(params?: Record<string, any>): Promise<PaginatedResponse<InsightModel>> {
+            return await new ApiRequest().insights().withQueryString(params).get()
         },
         async get(id: number): Promise<InsightModel | null> {
             return await new ApiRequest().insight(id).get()
@@ -2838,6 +2878,20 @@ const api = {
         },
         async delete(id: CustomerProfileConfigType['id']): Promise<void> {
             return await new ApiRequest().customerProfileConfigsDetail(id).delete()
+        },
+    },
+
+    customerJourneys: {
+        async list(): Promise<CountedPaginatedResponse<CustomerJourneyApi>> {
+            return await new ApiRequest().customerJourneys().get()
+        },
+        async create(
+            data: Pick<CustomerJourneyApi, 'insight' | 'name'> & { description?: string }
+        ): Promise<CustomerJourneyApi> {
+            return await new ApiRequest().customerJourneys().create({ data })
+        },
+        async delete(id: CustomerJourneyApi['id']): Promise<void> {
+            return await new ApiRequest().customerJourneysDetail(id).delete()
         },
     },
 
@@ -4130,6 +4184,21 @@ const api = {
         },
     },
 
+    signalReports: {
+        async list(): Promise<PaginatedResponse<SignalReport>> {
+            return await new ApiRequest().signalReports().get()
+        },
+        async analyzeSessions(): Promise<Record<string, any>> {
+            return await new ApiRequest().signalReports().withAction('analyze_sessions').create()
+        },
+        async get(id: SignalReport['id']): Promise<SignalReport> {
+            return await new ApiRequest().signalReport(id).get()
+        },
+        async artefacts(id: SignalReport['id']): Promise<SignalReportArtefactResponse> {
+            return await new ApiRequest().signalReport(id).withAction('artefacts').get()
+        },
+    },
+
     tasks: {
         async list(): Promise<PaginatedResponse<Task>> {
             return await new ApiRequest().tasks().get()
@@ -4151,9 +4220,6 @@ const api = {
         },
         async run(id: Task['id']): Promise<Task> {
             return await new ApiRequest().task(id).withAction('run').create()
-        },
-        async clusterVideoSegments(): Promise<{ status: string; workflow_id: string; message: string }> {
-            return await new ApiRequest().tasks().withAction('cluster_video_segments').create()
         },
         runs: {
             async list(taskId: Task['id']): Promise<PaginatedResponse<TaskRun>> {
@@ -4802,6 +4868,25 @@ const api = {
         ): Promise<IntegrationType> {
             return await new ApiRequest().integrationEmail(integrationId).update({ data })
         },
+        async domainConnectCheck(domain: string): Promise<{
+            supported: boolean
+            provider_name: DomainConnectProviderName | null
+            available_providers: { endpoint: string; name: DomainConnectProviderName }[]
+        }> {
+            return await new ApiRequest()
+                .integrationsDomainConnectCheck()
+                .withQueryString(`domain=${encodeURIComponent(domain)}`)
+                .get()
+        },
+        async domainConnectApplyUrl(data: {
+            context: 'email' | 'proxy'
+            integration_id?: number
+            proxy_record_id?: string
+            redirect_uri?: string
+            provider_endpoint?: string
+        }): Promise<{ url: string }> {
+            return await new ApiRequest().integrationsDomainConnectApplyUrl().create({ data })
+        },
     },
 
     organizationIntegrations: {
@@ -4813,6 +4898,35 @@ const api = {
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
+        },
+    },
+
+    objectMediaPreviews: {
+        async list(eventDefinitionId: string): Promise<{ results: ObjectMediaPreview[] }> {
+            return await new ApiRequest()
+                .objectMediaPreviews()
+                .withQueryString(`event_definition=${eventDefinitionId}`)
+                .get()
+        },
+        async create(data: {
+            uploaded_media_id: string
+            event_definition_id: string
+            metadata?: Record<string, any>
+        }): Promise<ObjectMediaPreview> {
+            return await new ApiRequest().objectMediaPreviews().create({ data })
+        },
+        async getPreferred(eventDefinitionId: string): Promise<ObjectMediaPreview> {
+            return await new ApiRequest()
+                .objectMediaPreviews()
+                .withAction('preferred_for_event')
+                .withQueryString(`event_definition=${eventDefinitionId}`)
+                .get()
+        },
+        async delete(previewId: string): Promise<void> {
+            return await new ApiRequest().objectMediaPreviewDetail(previewId).delete()
+        },
+        async update(previewId: string, data: Partial<ObjectMediaPreview>): Promise<ObjectMediaPreview> {
+            return await new ApiRequest().objectMediaPreviewDetail(previewId).update({ data })
         },
     },
 

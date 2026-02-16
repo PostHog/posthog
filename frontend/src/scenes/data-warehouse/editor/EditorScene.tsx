@@ -183,7 +183,7 @@ function VariablesQuerySync(): null {
 
     useEffect(() => {
         setEditorQuery(queryInput ?? '')
-    }, [queryInput])
+    }, [queryInput, setEditorQuery])
 
     return null
 }
