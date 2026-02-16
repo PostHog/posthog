@@ -40,6 +40,7 @@ members = [
     "personhog-proto",
     "personhog-replica",
     "personhog-router",
+    "ingestion-consumer",
 ]
 
 [workspace.lints.rust]

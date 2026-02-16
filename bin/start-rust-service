@@ -151,6 +151,16 @@ case "$RS_SVC" in
     export DEBUG=1
     ;;
 
+  ingestion-consumer)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS=localhost:9092
+    export KAFKA_TOPIC=events_plugin_ingestion
+    export KAFKA_GROUP_ID=ingestion-consumer-rust
+    export INGESTION_API_ADDRESSES=http://localhost:3400,http://localhost:3401,http://localhost:3402,http://localhost:3403
+    export BIND_PORT=3310
+    ;;
+
   *)
     echo "ERROR unknown posthog/rust service '$RS_SVC' please register in: $0" >&2
     exit 1
