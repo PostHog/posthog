@@ -1,4 +1,6 @@
+import json
 import asyncio
+from datetime import datetime
 from textwrap import dedent
 from typing import Any, Literal
 from uuid import uuid4
@@ -17,7 +19,6 @@ from posthog.temporal.ai.session_summary.summarize_session_group import (
     execute_summarize_session_group,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.utils import pluralize
 
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARIES_MIN_SESSIONS,
@@ -34,7 +35,6 @@ from ee.hogai.session_summaries.tracking import (
     generate_tracking_id,
 )
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-from ee.hogai.utils.state import prepare_reasoning_progress_message
 
 logger = structlog.get_logger(__name__)
 
@@ -244,11 +244,9 @@ class SummarizeSessionsTool(MaxTool):
             or False
         )
 
-    def _stream_progress(self, progress_message: str) -> None:
-        """Push summarization progress as reasoning messages"""
-        content = prepare_reasoning_progress_message(progress_message)
-        if content:
-            self.dispatcher.update(content)
+    def _dispatch_structured_update(self, data: dict) -> None:
+        """Push structured JSON progress update directly, bypassing the 200-char truncation of prepare_reasoning_progress_message."""
+        self.dispatcher.update(json.dumps(data))
 
     def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
         """Get session ids from DB with filters"""
@@ -279,23 +277,51 @@ class SummarizeSessionsTool(MaxTool):
 
         async def _summarize(session_id: str) -> dict[str, Any]:
             nonlocal completed
-            result = await execute_summarize_session(
-                session_id=session_id,
-                user=self._user,
-                team=self._team,
-                model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
-                video_validation_enabled=video_validation_enabled,
+            self._dispatch_structured_update(
+                {
+                    "type": "progress",
+                    "status_changes": [{"id": session_id, "status": "summarizing"}],
+                    "phase": "watching_sessions",
+                    "completed_count": completed,
+                    "total_count": total,
+                }
             )
+            try:
+                result = await execute_summarize_session(
+                    session_id=session_id,
+                    user=self._user,
+                    team=self._team,
+                    model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+                    video_validation_enabled=video_validation_enabled,
+                )
+            except Exception:
+                completed += 1
+                self._dispatch_structured_update(
+                    {
+                        "type": "progress",
+                        "status_changes": [{"id": session_id, "status": "failed"}],
+                        "phase": "watching_sessions",
+                        "completed_count": completed,
+                        "total_count": total,
+                    }
+                )
+                raise
             completed += 1
-            # Update the user on the progress
-            self._stream_progress(progress_message=f"Watching sessions ({completed}/{total})")
+            self._dispatch_structured_update(
+                {
+                    "type": "progress",
+                    "status_changes": [{"id": session_id, "status": "summarized"}],
+                    "phase": "watching_sessions",
+                    "completed_count": completed,
+                    "total_count": total,
+                }
+            )
             return result
 
         # Run all tasks concurrently, with periodic heartbeats to keep the parent activity alive
         tasks = [_summarize(sid) for sid in session_ids]
         async with Heartbeater():
             summaries = await asyncio.gather(*tasks)
-        self._stream_progress(progress_message=f"Generating a summary, almost there")
         # Stringify, as chat doesn't need full JSON to be context-aware, while providing it could overload the context
         stringified_summaries = []
         for summary in summaries:
@@ -309,13 +335,12 @@ class SummarizeSessionsTool(MaxTool):
         self,
         session_ids: list[str],
         summary_title: str | None,
+        min_timestamp: datetime,
+        max_timestamp: datetime,
     ) -> tuple[str, str]:
         """Summarize sessions as a group (for larger sets). Returns tuple of (summary_str, session_group_summary_id)."""
         from ee.hogai.session_summaries.utils import logging_session_ids
 
-        min_timestamp, max_timestamp = await database_sync_to_async(find_sessions_timestamps, thread_sensitive=False)(
-            session_ids=session_ids, team=self._team
-        )
         # Check if the summaries should be validated with videos
         video_validation_enabled = self._determine_video_validation_enabled()
         async with Heartbeater():
@@ -329,17 +354,19 @@ class SummarizeSessionsTool(MaxTool):
                 extra_summary_context=None,
                 video_validation_enabled=video_validation_enabled,
             ):
-                # Max "reasoning" text update message
-                if update_type == SessionSummaryStreamUpdate.UI_STATUS:
-                    if not isinstance(data, str):
+                # Per-session structured progress from the workflow polling loop
+                if update_type == SessionSummaryStreamUpdate.SESSION_PROGRESS:
+                    if not isinstance(data, dict):
                         msg = (
-                            f"Unexpected data type for stream update {SessionSummaryStreamUpdate.UI_STATUS}: {type(data)} "
-                            f"(expected: str)"
+                            f"Unexpected data type for stream update {SessionSummaryStreamUpdate.SESSION_PROGRESS}: {type(data)} "
+                            f"(expected: dict)"
                         )
                         logger.error(msg, signals_type="session-summaries")
                         raise TypeError(msg)
-                    # Status message - stream to user
-                    self._stream_progress(progress_message=data)
+                    self._dispatch_structured_update({"type": "progress", **data})
+                # Text status updates (kept for backward compat but no longer streamed to user)
+                elif update_type == SessionSummaryStreamUpdate.UI_STATUS:
+                    pass
                 # Final summary result
                 elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
                     if not isinstance(data, tuple) or len(data) != 2:
@@ -370,6 +397,17 @@ class SummarizeSessionsTool(MaxTool):
                 logger.error(msg, signals_type="session-summaries")
                 raise ValueError(msg)
 
+    def _get_group_metadata(self, session_ids: list[str]) -> dict:
+        """Fetch first_url and duration for each session in a single ClickHouse query."""
+        from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+        replay_events = SessionReplayEvents()
+        metadata_dict = replay_events.get_group_metadata(
+            session_ids=session_ids,
+            team=self._team,
+        )
+        return metadata_dict
+
     async def _summarize_sessions(
         self, session_ids: list[str], summary_title: str | None, *, session_ids_source: Literal["filters", "explicit"]
     ) -> tuple[str, str | None]:
@@ -377,22 +415,35 @@ class SummarizeSessionsTool(MaxTool):
         Summarize sessions. Returns tuple of (summary_str, session_group_summary_id).
         session_group_summary_id is None for individual summaries, as report is not generated.
         """
+        # Fetch timestamps (needed for group path, but done early so metadata fetch can use them)
+        min_timestamp, max_timestamp = await database_sync_to_async(find_sessions_timestamps, thread_sensitive=False)(
+            session_ids=session_ids, team=self._team
+        )
+
+        # Fetch per-session metadata for the progress widget
+        metadata_dict = await database_sync_to_async(self._get_group_metadata, thread_sensitive=False)(session_ids)
+        sessions_meta: list[dict[str, Any]] = []
+        for sid in session_ids:
+            meta = metadata_dict.get(sid)
+            if meta:
+                duration_s = (meta["end_time"] - meta["start_time"]).total_seconds()
+                sessions_meta.append(
+                    {"id": sid, "first_url": meta.get("first_url", ""), "duration_s": round(duration_s)}
+                )
+            else:
+                sessions_meta.append({"id": sid, "first_url": "", "duration_s": 0})
+        self._dispatch_structured_update({"type": "sessions_discovered", "sessions": sessions_meta})
+
         # Process sessions based on count
-        base_message = f"Found {pluralize(len(session_ids), 'session')} based on {'filters' if session_ids_source == 'filters' else 'explicit session IDs'}."
         if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
-            # If small amount of sessions - there are no patterns to extract, so summarize them individually and return as is
-            self._stream_progress(
-                progress_message=f"{base_message} We will do a quick summary, as the scope is small",
-            )
             summaries_content = await self._summarize_sessions_individually(session_ids=session_ids)
             return summaries_content, None
         # For large groups, process in detail, searching for patterns
-        self._stream_progress(
-            progress_message=f"{base_message} We will analyze in detail, and store the report",
-        )
         summaries_content, session_group_summary_id = await self._summarize_sessions_as_group(
             session_ids=session_ids,
             summary_title=summary_title,
+            min_timestamp=min_timestamp,
+            max_timestamp=max_timestamp,
         )
         return summaries_content, session_group_summary_id
 

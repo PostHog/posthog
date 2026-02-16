@@ -47,7 +47,7 @@ export interface ToolDefinition<N extends string = string> {
     displayFormatter?: (
         toolCall: EnhancedToolCall,
         { registeredToolMap }: DisplayFormatterContext
-    ) => string | [text: string, widgetDef: RecordingsWidgetDef | null]
+    ) => string | [text: string, widgetDef: RecordingsWidgetDef | SessionSummarizationWidgetDef | null]
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -102,6 +102,11 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
 export interface RecordingsWidgetDef {
     widget: 'recordings'
     args: RecordingUniversalFilters
+}
+
+export interface SessionSummarizationWidgetDef {
+    widget: 'session_summarization'
+    args: { updates: object[] }
 }
 
 /** Static mode definition for display purposes. */
@@ -896,10 +901,30 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         beta: true,
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Summarized sessions'
+            // Parse structured JSON updates from the tool call updates array
+            const structuredUpdates: object[] = []
+            if (toolCall.updates) {
+                for (const update of toolCall.updates) {
+                    try {
+                        const parsed = JSON.parse(update)
+                        if (parsed && typeof parsed === 'object' && 'type' in parsed) {
+                            structuredUpdates.push(parsed)
+                        }
+                    } catch {
+                        // Not a JSON update, skip
+                    }
+                }
             }
-            return 'Summarizing sessions...'
+
+            const text = toolCall.status === 'completed' ? 'Summarized sessions' : 'Summarizing sessions...'
+            if (structuredUpdates.length > 0) {
+                const widgetDef: SessionSummarizationWidgetDef = {
+                    widget: 'session_summarization',
+                    args: { updates: structuredUpdates },
+                }
+                return [text, widgetDef]
+            }
+            return text
         },
     },
     web_search: {

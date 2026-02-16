@@ -12,6 +12,7 @@ class SessionSummaryStreamUpdate(Enum):
 
     UI_STATUS = "ui_status"  # Status messages for UI progress display
     FINAL_RESULT = "final_result"  # Final summarization result
+    SESSION_PROGRESS = "session_progress"  # Per-session progress data (dict)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

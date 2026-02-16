@@ -283,6 +283,9 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         # Tracking the progress of the individual steps
         self._raw_patterns_extracted_keys: list[str] = []
         self._pattern_assignments_completed = 0
+        # Per-session progress tracking
+        self._session_statuses: dict[str, str] = {}
+        self._current_phase: str = "fetching_data"
 
     @temporalio.workflow.query
     def get_current_status(self) -> list[str]:
@@ -296,6 +299,15 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     def get_raw_patterns_extraction_keys(self) -> list[str]:
         """Query handler to get keys of the current extracted patterns stored in Redis."""
         return self._raw_patterns_extracted_keys
+
+    @temporalio.workflow.query
+    def get_progress(self) -> dict:
+        """Query handler to get per-session progress for the structured progress widget."""
+        return {
+            "session_statuses": dict(self._session_statuses),
+            "phase": self._current_phase,
+            "total_sessions": self._total_sessions,
+        }
 
     @temporalio.workflow.signal
     async def update_pattern_assignments_progress(self, sessions_completed: int) -> None:
@@ -357,9 +369,13 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 f"(too short or no events): {fetch_result.expected_skip_session_ids}",
                 extra={"team_id": inputs.team_id, "user_id": inputs.user_id, "signals_type": "session-summaries"},
             )
+        # Track skipped sessions
+        for sid in fetch_result.expected_skip_session_ids:
+            self._session_statuses[sid] = "skipped"
         # Create SingleSessionSummaryInputs for each session
         session_inputs: list[SingleSessionSummaryInputs] = []
         for session_id in fetch_result.fetched_session_ids:
+            self._session_statuses[session_id] = "queued"
             single_session_input = SingleSessionSummaryInputs(
                 session_id=session_id,
                 user_id=inputs.user_id,
@@ -400,15 +416,18 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         Supports both regular event-based summarization and video-based summarization.
         """
         try:
+            self._session_statuses[inputs.session_id] = "summarizing"
             # Generate session summary
             await ensure_llm_single_session_summary(inputs)
             # Keep track of processed summaries
+            self._session_statuses[inputs.session_id] = "summarized"
             self._processed_single_summaries += 1
             self._current_status.append(
                 f"Watching sessions ({self._processed_single_summaries}/{self._total_sessions})"
             )
             return None
         except Exception as err:  # Activity retries exhausted
+            self._session_statuses[inputs.session_id] = "failed"
             # Let caller handle the error
             return err
 
@@ -581,12 +600,15 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         start_time = temporalio.workflow.now()
         self._total_sessions = len(inputs.session_ids)
         # Get events data from the DB (or cache)
+        self._current_phase = "fetching_data"
         self._current_status.append("Fetching session data from the database")
         db_session_inputs = await self._fetch_session_group_data(inputs)
         # Generate single-session summaries for each session
+        self._current_phase = "watching_sessions"
         self._current_status.append(f"Watching sessions (0/{self._total_sessions})")
         summaries_session_inputs = await self._run_summaries(db_session_inputs)
         # Extract patterns from session summaries (with chunking if needed)
+        self._current_phase = "extracting_patterns"
         self._current_status.append(f"Searching for behavior patterns in sessions (0/{self._total_sessions})")
         session_ids_to_process = await self._run_patterns_extraction(
             SessionGroupSummaryOfSummariesInputs(
@@ -612,6 +634,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 x for x in summaries_session_inputs if x.session_id in session_ids_to_process
             ]
         # Assign events to patterns
+        self._current_phase = "assigning_patterns"
         self._current_status.append("Generating a report from analyzed patterns and sessions. Almost there")
         patterns_assignments = await temporalio.workflow.execute_activity(
             assign_events_to_patterns_activity,
@@ -660,7 +683,7 @@ async def _start_session_group_summary_workflow(
 ) -> AsyncGenerator[
     tuple[
         SessionSummaryStreamUpdate,
-        tuple[EnrichedSessionGroupSummaryPatternsList, str] | str,
+        tuple[EnrichedSessionGroupSummaryPatternsList, str] | str | dict,
     ],
     None,
 ]:
@@ -681,6 +704,7 @@ async def _start_session_group_summary_workflow(
     # Track previous states to detect changes, starting with None to catch empty state as the step changes
     previous_pattern_keys: list[str] | None = None
     published_statuses: set[str] = set()
+    previous_progress: dict | None = None
 
     # Poll for status
     while True:
@@ -690,6 +714,8 @@ async def _start_session_group_summary_workflow(
         progress_status: list[str] = await handle.query("get_current_status")
         # Query the intermediate data
         patterns_keys: list[str] = await handle.query("get_raw_patterns_extraction_keys")
+        # Query per-session progress
+        current_progress: dict = await handle.query("get_progress")
         # Workflow completed - get and yield the final result
         if workflow_description.status == WorkflowExecutionStatus.COMPLETED:
             summary_id: str = await handle.result()
@@ -724,6 +750,30 @@ async def _start_session_group_summary_workflow(
                 if status not in published_statuses:
                     yield (SessionSummaryStreamUpdate.UI_STATUS, status)
                     published_statuses.add(status)
+            # Diff per-session progress and yield SESSION_PROGRESS if anything changed
+            current_session_statuses = current_progress.get("session_statuses", {})
+            previous_session_statuses = (previous_progress or {}).get("session_statuses", {})
+            status_changes = [
+                {"id": sid, "status": new_status}
+                for sid, new_status in current_session_statuses.items()
+                if previous_session_statuses.get(sid) != new_status
+            ]
+            if status_changes or (
+                previous_progress and current_progress.get("phase") != previous_progress.get("phase")
+            ):
+                completed_count = sum(
+                    1 for s in current_session_statuses.values() if s in ("summarized", "failed", "skipped")
+                )
+                yield (
+                    SessionSummaryStreamUpdate.SESSION_PROGRESS,
+                    {
+                        "status_changes": status_changes,
+                        "phase": current_progress.get("phase", "fetching_data"),
+                        "completed_count": completed_count,
+                        "total_count": current_progress.get("total_sessions", 0),
+                    },
+                )
+            previous_progress = current_progress
             # Yield the extracted patterns (without events assigned to them yet)
             if patterns_keys != previous_pattern_keys:
                 intermediate_patterns = await get_patterns_from_redis_outside_workflow(
@@ -734,15 +784,6 @@ async def _start_session_group_summary_workflow(
                     # Don't stream patterns if there's nothing to stream
                     await _wait_for_update()
                     continue
-                yield (
-                    SessionSummaryStreamUpdate.UI_STATUS,
-                    f"**Patterns found:**",
-                )
-                for pattern in intermediate_patterns:
-                    yield (
-                        SessionSummaryStreamUpdate.UI_STATUS,
-                        f"- {pattern.pattern_name}",
-                    )
                 previous_pattern_keys = patterns_keys.copy()
             # Wait till the next polling
             await _wait_for_update()
@@ -768,7 +809,7 @@ async def execute_summarize_session_group(
 ) -> AsyncGenerator[
     tuple[
         SessionSummaryStreamUpdate,
-        tuple[EnrichedSessionGroupSummaryPatternsList, str] | str,
+        tuple[EnrichedSessionGroupSummaryPatternsList, str] | str | dict,
     ],
     None,
 ]:
