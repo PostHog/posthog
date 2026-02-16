@@ -6,23 +6,10 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_modeling", "0009_remove_edge_unique_within_dag_and_more"),
+        ("data_modeling", "0010_remove_edge_unique_within_dag_and_more"),
     ]
 
     operations = [
-        # Remove db_index from dag_id_text before adding the dag FK.
-        # The FK creates a column named dag_id whose auto-generated index name
-        # collides with the old index left over from the dag_id -> dag_id_text rename.
-        migrations.AlterField(
-            model_name="edge",
-            name="dag_id_text",
-            field=models.TextField(default="posthog", editable=False, max_length=256),
-        ),
-        migrations.AlterField(
-            model_name="node",
-            name="dag_id_text",
-            field=models.TextField(default="posthog", max_length=256),
-        ),
         migrations.AddField(
             model_name="edge",
             name="dag",
