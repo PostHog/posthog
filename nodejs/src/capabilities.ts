@@ -214,5 +214,9 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 recordingApi: true,
             }
+        case PluginServerMode.ingestion_api:
+            return {
+                ingestionApi: true,
+            }
     }
 }

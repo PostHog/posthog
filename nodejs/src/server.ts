@@ -25,6 +25,7 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './config/kafka-topics'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
+import { IngestionApiServer } from './ingestion/ingestion-api-server'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
@@ -312,6 +313,14 @@ export class PluginServer {
                     this.expressApp.use('/', api.router())
                     await api.start()
                     return api.service
+                })
+            }
+
+            if (capabilities.ingestionApi) {
+                serviceLoaders.push(async () => {
+                    const apiServer = new IngestionApiServer(hub, this.config.INGESTION_API_PORT)
+                    await apiServer.start()
+                    return apiServer.service
                 })
             }
 

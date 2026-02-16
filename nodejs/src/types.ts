@@ -61,6 +61,7 @@ export enum PluginServerMode {
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
     cdp_cyclotron_shadow_worker = 'cdp-cyclotron-shadow-worker',
     recording_api = 'recording-api',
+    ingestion_api = 'ingestion-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -456,6 +457,7 @@ export interface PluginsServerConfig
     BASE_DIR: string // base path for resolving local plugins
     LOG_LEVEL: LogLevel
     HTTP_SERVER_PORT: number
+    INGESTION_API_PORT: number
     SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
     MMDB_FILE_LOCATION: string // if set we will load the MMDB file from this location instead of downloading it
     DISTINCT_ID_LRU_SIZE: number
@@ -577,6 +579,7 @@ export interface PluginServerCapabilities {
     evaluationScheduler?: boolean
     cdpCyclotronShadowWorker?: boolean
     recordingApi?: boolean
+    ingestionApi?: boolean
 }
 
 export type TeamId = Team['id']
