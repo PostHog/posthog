@@ -1,4 +1,7 @@
+from types import SimpleNamespace
+
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory, override_settings
 
@@ -6,6 +9,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
 from posthog.auth import InternalAPIAuthentication
+from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
 
 
 class TestInternalAPIAuth(APIBaseTest):
@@ -39,6 +43,31 @@ class TestInternalAPIAuth(APIBaseTest):
         request = Request(self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET="any-secret"))
         with self.assertRaises(AuthenticationFailed):
             self.authentication.authenticate(request)
+
+    @override_settings(INTERNAL_API_SECRET=LOCAL_DEV_INTERNAL_API_SECRET, DEBUG=False, TEST=False)
+    def test_local_dev_secret_denied_outside_debug_or_test(self):
+        request = Request(
+            self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET=LOCAL_DEV_INTERNAL_API_SECRET)
+        )
+        with self.assertRaises(AuthenticationFailed):
+            self.authentication.authenticate(request)
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_team_and_organization_inferred_from_url_params(self):
+        request = Request(self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET="test-secret-123"))
+        request.parser_context = {"kwargs": {"team_id": 123}}
+        mocked_team = SimpleNamespace(id=123, organization_id="org-456")
+
+        with patch("posthog.auth.apps.get_model") as mock_get_model:
+            team_model = MagicMock()
+            team_model.objects.only.return_value.get.return_value = mocked_team
+            mock_get_model.return_value = team_model
+
+            user, auth = self.authentication.authenticate(request)
+
+        self.assertEqual(user.current_team_id, mocked_team.id)
+        self.assertEqual(user.current_organization_id, mocked_team.organization_id)
+        self.assertIsNone(auth)
 
     def test_authenticate_header(self):
         request = self.factory.get("/internal/endpoint")
