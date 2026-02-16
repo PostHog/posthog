@@ -573,33 +573,15 @@ export class HogFlowExecutorService {
                 `Total variable size after updating '${keyNames}' exceeds 5KB limit. Use result_path to store only the fields you need.`
             )
             // Clean up all variables we just set
-            for (const outputVar of outputVars) {
-                if (!outputVar.key) {
-                    continue
-                }
-                if (outputVar.spread) {
-                    for (const key of Object.keys(result.invocation.state.variables)) {
-                        if (key.startsWith(`${outputVar.key}_`)) {
-                            delete result.invocation.state.variables[key]
-                        }
-                    }
-                } else {
-                    delete result.invocation.state.variables[outputVar.key]
-                }
+            for (const key of allStoredKeys) {
+                delete result.invocation.state.variables[key]
             }
             throw new Error(
                 `Total variable size after updating '${keyNames}' exceeds 5KB limit. Use result_path to store only the fields you need.`
             )
         }
 
-        const details = allStoredKeys
-            .map((k) => {
-                const v = result.invocation.state.variables![k]
-                const str = JSON.stringify(v)
-                return `${k}=${str && str.length > 100 ? str.slice(0, 100) + '…' : str}`
-            })
-            .join(', ')
-        this.log(result, 'debug', `Stored action result in variable(s): ${details}`)
+        this.log(result, 'debug', `Stored action result in variable(s): ${allStoredKeys.join(', ')}`)
     }
 
     private logExecutionTriggerInfo(invocation: CyclotronJobInvocationHogFlow): MinimalLogEntry {
