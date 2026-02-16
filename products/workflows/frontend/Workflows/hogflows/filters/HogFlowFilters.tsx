@@ -24,6 +24,8 @@ function useSampleGlobals(): Record<string, any> {
                 workflowVariables[variable.key] = 123
             } else if (variable.type === 'boolean') {
                 workflowVariables[variable.key] = true
+            } else if (variable.type === 'dictionary' || variable.type === 'json') {
+                workflowVariables[variable.key] = {}
             } else {
                 workflowVariables[variable.key] = null
             }
