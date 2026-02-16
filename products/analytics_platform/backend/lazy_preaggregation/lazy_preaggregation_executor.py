@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from zoneinfo import ZoneInfo
 
 from django.db import IntegrityError, transaction
 from django.db.models import Q
@@ -26,6 +27,7 @@ from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RES
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.team import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.analytics_platform.backend.lazy_preaggregation.preaggregation_notifications import (
     has_ch_query_started,
@@ -57,6 +59,116 @@ DEFAULT_STALE_PENDING_THRESHOLD_SECONDS = 60  # 1 minute
 
 # Grace period before declaring a job "not started" as stale. Covers executor boot time.
 DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
+
+
+@dataclass
+class TtlSchedule:
+    """Maps time windows to TTL values based on their recency.
+
+    Rules are (cutoff_datetime, ttl_seconds) pairs sorted by cutoff descending.
+    A window matches the first rule where window_start >= cutoff. If no rule
+    matches, default_ttl_seconds is used.
+
+    Use parse_ttl_schedule() to create from user-facing dict format.
+    """
+
+    rules: list[tuple[datetime, int]]
+    default_ttl_seconds: int
+
+    def get_ttl(self, window_start: datetime) -> int:
+        for cutoff, ttl in self.rules:
+            if window_start >= cutoff:
+                return ttl
+        return self.default_ttl_seconds
+
+    @classmethod
+    def from_seconds(cls, ttl_seconds: int) -> "TtlSchedule":
+        return cls(rules=[], default_ttl_seconds=ttl_seconds)
+
+
+DEFAULT_TTL_SCHEDULE = TtlSchedule.from_seconds(DEFAULT_TTL_SECONDS)
+
+
+def parse_ttl_schedule(
+    ttl: int | dict[str, int],
+    team_timezone: str = "UTC",
+) -> TtlSchedule:
+    """Parse a TTL specification into a TtlSchedule.
+
+    Accepts either:
+    - int: uniform TTL in seconds for all ranges
+    - dict: maps date strings to TTL values in seconds. Keys are parsed using
+      relative_date_parse (e.g. "7d" = 7 days ago, "24h" = 24 hours ago,
+      "2026-02-15" = exact date). The "default" key sets the fallback TTL.
+
+    Rules are evaluated most-recent-first: the first matching rule wins. For
+    example, {"0d": 900, "7d": 86400, "default": 604800} means today's data
+    gets 15 min TTL, last week gets 1 day, everything else gets 7 days.
+
+    Raises ValueError for unrecognized keys or non-positive TTL values.
+    """
+    if isinstance(ttl, int):
+        if ttl <= 0:
+            raise ValueError(f"TTL must be positive, got {ttl}")
+        return TtlSchedule.from_seconds(ttl)
+
+    tz = ZoneInfo(team_timezone)
+    rules: list[tuple[datetime, int]] = []
+    default_ttl = DEFAULT_TTL_SECONDS
+
+    for key, value in ttl.items():
+        if value <= 0:
+            raise ValueError(f"TTL value for key {key!r} must be positive, got {value}")
+        if key == "default":
+            default_ttl = value
+        else:
+            cutoff, delta_mapping, _ = relative_date_parse_with_delta_mapping(key, tz, always_truncate=True)
+            # delta_mapping is None for ISO dates, non-empty for valid relative dates
+            # (e.g. "7d" → {"days": 7}), and empty for unrecognized input
+            if delta_mapping is not None and not delta_mapping:
+                raise ValueError(
+                    f"Unrecognized TTL schedule key: {key!r}. "
+                    "Use relative dates (e.g. '7d', '24h'), ISO dates (e.g. '2026-02-15'), or 'default'."
+                )
+            rules.append((cutoff, value))
+
+    rules.sort(key=lambda r: r[0], reverse=True)
+    return TtlSchedule(rules=rules, default_ttl_seconds=default_ttl)
+
+
+def split_ranges_by_ttl(
+    ranges: list[tuple[datetime, datetime]],
+    schedule: TtlSchedule,
+) -> list[tuple[datetime, datetime, int]]:
+    """Split time ranges at TTL boundaries.
+
+    Re-expands each range into daily windows, assigns a TTL per window, and
+    merges consecutive windows with the same TTL. This prevents a single job
+    from covering days with different TTL requirements.
+    """
+    result: list[tuple[datetime, datetime, int]] = []
+
+    for range_start, range_end in ranges:
+        windows = get_daily_windows(range_start, range_end)
+        if not windows:
+            continue
+
+        current_start, current_end = windows[0]
+        current_ttl = schedule.get_ttl(current_start)
+
+        for window_start, window_end in windows[1:]:
+            ttl = schedule.get_ttl(window_start)
+            if ttl == current_ttl:
+                current_end = window_end
+            else:
+                result.append((current_start, current_end, current_ttl))
+                current_start, current_end = window_start, window_end
+                current_ttl = ttl
+
+        result.append((current_start, current_end, current_ttl))
+
+    return result
+
 
 # ClickHouse error codes that should NOT be retried.
 # These are errors where retrying will never help - the query itself is broken,
@@ -472,7 +584,7 @@ class PreaggregationExecutor:
     - poll_interval_seconds: Initial poll interval, doubles each iteration (default 1s)
     - max_poll_interval_seconds: Cap for exponential backoff (default 30s)
     - max_retries: Max retries for failed jobs (default 1, meaning 2 total attempts)
-    - ttl_seconds: How long preaggregated data persists (default 7 days)
+    - ttl_schedule: TtlSchedule controlling how long preaggregated data persists per time range
     - stale_pending_threshold_seconds: How long before a PENDING job is considered stale
     - ch_start_grace_period_seconds: Grace period before declaring "not started" as stale
     """
@@ -483,7 +595,7 @@ class PreaggregationExecutor:
         poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
         max_poll_interval_seconds: float = DEFAULT_MAX_POLL_INTERVAL_SECONDS,
         max_retries: int = DEFAULT_RETRIES,
-        ttl_seconds: int = DEFAULT_TTL_SECONDS,
+        ttl_schedule: TtlSchedule = DEFAULT_TTL_SCHEDULE,
         stale_pending_threshold_seconds: float = DEFAULT_STALE_PENDING_THRESHOLD_SECONDS,
         ch_start_grace_period_seconds: float = DEFAULT_CH_START_GRACE_PERIOD_SECONDS,
     ):
@@ -491,7 +603,7 @@ class PreaggregationExecutor:
         self.poll_interval_seconds = poll_interval_seconds
         self.max_poll_interval_seconds = max_poll_interval_seconds
         self.max_retries = max_retries
-        self.ttl_seconds = ttl_seconds
+        self.ttl_schedule = ttl_schedule
         self.stale_pending_threshold_seconds = stale_pending_threshold_seconds
         self.ch_start_grace_period_seconds = ch_start_grace_period_seconds
 
@@ -533,22 +645,22 @@ class PreaggregationExecutor:
                     errors.append("Timeout waiting for preaggregation jobs")
                     return PreaggregationResult(ready=False, job_ids=[], errors=errors)
 
-                # Step 1: See what exists
+                # Step 1: See what exists, filter out stale READY jobs
                 existing_jobs = find_existing_jobs(team, query_hash, start, end)
-                pending_jobs = [j for j in existing_jobs if j.status == PreaggregationJob.Status.PENDING]
+                fresh_jobs = self._filter_by_freshness(existing_jobs)
+                pending_jobs = [j for j in fresh_jobs if j.status == PreaggregationJob.Status.PENDING]
 
-                # Step 2: Find missing ranges (treating both READY and PENDING as covered)
-                missing_ranges = find_missing_contiguous_windows(existing_jobs, start, end)
+                # Step 2: Find missing ranges, split at TTL boundaries
+                missing_ranges = find_missing_contiguous_windows(fresh_jobs, start, end)
+                ttl_ranges = split_ranges_by_ttl(missing_ranges, self.ttl_schedule)
 
                 # Step 3: Insert missing ranges
                 did_work = False
-                if missing_ranges and failures <= self.max_retries:
-                    for range_start, range_end in missing_ranges:
+                if ttl_ranges and failures <= self.max_retries:
+                    for range_start, range_end, ttl in ttl_ranges:
                         try:
                             with transaction.atomic():
-                                new_job = create_preaggregation_job(
-                                    team, query_hash, range_start, range_end, self.ttl_seconds
-                                )
+                                new_job = create_preaggregation_job(team, query_hash, range_start, range_end, ttl)
                         except IntegrityError:
                             # Another executor created a PENDING job for this range — loop will pick it up
                             did_work = True
@@ -574,7 +686,7 @@ class PreaggregationExecutor:
                                 return PreaggregationResult(ready=False, job_ids=[], errors=errors)
                         did_work = True
 
-                if missing_ranges and failures > self.max_retries:
+                if ttl_ranges and failures > self.max_retries:
                     errors.append("Max retries exceeded for preaggregation")
                     return PreaggregationResult(ready=False, job_ids=[], errors=errors)
 
@@ -616,7 +728,8 @@ class PreaggregationExecutor:
 
         # All ranges covered — collect READY job IDs
         final_jobs = find_existing_jobs(team, query_hash, start, end)
-        final_ready = filter_overlapping_jobs([j for j in final_jobs if j.status == PreaggregationJob.Status.READY])
+        final_fresh = self._filter_by_freshness(final_jobs)
+        final_ready = filter_overlapping_jobs([j for j in final_fresh if j.status == PreaggregationJob.Status.READY])
         return PreaggregationResult(ready=True, job_ids=[j.id for j in final_ready])
 
     def _try_mark_stale_job_as_failed(self, job: PreaggregationJob) -> bool:
@@ -655,6 +768,26 @@ class PreaggregationExecutor:
         job_age = (django_timezone.now() - job.created_at).total_seconds()
         return job_age > self.stale_pending_threshold_seconds
 
+    def _filter_by_freshness(self, jobs: list[PreaggregationJob]) -> list[PreaggregationJob]:
+        """Filter jobs by freshness according to the TTL schedule.
+
+        PENDING jobs always pass (they were recently created and we should wait).
+        READY jobs must satisfy: created_at + desired_ttl >= now().
+
+        This is per-query: a job created by executor A with a long TTL may be
+        rejected by executor B using a stricter schedule for the same hash.
+        """
+        now = django_timezone.now()
+        result = []
+        for job in jobs:
+            if job.status == PreaggregationJob.Status.PENDING:
+                result.append(job)
+            else:
+                desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start)
+                if job.created_at + timedelta(seconds=desired_ttl) >= now:
+                    result.append(job)
+        return result
+
     def _wait_for_notification(self, pubsub: redis_lib.client.PubSub, timeout: float) -> dict | None:
         """Block until a pubsub message arrives or timeout. Extracted for testability."""
         return pubsub.get_message(timeout=timeout)
@@ -665,7 +798,7 @@ def ensure_preaggregated(
     insert_query: str,
     time_range_start: datetime,
     time_range_end: datetime,
-    ttl_seconds: int = DEFAULT_TTL_SECONDS,
+    ttl_seconds: int | dict[str, int] = DEFAULT_TTL_SECONDS,
     table: PreaggregationTable = PreaggregationTable.PREAGGREGATION_RESULTS,
     placeholders: dict[str, ast.Expr] | None = None,
 ) -> PreaggregationResult:
@@ -693,7 +826,11 @@ def ensure_preaggregated(
                       and {time_window_max} for time filtering.
         time_range_start: Start of the overall time range (inclusive)
         time_range_end: End of the overall time range (exclusive)
-        ttl_seconds: How long before the data expires (default 7 days)
+        ttl_seconds: How long before the data expires. Either:
+                     - int: uniform TTL in seconds for all ranges (default 7 days)
+                     - dict: maps date strings to TTL values. Keys are parsed using
+                       relative_date_parse (e.g. "7d", "24h", "2026-02-15"). The
+                       "default" key sets the fallback TTL. Uses team timezone.
         table: The target preaggregation table (default "preaggregation_results")
         placeholders: Additional placeholder values to substitute into the query.
                       time_window_min and time_window_max are added automatically.
@@ -717,6 +854,12 @@ def ensure_preaggregated(
             \"\"\",
             time_range_start=datetime(2024, 1, 1),
             time_range_end=datetime(2024, 1, 8),
+            ttl_seconds={
+                "0d": 15 * 60,           # current day: 15 min
+                "1d": 60 * 60,            # previous day: 1 hour
+                "7d": 24 * 60 * 60,       # last week: 1 day
+                "default": 7 * 24 * 60 * 60,  # older: 7 days
+            },
         )
         # Use result.job_ids to query from preaggregation_results
     """
@@ -757,7 +900,8 @@ def ensure_preaggregated(
                 },
             )
 
-    executor = PreaggregationExecutor(ttl_seconds=ttl_seconds)
+    ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)
+    executor = PreaggregationExecutor(ttl_schedule=ttl_schedule)
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
 
 
