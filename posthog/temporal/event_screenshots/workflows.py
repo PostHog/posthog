@@ -43,12 +43,12 @@ class GenerateEventScreenshotsWorkflow(PostHogWorkflow):
             ),
         )
 
-        for event_type, event_sessions in result.event_sessions:
+        for event_type, event_session in result.event_sessions:
             screenshot_result = await workflow.execute_activity(
                 take_event_screenshot,
                 TakeEventScreenshotInput(
                     event_type=event_type,
-                    event_session=event_sessions,
+                    event_session=event_session,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 schedule_to_close_timeout=timedelta(hours=3),
