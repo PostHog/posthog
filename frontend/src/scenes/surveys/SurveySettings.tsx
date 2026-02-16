@@ -142,15 +142,10 @@ export function SurveyDefaultAppearance(): JSX.Element {
     )
 }
 
-// Keep SurveyPopupToggle for modal usage
-export function SurveyPopupToggle(): JSX.Element {
-    return <SurveyEnableToggle />
-}
-
 // Keep SurveySettings for modal usage
 export function SurveySettings({ isModal = false }: { isModal?: boolean }): JSX.Element {
     if (isModal) {
-        return <SurveyPopupToggle />
+        return <SurveyEnableToggle />
     }
     return (
         <div className="flex flex-col gap-4">

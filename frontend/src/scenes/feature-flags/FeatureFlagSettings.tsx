@@ -178,7 +178,6 @@ export function FlagsSecureApiKeys(): JSX.Element {
     )
 }
 
-// Keep the old FeatureFlagSettings for modal usage
 export function FeatureFlagSettings(): JSX.Element {
     return (
         <div className="space-y-8">

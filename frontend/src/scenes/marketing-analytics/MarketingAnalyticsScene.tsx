@@ -95,7 +95,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         if (hasNoConfiguredSources && !showOnboarding) {
             resetOnboarding()
         }
-    }, [loading, hasSources, showOnboarding, resetOnboarding, hasNoConfiguredSources])
+    }, [loading, hasSources, showOnboarding, resetOnboarding]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const feedbackBanner = (
         <LemonBanner type="info" action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}>
