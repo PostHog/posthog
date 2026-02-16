@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -52,7 +52,6 @@ function getDataNodeLogicProps({ sessionId, query, cachedResults }: SessionDataL
 export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsSessionDataLogic']),
     props({} as SessionDataLogicProps),
-    key((props) => props.sessionId),
     connect((props: SessionDataLogicProps) => ({
         values: [
             llmAnalyticsSessionLogic,

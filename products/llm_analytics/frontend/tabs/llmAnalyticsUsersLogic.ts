@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -8,17 +8,11 @@ import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { SortDirection, SortState, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { llmAnalyticsUsersLogicType } from './llmAnalyticsUsersLogicType'
 
-export interface LLMAnalyticsUsersLogicProps {
-    tabId?: string
-}
-
 export const llmAnalyticsUsersLogic = kea<llmAnalyticsUsersLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsUsersLogic']),
-    key((props: LLMAnalyticsUsersLogicProps) => props.tabId || 'default'),
-    props({} as LLMAnalyticsUsersLogicProps),
-    connect((props: LLMAnalyticsUsersLogicProps) => ({
+    connect(() => ({
         values: [
-            llmAnalyticsSharedLogic({ tabId: props.tabId }),
+            llmAnalyticsSharedLogic,
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],

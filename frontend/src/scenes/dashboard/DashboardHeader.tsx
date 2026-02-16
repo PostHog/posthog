@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import {
     IconCode2,
+    IconCopy,
     IconGraph,
     IconGridMasonry,
     IconNotebook,
@@ -20,6 +21,8 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { FullScreen } from 'lib/components/FullScreen'
+import { InterProjectDuplicationModal } from 'lib/components/InterProjectDuplication/InterProjectDuplicationModal'
+import { interProjectDuplicationLogic } from 'lib/components/InterProjectDuplication/interProjectDuplicationLogic'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -42,6 +45,7 @@ import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModa
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -103,6 +107,10 @@ export function DashboardHeader(): JSX.Element | null {
 
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
+    const { openModal: openInterProjectDuplicationModal } = useActions(interProjectDuplicationLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
+    const interProjectTransfersEnabled = useFeatureFlag('INTER_PROJECT_TRANSFERS')
 
     const { tags } = useValues(tagsModel)
 
@@ -191,6 +199,7 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
+                    <InterProjectDuplicationModal />
                     {canEditDashboard && <DashboardInsightColorsModal />}
                     {user?.is_staff && <DashboardTemplateEditor />}
                     {terraformFeatureEnabled && (
@@ -229,6 +238,23 @@ export function DashboardHeader(): JSX.Element | null {
                                 dataAttrKey={RESOURCE_TYPE}
                                 onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
                             />
+                            {hasMultipleProjects && interProjectTransfersEnabled && (
+                                <ButtonPrimitive
+                                    menuItem
+                                    onClick={() =>
+                                        openInterProjectDuplicationModal({
+                                            resourceKind: 'Dashboard',
+                                            resourceId: dashboard.id,
+                                            resourceName: dashboard.name,
+                                        })
+                                    }
+                                    data-attr="dashboard-copy-to-project"
+                                    tooltip="Copy this dashboard to another project"
+                                >
+                                    <IconCopy />
+                                    Copy to another project
+                                </ButtonPrimitive>
+                            )}
                             <ScenePin
                                 dataAttrKey={RESOURCE_TYPE}
                                 onClick={() => {

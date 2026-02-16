@@ -1127,7 +1127,7 @@ class ExperimentQueryBuilder:
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:
-        if self.preaggregation_job_ids:
+        if self.preaggregation_job_ids and not self.breakdowns:
             return self._build_exposure_from_preaggregated(self.preaggregation_job_ids)
         return self._build_exposure_select_query()
 
