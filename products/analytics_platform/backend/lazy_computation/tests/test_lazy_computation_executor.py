@@ -1283,7 +1283,7 @@ class TestRaceConditionHandling(BaseTest):
 
         with (
             patch(
-                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_computation_job",
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
                 side_effect=IntegrityError("duplicate key"),
             ),
             patch(
@@ -1701,7 +1701,7 @@ class TestComputationExecutorExecute(BaseTest):
 
         executor = LazyComputationExecutor(wait_timeout_seconds=0.3, poll_interval_seconds=0.1)
         with patch(
-            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_computation_job",
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
             wraps=create_lazy_computation_job,
         ) as mock_create:
             executor.execute(
