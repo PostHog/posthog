@@ -186,7 +186,7 @@
             "category": "Unreleased",
             "iconType": null,
             "type": null,
-            "intents": ["VISUAL_REVIEW"]
+            "intents": ["visual_review"]
         },
         {
             "path": "Web analytics",
