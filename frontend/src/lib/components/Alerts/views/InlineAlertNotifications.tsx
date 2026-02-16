@@ -75,10 +75,10 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
     const { loadAllSlackChannels } = useActions(slackLogic)
 
     useEffect(() => {
-        if (firstSlackIntegration && existingHogFunctions.length > 0) {
+        if (firstSlackIntegration) {
             loadAllSlackChannels()
         }
-    }, [firstSlackIntegration?.id, existingHogFunctions.length, loadAllSlackChannels])
+    }, [firstSlackIntegration?.id, loadAllSlackChannels])
 
     const handleAdd = (): void => {
         if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
