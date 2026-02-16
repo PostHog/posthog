@@ -90,13 +90,18 @@ if [ "$RUN_POSTGRES" = "1" ]; then
     MIGRATE_SUCCESS=false
     MIGRATE_START_TIME=$(date +%s.%N)
 
-    # Build migrate command - use direct connection if available
+    # Build migrate command
     # --production skips local-dev features (orphan check, migration caching)
+    # Use direct connection if available (bypasses PgBouncer for lock_timeout support)
     if [ -n "$POSTHOG_POSTGRES_DIRECT_HOST" ]; then
-        MIGRATE_CMD="python manage.py migrate --noinput --production --database=default_direct"
+        MIGRATE_CMD="python manage.py migrate --noinput --database=default_direct"
         echo "[migrate] Using direct database connection (lock_timeout enabled)"
     else
         MIGRATE_CMD="python manage.py migrate --noinput"
+    fi
+
+    if [ -n "${DEPLOYMENT:-}" ]; then
+        MIGRATE_CMD="$MIGRATE_CMD --production"
     fi
 
     while [ $MIGRATE_ATTEMPT -le $MIGRATE_MAX_RETRIES ]; do
