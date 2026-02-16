@@ -7,7 +7,7 @@ import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarProps } from '~/types'
 
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
-import { LOCALSTORAGE_KEY } from './utils'
+import { LOCALSTORAGE_KEY, OAUTH_LOCALSTORAGE_KEY } from './utils'
 
 // Singleton refresh promise to prevent concurrent refresh races
 let refreshPromise: Promise<{ access_token: string; refresh_token: string; expires_in: number }> | null = null
@@ -134,6 +134,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         logout: () => {
             toolbarPosthogJS.capture('toolbar logout')
             localStorage.removeItem(LOCALSTORAGE_KEY)
+            localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
         },
         tokenExpired: () => {
             toolbarPosthogJS.capture('toolbar token expired')
@@ -141,6 +142,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             if (values.props.source !== 'localstorage') {
                 lemonToast.error('PostHog Toolbar API token expired.')
             }
+            localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
             actions.persistConfig()
         },
         setOAuthTokens: () => {
@@ -162,10 +164,42 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             }
 
             localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(toolbarParams))
+
+            // Persist OAuth tokens separately so they survive posthog-js overwriting LOCALSTORAGE_KEY
+            // when re-launching from a URL hash
+            if (values.accessToken) {
+                localStorage.setItem(
+                    OAUTH_LOCALSTORAGE_KEY,
+                    JSON.stringify({
+                        accessToken: values.accessToken,
+                        refreshToken: values.refreshToken,
+                        clientId: values.clientId,
+                    })
+                )
+            } else {
+                localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
+            }
         },
     })),
 
     afterMount(({ props, values, actions, cache }) => {
+        // Restore OAuth tokens from separate storage if not provided in props.
+        // posthog-js overwrites LOCALSTORAGE_KEY with hash params on each launch,
+        // losing the OAuth tokens. This separate key survives that overwrite.
+        if (!values.accessToken && !values.temporaryToken) {
+            try {
+                const stored = localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)
+                if (stored) {
+                    const { accessToken, refreshToken, clientId } = JSON.parse(stored)
+                    if (accessToken && refreshToken && clientId) {
+                        actions.setOAuthTokens(accessToken, refreshToken, 0, clientId)
+                    }
+                }
+            } catch {
+                // ignore localStorage errors
+            }
+        }
+
         if (props.instrument) {
             const distinctId = props.distinctId
 
@@ -262,6 +296,10 @@ export async function toolbarFetch(
     const clientId = logic?.values.clientId
     const host = logic?.values.uiHost
 
+    if (!temporaryToken && !accessToken) {
+        return new Response(JSON.stringify({ results: [] }), { status: 401 })
+    }
+
     const useBearer = !!accessToken
 
     let fullUrl: string
@@ -319,7 +357,7 @@ export async function toolbarFetch(
     }
 
     if (response.status === 403) {
-        const responseData = await response.json()
+        const responseData = await response.clone().json()
         if (responseData.detail === "You don't have access to the project.") {
             toolbarConfigLogic.actions.authenticate()
         }
