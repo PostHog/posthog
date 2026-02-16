@@ -76,6 +76,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                     )
                                 }}
                                 size="small"
+                                aria-label="Toggle all breakdowns"
                                 disabledReason={editingDisabledReason}
                             />
                             <span className="font-bold">Breakdown</span>
