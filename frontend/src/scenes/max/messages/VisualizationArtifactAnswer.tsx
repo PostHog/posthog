@@ -24,6 +24,7 @@ import {
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataTableNode, DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
