@@ -7,6 +7,7 @@ use cymbal::{
     config::Config,
     frames::{Frame, RawFrame},
     symbol_store::{
+        apple::AppleProvider,
         caching::{Caching, SymbolSetCache},
         chunk_id::OrChunkId,
         hermesmap::HermesMapProvider,
@@ -126,7 +127,11 @@ async fn end_to_end_resolver_test() {
         inner: ProguardProvider {},
     };
 
-    let catalog = Catalog::new(Caching::new(wrapped, cache), hmp, pgp);
+    let apple = NoOpChunkIdFetcher {
+        inner: AppleProvider {},
+    };
+
+    let catalog = Catalog::new(Caching::new(wrapped, cache), hmp, pgp, apple);
 
     let mut resolved_frames = Vec::new();
     for frame in test_stack {

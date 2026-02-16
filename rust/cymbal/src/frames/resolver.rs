@@ -133,6 +133,7 @@ mod test {
         config::Config,
         frames::{records::ErrorTrackingStackFrame, resolver::Resolver, RawFrame},
         symbol_store::{
+            apple::AppleProvider,
             chunk_id::ChunkIdFetcher,
             hermesmap::HermesMapProvider,
             proguard::ProguardProvider,
@@ -204,7 +205,14 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let catalog = Catalog::new(saving_smp, hmp, pgp);
+        let apple = ChunkIdFetcher::new(
+            AppleProvider {},
+            client.clone(),
+            pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let catalog = Catalog::new(saving_smp, hmp, pgp, apple);
 
         (config, catalog, server)
     }

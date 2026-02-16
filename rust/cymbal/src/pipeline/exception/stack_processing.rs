@@ -260,7 +260,7 @@ mod test {
         langs::{java::RawJavaFrame, CommonFrameMetadata},
         pipeline::exception::stack_processing::remap_exception_type_and_module,
         symbol_store::{
-            chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider, proguard::ProguardProvider,
+            pple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider, proguard::ProguardProvider,
             saving::SymbolSetRecord, sourcemap::SourcemapProvider, Catalog, MockS3Client,
         },
     };
@@ -323,7 +323,14 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let c = Catalog::new(smp, hmp, pgp);
+        let apple = ChunkIdFetcher::new(
+            AppleProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let c = Catalog::new(smp, hmp, pgp, apple);
 
         let frame = RawJavaFrame {
             module: "a1.d".to_string(),

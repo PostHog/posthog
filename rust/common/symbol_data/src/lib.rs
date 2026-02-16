@@ -18,3 +18,6 @@ pub use data_types::hermesmap::HermesMap;
 
 // Proguard
 pub use data_types::proguard::ProguardMapping;
+
+// Apple dSYM
+pub use data_types::dsym::AppleDsym;
