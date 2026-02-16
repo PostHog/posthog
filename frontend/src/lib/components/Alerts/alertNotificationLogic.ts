@@ -35,6 +35,7 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
 
     connect({
         values: [projectLogic, ['currentProjectId'], integrationsLogic, ['slackIntegrations']],
+        actions: [integrationsLogic, ['loadIntegrationsSuccess']],
     }),
 
     actions({
@@ -114,6 +115,11 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
+        loadIntegrationsSuccess: () => {
+            if (!values.firstSlackIntegration) {
+                actions.setSelectedType(ALERT_NOTIFICATION_TYPE_WEBHOOK)
+            }
+        },
         deleteExistingHogFunction: async ({ hogFunction }) => {
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/hog_functions`,
@@ -160,12 +166,9 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
         },
     })),
 
-    afterMount(({ actions, props, values }) => {
+    afterMount(({ actions, props }) => {
         if (props.alertId) {
             actions.loadExistingHogFunctions()
-        }
-        if (!values.firstSlackIntegration) {
-            actions.setSelectedType(ALERT_NOTIFICATION_TYPE_WEBHOOK)
         }
     }),
 ])

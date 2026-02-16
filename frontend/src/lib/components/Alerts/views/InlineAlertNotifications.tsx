@@ -18,7 +18,15 @@ import { ALERT_NOTIFICATION_TYPE_OPTIONS, alertNotificationLogic } from '../aler
 function getHogFunctionDestination(hf: HogFunctionType): { type: string; detail: string | null } {
     const channelValue = hf.inputs?.channel?.value
     if (channelValue) {
-        const channelName = typeof channelValue === 'string' ? channelValue.split('|')[1]?.replace('#', '') : null
+        let channelName: string | null = null
+        if (typeof channelValue === 'string') {
+            const parts = channelValue.split('|')
+            channelName = parts[1]?.replace('#', '') ?? null
+        }
+        if (!channelName) {
+            const match = hf.name?.match(/Slack #(.+)$/)
+            channelName = match?.[1] ?? null
+        }
         return { type: 'Slack', detail: channelName ? `#${channelName}` : null }
     }
     const urlValue = hf.inputs?.url?.value
