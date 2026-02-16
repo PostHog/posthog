@@ -460,11 +460,11 @@ def _run_daily_unique_persons_pageviews(
     end: datetime,
 ) -> LazyComputationResult:
     """
-    Orchestrate preaggregation jobs for daily unique persons pageviews.
+    Orchestrate lazy computation jobs for daily unique persons pageviews.
 
     This function:
     1. Creates a QueryInfo object from the query
-    2. Calls the executor to find/create preaggregation jobs
+    2. Calls the executor to find/create lazy computation jobs
     3. Returns the result with job IDs for the combiner query
     """
     query_info = QueryInfo(
@@ -510,17 +510,17 @@ class Transformer(CloningVisitor):
         # Build the INSERT SELECT query from the matched query
         query_to_insert = _build_insert_select_query(transformed_node, self.context)
 
-        # Run the preaggregation job orchestration
+        # Run the lazy computation job orchestration
         team = self.context.team
         if not team:
             return transformed_node
         result = _run_daily_unique_persons_pageviews(team, query_to_insert, start_dt, end_dt)
 
         if not result.ready:
-            # Preaggregation not ready, fall back to original query
+            # Lazy computation not ready, fall back to original query
             return transformed_node
 
-        # Transform the query to use preaggregated table
+        # Transform the query to use lazy-computed table
         # Build SELECT expressions by transforming each original expression
         select: list[ast.Expr] = []
         for orig_select in transformed_node.select:

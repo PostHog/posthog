@@ -630,8 +630,8 @@ class TestHogQLQueryWithPrecomputation(ClickhouseTestMixin, BaseTest):
             team=self.team, event="$pageview", distinct_id="user1", timestamp=datetime(2025, 1, 2, 16, tzinfo=UTC)
         )
 
-    def test_precomputation_modifier_returns_same_results(self):
-        """Test that queries with and without precomputation modifier return the same results."""
+    def test_lazy_computation_modifier_returns_same_results(self):
+        """Test that queries with and without lazy computation modifier return the same results."""
         self._create_pageview_events()
 
         # Query must match the pattern: SELECT uniqExact(person_id), toStartOfDay(timestamp) FROM events
@@ -647,13 +647,13 @@ class TestHogQLQueryWithPrecomputation(ClickhouseTestMixin, BaseTest):
             GROUP BY toStartOfDay(timestamp)
         """
 
-        # Run without precomputation modifier
+        # Run without lazy computation modifier
         result_without = execute_hogql_query(
             parse_select(query),
             team=self.team,
         )
 
-        # Run with precomputation modifier
+        # Run with lazy computation modifier
         result_with = execute_hogql_query(
             parse_select(query),
             team=self.team,
@@ -669,8 +669,8 @@ class TestHogQLQueryWithPrecomputation(ClickhouseTestMixin, BaseTest):
         assert sorted_results[0][0] == 2  # 2 unique users on one day
         assert sorted_results[1][0] == 2  # 2 unique users on the other day
 
-        # Verify data exists in precomputed table
-        preagg_results = sync_execute(
+        # Verify data exists in lazy-computed table
+        lazy_results = sync_execute(
             f"""
             SELECT count()
             FROM {DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()}
@@ -678,18 +678,18 @@ class TestHogQLQueryWithPrecomputation(ClickhouseTestMixin, BaseTest):
             """,
             {"team_id": self.team.id},
         )
-        assert preagg_results[0][0] > 0
+        assert lazy_results[0][0] > 0
 
-    def test_trends_query_dau_with_precomputation_modifier(self):
-        """Test that TrendsQuery with DAU returns same results with and without precomputation modifier.
+    def test_trends_query_dau_with_lazy_computation_modifier(self):
+        """Test that TrendsQuery with DAU returns same results with and without lazy computation modifier.
 
         TrendsQuery generates a nested query with count(DISTINCT person_id) which our
-        precomputation pattern supports. The inner query should be transformed to use
+        lazy computation pattern supports. The inner query should be transformed to use
         the preaggregation_results table.
         """
         self._create_pageview_events()
 
-        # Run TrendsQuery without precomputation modifier
+        # Run TrendsQuery without lazy computation modifier
         query_without = TrendsQuery(
             series=[EventsNode(name="$pageview", event="$pageview", math=BaseMathType.DAU)],
             dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
@@ -697,7 +697,7 @@ class TestHogQLQueryWithPrecomputation(ClickhouseTestMixin, BaseTest):
         runner_without = TrendsQueryRunner(team=self.team, query=query_without)
         response_without = runner_without.calculate()
 
-        # Run TrendsQuery with precomputation modifier
+        # Run TrendsQuery with lazy computation modifier
         query_with = TrendsQuery(
             series=[EventsNode(name="$pageview", event="$pageview", math=BaseMathType.DAU)],
             dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
@@ -722,8 +722,8 @@ class TestHogQLQueryWithPrecomputation(ClickhouseTestMixin, BaseTest):
         # Note: TrendsQueryResponse only has `hogql` (not `clickhouse`), and `hogql` is generated
         # before execute_hogql_query runs, so it shows the original AST. The transformation happens
         # inside execute_hogql_query. To verify the transformation worked, we check that
-        # precomputed rows were created in the table.
-        preagg_results = sync_execute(
+        # lazy-computed rows were created in the table.
+        lazy_results = sync_execute(
             f"""
             SELECT count()
             FROM {DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()}
@@ -731,7 +731,7 @@ class TestHogQLQueryWithPrecomputation(ClickhouseTestMixin, BaseTest):
             """,
             {"team_id": self.team.id},
         )
-        assert preagg_results[0][0] > 0, "Expected precomputed data to be created"
+        assert lazy_results[0][0] > 0, "Expected lazy-computed data to be created"
 
     def test_trends_line_inner_query_format(self):
         """Test the inner query format that TrendsQuery generates for DAU queries.
@@ -762,13 +762,13 @@ class TestHogQLQueryWithPrecomputation(ClickhouseTestMixin, BaseTest):
             GROUP BY day_start
         """
 
-        # Run without precomputation modifier
+        # Run without lazy computation modifier
         result_without = execute_hogql_query(
             parse_select(query),
             team=self.team,
         )
 
-        # Run with precomputation modifier
+        # Run with lazy computation modifier
         result_with = execute_hogql_query(
             parse_select(query),
             team=self.team,
@@ -784,13 +784,13 @@ class TestHogQLQueryWithPrecomputation(ClickhouseTestMixin, BaseTest):
         assert sorted_results[0][0] == 2  # 2 unique users on Jan 1
         assert sorted_results[1][0] == 2  # 2 unique users on Jan 2
 
-        # Verify the precomputed table was used in the generated SQL
+        # Verify the lazy-computed table was used in the generated SQL
         assert result_with.clickhouse and ("preaggregation_results" in result_with.clickhouse), (
             "Expected preaggregation_results table in generated SQL"
         )
 
-        # Verify precomputed rows were created in the table
-        preagg_results = sync_execute(
+        # Verify lazy-computed rows were created in the table
+        lazy_results = sync_execute(
             f"""
             SELECT count()
             FROM {DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()}
@@ -798,7 +798,7 @@ class TestHogQLQueryWithPrecomputation(ClickhouseTestMixin, BaseTest):
             """,
             {"team_id": self.team.id},
         )
-        assert preagg_results[0][0] > 0, "Expected precomputed data to be created"
+        assert lazy_results[0][0] > 0, "Expected lazy-computed data to be created"
 
 
 class TestBuildManualInsertSQL(BaseTest):

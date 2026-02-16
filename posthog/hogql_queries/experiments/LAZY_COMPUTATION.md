@@ -37,7 +37,7 @@ self.date_range = get_experiment_date_range(self.experiment, self.team, self.ove
 
 ---
 
-### Step 2: Ensure exposures are precomputed
+### Step 2: Ensure exposures are lazy-computed
 
 The runner calls `_ensure_exposures_precomputed()` which gets the exposure query template from the builder and passes it to the lazy computation system:
 
@@ -175,9 +175,9 @@ LazyComputationResult(
 
 ---
 
-### Step 9: Build experiment query using precomputed data
+### Step 9: Build experiment query using lazy-computed data
 
-`_build_exposure_from_precomputed(job_ids)` in the builder reads from the precomputed table instead of scanning events:
+`_build_exposure_from_precomputed(job_ids)` in the builder reads from the lazy-computed table instead of scanning events:
 
 ```sql
 SELECT
@@ -193,7 +193,7 @@ WHERE t.job_id IN ('job-uuid-for-jan-1-10', 'job-uuid-for-jan-11-15')
 GROUP BY t.entity_id
 ```
 
-The `GROUP BY` with `argMin`/`min`/`max` is needed because a user can appear in multiple jobs. For example, if exposures were precomputed in two phases (Jan 1-10, then Jan 11-15), a user with events in both windows has a row in each job. The re-aggregation merges them into one row per user. This is cheap — the precomputed table has one row per user per job, so even with multiple jobs the data volume is small.
+The `GROUP BY` with `argMin`/`min`/`max` is needed because a user can appear in multiple jobs. For example, if exposures were lazy-computed in two phases (Jan 1-10, then Jan 11-15), a user with events in both windows has a row in each job. The re-aggregation merges them into one row per user. This is cheap — the lazy-computed table has one row per user per job, so even with multiple jobs the data volume is small.
 
 This method returns the same columns as `_build_exposure_select_query()`, so the rest of the experiment query works unchanged regardless of which path produced the exposures.
 
@@ -205,7 +205,7 @@ Only the exposures CTE source changes. The metric_events CTE, entity_metrics CTE
 
 ```sql
 WITH exposures AS (
-    -- reads from precomputed table (step 9)
+    -- reads from lazy-computed table (step 9)
     ...
 ),
 
@@ -241,13 +241,13 @@ GROUP BY variant
 
 ## Key files
 
-| File                                                          | Purpose                                                                                                                                                                                   |
-| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `experiment_query_runner.py`                                  | Orchestrates experiment query execution, including `_ensure_exposures_precomputed()`                                                                                                      |
-| `experiment_query_builder.py`                                 | Builds the SQL query: `_build_exposure_select_query()` (events scan), `_build_exposure_from_precomputed()` (precomputed read), `get_exposure_query_for_precomputation()` (write template) |
-| `lazy_computation_executor.py`                                | Core lazy computation logic: `ensure_precomputed()`, job management                                                                                                                       |
-| `models/preaggregation_job.py`                                | PostgreSQL model for tracking computation jobs                                                                                                                                            |
-| `hogql/database/schema/experiment_exposures_preaggregated.py` | HogQL schema for the precomputed ClickHouse table                                                                                                                                         |
+| File                                                          | Purpose                                                                                                                                                                                     |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `experiment_query_runner.py`                                  | Orchestrates experiment query execution, including `_ensure_exposures_precomputed()`                                                                                                        |
+| `experiment_query_builder.py`                                 | Builds the SQL query: `_build_exposure_select_query()` (events scan), `_build_exposure_from_precomputed()` (lazy-computed read), `get_exposure_query_for_precomputation()` (write template) |
+| `lazy_computation_executor.py`                                | Core lazy computation logic: `ensure_precomputed()`, job management                                                                                                                         |
+| `models/preaggregation_job.py`                                | PostgreSQL model for tracking computation jobs                                                                                                                                              |
+| `hogql/database/schema/experiment_exposures_preaggregated.py` | HogQL schema for the lazy-computed ClickHouse table                                                                                                                                         |
 
 ---
 
@@ -255,7 +255,7 @@ GROUP BY variant
 
 1. **Time precision**: Lazy computation uses daily windows for job management, but stores full timestamp precision. The final query filters to exact experiment start/end times.
 
-2. **Query hash determines cache sharing**: Different feature flags, variants, or exposure criteria produce different hashes. Each experiment typically has its own precomputed data.
+2. **Query hash determines cache sharing**: Different feature flags, variants, or exposure criteria produce different hashes. Each experiment typically has its own lazy-computed data.
 
 3. **TTL and expiration**: Jobs use variable TTL based on data age (current day: 15 min, yesterday: 1 hour, older: 60 days). This avoids recomputing frozen historical data. The system ignores jobs expiring within 1 hour to avoid race conditions. ClickHouse TTL automatically deletes expired rows.
 

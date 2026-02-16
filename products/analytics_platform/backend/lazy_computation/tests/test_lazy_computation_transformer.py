@@ -605,10 +605,10 @@ class TestQueryTransformation(BaseTest, QueryMatchingTest):
         self.assertQueryMatchesSnapshot(transformed)
 
 
-class TestPreaggregationResultsEquivalence(BaseTest):
-    """Integration tests to verify preaggregated results match raw query results."""
+class TestLazyComputedResultsEquivalence(BaseTest):
+    """Integration tests to verify lazy-computed results match raw query results."""
 
-    def test_results_equivalent_with_and_without_preaggregation(self):
+    def test_results_equivalent_with_and_without_lazy_computation(self):
         """
         Verify that querying with usePreaggregatedIntermediateResults=True
         produces the same results as querying with it set to False.
@@ -625,8 +625,8 @@ class TestPreaggregationResultsEquivalence(BaseTest):
                 person_id=person_id,
             )
 
-        # Insert corresponding preaggregated data
-        # The preaggregation stores uniqExactState(person_id) as an aggregate state
+        # Insert corresponding lazy-computed data
+        # The lazy computation stores uniqExactState(person_id) as an aggregate state
         sync_execute(
             f"""
             INSERT INTO {SHARDED_PREAGGREGATION_RESULTS_TABLE()}
@@ -655,12 +655,12 @@ class TestPreaggregationResultsEquivalence(BaseTest):
             GROUP BY toStartOfDay(timestamp)
         """
 
-        # Query without preaggregation
+        # Query without lazy computation
         result_without = execute_hogql_query(
             query=query, team=self.team, modifiers=HogQLQueryModifiers(usePreaggregatedIntermediateResults=False)
         )
 
-        # Query with preaggregation
+        # Query with lazy computation
         result_with = execute_hogql_query(
             query=query,
             team=self.team,
@@ -669,6 +669,6 @@ class TestPreaggregationResultsEquivalence(BaseTest):
 
         assert result_without.results == result_with.results, (
             f"Results mismatch!\n"
-            f"Without preaggregation: {result_without.results}\n"
-            f"With preaggregation: {result_with.results}"
+            f"Without lazy computation: {result_without.results}\n"
+            f"With lazy computation: {result_with.results}"
         )

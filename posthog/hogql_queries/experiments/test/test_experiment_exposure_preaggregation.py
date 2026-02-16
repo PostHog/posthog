@@ -51,7 +51,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         runner = ExperimentQueryRunner(query=query, team=self.team)
         return cast(ExperimentQueryResponse, runner.calculate())
 
-    def _build_preaggregation_builder(self, experiment, feature_flag, metric) -> ExperimentQueryBuilder:
+    def _build_lazy_computation_builder(self, experiment, feature_flag, metric) -> ExperimentQueryBuilder:
         exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
             experiment.exposure_criteria
         )
@@ -70,7 +70,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             metric=metric,
         )
 
-    def _preaggregated_and_compare(
+    def _lazy_computed_and_compare(
         self, experiment, feature_flag, metric
     ) -> tuple[ExperimentQueryResponse, ExperimentQueryResponse]:
         """Run the same experiment through both paths and assert identical results."""
@@ -79,8 +79,8 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         experiment.save()
         direct_result = self._run_experiment(experiment, metric)
 
-        # Preaggreggate exposures
-        builder = self._build_preaggregation_builder(experiment, feature_flag, metric)
+        # Lazy-compute exposures
+        builder = self._build_lazy_computation_builder(experiment, feature_flag, metric)
         query_string, placeholders = builder.get_exposure_query_for_precomputation()
         ensure_precomputed(
             team=self.team,
@@ -91,30 +91,30 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             placeholders=placeholders,
         )
 
-        # Path B: preaggregated
+        # Path B: lazy-computed
         experiment.exposure_preaggregation_enabled = True
         experiment.save()
-        preagg_result = self._run_experiment(experiment, metric)
+        lazy_result = self._run_experiment(experiment, metric)
 
         assert direct_result.baseline is not None
-        assert preagg_result.baseline is not None
-        assert direct_result.baseline.key == preagg_result.baseline.key
-        assert direct_result.baseline.number_of_samples == preagg_result.baseline.number_of_samples
-        assert direct_result.baseline.sum == preagg_result.baseline.sum
+        assert lazy_result.baseline is not None
+        assert direct_result.baseline.key == lazy_result.baseline.key
+        assert direct_result.baseline.number_of_samples == lazy_result.baseline.number_of_samples
+        assert direct_result.baseline.sum == lazy_result.baseline.sum
 
         assert direct_result.variant_results is not None
-        assert preagg_result.variant_results is not None
-        assert len(direct_result.variant_results) == len(preagg_result.variant_results)
+        assert lazy_result.variant_results is not None
+        assert len(direct_result.variant_results) == len(lazy_result.variant_results)
         for i in range(len(direct_result.variant_results)):
-            assert direct_result.variant_results[i].key == preagg_result.variant_results[i].key
+            assert direct_result.variant_results[i].key == lazy_result.variant_results[i].key
             assert (
-                direct_result.variant_results[i].number_of_samples == preagg_result.variant_results[i].number_of_samples
+                direct_result.variant_results[i].number_of_samples == lazy_result.variant_results[i].number_of_samples
             )
-            assert direct_result.variant_results[i].sum == preagg_result.variant_results[i].sum
+            assert direct_result.variant_results[i].sum == lazy_result.variant_results[i].sum
 
-        return direct_result, preagg_result
+        return direct_result, lazy_result
 
-    def test_preaggregated_results_match_direct_scan(self):
+    def test_lazy_computed_results_match_direct_scan(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag,
@@ -156,13 +156,13 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
                 properties={feature_flag_property: "test"},
             )
 
-        direct_result, preagg_result = self._preaggregated_and_compare(experiment, feature_flag, metric)
+        direct_result, lazy_result = self._lazy_computed_and_compare(experiment, feature_flag, metric)
         assert direct_result.baseline is not None
         assert direct_result.baseline.number_of_samples == 5
         assert direct_result.variant_results is not None
         assert direct_result.variant_results[0].number_of_samples == 7
 
-    def test_preaggregated_results_match_direct_scan_multiple_jobs(self):
+    def test_lazy_computed_results_match_direct_scan_multiple_jobs(self):
         feature_flag = self.create_feature_flag(key="multi-job-test")
         experiment = self.create_experiment(
             feature_flag=feature_flag,
@@ -218,11 +218,11 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             properties={feature_flag_property: "control"},
         )
 
-        # Preaggregating in two phases forces multiple jobs
-        builder = self._build_preaggregation_builder(experiment, feature_flag, metric)
+        # Lazy-computing in two phases forces multiple jobs
+        builder = self._build_lazy_computation_builder(experiment, feature_flag, metric)
         query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
-        # Phase 1: preagg Jan 1-3
+        # Phase 1: lazy-compute Jan 1-3
         ensure_precomputed(
             team=self.team,
             insert_query=query_string,
@@ -232,7 +232,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             placeholders=placeholders,
         )
 
-        # Phase 2: preagg Jan 1-5 (finds Jan 1-3 already covered, creates second job for Jan 3-5)
+        # Phase 2: lazy-compute Jan 1-5 (finds Jan 1-3 already covered, creates second job for Jan 3-5)
         ensure_precomputed(
             team=self.team,
             insert_query=query_string,
@@ -242,29 +242,29 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             placeholders=placeholders,
         )
 
-        # Run through runner with preaggregation enabled
+        # Run through runner with lazy computation enabled
         experiment.exposure_preaggregation_enabled = True
         experiment.save()
-        preagg_result = self._run_experiment(experiment, metric)
+        lazy_result = self._run_experiment(experiment, metric)
 
-        # Run through runner without preaggregation
+        # Run through runner without lazy computation
         experiment.exposure_preaggregation_enabled = False
         experiment.save()
         direct_result = self._run_experiment(experiment, metric)
 
         # Both paths should produce identical results
         assert direct_result.baseline is not None
-        assert preagg_result.baseline is not None
-        assert direct_result.baseline.number_of_samples == preagg_result.baseline.number_of_samples
-        assert direct_result.baseline.sum == preagg_result.baseline.sum
+        assert lazy_result.baseline is not None
+        assert direct_result.baseline.number_of_samples == lazy_result.baseline.number_of_samples
+        assert direct_result.baseline.sum == lazy_result.baseline.sum
 
         assert direct_result.variant_results is not None
-        assert preagg_result.variant_results is not None
+        assert lazy_result.variant_results is not None
         for i in range(len(direct_result.variant_results)):
             assert (
-                direct_result.variant_results[i].number_of_samples == preagg_result.variant_results[i].number_of_samples
+                direct_result.variant_results[i].number_of_samples == lazy_result.variant_results[i].number_of_samples
             )
-            assert direct_result.variant_results[i].sum == preagg_result.variant_results[i].sum
+            assert direct_result.variant_results[i].sum == lazy_result.variant_results[i].sum
 
         # 4 control (3 + 1 both_days) and 3 test
         assert direct_result.baseline.number_of_samples == 4
@@ -323,8 +323,8 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             properties={feature_flag_property: "test"},
         )
 
-        # Preaggreggate in two phases so "switcher" ends up in two separate jobs with different variants
-        builder = self._build_preaggregation_builder(experiment, feature_flag, metric)
+        # Lazy-compute in two phases so "switcher" ends up in two separate jobs with different variants
+        builder = self._build_lazy_computation_builder(experiment, feature_flag, metric)
         query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
         ensure_precomputed(
@@ -407,8 +407,8 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             properties={feature_flag_property: "test"},
         )
 
-        # Preaggreggate in two phases so "switcher" ends up in two separate jobs with different variants
-        builder = self._build_preaggregation_builder(experiment, feature_flag, metric)
+        # Lazy-compute in two phases so "switcher" ends up in two separate jobs with different variants
+        builder = self._build_lazy_computation_builder(experiment, feature_flag, metric)
         query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
         ensure_precomputed(
@@ -437,7 +437,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert result.variant_results is not None
         assert result.variant_results[0].number_of_samples == 1
 
-    def test_falls_back_to_events_scan_on_preaggregation_failure(self):
+    def test_falls_back_to_events_scan_on_lazy_computation_failure(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag,
@@ -480,7 +480,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
                 properties={feature_flag_property: "test"},
             )
 
-        with patch.object(ExperimentQueryRunner, "_ensure_exposures_preaggregated", side_effect=Exception("boom")):
+        with patch.object(ExperimentQueryRunner, "_ensure_exposures_precomputed", side_effect=Exception("boom")):
             result = self._run_experiment(experiment, metric)
 
         assert result.baseline is not None

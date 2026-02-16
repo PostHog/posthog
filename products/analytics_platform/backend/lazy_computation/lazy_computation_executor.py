@@ -803,7 +803,7 @@ def ensure_precomputed(
     placeholders: dict[str, ast.Expr] | None = None,
 ) -> LazyComputationResult:
     """
-    Ensure precomputed data exists for the given query and time range.
+    Ensure lazy-computed data exists for the given query and time range.
 
     This is the manual API for lazy computation. Unlike the automatic transformation,
     the caller provides the INSERT SELECT query directly. The query should produce
@@ -821,7 +821,7 @@ def ensure_precomputed(
     Your query MUST use these placeholders to filter data to the correct time range.
 
     Args:
-        team: The team to create precomputed data for
+        team: The team to create lazy-computed data for
         insert_query: A SELECT query string with placeholders. Use {time_window_min}
                       and {time_window_max} for time filtering.
         time_range_start: Start of the overall time range (inclusive)
@@ -861,7 +861,7 @@ def ensure_precomputed(
                 "default": 7 * 24 * 60 * 60,  # older: 7 days
             },
         )
-        # Use result.job_ids to query from the precomputed results table
+        # Use result.job_ids to query from the lazy-computed results table
     """
     base_placeholders = placeholders or {}
     _validate_no_reserved_placeholders(base_placeholders)
@@ -913,7 +913,7 @@ def _build_manual_insert_sql(
     base_placeholders: dict[str, ast.Expr] | None = None,
 ) -> tuple[str, dict]:
     """
-    Build INSERT SQL for manual precomputation.
+    Build INSERT SQL for manual lazy computation.
 
     Parses the query string with time placeholders for the job's time range,
     then adds team_id, job_id, and expires_at to the SELECT list.

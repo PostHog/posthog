@@ -58,7 +58,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 
 logger = structlog.get_logger(__name__)
 
-# Variable TTL for experiment exposure precomputation
+# Variable TTL for experiment exposure lazy computation
 # Current day refreshes frequently (data arriving), old data cached long
 DEFAULT_EXPOSURE_TTL_SECONDS = {
     "0d": 15 * 60,  # 15 min
@@ -155,7 +155,7 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
         """
-        Ensures precomputed exposure data exists for this experiment.
+        Ensures lazy-computed exposure data exists for this experiment.
 
         Gets the exposure query from the builder and passes it to the lazy computation
         system, which will compute and store the exposure data if not already cached.
@@ -166,7 +166,7 @@ class ExperimentQueryRunner(QueryRunner):
         query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
         if not self.experiment.start_date:
-            raise ValidationError("Experiment must have a start date for precomputation")
+            raise ValidationError("Experiment must have a start date for lazy computation")
 
         date_from = self.experiment.start_date
         date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
@@ -216,9 +216,9 @@ class ExperimentQueryRunner(QueryRunner):
                 if result.ready:
                     builder.preaggregation_job_ids = [str(job_id) for job_id in result.job_ids]
                 else:
-                    logger.warning("exposure_preaggregation_not_ready", experiment_id=self.experiment.id)
+                    logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
             except Exception:
-                logger.exception("exposure_preaggregation_failed", experiment_id=self.experiment.id)
+                logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
 
         return builder.build_query()
 

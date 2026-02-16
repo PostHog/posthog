@@ -15,9 +15,9 @@ There are two ways that this can work:
 
 1. **Pattern detection**: Traverse the AST, check if any SELECT clause matches a supported pattern (e.g., daily unique persons for pageviews)
 2. **Hash the query**: Compute a stable hash from the query structure, timezone, and other settings (excluding the time range for the query)
-3. **Find existing jobs**: Look up which time ranges already have precomputed data in Postgres
-4. **Compute missing ranges**: For any missing date ranges, run INSERT queries to populate the precomputed table in ClickHouse
-5. **Transform the query**: Rewrite the original query to read from the precomputed table using aggregate merge functions
+3. **Find existing jobs**: Look up which time ranges already have lazy-computed data in Postgres
+4. **Compute missing ranges**: For any missing date ranges, run INSERT queries to populate the lazy-computed table in ClickHouse
+5. **Transform the query**: Rewrite the original query to read from the lazy-computed table using aggregate merge functions
 
 The transformation is invisible to the caller. A query like:
 
@@ -55,7 +55,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from posthog.hogql import ast
 
-# Ensure that the given query is precomputed with variable TTLs
+# Ensure that the given query is lazy-computed with variable TTLs
 result = ensure_precomputed(
     team=self.team,
     insert_query="""
@@ -131,7 +131,7 @@ Rules are matched most-specific first (shortest period wins). On the **read path
 
 ## Concurrency and race conditions
 
-The executor handles concurrent queries that need the same precomputed data.
+The executor handles concurrent queries that need the same lazy-computed data.
 
 ### Waiting for pending jobs
 
