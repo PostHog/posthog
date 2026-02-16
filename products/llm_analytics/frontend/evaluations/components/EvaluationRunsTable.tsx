@@ -12,7 +12,7 @@ import { EvaluationRun } from '../types'
 import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationSummaryPanel'
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { evaluationRuns, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
+    const { filteredEvaluationRuns, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
 
     const columns: LemonTableColumns<EvaluationRun> = [
@@ -126,7 +126,7 @@ export function EvaluationRunsTable(): JSX.Element {
 
             <LemonTable
                 columns={columns}
-                dataSource={evaluationRuns}
+                dataSource={filteredEvaluationRuns}
                 loading={evaluationRunsLoading}
                 rowKey="id"
                 pagination={{

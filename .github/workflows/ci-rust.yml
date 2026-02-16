@@ -24,6 +24,7 @@ jobs:
         # Set job outputs to values from filter step
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
+            matrix: ${{ steps.shards.outputs.matrix }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -46,6 +47,77 @@ jobs:
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
                         - 'docker-compose.dev.yml'
+
+            # Bin-pack packages into balanced test shards.
+            # Weights are approximate test durations in seconds — update periodically.
+            - name: Compute test shards
+              id: shards
+              if: steps.filter.outputs.rust != 'false'
+              shell: python3 {0}
+              run: |
+                  import json, os
+
+                  packages = {
+                      "batch-import-worker": 137,
+                      "capture": 198,
+                      "capture-logs": 130,
+                      "common-alloc": 37,
+                      "common-compression": 14,
+                      "common-cookieless": 72,
+                      "common-database": 10,
+                      "common-dns": 8,
+                      "common-geoip": 4,
+                      "common-hypercache": 93,
+                      "common-kafka": 68,
+                      "common-metrics": 7,
+                      "common-profiler": 49,
+                      "common-s3": 29,
+                      "cyclotron-core": 25,
+                      "cyclotron-janitor": 107,
+                      "cyclotron-node": 22,
+                      "cymbal": 173,
+                      "embedding-worker": 98,
+                      "feature-flags": 241,
+                      "health": 8,
+                      "hogvm": 5,
+                      "hook-api": 88,
+                      "hook-common": 73,
+                      "hook-janitor": 94,
+                      "hook-worker": 100,
+                      "kafka-deduplicator": 239,
+                      "limiters": 23,
+                      "personhog-replica": 49,
+                      "personhog-router": 10,
+                      "posthog-symbol-data": 4,
+                      "property-defs-rs": 93,
+                      "serve-metrics": 8,
+                  }
+
+                  TARGET_SHARDS = 8
+
+                  # Greedy bin-packing: largest first into lightest bucket
+                  buckets = [[] for _ in range(TARGET_SHARDS)]
+                  times = [0] * TARGET_SHARDS
+
+                  for pkg, t in sorted(packages.items(), key=lambda x: -x[1]):
+                      lightest = min(range(TARGET_SHARDS), key=lambda i: times[i])
+                      buckets[lightest].append(pkg)
+                      times[lightest] += t
+
+                  matrix = {
+                      "include": [
+                          {"packages": " ".join(sorted(b))}
+                          for b in buckets
+                          if b
+                      ]
+                  }
+
+                  for i, b in enumerate(buckets):
+                      if b:
+                          print(f"Shard {i + 1} ({times[i]}s): {', '.join(sorted(b))}")
+
+                  with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                      f.write(f"matrix={json.dumps(matrix)}\n")
 
     build:
         name: Build Rust services
@@ -100,41 +172,9 @@ jobs:
               run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
 
     test:
-        name: Test Rust services
+        name: Test Rust (${{ matrix.packages }})
         strategy:
-            matrix:
-                package:
-                    - batch-import-worker
-                    - capture
-                    - capture-logs
-                    - common-alloc
-                    - common-cookieless
-                    - common-compression
-                    - common-database
-                    - common-dns
-                    - common-geoip
-                    - common-hypercache
-                    - common-metrics
-                    - common-kafka
-                    - common-profiler
-                    - common-s3
-                    - cyclotron-core
-                    - cyclotron-node
-                    - cyclotron-janitor
-                    - cymbal
-                    - embedding-worker
-                    - feature-flags
-                    - health
-                    - hogvm
-                    - hook-api
-                    - hook-common
-                    - hook-janitor
-                    - hook-worker
-                    - kafka-deduplicator
-                    - limiters
-                    - posthog-symbol-data
-                    - property-defs-rs
-                    - serve-metrics
+            matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
         needs: changes
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-24.04-4
@@ -175,6 +215,8 @@ jobs:
                     fi
                   done
 
+                  COMPOSE_FILE=../docker-compose.dev.yml ../bin/wait-for-docker
+
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Dump Kafka logs on failure
@@ -211,7 +253,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -253,12 +295,14 @@ jobs:
               env:
                   RUST_BACKTRACE: 1
                   # Set up dual database environment for feature-flags service
-                  PERSONS_READ_DATABASE_URL: ${{ matrix.package == 'feature-flags' && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
-                  PERSONS_WRITE_DATABASE_URL: ${{ matrix.package == 'feature-flags' && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
+                  PERSONS_READ_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
+                  PERSONS_WRITE_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
               run: |
-                  echo "Starting cargo test"
-                  cargo test -p ${{matrix.package}}
-                  echo "Cargo test completed"
+                  for pkg in ${{ matrix.packages }}; do
+                      echo "::group::Testing $pkg"
+                      cargo test -p "$pkg"
+                      echo "::endgroup::"
+                  done
 
     linting:
         name: Lint Rust services

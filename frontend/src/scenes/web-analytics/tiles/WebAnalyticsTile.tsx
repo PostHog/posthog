@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { IconChevronDown, IconTrending, IconWarning } from '@posthog/icons'
+import { IconChevronDown, IconExternal, IconTrending, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
@@ -34,6 +34,7 @@ import {
     faviconUrl,
     webStatsBreakdownToPropertyName,
 } from 'scenes/web-analytics/common'
+import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -81,6 +82,73 @@ export const toUtcOffsetFormat = (value: number): string => {
 
     // E.g. UTC-3, UTC, UTC+5:30, UTC+11:45
     return `UTC${sign}${integerPart}${formattedMinutes}`
+}
+
+const PAGE_LIKE_BREAKDOWNS = new Set([
+    WebStatsBreakdown.Page,
+    WebStatsBreakdown.InitialPage,
+    WebStatsBreakdown.ExitPage,
+    WebStatsBreakdown.ExitClick,
+    WebStatsBreakdown.FrustrationMetrics,
+])
+
+const buildOpenUrl = (breakdownBy: WebStatsBreakdown, value: string, effectiveDomain: string | null): string | null => {
+    if (!value || !PAGE_LIKE_BREAKDOWNS.has(breakdownBy)) {
+        return null
+    }
+
+    // For ExitClick, the value is already a full URL
+    if (breakdownBy === WebStatsBreakdown.ExitClick) {
+        return value.startsWith('http') ? value : `https://${value}`
+    }
+
+    if (!effectiveDomain) {
+        return null
+    }
+
+    // Parse the effectiveDomain to preserve its protocol (http vs https)
+    // Wrap in try/catch since domainFilter can be invalid (e.g., from URL params)
+    try {
+        const domainUrl = new URL(effectiveDomain)
+        const path = value.startsWith('/') ? value : `/${value}`
+        return `${domainUrl.origin}${path}`
+    } catch {
+        return null
+    }
+}
+
+const PathValueWithHoverLink = ({
+    children,
+    breakdownBy,
+    value,
+}: {
+    children: React.ReactNode
+    breakdownBy: WebStatsBreakdown
+    value: string
+}): JSX.Element => {
+    const { effectiveDomain } = useValues(webAnalyticsFilterLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const url = buildOpenUrl(breakdownBy, value, effectiveDomain)
+
+    if (!url || !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_URL]) {
+        return <>{children}</>
+    }
+
+    return (
+        <span className="inline-flex items-center gap-1">
+            {children}
+            <Link
+                to={url}
+                target="_blank"
+                onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                className="opacity-0 transition-opacity text-muted hover:text-primary [[data-row-key]:hover_&]:opacity-100"
+            >
+                <Tooltip title="Open URL">
+                    <IconExternal className="text-base" />
+                </Tooltip>
+            </Link>
+        </span>
+    )
 }
 
 type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean; isDuration?: boolean }
@@ -244,7 +312,22 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return <>{value}</>
             }
             const decoded = tryDecodeURIComponent(value)
-            return <>{source.doPathCleaning ? parseAliasToReadable(decoded) : decoded}</>
+            const displayValue = source.doPathCleaning ? parseAliasToReadable(decoded) : decoded
+            return (
+                <PathValueWithHoverLink breakdownBy={breakdownBy} value={value}>
+                    {displayValue}
+                </PathValueWithHoverLink>
+            )
+        }
+        case WebStatsBreakdown.ExitClick: {
+            if (typeof value !== 'string') {
+                return <>{value}</>
+            }
+            return (
+                <PathValueWithHoverLink breakdownBy={breakdownBy} value={value}>
+                    {value}
+                </PathValueWithHoverLink>
+            )
         }
         case WebStatsBreakdown.Viewport:
             if (Array.isArray(value)) {
@@ -517,6 +600,7 @@ export const WebStatsTrendTile = ({
         dateFilter: { interval },
     } = useValues(webAnalyticsLogic)
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
+    const regionPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Region)?.key
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
@@ -528,6 +612,21 @@ export const WebStatsTrendTile = ({
             })
         },
         [togglePropertyFilter, worldMapPropertyName, hasCountryFilter]
+    )
+
+    const onRegionMapClick = useCallback(
+        (breakdownValue: string) => {
+            if (!regionPropertyName || !worldMapPropertyName) {
+                return
+            }
+
+            const [countryCode, subdivisionCode] = breakdownValue.split('::')
+            if (countryCode && subdivisionCode) {
+                togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, countryCode)
+                togglePropertyFilter(PropertyFilterType.Event, regionPropertyName, subdivisionCode)
+            }
+        },
+        [togglePropertyFilter, regionPropertyName, worldMapPropertyName]
     )
 
     const context = useMemo((): QueryContext => {
@@ -545,6 +644,26 @@ export const WebStatsTrendTile = ({
             query.source?.kind === NodeKind.TrendsQuery &&
             query.source.trendsFilter?.display === ChartDisplayType.WorldMap
 
+        const isRegionMap =
+            isWorldMap &&
+            query.source?.kind === NodeKind.TrendsQuery &&
+            query.source.breakdownFilter?.breakdowns &&
+            query.source.breakdownFilter.breakdowns.length >= 2 &&
+            query.source.breakdownFilter.breakdowns.some(
+                (b) => b.property === '$geoip_subdivision_1_code' || b.property === '$geoip_subdivision_1_name'
+            )
+
+        if (isRegionMap) {
+            return {
+                ...baseContext,
+                onDataPointClick({ breakdown }, data) {
+                    if (typeof breakdown === 'string' && data && (data.count > 0 || data.aggregated_value > 0)) {
+                        onRegionMapClick(breakdown)
+                    }
+                },
+            }
+        }
+
         if (isWorldMap) {
             return {
                 ...baseContext,
@@ -557,7 +676,7 @@ export const WebStatsTrendTile = ({
         }
 
         return baseContext
-    }, [onWorldMapClick, insightProps, query])
+    }, [onWorldMapClick, onRegionMapClick, insightProps, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">

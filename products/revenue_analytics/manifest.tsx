@@ -1,3 +1,4 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
@@ -37,7 +38,8 @@ export const manifest: ProductManifest = {
             category: 'Analytics',
             href: urls.revenueAnalytics(),
             type: 'revenue',
-            tags: ['beta'],
+            flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
+            tags: ['alpha'],
             sceneKey: 'RevenueAnalytics',
         },
     ],

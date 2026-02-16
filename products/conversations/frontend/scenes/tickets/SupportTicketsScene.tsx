@@ -25,7 +25,7 @@ import {
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { type Ticket, priorityMultiselectOptions, statusMultiselectOptions } from '../../types'
-import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
+import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
 export const scene: SceneExport = {
     component: SupportTicketsScene,
@@ -35,13 +35,23 @@ export const scene: SceneExport = {
 
 export function SupportTicketsScene(): JSX.Element {
     const logic = supportTicketsSceneLogic()
-    const { filteredTickets, statusFilter, priorityFilter, assigneeFilter, dateFrom, dateTo, ticketsLoading } =
-        useValues(logic)
-    const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, loadTickets } = useActions(logic)
+    const {
+        filteredTickets,
+        statusFilter,
+        priorityFilter,
+        assigneeFilter,
+        dateFrom,
+        dateTo,
+        ticketsLoading,
+        currentPage,
+        totalCount,
+    } = useValues(logic)
+    const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, setCurrentPage, loadTickets } =
+        useActions(logic)
     const { push } = useActions(router)
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-4">
             <SceneTitleSection
                 name="Support"
                 description=""
@@ -171,6 +181,17 @@ export function SupportTicketsScene(): JSX.Element {
                 dataSource={filteredTickets}
                 rowKey="id"
                 loading={ticketsLoading}
+                pagination={{
+                    controlled: true,
+                    currentPage,
+                    pageSize: SUPPORT_TICKETS_PAGE_SIZE,
+                    entryCount: totalCount,
+                    onBackward: currentPage > 1 ? () => setCurrentPage(currentPage - 1) : undefined,
+                    onForward:
+                        currentPage * SUPPORT_TICKETS_PAGE_SIZE < totalCount
+                            ? () => setCurrentPage(currentPage + 1)
+                            : undefined,
+                }}
                 onRow={(ticket) => ({
                     onClick: () => push(urls.supportTicketDetail(ticket.id)),
                 })}

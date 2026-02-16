@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconChevronRight, IconGear, IconInfo, IconRefresh } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconFilter, IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -14,6 +14,8 @@ import { ClusterCard } from './ClusterCard'
 import { ClusterDistributionBar } from './ClusterDistributionBar'
 import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { ClusteringAdminModal } from './ClusteringAdminModal'
+import { ClusteringSettingsPanel } from './ClusteringSettingsPanel'
+import { clusteringConfigLogic, isValidFilter } from './clusteringConfigLogic'
 import { clustersAdminLogic } from './clustersAdminLogic'
 import { clustersLogic } from './clustersLogic'
 import { NOISE_CLUSTER_ID } from './constants'
@@ -84,17 +86,15 @@ export function ClustersView(): JSX.Element {
         clusterMetrics,
         clusterMetricsLoading,
     } = useValues(clustersLogic)
-    const {
-        setClusteringLevel,
-        setSelectedRunId,
-        toggleClusterExpanded,
-        toggleScatterPlotExpanded,
-        loadClusteringRuns,
-    } = useActions(clustersLogic)
+    const { setClusteringLevel, setSelectedRunId, toggleClusterExpanded, toggleScatterPlotExpanded } =
+        useActions(clustersLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openModal } = useActions(clustersAdminLogic)
+    const { config } = useValues(clusteringConfigLogic)
+    const { openSettingsPanel } = useActions(clusteringConfigLogic)
 
     const showAdminPanel = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERING_ADMIN]
+    const activeFilterCount = config.event_filters.filter(isValidFilter).length
 
     if (clusteringRunsLoading) {
         return (
@@ -130,14 +130,6 @@ export function ClustersView(): JSX.Element {
                             />
                         </span>
                     </Tooltip>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconRefresh />}
-                        onClick={loadClusteringRuns}
-                        tooltip="Refresh clustering runs"
-                        data-attr="clusters-refresh-runs"
-                    />
                 </div>
 
                 <div className="flex flex-col items-center justify-center p-8 text-center">
@@ -191,14 +183,6 @@ export function ClustersView(): JSX.Element {
                             />
                         </span>
                     </Tooltip>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconRefresh />}
-                        onClick={loadClusteringRuns}
-                        tooltip="Refresh clustering runs"
-                        data-attr="clusters-refresh-runs"
-                    />
                 </div>
 
                 <div className="flex items-center gap-4">
@@ -240,6 +224,18 @@ export function ClustersView(): JSX.Element {
                             )}
                         </div>
                     )}
+
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconFilter />}
+                        onClick={openSettingsPanel}
+                        tooltip="Configure event filters applied to the next automated clustering run"
+                        data-attr="clusters-settings-button"
+                        status={activeFilterCount > 0 ? 'danger' : 'default'}
+                    >
+                        {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}
+                    </LemonButton>
 
                     {showAdminPanel && (
                         <AccessControlAction
@@ -322,6 +318,9 @@ export function ClustersView(): JSX.Element {
             {!currentRunLoading && sortedClusters.length === 0 && currentRun && (
                 <div className="text-center p-8 text-muted">No clusters found in this run.</div>
             )}
+
+            {/* Settings Panel */}
+            <ClusteringSettingsPanel />
 
             {/* Admin Modal */}
             {showAdminPanel && <ClusteringAdminModal />}

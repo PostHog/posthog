@@ -221,7 +221,7 @@ pub async fn try_assignment_rules(
     con: &mut PgConnection,
     team_manager: &TeamManager,
     issue: Issue,
-    exception_properties: OutputErrProps,
+    exception_properties: &OutputErrProps,
 ) -> Result<Option<NewAssignment>, UnhandledError> {
     let timing = common_metrics::timing_guard(ASSIGNMENT_RULES_PROCESSING_TIME, &[]);
     #[derive(Debug, Clone, Serialize, Deserialize)]

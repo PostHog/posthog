@@ -40,6 +40,7 @@ CACHE_UPDATE_SHARED_GAUGE = Gauge(
 
 
 def update_cache(caching_state_id: UUID):
+    # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
     caching_state = InsightCachingState.objects.get(pk=caching_state_id)
 
     if caching_state.target_cache_age_seconds is None or (
@@ -110,6 +111,7 @@ def update_cache(caching_state_id: UUID):
         if caching_state.refresh_attempt < MAX_ATTEMPTS:
             update_cache_task.apply_async(args=[caching_state_id], countdown=timedelta(minutes=10).total_seconds())
 
+        # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
         InsightCachingState.objects.filter(pk=caching_state.pk).update(
             refresh_attempt=caching_state.refresh_attempt + 1,
             last_refresh_queued_at=now(),

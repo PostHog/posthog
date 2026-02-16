@@ -84,26 +84,31 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
             # Start all workflows in batch concurrently
             workflow_handles: dict[int, ChildWorkflowHandle[VideoSegmentClusteringWorkflow, WorkflowResult]] = {}
             for team_id in batch:
-                handle = await temporalio.workflow.start_child_workflow(
-                    VideoSegmentClusteringWorkflow.run,
-                    ClusteringWorkflowInputs(
-                        team_id=team_id,
-                        lookback_hours=inputs.lookback_hours,
-                    ),
-                    id=f"video-segment-clustering-team-{team_id}-{temporalio.workflow.now().isoformat()}",
-                    # Clustering is fast, but priming session summaries takes a while due to video export.
-                    # However, 3h should comfortably allow exporting even long sessions, thanks to optimization like
-                    # ignoring inactivity or playback speedup. If this is not enough, then we need to optimize export further.
-                    execution_timeout=timedelta(hours=3),
-                    retry_policy=RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(seconds=30),
-                        maximum_interval=timedelta(minutes=5),
-                        backoff_coefficient=2.0,
-                    ),
-                    parent_close_policy=temporalio.workflow.ParentClosePolicy.REQUEST_CANCEL,  # Terminate but softly
-                )
-                workflow_handles[team_id] = handle
+                try:
+                    handle = await temporalio.workflow.start_child_workflow(
+                        VideoSegmentClusteringWorkflow.run,
+                        ClusteringWorkflowInputs(
+                            team_id=team_id,
+                            lookback_hours=inputs.lookback_hours,
+                        ),
+                        id=f"video-segment-clustering-team-{team_id}-{temporalio.workflow.now().isoformat()}",
+                        # Clustering is fast, but priming session summaries takes a while due to video export.
+                        # However, 3h should comfortably allow exporting even long sessions, thanks to optimization like
+                        # ignoring inactivity or playback speedup. If this is not enough, then we need to optimize export further.
+                        execution_timeout=timedelta(hours=3),
+                        retry_policy=RetryPolicy(
+                            maximum_attempts=2,
+                            initial_interval=timedelta(seconds=30),
+                            maximum_interval=timedelta(minutes=5),
+                            backoff_coefficient=2.0,
+                        ),
+                        parent_close_policy=temporalio.workflow.ParentClosePolicy.REQUEST_CANCEL,  # Terminate but softly
+                    )
+                    workflow_handles[team_id] = handle
+                except Exception:
+                    workflow.logger.exception(f"Failed to start video segment clustering for team {team_id}")
+                    posthoganalytics.capture_exception(properties={"team_id": team_id})
+                    failed_teams.add(team_id)
 
             # Wait for all workflows in batch to complete
             for team_id, handle in workflow_handles.items():
@@ -139,24 +144,6 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
 @activity.defn
 async def get_proactive_tasks_enabled_team_ids_activity() -> list[int]:
     enabled_team_ids: list[int] = []
-    async for team in Team.objects.filter(proactive_tasks_enabled=True).only("id", "organization_id", "uuid"):
-        feature_flag_enabled = posthoganalytics.feature_enabled(
-            "product-autonomy",
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(team.organization_id),
-                },
-                "project": {
-                    "id": str(team.id),
-                },
-            },
-            send_feature_flag_events=False,
-        )
-        if feature_flag_enabled:
-            enabled_team_ids.append(team.id)
+    async for team in Team.objects.filter(proactive_tasks_enabled=True).only("id"):
+        enabled_team_ids.append(team.id)
     return enabled_team_ids

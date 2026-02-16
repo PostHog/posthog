@@ -8,7 +8,7 @@ from django.core.management.base import BaseCommand
 
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
-from posthog.temporal.ai import WORKFLOWS as AI_WORKFLOWS
+from posthog.temporal.ai import AI_WORKFLOWS
 from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
 from posthog.temporal.data_modeling import WORKFLOWS as DATA_MODELING_WORKFLOWS
@@ -16,6 +16,7 @@ from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOW
 from posthog.temporal.delete_recordings import WORKFLOWS as DELETE_RECORDING_WORKFLOWS
 from posthog.temporal.dlq_replay import WORKFLOWS as DLQ_REPLAY_WORKFLOWS
 from posthog.temporal.enforce_max_replay_retention import WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
+from posthog.temporal.event_screenshots import WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS
 from posthog.temporal.export_recording import WORKFLOWS as EXPORT_RECORDING_WORKFLOWS
 from posthog.temporal.import_recording import WORKFLOWS as IMPORT_RECORDING_WORKFLOWS
 from posthog.temporal.llm_analytics import WORKFLOWS as LLM_ANALYTICS_WORKFLOWS
@@ -147,6 +148,7 @@ class Command(BaseCommand):
             + WEEKLY_DIGEST_WORKFLOWS
             + DATA_MODELING_WORKFLOWS
             + LLM_ANALYTICS_WORKFLOWS
+            + EVENT_SCREENSHOTS_WORKFLOWS
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))

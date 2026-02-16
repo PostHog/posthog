@@ -15,6 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -45,8 +46,9 @@ export const scene: SceneExport = {
 }
 
 function LLMAnalyticsEvaluationsContent(): JSX.Element {
-    const { evaluations, filteredEvaluations, evaluationsLoading, evaluationsFilter } = useValues(llmEvaluationsLogic)
-    const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations } =
+    const { evaluations, filteredEvaluations, evaluationsLoading, evaluationsFilter, dateFilter } =
+        useValues(llmEvaluationsLogic)
+    const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations, setDates } =
         useActions(llmEvaluationsLogic)
     const { evaluationsWithMetrics } = useValues(evaluationMetricsLogic)
     const { currentTeamId } = useValues(teamLogic)
@@ -115,7 +117,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                 <div className="flex flex-wrap gap-1">
                     {evaluation.conditions.map((condition) => (
                         <LemonTag key={condition.id} type="option">
-                            {condition.rollout_percentage}%
+                            {parseFloat(condition.rollout_percentage.toFixed(2))}%
                             {condition.properties.length > 0 &&
                                 ` when ${condition.properties.length} condition${condition.properties.length !== 1 ? 's' : ''}`}
                         </LemonTag>
@@ -145,7 +147,9 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         <div className="text-sm">
                             {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
                         </div>
-                        <div className={`font-semibold ${passRateColor}`}>{stats.pass_rate}%</div>
+                        <div className={`font-semibold ${passRateColor}`}>
+                            {parseFloat(stats.pass_rate.toFixed(2))}%
+                        </div>
                     </div>
                 )
             },
@@ -230,6 +234,8 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                     </LemonButton>
                 </AccessControlAction>
             </div>
+
+            <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
 
             <EvaluationMetrics />
 

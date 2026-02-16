@@ -29,6 +29,7 @@ import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
+import { RecordingApi } from './recording-api/recording-api'
 import { SessionRecordingIngester } from './session-recording/consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
@@ -67,7 +68,7 @@ export class PluginServer {
             ...config,
         }
 
-        this.expressApp = setupExpressApp()
+        this.expressApp = setupExpressApp({ internalApiSecret: this.config.INTERNAL_API_SECRET })
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
         this.setupContinuousProfiling()
     }
@@ -302,6 +303,15 @@ export class PluginServer {
                     const consumer = new CdpBatchHogFlowRequestsConsumer(hub)
                     await consumer.start()
                     return consumer.service
+                })
+            }
+
+            if (capabilities.recordingApi) {
+                serviceLoaders.push(async () => {
+                    const api = new RecordingApi(hub)
+                    this.expressApp.use('/', api.router())
+                    await api.start()
+                    return api.service
                 })
             }
 
