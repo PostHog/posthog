@@ -294,7 +294,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             groupType,
             results,
         }),
-        appendTopMatch: (item: TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType }) => ({ item }),
+        appendTopMatches: (items: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[]) => ({ items }),
     })),
     reducers(({ props, selectors }) => ({
         searchQuery: [
@@ -330,17 +330,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             [] as (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[],
             {
                 setSearchQuery: () => [],
-                appendTopMatch: (
+                appendTopMatches: (
                     state: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[],
-                    { item }: { item: TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType } }
+                    { items }: { items: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[] }
                 ) => {
-                    const existingIndex = state.findIndex((i) => i.group === item.group)
-                    if (existingIndex >= 0) {
-                        const next = [...state]
-                        next[existingIndex] = item
-                        return next
+                    if (items.length === 0) {
+                        return state
                     }
-                    return [...state, item]
+                    const group = items[0].group
+                    const next = state.filter((i) => i.group !== group)
+                    return [...next, ...items]
                 },
             },
         ],
@@ -1346,12 +1345,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ) {
                 const logic = values.infiniteListLogics[groupType]
                 if (logic?.isMounted()) {
-                    const match = logic.values.topMatchForQuery
-                    if (match) {
-                        actions.appendTopMatch({
-                            ...match,
-                            group: groupType as TaxonomicFilterGroupType,
-                        })
+                    const matches = logic.values.topMatchesForQuery
+                    if (matches.length > 0) {
+                        actions.appendTopMatches(
+                            matches.map((match) => ({
+                                ...match,
+                                group: groupType as TaxonomicFilterGroupType,
+                            }))
+                        )
                     }
                 }
             }

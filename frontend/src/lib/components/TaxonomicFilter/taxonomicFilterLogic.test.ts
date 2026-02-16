@@ -543,31 +543,31 @@ describe('taxonomicFilterLogic', () => {
         it.each([
             {
                 query: '$pageview',
-                expectedMatchName: '$pageview',
+                expectedMatches: [{ name: '$pageview' }],
                 description: 'single matching result is promoted',
             },
             {
                 query: 'event',
-                expectedMatchName: 'event1',
-                description: 'first of multiple matching results is promoted',
+                expectedMatches: [{ name: 'event1' }, { name: 'test event' }],
+                description: 'top two matching results are promoted',
             },
-        ])('$description (query=$query)', async ({ query, expectedMatchName }) => {
+        ])('$description (query=$query)', async ({ query, expectedMatches }) => {
             expect(quickLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
 
             await expectLogic(quickLogic, () => {
                 quickLogic.actions.setSearchQuery(query)
             })
-                .toDispatchActions(['setSearchQuery', 'appendTopMatch'])
+                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
                 .delay(1)
                 .clearHistory()
                 .toMatchValues({
                     activeTab: TaxonomicFilterGroupType.SuggestedFilters,
-                    topMatchItems: [
+                    topMatchItems: expectedMatches.map((m) =>
                         expect.objectContaining({
-                            name: expectedMatchName,
+                            ...m,
                             group: TaxonomicFilterGroupType.Events,
-                        }),
-                    ],
+                        })
+                    ),
                 })
         })
 
@@ -575,7 +575,7 @@ describe('taxonomicFilterLogic', () => {
             await expectLogic(quickLogic, () => {
                 quickLogic.actions.setSearchQuery('$pageview')
             })
-                .toDispatchActions(['setSearchQuery', 'appendTopMatch'])
+                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
                 .delay(1)
 
             expect(quickLogic.values.topMatchItems).toHaveLength(1)

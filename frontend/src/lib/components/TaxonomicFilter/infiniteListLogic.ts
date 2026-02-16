@@ -404,25 +404,28 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return createEmptyListStorage()
             },
         ],
-        topMatchForQuery: [
+        topMatchesForQuery: [
             (s) => [s.localItems, s.remoteItems, s.swappedInQuery, s.searchQuery, s.group],
-            (localItems, remoteItems, swappedInQuery, searchQuery, group): TaxonomicDefinitionTypes | undefined => {
+            (localItems, remoteItems, swappedInQuery, searchQuery, group): TaxonomicDefinitionTypes[] => {
                 if (!searchQuery) {
-                    return undefined
+                    return []
                 }
                 const remoteIsFresh = remoteItems.searchQuery === (swappedInQuery || searchQuery)
                 const results = remoteIsFresh ? [...localItems.results, ...remoteItems.results] : localItems.results
 
-                // Find the first non-disabled item that has a valid value
-                return results.find((item) => {
-                    // Skip disabled items
+                const matches: TaxonomicDefinitionTypes[] = []
+                for (const item of results) {
                     if (group?.getIsDisabled?.(item)) {
-                        return false
+                        continue
                     }
-                    // If getValue is not defined, return the first non-disabled item
-                    // If getValue is defined, return the first item with a non-null value
-                    return !group?.getValue ? true : group.getValue(item) != null
-                })
+                    if (!group?.getValue || group.getValue(item) != null) {
+                        matches.push(item)
+                        if (matches.length >= 2) {
+                            break
+                        }
+                    }
+                }
+                return matches
             },
         ],
         items: [
