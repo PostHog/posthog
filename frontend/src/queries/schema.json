@@ -11724,6 +11724,10 @@
             "required": ["results"],
             "type": "object"
         },
+        "DomainConnectProviderName": {
+            "const": "Cloudflare",
+            "type": "string"
+        },
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"
@@ -22801,7 +22805,9 @@
                 "semver_lte",
                 "semver_tilde",
                 "semver_caret",
-                "semver_wildcard"
+                "semver_wildcard",
+                "icontains_multi",
+                "not_icontains_multi"
             ],
             "type": "string"
         },
@@ -31536,7 +31542,7 @@
                 "activity_log_properties",
                 "max_ai_context",
                 "workflow_variables",
-                "quick_filters",
+                "suggested_filters",
                 "empty"
             ],
             "type": "string"

@@ -5442,3 +5442,7 @@ export interface ReplayInactivityPeriod {
     recording_ts_from_s?: number
     recording_ts_to_s?: number
 }
+
+export enum DomainConnectProviderName {
+    Cloudflare = 'Cloudflare',
+}

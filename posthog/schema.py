@@ -1172,6 +1172,10 @@ class OrderDirection(StrEnum):
     DESC = "desc"
 
 
+class DomainConnectProviderName(RootModel[Literal["Cloudflare"]]):
+    root: Literal["Cloudflare"] = "Cloudflare"
+
+
 class DurationType(StrEnum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
@@ -3046,6 +3050,8 @@ class PropertyOperator(StrEnum):
     SEMVER_TILDE = "semver_tilde"
     SEMVER_CARET = "semver_caret"
     SEMVER_WILDCARD = "semver_wildcard"
+    ICONTAINS_MULTI = "icontains_multi"
+    NOT_ICONTAINS_MULTI = "not_icontains_multi"
 
 
 class Mark(BaseModel):
@@ -3757,7 +3763,7 @@ class TaxonomicFilterGroupType(StrEnum):
     ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
     MAX_AI_CONTEXT = "max_ai_context"
     WORKFLOW_VARIABLES = "workflow_variables"
-    QUICK_FILTERS = "quick_filters"
+    SUGGESTED_FILTERS = "suggested_filters"
     EMPTY = "empty"
 
 

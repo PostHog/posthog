@@ -470,6 +470,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'plain',
         hideProjectNotice: true,
     },
+    [Scene.ResourceTransfer]: {
+        projectBased: true,
+        name: 'Copy to project',
+        layout: 'app-container',
+    },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
         name: 'Revenue analytics',
@@ -810,6 +815,7 @@ export const routes: Record<string, [Scene | string, string]> = {
         },
         {} as Record<string, [Scene, string]>
     ),
+    [urls.resourceTransfer(':resourceKind', ':resourceId')]: [Scene.ResourceTransfer, 'resourceTransfer'],
     [urls.replayFilePlayback()]: [Scene.ReplayFilePlayback, 'replayFilePlayback'],
     [urls.replayKiosk()]: [Scene.ReplayKiosk, 'replayKiosk'],
     [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],

@@ -1,18 +1,36 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
+import { QueryBasedInsightModel } from '~/types'
+
 import { SavedInsightsTable } from './SavedInsightsTable'
-import { DashboardActionButton } from './components/DashboardActionButton'
+import { insightDashboardModalLogic } from './insightDashboardModalLogic'
 
 export function AddSavedInsightsToDashboard(): JSX.Element {
-    const isExperimentEnabled = useFeatureFlag('PRODUCT_ANALYTICS_ADD_INSIGHT_TO_DASHBOARD_MODAL', 'test')
     const { dashboard } = useValues(dashboardLogic)
+    const { dashboardUpdatesInProgress, isInsightInDashboard } = useValues(insightDashboardModalLogic)
+    const { toggleInsightOnDashboard, syncOptimisticStateWithDashboard } = useActions(insightDashboardModalLogic)
 
-    if (isExperimentEnabled) {
-        return <SavedInsightsTable dashboard={dashboard} />
+    useEffect(() => {
+        if (dashboard?.tiles) {
+            syncOptimisticStateWithDashboard(dashboard.tiles)
+        }
+    }, [dashboard?.tiles, syncOptimisticStateWithDashboard])
+
+    const handleToggle = (insight: QueryBasedInsightModel): void => {
+        if (!dashboard?.id) {
+            return
+        }
+        toggleInsightOnDashboard(insight, dashboard.id, isInsightInDashboard(insight, dashboard.tiles))
     }
 
-    return <SavedInsightsTable renderActionColumn={(insight) => <DashboardActionButton insight={insight} />} />
+    return (
+        <SavedInsightsTable
+            isSelected={(insight) => isInsightInDashboard(insight, dashboard?.tiles)}
+            onToggle={handleToggle}
+            isToggling={(insight) => !!dashboardUpdatesInProgress[insight.id]}
+        />
+    )
 }
