@@ -1,7 +1,6 @@
 from datetime import UTC, datetime
 from typing import cast
 
-from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person
 from unittest.mock import patch
 
@@ -115,7 +114,6 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
 
         return direct_result, preagg_result
 
-    @freeze_time("2024-01-10T12:00:00Z")
     def test_preaggregated_results_match_direct_scan(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -164,7 +162,6 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert direct_result.variant_results is not None
         assert direct_result.variant_results[0].number_of_samples == 7
 
-    @freeze_time("2024-01-10T12:00:00Z")
     def test_preaggregated_results_match_direct_scan_multiple_jobs(self):
         feature_flag = self.create_feature_flag(key="multi-job-test")
         experiment = self.create_experiment(
@@ -273,7 +270,6 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert direct_result.baseline.number_of_samples == 4
         assert direct_result.variant_results[0].number_of_samples == 3
 
-    @freeze_time("2024-01-10T12:00:00Z")
     def test_multiple_variant_handling_exclude_tags_multi_variant_user(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -357,7 +353,6 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert result.variant_results is not None
         assert result.variant_results[0].number_of_samples == 1
 
-    @freeze_time("2024-01-10T12:00:00Z")
     def test_multiple_variant_handling_first_seen_keeps_multi_variant_user(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -442,7 +437,6 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert result.variant_results is not None
         assert result.variant_results[0].number_of_samples == 1
 
-    @freeze_time("2024-01-10T12:00:00Z")
     def test_falls_back_to_events_scan_on_preaggregation_failure(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(

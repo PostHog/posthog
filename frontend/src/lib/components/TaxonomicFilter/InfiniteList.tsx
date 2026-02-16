@@ -339,7 +339,7 @@ const InfiniteListRow = ({
     if (item && itemGroup) {
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
         const isExactMatchItem =
-            listGroupType === TaxonomicFilterGroupType.QuickFilters && itemGroup.type !== listGroupType
+            listGroupType === TaxonomicFilterGroupType.SuggestedFilters && itemGroup.type !== listGroupType
 
         return (
             <div
@@ -356,7 +356,12 @@ const InfiniteListRow = ({
                     }
                     return (
                         canSelectItem(listGroupType, dataWarehousePopoverFields) &&
-                        selectItem(itemGroup, itemValue ?? null, item, items.originalQuery)
+                        selectItem(
+                            itemGroup,
+                            itemValue ?? null,
+                            item,
+                            isExactMatchItem ? trimmedSearchQuery : items.originalQuery
+                        )
                     )
                 }}
             >
@@ -479,9 +484,12 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list', 'h-full')}>
             {showEmptyState ? (
                 <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
-                    {listGroupType === TaxonomicFilterGroupType.QuickFilters && !searchQuery ? (
+                    {listGroupType === TaxonomicFilterGroupType.SuggestedFilters && !searchQuery ? (
                         <>
                             <IconSearch className="text-5xl text-tertiary" />
+                            <span className="text-secondary text-center">
+                                Start searching and we'll suggest filters...
+                            </span>
                             <span className="text-secondary text-center">
                                 Try pasting an email, URL, screen name, or element text
                             </span>

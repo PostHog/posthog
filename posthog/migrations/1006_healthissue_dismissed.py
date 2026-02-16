@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1004_resource_transfer"),
+        ("posthog", "1005_objectmediapreview_and_more"),
     ]
 
     operations = [

@@ -52,6 +52,7 @@ from products.error_tracking.backend.api import (
     GitProviderFileLinksViewSet,
 )
 from products.llm_analytics.backend.api import (
+    ClusteringConfigViewSet,
     DatasetItemViewSet,
     DatasetViewSet,
     EvaluationConfigViewSet,
@@ -108,6 +109,7 @@ from . import (
     instance_status,
     integration,
     materialized_column_slot,
+    object_media_preview,
     organization,
     organization_domain,
     organization_feature_flag,
@@ -462,6 +464,13 @@ projects_router.register(
 )
 
 projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["project_id"])
+
+projects_router.register(
+    r"object_media_previews",
+    object_media_preview.ObjectMediaPreviewViewSet,
+    "project_object_media_previews",
+    ["project_id"],
+)
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
 projects_router.register(
@@ -1209,6 +1218,13 @@ environments_router.register(
     r"llm_analytics/clustering_runs",
     LLMAnalyticsClusteringRunViewSet,
     "environment_llm_analytics_clustering_runs",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/clustering_config",
+    ClusteringConfigViewSet,
+    "environment_llm_analytics_clustering_config",
     ["team_id"],
 )
 
