@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use common_types::ClickHouseEvent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -174,5 +175,14 @@ impl TryFrom<AnyEvent> for ExceptionProperties {
         evt.team_id = event.team_id;
 
         Ok(evt)
+    }
+}
+
+impl TryFrom<ClickHouseEvent> for ExceptionProperties {
+    type Error = EventError;
+
+    fn try_from(event: ClickHouseEvent) -> Result<Self, Self::Error> {
+        let any_evt = AnyEvent::try_from(event)?;
+        ExceptionProperties::try_from(any_evt)
     }
 }

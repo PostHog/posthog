@@ -10,9 +10,7 @@ use crate::{
     metric_consts::CONSUMER_EXCEPTION_PIPELINE,
     stages::pipeline::{ExceptionEventHandledError, ExceptionEventPipeline},
     types::{
-        batch::Batch,
-        event::{AnyEvent, PropertiesContainer},
-        exception_properties::ExceptionProperties,
+        batch::Batch, event::PropertiesContainer, exception_properties::ExceptionProperties,
         stage::Stage,
     },
 };
@@ -58,11 +56,8 @@ async fn clickhouse_to_props(
 ) -> Result<Result<ExceptionProperties, ExceptionEventHandledError>, UnhandledError> {
     let event_uuid = evt.uuid;
     map.lock().await.insert(evt.uuid, evt.clone());
-    match AnyEvent::try_from(evt) {
-        Ok(evt) => match ExceptionProperties::try_from(evt) {
-            Ok(props) => Ok(Ok(props)),
-            Err(err) => Ok(Err(ExceptionEventHandledError::new(event_uuid, err))),
-        },
+    match ExceptionProperties::try_from(evt) {
+        Ok(props) => Ok(Ok(props)),
         Err(err) => Ok(Err(ExceptionEventHandledError::new(event_uuid, err))),
     }
 }
