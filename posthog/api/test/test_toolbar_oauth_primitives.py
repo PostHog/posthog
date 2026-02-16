@@ -4,8 +4,6 @@ from urllib.parse import parse_qs, urlparse
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
-
 from rest_framework import status
 
 from posthog.api.oauth.toolbar_service import (
@@ -17,7 +15,6 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.models import Organization, Team, User
 
 
-@override_settings(TOOLBAR_OAUTH_ENABLED=True)
 class TestToolbarOAuthPrimitives(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -39,15 +36,6 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.content
         return response.json()
-
-    @override_settings(TOOLBAR_OAUTH_ENABLED=False)
-    def test_start_disabled(self):
-        response = self.client.post(
-            "/api/user/toolbar_oauth_start/",
-            data=json.dumps({"app_url": self.team.app_urls[0], "code_challenge": "x", "code_challenge_method": "S256"}),
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 404)
 
     def test_start_returns_authorization_url(self):
         data = self._start()
@@ -185,11 +173,6 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         self.assertContains(response, '"error": "access_denied"')
         self.assertContains(response, '"error_description": "user cancelled"')
         self.assertContains(response, '"state": "test_state"')
-
-    @override_settings(TOOLBAR_OAUTH_ENABLED=False)
-    def test_callback_disabled(self):
-        response = self.client.get("/toolbar_oauth/callback?code=test_code&state=test_state")
-        self.assertEqual(response.status_code, 404)
 
     @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_exchange_success(self, mock_post):
@@ -329,7 +312,6 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         self.assertEqual(second.json()["code"], "state_replay")
 
 
-@override_settings(TOOLBAR_OAUTH_ENABLED=True)
 class TestToolbarOAuthStateCache(APIBaseTest):
     def test_mark_pending_then_claim_succeeds(self):
         nonce = "test-nonce-claim-ok"
