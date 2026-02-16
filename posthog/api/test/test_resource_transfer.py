@@ -4,6 +4,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Dashboard, Insight, Project, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
@@ -313,6 +314,146 @@ class TestResourceTransferTransfer(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_transfer_logs_created_activity_in_destination_for_insight(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Insight",
+                "resource_id": str(insight.pk),
+            },
+        )
+
+        dest_logs = ActivityLog.objects.filter(team_id=self.dest_team.pk, scope="Insight", activity="created")
+        assert dest_logs.count() == 1
+
+        log = dest_logs.first()
+        assert log is not None
+        assert log.user == self.user
+        assert log.detail["name"] == "My insight"
+        assert log.detail["changes"][0]["field"] == "source_team_id"
+        assert log.detail["changes"][0]["after"] == self.team.pk
+
+    def test_transfer_logs_created_activity_in_destination_for_dashboard_via_signal(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+
+        self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Dashboard",
+                "resource_id": str(dashboard.pk),
+            },
+        )
+
+        dest_logs = ActivityLog.objects.filter(team_id=self.dest_team.pk, scope="Dashboard", activity="created")
+        assert dest_logs.count() == 1
+
+        log = dest_logs.first()
+        assert log is not None
+        assert log.user == self.user
+
+    def test_transfer_logs_copied_to_project_activity_in_source_project(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Insight",
+                "resource_id": str(insight.pk),
+            },
+        )
+
+        source_logs = ActivityLog.objects.filter(team_id=self.team.pk, scope="Insight", activity="copied_to_project")
+        assert source_logs.count() == 1
+
+        log = source_logs.first()
+        assert log is not None
+        assert log.user == self.user
+        assert log.item_id == str(insight.pk)
+        assert log.detail["name"] == "My insight"
+        assert log.detail["changes"][0]["field"] == "destination_team_id"
+        assert log.detail["changes"][0]["after"] == self.dest_team.pk
+
+    def test_transfer_dashboard_logs_activity_for_user_facing_resources_only(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Dashboard",
+                "resource_id": str(dashboard.pk),
+            },
+        )
+
+        dest_logs = ActivityLog.objects.filter(team_id=self.dest_team.pk, activity="created")
+        scopes = {log.scope for log in dest_logs}
+        assert "Dashboard" in scopes
+        assert "Insight" in scopes
+        assert "DashboardTile" not in scopes
+        assert "Text" not in scopes
+
+    def test_transfer_with_substitution_does_not_log_for_substituted_resource(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        dest_insight = Insight.objects.create(team=self.dest_team, name="Existing insight")
+
+        self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Dashboard",
+                "resource_id": str(dashboard.pk),
+                "substitutions": [
+                    {
+                        "source_resource_kind": "Insight",
+                        "source_resource_id": str(insight.pk),
+                        "destination_resource_kind": "Insight",
+                        "destination_resource_id": str(dest_insight.pk),
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        dest_insight_logs = ActivityLog.objects.filter(team_id=self.dest_team.pk, scope="Insight", activity="created")
+        assert dest_insight_logs.count() == 0
+
+        # Dashboard gets logged via ModelActivityMixin signal
+        dest_dashboard_logs = ActivityLog.objects.filter(
+            team_id=self.dest_team.pk, scope="Dashboard", activity="created"
+        )
+        assert dest_dashboard_logs.count() == 1
+
+    def test_transfer_source_log_only_for_root_resource(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Dashboard",
+                "resource_id": str(dashboard.pk),
+            },
+        )
+
+        source_logs = ActivityLog.objects.filter(team_id=self.team.pk, activity="copied_to_project")
+        assert source_logs.count() == 1
+        assert source_logs.first().scope == "Dashboard"
 
 
 class TestResourceTransferSearch(APIBaseTest):
