@@ -315,22 +315,32 @@ const Tab = Object.assign(TabItem, {
     Panel: TabPanel,
 })
 
+function MinimalSteps({ children }: StepsProps): JSX.Element {
+    return <div className="space-y-4">{children}</div>
+}
+
+function MinimalStep({ children }: StepProps & { stepNumber?: number }): JSX.Element | null {
+    return <div className="space-y-4">{children}</div>
+}
+
 // This is a wrapper to share certain onboarding instructions with the main website repo.
 export function OnboardingDocsContentWrapper({
     children,
     snippets,
     createSnippets,
+    minimal,
 }: {
     children: ReactNode
     snippets?: Record<string, React.ComponentType<any>>
     createSnippets?: (components: OnboardingComponentsContext) => Record<string, React.ComponentType<any>>
+    minimal?: boolean
 }): JSX.Element {
     const [selectedFile, setSelectedFile] = React.useState<string | null>(null)
 
     const baseComponents = useMemo<Omit<OnboardingComponentsContext, 'snippets'>>(
         () => ({
-            Steps,
-            Step,
+            Steps: minimal ? MinimalSteps : Steps,
+            Step: minimal ? MinimalStep : Step,
             CodeBlock,
             CalloutBox,
             ProductScreenshot,
@@ -342,7 +352,7 @@ export function OnboardingDocsContentWrapper({
             selectedFile,
             setSelectedFile,
         }),
-        [selectedFile]
+        [selectedFile, minimal]
     )
 
     const finalSnippets = useMemo(() => {

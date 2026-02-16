@@ -243,7 +243,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 {...draggableProps}
                 {...(resource ? { 'data-resource-type': resource.type, 'data-resource-ref': resource.ref } : undefined)}
             >
-                {children}
+                {children}&nbsp;
                 {targetBlankIcon &&
                     (shouldOpenInDocsPanel && sidePanelStateLogic.isMounted() ? (
                         <IconOpenSidebar />

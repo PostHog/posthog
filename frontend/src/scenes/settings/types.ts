@@ -74,7 +74,6 @@ export type SettingId =
     | 'replay-integrations'
     | 'display-name'
     | 'snippet'
-    | 'authorized-urls'
     | 'web-analytics-authorized-urls'
     | 'variables'
     | 'autocapture'
