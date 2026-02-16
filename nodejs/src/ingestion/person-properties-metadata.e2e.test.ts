@@ -124,7 +124,7 @@ const createKafkaMessage = (event: PipelineEvent, timestamp: number = DateTime.n
 }
 
 const createKafkaMessages = (events: PipelineEvent[]): Message[] => {
-    return events.map((e) => createKafkaMessage(e))
+    return events.map(createKafkaMessage)
 }
 
 const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {}) => {

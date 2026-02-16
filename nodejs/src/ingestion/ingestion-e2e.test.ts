@@ -3019,11 +3019,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                         new EventBuilder(team, distinctId)
                             .withEvent('$identify')
                             .withProperties({
-                                $set: {
-                                    name: 'Test User',
-                                    email: 'test@example.com',
-                                    to_remove: 'will be removed',
-                                },
+                                $set: { name: 'Test User', email: 'test@example.com', to_remove: 'will be removed' },
                             })
                             .withTimestamp(timestamp)
                             .build(),

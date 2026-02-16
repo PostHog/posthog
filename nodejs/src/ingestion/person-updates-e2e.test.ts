@@ -127,7 +127,7 @@ const createKafkaMessage = (event: PipelineEvent, timestamp: number = Date.now()
 }
 
 const createKafkaMessages = (events: PipelineEvent[]): Message[] => {
-    return events.map((e) => createKafkaMessage(e))
+    return events.map(createKafkaMessage)
 }
 
 const waitForKafkaMessages = async (hub: Hub) => {
