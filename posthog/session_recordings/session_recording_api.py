@@ -83,7 +83,7 @@ from posthog.session_recordings.utils import (
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage.recordings import file_storage
 from posthog.storage.recordings.block_storage import BlockStorage, cleartext_block_storage, encrypted_block_storage
-from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.storage.recordings.errors import BlockDeletionNotSupportedError, BlockFetchError, RecordingDeletedError
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
@@ -1356,21 +1356,17 @@ class SessionRecordingViewSet(
 
     def _delete_via_recording_api(self, session_id: str) -> bool:
         """Delete recording via recording-api. Returns True if deleted successfully."""
-        url = f"{settings.RECORDING_API_URL}/api/projects/{self.team.id}/recordings/{session_id}"
+
+        async def _delete() -> bool:
+            async with encrypted_block_storage() as storage:
+                return await storage.delete_recording(session_id, self.team.id)
+
         try:
-            response = requests.delete(url, timeout=30)
-            if response.status_code in (200, 410):  # Success or already deleted
-                return True
-            elif response.status_code == 404:
-                return False  # Not found in S3 (may still need soft-delete)
-            else:
-                logger.warning(
-                    "recording_api_delete_failed",
-                    status_code=response.status_code,
-                    session_id=session_id,
-                    team_id=self.team.id,
-                )
-                return False
+            return async_to_sync(_delete)()
+        except RecordingDeletedError:
+            return True  # Already deleted
+        except (BlockFetchError, BlockDeletionNotSupportedError):
+            return False
         except Exception as e:
             logger.exception(
                 "recording_api_delete_error",

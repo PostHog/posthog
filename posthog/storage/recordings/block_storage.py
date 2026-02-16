@@ -27,6 +27,9 @@ class BlockStorage(Protocol):
 
     The session_id and team_id parameters are required for the Recording API client
     to construct the correct URL, but are ignored by the S3 storage client.
+
+    Delete is intentionally excluded — only EncryptedBlockStorage supports it since
+    cleartext recordings don't have encryption keys to shred.
     """
 
     async def fetch_decompressed_block(self, block_url: str, session_id: str, team_id: int) -> str:
@@ -302,6 +305,12 @@ async def encrypted_block_storage() -> AsyncIterator[EncryptedBlockStorage]:
     if not settings.RECORDING_API_URL:
         raise RuntimeError("RECORDING_API_URL is not configured")
 
+    headers: dict[str, str] = {}
+    if settings.INTERNAL_API_SECRET:
+        headers["X-Internal-Api-Secret"] = settings.INTERNAL_API_SECRET
+    elif not settings.DEBUG:
+        logger.warning("encrypted_block_storage.missing_internal_api_secret")
+
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
         yield EncryptedBlockStorage(session, settings.RECORDING_API_URL)
