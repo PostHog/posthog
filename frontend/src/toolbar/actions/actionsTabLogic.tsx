@@ -2,13 +2,12 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionDraftType, ActionForm } from '~/toolbar/types'
 import {
@@ -102,7 +101,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
     connect(() => ({
         values: [
             toolbarConfigLogic,
-            ['dataAttributes', 'apiHost', 'uiHost', 'temporaryToken', 'buttonVisible', 'userIntent', 'actionId'],
+            ['dataAttributes', 'uiHost', 'buttonVisible', 'userIntent', 'actionId'],
             actionsLogic,
             ['allActions'],
         ],
@@ -210,7 +209,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     steps: formValues.steps?.map(stepToDatabaseFormat) || [],
                     creation_context: values.automaticActionCreationEnabled ? 'onboarding' : null,
                 }
-                const { temporaryToken, apiHost } = values
                 const { selectedActionId } = values
 
                 const findUniqueActionName = (baseName: string, index = 0): string => {
@@ -222,22 +220,19 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 }
 
                 if (values.newActionName) {
-                    // newActionName is programmatically set, but they may already have an existing action with that name. Append an index.
                     actionToSave.name = findUniqueActionName(values.newActionName)
                 }
 
                 let response: ActionType
-                if (selectedActionId && selectedActionId !== 'new') {
-                    response = await api.update(
-                        `${apiHost}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`,
-                        actionToSave
-                    )
-                } else {
-                    response = await api.create(
-                        `${apiHost}/api/projects/@current/actions/?temporary_token=${temporaryToken}`,
-                        actionToSave
-                    )
-                }
+                const res =
+                    selectedActionId && selectedActionId !== 'new'
+                        ? await toolbarFetch(
+                              `/api/projects/@current/actions/${selectedActionId}/`,
+                              'PATCH',
+                              actionToSave
+                          )
+                        : await toolbarFetch('/api/projects/@current/actions/', 'POST', actionToSave)
+                response = await res.json()
                 breakpoint()
 
                 actions.selectAction(null)
