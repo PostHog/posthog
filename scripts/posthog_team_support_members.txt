@@ -1,0 +1,16 @@
+# PostHog Support Team Members
+# GitHub usernames for https://github.com/orgs/PostHog/teams/team-support
+#
+# Instructions:
+# 1. Visit https://github.com/orgs/PostHog/teams/team-support
+# 2. Add the GitHub username of each team member below (one per line)
+# 3. Lines starting with # are ignored
+# 4. Keep this file updated as team members change
+#
+# Example:
+# johndoe
+# janedoe
+# alice
+
+# Add team member usernames below this line:
+
