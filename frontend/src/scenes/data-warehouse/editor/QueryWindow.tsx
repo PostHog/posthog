@@ -46,6 +46,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         queryInput,
         editingView,
         editingInsight,
+        insightLoading,
         sourceQuery,
         originalQueryInput,
         suggestedQueryInput,
@@ -236,7 +237,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                         </LemonButton>
                     </>
                 )}
-                {!editingInsight && !editingView && (
+                {!editingInsight && !editingView && !insightLoading && (
                     <>
                         <AppShortcut
                             name="SQLEditorSaveAsView"
