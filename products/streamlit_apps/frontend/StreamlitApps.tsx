@@ -1,9 +1,10 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { IconEllipsis, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -26,23 +27,67 @@ const STATUS_CONFIG: Record<StreamlitAppStatus, { label: string; type: LemonTagT
 
 function AppCard({ app }: { app: StreamlitAppMinimalType }): JSX.Element {
     const config = STATUS_CONFIG[app.status]
+    const { deleteStreamlitApp } = useActions(streamlitAppsLogic)
+
+    const openApp = (): void => {
+        router.actions.push(urls.streamlitApp(app.short_id))
+    }
 
     return (
         <div
-            className="border rounded-lg p-4 cursor-pointer hover:shadow-md transition-shadow bg-bg-light"
-            onClick={() => router.actions.push(urls.streamlitApp(app.short_id))}
+            className="border rounded-lg p-4 cursor-pointer hover:shadow-md transition-shadow bg-bg-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+            onClick={openApp}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    openApp()
+                }
+            }}
+            role="link"
+            tabIndex={0}
+            aria-label={`Open ${app.name}`}
         >
             <div className="flex items-start justify-between mb-2">
                 <h3 className="font-semibold text-base m-0 truncate">{app.name}</h3>
-                <LemonTag type={config.type}>{config.label}</LemonTag>
+                <div className="flex items-center gap-1">
+                    <LemonTag type={config.type}>{config.label}</LemonTag>
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Delete',
+                                icon: <IconTrash />,
+                                status: 'danger',
+                                onClick: () => {
+                                    LemonDialog.open({
+                                        title: 'Delete app?',
+                                        description:
+                                            'This will permanently delete this app and all its versions. This cannot be undone.',
+                                        primaryButton: {
+                                            children: 'Delete',
+                                            status: 'danger',
+                                            onClick: () => deleteStreamlitApp({ shortId: app.short_id }),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                        },
+                                    })
+                                },
+                            },
+                        ]}
+                        placement="bottom-end"
+                    >
+                        <LemonButton
+                            size="xsmall"
+                            noPadding
+                            icon={<IconEllipsis />}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    </LemonMenu>
+                </div>
             </div>
             {app.description && <p className="text-muted text-sm mb-2 line-clamp-2 m-0">{app.description}</p>}
             <div className="flex items-center justify-between text-xs text-muted mt-3">
-                <span>
-                    {app.status === 'running' && app.current_viewers > 0
-                        ? `${app.current_viewers} viewer${app.current_viewers !== 1 ? 's' : ''}`
-                        : null}
-                </span>
+                <span>{app.status === 'running' ? 'Running' : null}</span>
                 <span>{app.created_by?.first_name ?? 'Unknown'}</span>
             </div>
         </div>

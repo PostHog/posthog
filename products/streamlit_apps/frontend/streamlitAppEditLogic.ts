@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -6,6 +6,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
+
+import { Breadcrumb } from '~/types'
 
 import type { streamlitAppEditLogicType } from './streamlitAppEditLogicType'
 import { streamlitAppsLogic } from './streamlitAppsLogic'
@@ -77,8 +79,15 @@ export const streamlitAppEditLogic = kea<streamlitAppEditLogicType>([
                     }
 
                     if (values.zipFile) {
-                        await api.streamlitApps.uploadVersion(app.short_id, values.zipFile)
-                        app = await api.streamlitApps.get(app.short_id)
+                        try {
+                            await api.streamlitApps.uploadVersion(app.short_id, values.zipFile)
+                            app = await api.streamlitApps.get(app.short_id)
+                        } catch {
+                            lemonToast.error('App created but zip upload failed. You can retry from the edit page.')
+                            streamlitAppsLogic.findMounted()?.actions.updateStreamlitApp(app)
+                            router.actions.push(urls.streamlitAppEdit(app.short_id))
+                            return app
+                        }
                     }
 
                     lemonToast.success(isNew ? 'App created' : 'App saved')
@@ -139,15 +148,47 @@ export const streamlitAppEditLogic = kea<streamlitAppEditLogicType>([
         ],
     }),
 
-    listeners(({ props, actions }) => ({
+    selectors({
+        breadcrumbs: [
+            (s) => [s.streamlitApp],
+            (streamlitApp): Breadcrumb[] => [
+                {
+                    key: 'StreamlitApps',
+                    name: 'Apps',
+                    path: urls.streamlitApps(),
+                },
+                {
+                    key: ['StreamlitAppEdit', streamlitApp?.short_id || 'new'],
+                    name: streamlitApp ? streamlitApp.name : 'New app',
+                },
+            ],
+        ],
+    }),
+
+    listeners(({ props, values, actions }) => ({
         setActiveVersionNumber: async ({ versionNumber }) => {
             if (props.shortId === 'new') {
                 return
             }
-            const app = await api.streamlitApps.activateVersion(props.shortId, versionNumber)
-            lemonToast.success(`Switched to v${versionNumber}`)
-            streamlitAppsLogic.findMounted()?.actions.updateStreamlitApp(app)
-            actions.loadStreamlitApp()
+            try {
+                const response = await api.streamlitApps.activateVersion(props.shortId, versionNumber)
+                lemonToast.success(`Switched to v${versionNumber}. Restart the app to apply.`)
+                // Patch the active_version in local state instead of reloading
+                // the whole app — reloading clobbers any in-progress edits to
+                // name/description/cpu/memory.
+                if (values.streamlitApp) {
+                    const updated = {
+                        ...values.streamlitApp,
+                        active_version: response?.active_version ?? values.streamlitApp.active_version,
+                    }
+                    actions.loadStreamlitAppSuccess(updated)
+                    streamlitAppsLogic.findMounted()?.actions.updateStreamlitApp(updated)
+                }
+            } catch (error: any) {
+                lemonToast.error(
+                    `Failed to activate v${versionNumber}: ${error?.detail || error?.message || 'unknown error'}`
+                )
+            }
         },
     })),
 

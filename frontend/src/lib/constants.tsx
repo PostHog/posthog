@@ -442,6 +442,7 @@ export const FEATURE_FLAGS = {
     SNAPCHAT_ADS_SOURCE: 'snapchat-ads-source', // owner: @jabahamondes #team-web-analytics
     SQL_EDITOR_VIM_MODE: 'sql-editor-vim-mode', // owner: @arthurdedeus
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-analytics-platform
+    STREAMLIT_APPS: 'streamlit-apps', // owner: @sakce
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
     SURVEYS_FORM_BUILDER: 'surveys-form-builder', // owner: @adboio #team-surveys
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys

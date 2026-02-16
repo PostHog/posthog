@@ -3,12 +3,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from products.streamlit_apps.backend.models import (
-    AllowedStreamlitPackage,
-    StreamlitApp,
-    StreamlitAppSandbox,
-    StreamlitAppVersion,
-)
+from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
 
 
 class TestStreamlitAppModel(BaseTest):
@@ -25,6 +20,7 @@ class TestStreamlitAppModel(BaseTest):
         assert app.memory_gb == 1
         assert app.deleted is False
         assert app.active_version is None
+        assert app.restart_count == 0
 
     def test_short_id_auto_generated(self):
         app1 = StreamlitApp.objects.create(team=self.team, name="App 1")
@@ -34,6 +30,18 @@ class TestStreamlitAppModel(BaseTest):
     def test_str(self):
         app = StreamlitApp.objects.create(team=self.team, name="My App")
         assert str(app) == "My App"
+
+    def test_soft_deleted_apps_release_short_id(self):
+        """Partial unique constraint should let us reuse a short_id once the
+        previous app is soft-deleted."""
+        from django.utils import timezone
+
+        app = StreamlitApp.objects.create(team=self.team, name="App", short_id="duplicate")
+        app.deleted = True
+        app.deleted_at = timezone.now()
+        app.save()
+        # Should NOT raise — partial constraint excludes deleted=True rows
+        StreamlitApp.objects.create(team=self.team, name="App2", short_id="duplicate")
 
 
 class TestStreamlitAppVersionModel(BaseTest):
@@ -101,28 +109,8 @@ class TestStreamlitAppSandboxModel(BaseTest):
         app = StreamlitApp.objects.create(team=self.team, name="Test App")
         version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
         sandbox = StreamlitAppSandbox.objects.create(app=app, version=version, sandbox_id="modal-1")
-        assert sandbox.restart_count == 0
-        assert sandbox.current_viewers == 0
-        assert sandbox.max_viewers == 20
-
-
-class TestAllowedStreamlitPackageModel(BaseTest):
-    def setUp(self):
-        super().setUp()
-        AllowedStreamlitPackage.objects.all().delete()
-
-    def test_create_package(self):
-        pkg = AllowedStreamlitPackage.objects.create(name="pandas", version_constraint=">=2.0,<3.0")
-        assert str(pkg) == "pandas>=2.0,<3.0"
-
-    def test_str_without_constraint(self):
-        pkg = AllowedStreamlitPackage.objects.create(name="numpy")
-        assert str(pkg) == "numpy"
-
-    def test_unique_package_name(self):
-        AllowedStreamlitPackage.objects.create(name="pandas")
-        with pytest.raises(Exception):
-            AllowedStreamlitPackage.objects.create(name="pandas")
+        assert sandbox.status == StreamlitAppSandbox.Status.STARTING
+        assert sandbox.created_at is not None
 
     def test_active_version_relationship(self):
         app = StreamlitApp.objects.create(team=self.team, name="Test App")

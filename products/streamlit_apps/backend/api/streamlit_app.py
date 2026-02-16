@@ -3,6 +3,8 @@ import uuid
 import hashlib
 from typing import Any
 
+from django.core.cache import cache
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -17,12 +19,19 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.rate_limit import ClickHouseBurstRateThrottle
 
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
 from products.streamlit_apps.backend.services.app_runtime import AppRuntimeService
 from products.streamlit_apps.backend.services.zip_validator import validate_zip
 
 logger = structlog.get_logger(__name__)
+
+# Window during which all `get_status` callers see the same _sync_sandbox_status
+# result instead of each one re-hitting Modal. The token-refresh poller fires
+# every 2 seconds, so anything below that lets us amortize Modal calls down to
+# one-per-window per sandbox.
+_STATUS_CACHE_TTL_SECONDS = 2
 
 
 # -- Serializers --
@@ -48,6 +57,8 @@ class StreamlitAppVersionSerializer(serializers.ModelSerializer):
 
 
 class StreamlitAppSandboxSerializer(serializers.ModelSerializer):
+    restart_count = serializers.SerializerMethodField()
+
     class Meta:
         model = StreamlitAppSandbox
         fields = [
@@ -56,16 +67,18 @@ class StreamlitAppSandboxSerializer(serializers.ModelSerializer):
             "last_error",
             "started_at",
             "last_activity_at",
-            "current_viewers",
-            "max_viewers",
         ]
         read_only_fields = fields
+
+    def get_restart_count(self, obj: StreamlitAppSandbox) -> int:
+        # restart_count lives on the app row now, but we surface it under the
+        # sandbox object for frontend continuity.
+        return obj.app.restart_count
 
 
 class StreamlitAppMinimalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     status = serializers.SerializerMethodField()
-    current_viewers = serializers.SerializerMethodField()
 
     class Meta:
         model = StreamlitApp
@@ -77,7 +90,6 @@ class StreamlitAppMinimalSerializer(serializers.ModelSerializer):
             "cpu_cores",
             "memory_gb",
             "status",
-            "current_viewers",
             "created_by",
             "created_at",
             "updated_at",
@@ -89,12 +101,6 @@ class StreamlitAppMinimalSerializer(serializers.ModelSerializer):
             return obj.sandbox.status
         except StreamlitAppSandbox.DoesNotExist:
             return "stopped"
-
-    def get_current_viewers(self, obj: StreamlitApp) -> int:
-        try:
-            return obj.sandbox.current_viewers
-        except StreamlitAppSandbox.DoesNotExist:
-            return 0
 
 
 class StreamlitAppSerializer(StreamlitAppMinimalSerializer):
@@ -113,7 +119,6 @@ class StreamlitAppSerializer(StreamlitAppMinimalSerializer):
             "active_version",
             "sandbox",
             "status",
-            "current_viewers",
             "created_by",
             "created_at",
             "updated_at",
@@ -124,11 +129,20 @@ class StreamlitAppSerializer(StreamlitAppMinimalSerializer):
             "active_version",
             "sandbox",
             "status",
-            "current_viewers",
             "created_by",
             "created_at",
             "updated_at",
         ]
+
+    def validate_cpu_cores(self, value: float) -> float:
+        if value < 0.25 or value > 8:
+            raise serializers.ValidationError("CPU cores must be between 0.25 and 8.")
+        return value
+
+    def validate_memory_gb(self, value: float) -> float:
+        if value < 0.5 or value > 16:
+            raise serializers.ValidationError("Memory must be between 0.5 and 16 GB.")
+        return value
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> StreamlitApp:
         request = self.context["request"]
@@ -187,7 +201,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(deleted=False)
-        queryset = queryset.select_related("created_by", "active_version")
+        queryset = queryset.select_related("created_by", "active_version", "sandbox")
 
         if self.action == "list":
             queryset = queryset.order_by("-updated_at")
@@ -195,6 +209,13 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset
 
     def perform_destroy(self, instance: StreamlitApp) -> None:
+        # Stop running sandbox before soft-deleting
+        try:
+            runtime = AppRuntimeService()
+            runtime.stop_app(instance)
+        except Exception:
+            logger.warning("streamlit_app_stop_on_delete_failed", app_id=str(instance.id))
+
         instance.deleted = True
         instance.deleted_at = timezone.now()
         instance.save(update_fields=["deleted", "deleted_at", "updated_at"])
@@ -216,7 +237,10 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=True, url_path="versions")
     def versions(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
-        versions = app.versions.order_by("-version_number")
+        # Cap the response to the 50 most recent versions — older history is
+        # rarely needed and unbounded lists break the activity tab UI.
+        # select_related avoids N+1 on created_by → User.
+        versions = app.versions.select_related("created_by").order_by("-version_number")[:50]
         serializer = StreamlitAppVersionSerializer(versions, many=True)
         return Response({"results": serializer.data})
 
@@ -232,34 +256,54 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         validation = validate_zip(io.BytesIO(file_content))
         if not validation.valid:
             return Response(
-                {"detail": "Invalid zip file.", "errors": validation.errors},
+                {"detail": "Invalid zip file: " + "; ".join(validation.errors)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         zip_hash = hashlib.sha256(file_content).hexdigest()
 
-        latest_version = app.versions.order_by("-version_number").first()
-        next_version_number = (latest_version.version_number + 1) if latest_version else 1
-
-        zip_path = f"streamlit_apps/{app.team_id}/{app.id}/v{next_version_number}.zip"
-
         from posthog.storage import object_storage
 
+        # Write to storage BEFORE opening the DB transaction so we never commit
+        # a record pointing to a nonexistent object. We key the storage path by
+        # version UUID (not version_number) so it can be computed outside the lock.
+        version_id = uuid.uuid4()
+        zip_path = f"streamlit_apps/{app.team_id}/{app.id}/{version_id}.zip"
         object_storage.write(zip_path, file_content)
 
-        version = StreamlitAppVersion.objects.create(
-            id=uuid.uuid4(),
-            app=app,
-            version_number=next_version_number,
-            zip_file=zip_path,
-            zip_hash=zip_hash,
-            has_requirements=validation.has_requirements,
-            packages=validation.packages,
-            created_by=request.user,
-        )
+        def _cleanup_orphan() -> None:
+            try:
+                object_storage.delete(zip_path)
+            except Exception:
+                logger.warning("streamlit_upload_orphan_cleanup_failed", zip_path=zip_path, exc_info=True)
 
-        app.active_version = version
-        app.save(update_fields=["active_version", "updated_at"])
+        try:
+            with transaction.atomic():
+                latest_version = app.versions.select_for_update().order_by("-version_number").first()
+                next_version_number = (latest_version.version_number + 1) if latest_version else 1
+
+                version = StreamlitAppVersion.objects.create(
+                    id=version_id,
+                    app=app,
+                    version_number=next_version_number,
+                    zip_file=zip_path,
+                    zip_hash=zip_hash,
+                    has_requirements=validation.has_requirements,
+                    packages=validation.packages,
+                    created_by=request.user,
+                )
+
+                app.active_version = version
+                app.save(update_fields=["active_version", "updated_at"])
+        except IntegrityError:
+            _cleanup_orphan()
+            return Response(
+                {"detail": "Concurrent upload detected. Please try again."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except Exception:
+            _cleanup_orphan()
+            raise
 
         log_activity(
             organization_id=request.user.current_organization_id,
@@ -302,7 +346,14 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             detail=Detail(name=f"{app.name} v{version_number}"),
         )
 
-        return Response(StreamlitAppSerializer(app, context=self.get_serializer_context()).data)
+        # The frontend banner uses requires_restart to prompt the user — we do
+        # NOT auto-restart because the user might still be editing other fields.
+        return Response(
+            {
+                "active_version": StreamlitAppVersionSerializer(version).data,
+                "requires_restart": True,
+            }
+        )
 
     # -- Sandbox control --
 
@@ -311,21 +362,31 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         app = self.get_object()
         try:
             sandbox = app.sandbox
-            return Response(StreamlitAppSandboxSerializer(sandbox).data)
         except StreamlitAppSandbox.DoesNotExist:
             return Response(
                 {
                     "status": "stopped",
-                    "restart_count": 0,
+                    "restart_count": app.restart_count,
                     "last_error": "",
                     "started_at": None,
                     "last_activity_at": None,
-                    "current_viewers": 0,
-                    "max_viewers": 20,
                 }
             )
 
-    @action(methods=["POST"], detail=True, url_path="start")
+        from products.streamlit_apps.backend.services.app_runtime import _sync_sandbox_status
+
+        # Coalesce concurrent pollers for the same sandbox into a single Modal
+        # call per _STATUS_CACHE_TTL_SECONDS window.
+        cache_key = f"streamlit_sandbox_status:{sandbox.id}"
+        cached = cache.get(cache_key)
+        if cached is None:
+            sandbox = _sync_sandbox_status(sandbox)
+            payload = StreamlitAppSandboxSerializer(sandbox).data
+            cache.set(cache_key, payload, _STATUS_CACHE_TTL_SECONDS)
+            return Response(payload)
+        return Response(cached)
+
+    @action(methods=["POST"], detail=True, url_path="start", throttle_classes=[ClickHouseBurstRateThrottle])
     def start(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
         if not app.active_version:
@@ -333,17 +394,22 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"detail": "No active version. Upload a zip file first."}, status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Check if already running or starting
         try:
-            from posthog.storage import object_storage
+            sandbox = app.sandbox
+            if sandbox.status in (StreamlitAppSandbox.Status.RUNNING, StreamlitAppSandbox.Status.STARTING):
+                return Response(StreamlitAppSerializer(app, context=self.get_serializer_context()).data)
+        except StreamlitAppSandbox.DoesNotExist:
+            pass
 
-            zip_content = object_storage.read_bytes(app.active_version.zip_file)
-            runtime = AppRuntimeService()
-            runtime.start_app(app, zip_content=zip_content)
-        except Exception as e:
-            logger.exception("streamlit_app_start_failed", app_id=str(app.id), error=str(e))
-            return Response({"detail": "Failed to start app."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        from products.streamlit_apps.backend.tasks import run_streamlit_app_lifecycle
 
-        return Response(StreamlitAppSerializer(app, context=self.get_serializer_context()).data)
+        run_streamlit_app_lifecycle.delay(str(app.id), "start")
+
+        return Response(
+            StreamlitAppSerializer(app, context=self.get_serializer_context()).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     @action(methods=["POST"], detail=True, url_path="stop")
     def stop(self, request: Request, **kwargs: Any) -> Response:
@@ -358,37 +424,67 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(StreamlitAppSerializer(app, context=self.get_serializer_context()).data)
 
-    @action(methods=["GET"], detail=True, url_path="connect_url")
-    def connect_url(self, request: Request, **kwargs: Any) -> Response:
+    @action(methods=["GET"], detail=True, url_path="connect_info", throttle_classes=[ClickHouseBurstRateThrottle])
+    def connect_info(self, request: Request, **kwargs: Any) -> Response:
+        """Return an iframe URL with OAuth + Modal connect tokens baked in.
+
+        The frontend uses this URL directly as the iframe src — no Django proxy needed.
+        The auth proxy inside the sandbox validates the OAuth token via introspection.
+        """
         app = self.get_object()
         sandbox_record = StreamlitAppSandbox.objects.filter(app=app).first()
         if not sandbox_record or sandbox_record.status != StreamlitAppSandbox.Status.RUNNING:
             return Response({"detail": "App is not running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        if sandbox_record.current_viewers >= sandbox_record.max_viewers:
-            return Response(
-                {"detail": "App is busy, please try again later."}, status=status.HTTP_503_SERVICE_UNAVAILABLE
-            )
-
         runtime = AppRuntimeService()
         connect_data = runtime.get_connect_url(app, user_id=request.user.id, team_id=self.team_id)
         if not connect_data:
-            return Response({"detail": "Unable to get connect URL."}, status=status.HTTP_502_BAD_GATEWAY)
+            return Response({"detail": "Unable to connect to app."}, status=status.HTTP_502_BAD_GATEWAY)
 
         sandbox_record.last_activity_at = timezone.now()
         sandbox_record.save(update_fields=["last_activity_at"])
 
-        return Response(connect_data)
+        from products.streamlit_apps.backend.services.oauth import (
+            ACCESS_TOKEN_EXPIRY_SECONDS,
+            create_streamlit_access_token,
+            find_reusable_streamlit_access_token,
+        )
 
-    @action(methods=["POST"], detail=True, url_path="restart")
+        # Reuse a non-near-expiry token if one exists for this user/team. Each
+        # connect_info call used to mint a fresh token, which (a) bloated the
+        # OAuth table and (b) gave attackers a free token-minting oracle if
+        # they could call this endpoint without rate-limiting.
+        access_token = find_reusable_streamlit_access_token(user=request.user, team_id=self.team_id)
+        if access_token is None:
+            access_token = create_streamlit_access_token(user=request.user, team_id=self.team_id)
+
+        modal_url = connect_data["url"].rstrip("/")
+        modal_token = connect_data["token"]
+        # _modal_connect_token: consumed by Modal's routing layer (stripped before reaching proxy)
+        # _posthog_modal_token: passed through to auth proxy, which captures it and injects
+        #   into HTML so browser sub-requests carry _modal_connect_token automatically
+        iframe_url = (
+            f"{modal_url}/?_posthog_token={access_token}"
+            f"&_modal_connect_token={modal_token}"
+            f"&_posthog_modal_token={modal_token}"
+        )
+
+        return Response(
+            {
+                "iframe_url": iframe_url,
+                "expires_in": ACCESS_TOKEN_EXPIRY_SECONDS,
+            }
+        )
+
+    @action(methods=["POST"], detail=True, url_path="restart", throttle_classes=[ClickHouseBurstRateThrottle])
     def restart(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
 
-        try:
-            runtime = AppRuntimeService()
-            runtime.restart_app(app)
-        except Exception as e:
-            logger.exception("streamlit_app_restart_failed", app_id=str(app.id), error=str(e))
-            return Response({"detail": "Failed to restart app."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        from products.streamlit_apps.backend.tasks import run_streamlit_app_lifecycle
 
-        return Response(StreamlitAppSerializer(app, context=self.get_serializer_context()).data)
+        run_streamlit_app_lifecycle.delay(str(app.id), "restart")
+
+        return Response(
+            StreamlitAppSerializer(app, context=self.get_serializer_context()).data,
+            status=status.HTTP_202_ACCEPTED,
+        )

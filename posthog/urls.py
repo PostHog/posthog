@@ -56,9 +56,8 @@ from products.slack_app.backend.api import (
     posthog_code_interactivity_handler,
     slack_event_handler,
 )
-from products.surveys.backend.api.survey import public_survey_page, surveys
 from products.streamlit_apps.backend.api.bridge import StreamlitBridgeView
-from products.streamlit_apps.backend.api.proxy import StreamlitProxyView
+from products.surveys.backend.api.survey import public_survey_page, surveys
 from products.tasks.backend.webhooks import github_pr_webhook
 
 from .utils import opt_slash_path, render_template
@@ -209,11 +208,6 @@ urlpatterns = [
         include("products.mcp_analytics.backend.presentation.urls"),
     ),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
-    re_path(
-        r"^api/projects/(?P<team_id>\d+)/streamlit_apps/(?P<short_id>[^/]+)/proxy/(?P<path>.*)$",
-        csrf_exempt(StreamlitProxyView.as_view()),
-        name="streamlit_app_proxy",
-    ),
     path(
         "api/streamlit_bridge/query/",
         csrf_exempt(StreamlitBridgeView.as_view()),

@@ -20,8 +20,6 @@ export interface StreamlitAppSandbox {
     last_error: string
     started_at: string | null
     last_activity_at: string | null
-    current_viewers: number
-    max_viewers: number
 }
 
 export interface StreamlitAppType {
@@ -34,7 +32,6 @@ export interface StreamlitAppType {
     active_version: StreamlitAppVersion | null
     sandbox: StreamlitAppSandbox | null
     status: StreamlitAppStatus
-    current_viewers: number
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
@@ -48,13 +45,12 @@ export interface StreamlitAppMinimalType {
     cpu_cores: number
     memory_gb: number
     status: StreamlitAppStatus
-    current_viewers: number
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
 }
 
-export interface StreamlitAppConnectUrl {
-    url: string
-    token: string
+export interface StreamlitConnectInfo {
+    iframe_url: string
+    expires_in: number
 }

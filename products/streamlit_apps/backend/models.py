@@ -23,6 +23,11 @@ class StreamlitApp(models.Model):
     cpu_cores = models.FloatField(default=0.5)
     memory_gb = models.FloatField(default=1)
 
+    # Tracks how many times the sandbox has been restarted without ever
+    # reaching a stable RUNNING state. Resets to zero on a healthy run, so
+    # transient failures don't permanently ratchet the cap.
+    restart_count = models.PositiveIntegerField(default=0)
+
     deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
 
@@ -31,7 +36,15 @@ class StreamlitApp(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("team", "short_id")
+        constraints = [
+            # Soft-deleted apps don't block reusing a short_id within the same
+            # team — partial unique on (team, short_id) WHERE deleted=False.
+            models.UniqueConstraint(
+                fields=["team", "short_id"],
+                condition=models.Q(deleted=False),
+                name="streamlit_apps_app_unique_active_short_id_per_team",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -72,32 +85,20 @@ class StreamlitAppSandbox(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     app = models.OneToOneField(StreamlitApp, on_delete=models.CASCADE, related_name="sandbox")
-    version = models.ForeignKey(StreamlitAppVersion, on_delete=models.CASCADE)
+    version = models.ForeignKey(StreamlitAppVersion, on_delete=models.SET_NULL, null=True, blank=True)
 
     sandbox_id = models.CharField(max_length=255)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTING)
 
-    restart_count = models.PositiveIntegerField(default=0)
     last_error = models.TextField(blank=True, default="")
 
     started_at = models.DateTimeField(null=True, blank=True)
     last_activity_at = models.DateTimeField(null=True, blank=True)
 
-    current_viewers = models.PositiveIntegerField(default=0)
-    max_viewers = models.PositiveIntegerField(default=20)
+    # The sandbox row's own creation time — used by _sync_sandbox_status to
+    # decide when a STARTING record has timed out, instead of relying on
+    # app.updated_at (which moves whenever any field on the app changes).
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self) -> str:
         return f"{self.app.name} sandbox ({self.status})"
-
-
-class AllowedStreamlitPackage(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=255, unique=True)
-    version_constraint = models.CharField(max_length=100, blank=True, default="")
-    added_at = models.DateTimeField(auto_now_add=True)
-    added_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
-
-    def __str__(self) -> str:
-        if self.version_constraint:
-            return f"{self.name}{self.version_constraint}"
-        return self.name

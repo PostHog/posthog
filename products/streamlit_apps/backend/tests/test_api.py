@@ -8,12 +8,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
-from products.streamlit_apps.backend.models import (
-    AllowedStreamlitPackage,
-    StreamlitApp,
-    StreamlitAppSandbox,
-    StreamlitAppVersion,
-)
+from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
 
 
 def _make_zip(files: dict[str, str]) -> bytes:
@@ -34,8 +29,12 @@ ZIP_WITH_REQUIREMENTS = _make_zip(
 
 
 class TestStreamlitAppAPI(APIBaseTest):
+    # The viewset is now registered under both /environments/ and /projects/
+    # via register_grandfathered_environment_nested_viewset. Tests use the
+    # legacy /projects/ path because it still works and exercises the same
+    # code path; the environments URL is verified separately.
     def _url(self, suffix: str = "") -> str:
-        base = f"/api/projects/{self.team.id}/streamlit_apps"
+        base = f"/api/environments/{self.team.id}/streamlit_apps"
         if suffix:
             return f"{base}/{suffix}"
         return f"{base}/"
@@ -89,23 +88,19 @@ class TestStreamlitAppAPI(APIBaseTest):
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["name"] == "My App"
 
-    def test_list_has_status_and_viewers(self):
+    def test_list_has_status(self):
         app = self._create_app()
         version = self._create_version(app)
-        StreamlitAppSandbox.objects.create(
-            app=app, version=version, sandbox_id="sb_123", status="running", current_viewers=3
-        )
+        StreamlitAppSandbox.objects.create(app=app, version=version, sandbox_id="sb_123", status="running")
         response = self.client.get(self._url())
         result = response.json()["results"][0]
         assert result["status"] == "running"
-        assert result["current_viewers"] == 3
 
     def test_list_stopped_status_when_no_sandbox(self):
         self._create_app()
         response = self.client.get(self._url())
         result = response.json()["results"][0]
         assert result["status"] == "stopped"
-        assert result["current_viewers"] == 0
 
     # -- Create --
 
@@ -188,7 +183,7 @@ class TestStreamlitAppAPI(APIBaseTest):
 
 class TestStreamlitAppVersionAPI(APIBaseTest):
     def _url(self, short_id: str, suffix: str = "") -> str:
-        base = f"/api/projects/{self.team.id}/streamlit_apps/{short_id}"
+        base = f"/api/environments/{self.team.id}/streamlit_apps/{short_id}"
         if suffix:
             return f"{base}/{suffix}"
         return f"{base}/"
@@ -226,9 +221,8 @@ class TestStreamlitAppVersionAPI(APIBaseTest):
 
     # -- Upload version --
 
-    def test_upload_version(self):
-        AllowedStreamlitPackage.objects.get_or_create(name="pandas")
-        AllowedStreamlitPackage.objects.get_or_create(name="numpy")
+    @patch("posthog.storage.object_storage.write")
+    def test_upload_version_with_requirements_silently_accepted(self, mock_storage_write):
         app = self._create_app()
 
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -242,12 +236,13 @@ class TestStreamlitAppVersionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
         assert data["version_number"] == 1
-        assert data["has_requirements"] is True
+        mock_storage_write.assert_called_once()
 
         app.refresh_from_db()
         assert app.active_version_id == uuid.UUID(data["id"])
 
-    def test_upload_version_increments_number(self):
+    @patch("posthog.storage.object_storage.write")
+    def test_upload_version_increments_number(self, mock_storage_write):
         app = self._create_app()
         self._create_version(app, 1)
 
@@ -261,6 +256,7 @@ class TestStreamlitAppVersionAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["version_number"] == 2
+        mock_storage_write.assert_called_once()
 
     def test_upload_version_no_file_400(self):
         app = self._create_app()
@@ -280,7 +276,7 @@ class TestStreamlitAppVersionAPI(APIBaseTest):
             format="multipart",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "errors" in response.json()
+        assert "Invalid zip" in response.json()["detail"]
 
     def test_upload_zip_missing_app_py_400(self):
         app = self._create_app()
@@ -298,7 +294,7 @@ class TestStreamlitAppVersionAPI(APIBaseTest):
 
     # -- Activate version --
 
-    def test_activate_version(self):
+    def test_activate_version_returns_requires_restart(self):
         app = self._create_app()
         v1 = self._create_version(app, 1)
         v2 = self._create_version(app, 2)
@@ -310,6 +306,9 @@ class TestStreamlitAppVersionAPI(APIBaseTest):
             data={"version_number": 1},
         )
         assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["requires_restart"] is True
+        assert data["active_version"]["version_number"] == 1
         app.refresh_from_db()
         assert app.active_version_id == v1.id
 
@@ -329,7 +328,7 @@ class TestStreamlitAppVersionAPI(APIBaseTest):
 
 class TestStreamlitAppSandboxControlAPI(APIBaseTest):
     def _url(self, short_id: str, suffix: str = "") -> str:
-        base = f"/api/projects/{self.team.id}/streamlit_apps/{short_id}"
+        base = f"/api/environments/{self.team.id}/streamlit_apps/{short_id}"
         if suffix:
             return f"{base}/{suffix}"
         return f"{base}/"
@@ -358,43 +357,27 @@ class TestStreamlitAppSandboxControlAPI(APIBaseTest):
             version=app.active_version,
             sandbox_id="sb_123",
             status="running",
-            current_viewers=5,
         )
         response = self.client.get(self._url(app.short_id, "status/"))
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["status"] == "running"
-        assert data["current_viewers"] == 5
 
     # -- Start --
 
-    @patch("posthog.storage.object_storage.read_bytes", return_value=b"zipdata")
-    @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
-    def test_start_app(self, mock_runtime_cls, _mock_read):
-        mock_runtime = MagicMock()
-        mock_runtime_cls.return_value = mock_runtime
+    @patch("products.streamlit_apps.backend.tasks.run_streamlit_app_lifecycle.delay")
+    def test_start_app_dispatches_task(self, mock_delay):
         app = self._create_app_with_version()
 
         response = self.client.post(self._url(app.short_id, "start/"))
-        assert response.status_code == status.HTTP_200_OK
-        mock_runtime.start_app.assert_called_once()
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        mock_delay.assert_called_once_with(str(app.id), "start")
 
     def test_start_app_no_version_400(self):
         app = StreamlitApp.objects.create(team=self.team, name="No Version", created_by=self.user)
         response = self.client.post(self._url(app.short_id, "start/"))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "No active version" in response.json()["detail"]
-
-    @patch("posthog.storage.object_storage.read_bytes", return_value=b"zipdata")
-    @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
-    def test_start_app_runtime_error_503(self, mock_runtime_cls, _mock_read):
-        mock_runtime = MagicMock()
-        mock_runtime.start_app.side_effect = RuntimeError("Modal down")
-        mock_runtime_cls.return_value = mock_runtime
-        app = self._create_app_with_version()
-
-        response = self.client.post(self._url(app.short_id, "start/"))
-        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     # -- Stop --
 
@@ -410,30 +393,18 @@ class TestStreamlitAppSandboxControlAPI(APIBaseTest):
 
     # -- Restart --
 
-    @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
-    def test_restart_app(self, mock_runtime_cls):
-        mock_runtime = MagicMock()
-        mock_runtime_cls.return_value = mock_runtime
+    @patch("products.streamlit_apps.backend.tasks.run_streamlit_app_lifecycle.delay")
+    def test_restart_app_dispatches_task(self, mock_delay):
         app = self._create_app_with_version()
 
         response = self.client.post(self._url(app.short_id, "restart/"))
-        assert response.status_code == status.HTTP_200_OK
-        mock_runtime.restart_app.assert_called_once_with(app)
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        mock_delay.assert_called_once_with(str(app.id), "restart")
+
+    # -- Connect Info --
 
     @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
-    def test_restart_runtime_error_503(self, mock_runtime_cls):
-        mock_runtime = MagicMock()
-        mock_runtime.restart_app.side_effect = RuntimeError("Restart failed")
-        mock_runtime_cls.return_value = mock_runtime
-        app = self._create_app_with_version()
-
-        response = self.client.post(self._url(app.short_id, "restart/"))
-        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-
-    # -- Connect URL --
-
-    @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
-    def test_connect_url_returns_url_and_token(self, mock_runtime_cls):
+    def test_connect_info_returns_iframe_url_with_tokens(self, mock_runtime_cls):
         mock_runtime = MagicMock()
         mock_runtime.get_connect_url.return_value = {"url": "https://abc.modal.run", "token": "tok_123"}
         mock_runtime_cls.return_value = mock_runtime
@@ -441,35 +412,23 @@ class TestStreamlitAppSandboxControlAPI(APIBaseTest):
         app = self._create_app_with_version()
         StreamlitAppSandbox.objects.create(app=app, version=app.active_version, sandbox_id="sb_1", status="running")
 
-        response = self.client.get(self._url(app.short_id, "connect_url/"))
+        response = self.client.get(self._url(app.short_id, "connect_info/"))
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["url"] == "https://abc.modal.run"
-        assert data["token"] == "tok_123"
+        assert "iframe_url" in data
+        assert "expires_in" in data
+        assert "https://abc.modal.run" in data["iframe_url"]
+        assert "_posthog_token=" in data["iframe_url"]
+        assert "_modal_connect_token=tok_123" in data["iframe_url"]
+        assert data["expires_in"] == 3600
 
-    def test_connect_url_not_running_returns_503(self):
+    def test_connect_info_not_running_returns_503(self):
         app = self._create_app_with_version()
-        response = self.client.get(self._url(app.short_id, "connect_url/"))
+        response = self.client.get(self._url(app.short_id, "connect_info/"))
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
-    def test_connect_url_at_max_viewers_returns_503(self, mock_runtime_cls):
-        app = self._create_app_with_version()
-        StreamlitAppSandbox.objects.create(
-            app=app,
-            version=app.active_version,
-            sandbox_id="sb_1",
-            status="running",
-            current_viewers=20,
-            max_viewers=20,
-        )
-
-        response = self.client.get(self._url(app.short_id, "connect_url/"))
-        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-        assert "busy" in response.json()["detail"].lower()
-
-    @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
-    def test_connect_url_updates_last_activity(self, mock_runtime_cls):
+    def test_connect_info_updates_last_activity(self, mock_runtime_cls):
         mock_runtime = MagicMock()
         mock_runtime.get_connect_url.return_value = {"url": "https://x.modal.run", "token": "tok"}
         mock_runtime_cls.return_value = mock_runtime
@@ -480,12 +439,12 @@ class TestStreamlitAppSandboxControlAPI(APIBaseTest):
         )
         assert sandbox_record.last_activity_at is None
 
-        self.client.get(self._url(app.short_id, "connect_url/"))
+        self.client.get(self._url(app.short_id, "connect_info/"))
         sandbox_record.refresh_from_db()
         assert sandbox_record.last_activity_at is not None
 
     @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
-    def test_connect_url_runtime_failure_returns_502(self, mock_runtime_cls):
+    def test_connect_info_runtime_failure_returns_502(self, mock_runtime_cls):
         mock_runtime = MagicMock()
         mock_runtime.get_connect_url.return_value = None
         mock_runtime_cls.return_value = mock_runtime
@@ -493,5 +452,47 @@ class TestStreamlitAppSandboxControlAPI(APIBaseTest):
         app = self._create_app_with_version()
         StreamlitAppSandbox.objects.create(app=app, version=app.active_version, sandbox_id="sb_1", status="running")
 
-        response = self.client.get(self._url(app.short_id, "connect_url/"))
+        response = self.client.get(self._url(app.short_id, "connect_info/"))
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
+
+    @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
+    def test_connect_info_creates_oauth_token(self, mock_runtime_cls):
+        mock_runtime = MagicMock()
+        mock_runtime.get_connect_url.return_value = {"url": "https://abc.modal.run", "token": "tok"}
+        mock_runtime_cls.return_value = mock_runtime
+
+        app = self._create_app_with_version()
+        StreamlitAppSandbox.objects.create(app=app, version=app.active_version, sandbox_id="sb_1", status="running")
+
+        from posthog.models.oauth import OAuthAccessToken
+
+        initial_count = OAuthAccessToken.objects.filter(user=self.user).count()
+
+        self.client.get(self._url(app.short_id, "connect_info/"))
+
+        assert OAuthAccessToken.objects.filter(user=self.user).count() == initial_count + 1
+        token = OAuthAccessToken.objects.filter(user=self.user).order_by("-id").first()
+        assert token.scoped_teams == [self.team.id]
+        assert token.scope == "query:read"
+
+    @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
+    def test_connect_info_reuses_existing_token(self, mock_runtime_cls):
+        """A second connect_info call within the reuse window should reuse
+        the existing token rather than minting a fresh one — this is what
+        keeps the OAuth token table from growing on every iframe poll."""
+        mock_runtime = MagicMock()
+        mock_runtime.get_connect_url.return_value = {"url": "https://abc.modal.run", "token": "tok"}
+        mock_runtime_cls.return_value = mock_runtime
+
+        app = self._create_app_with_version()
+        StreamlitAppSandbox.objects.create(app=app, version=app.active_version, sandbox_id="sb_1", status="running")
+
+        from posthog.models.oauth import OAuthAccessToken
+
+        self.client.get(self._url(app.short_id, "connect_info/"))
+        first_count = OAuthAccessToken.objects.filter(user=self.user).count()
+
+        self.client.get(self._url(app.short_id, "connect_info/"))
+        second_count = OAuthAccessToken.objects.filter(user=self.user).count()
+
+        assert first_count == second_count, "expected token reuse, but a new token was minted"

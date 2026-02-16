@@ -7,6 +7,8 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
 import { StreamlitAppLoading } from './StreamlitAppLoading'
 import { StreamlitAppLogicProps, streamlitAppLogic } from './streamlitAppLogic'
 
@@ -18,11 +20,40 @@ export const scene: SceneExport = {
     }),
 }
 
-export function StreamlitAppViewer({ shortId }: StreamlitAppLogicProps): JSX.Element {
-    const { streamlitApp, streamlitAppLoading, appStatus, iframeSrc, sandboxStatus } = useValues(
+const GENERIC_ERROR_MESSAGE = 'Something went wrong starting your app. Check the logs or contact support.'
+
+// Map known internal error prefixes to user-facing messages so we never render
+// raw stack traces or DB errors in the viewer UI. Anything we don't recognize
+// falls through to GENERIC_ERROR_MESSAGE.
+const ERROR_PREFIX_MESSAGES: Array<[string, string]> = [
+    [
+        'Max restart count',
+        "We've hit the restart limit for this app. Try editing the source and uploading a new version.",
+    ],
+    ['Auth proxy failed to become ready', "The app's auth proxy didn't start in time. Try restarting."],
+    ['Startup timed out', 'Startup timed out. Try restarting.'],
+    ['Sandbox terminated', 'The sandbox stopped unexpectedly. Restart to try again.'],
+    ['No active version', 'No version uploaded yet. Upload a zip file from the edit page.'],
+]
+
+function curateErrorMessage(raw?: string | null): string {
+    if (!raw) {
+        return GENERIC_ERROR_MESSAGE
+    }
+    for (const [prefix, friendly] of ERROR_PREFIX_MESSAGES) {
+        if (raw.startsWith(prefix)) {
+            return friendly
+        }
+    }
+    return GENERIC_ERROR_MESSAGE
+}
+
+export function StreamlitAppViewer(props: Record<string, any>): JSX.Element {
+    const shortId = props.id as string
+    const { streamlitApp, streamlitAppLoading, appStatus, iframeSrc, sandboxStatus, connectError } = useValues(
         streamlitAppLogic({ shortId })
     )
-    const { startApp, restartApp } = useActions(streamlitAppLogic({ shortId }))
+    const { startApp, restartApp, loadConnectInfo } = useActions(streamlitAppLogic({ shortId }))
 
     if (streamlitAppLoading && !streamlitApp) {
         return (
@@ -33,45 +64,68 @@ export function StreamlitAppViewer({ shortId }: StreamlitAppLogicProps): JSX.Ele
     }
 
     if (!streamlitApp) {
-        return <div className="text-center py-20 text-muted">App not found</div>
+        return (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+                <h2 className="text-lg font-semibold mb-2">App not found</h2>
+                <p className="text-muted mb-4">This Streamlit app doesn't exist or you don't have access to it.</p>
+                <LemonButton type="primary" to={urls.streamlitApps()}>
+                    Back to apps
+                </LemonButton>
+            </div>
+        )
     }
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                    <LemonButton type="tertiary" size="small" to={urls.streamlitApps()}>
-                        Apps
+            <SceneTitleSection
+                name={streamlitApp.name}
+                resourceType={{ type: 'streamlit_app' }}
+                actions={
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconPencil />}
+                        to={urls.streamlitAppEdit(streamlitApp.short_id)}
+                    >
+                        Edit
                     </LemonButton>
-                    <span className="text-muted">/</span>
-                    <h1 className="text-2xl font-bold m-0">{streamlitApp.name}</h1>
-                </div>
-                <LemonButton type="secondary" icon={<IconPencil />} to={urls.streamlitAppEdit(streamlitApp.short_id)}>
-                    Edit
-                </LemonButton>
-            </div>
-
+                }
+            />
             <div className="flex-1 min-h-0">
                 {appStatus === 'starting' && <StreamlitAppLoading />}
+
+                {appStatus === 'stopping' && <StreamlitAppLoading message="Stopping the app..." />}
 
                 {appStatus === 'running' && iframeSrc && (
                     <iframe
                         src={iframeSrc}
+                        // Drop allow-same-origin: with it, the sandboxed iframe could read
+                        // its parent's cookies via document.cookie because the iframe origin
+                        // is the same as the parent on Modal's tunnel.
+                        sandbox="allow-scripts allow-forms allow-popups allow-modals"
+                        referrerPolicy="no-referrer"
                         className="w-full h-full border-0 rounded-lg"
                         style={{ minHeight: '600px' }}
                         title={streamlitApp.name}
-                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                     />
                 )}
 
-                {appStatus === 'running' && !iframeSrc && <StreamlitAppLoading />}
+                {appStatus === 'running' && !iframeSrc && connectError && (
+                    <div className="flex flex-col items-center justify-center py-20 text-center">
+                        <h2 className="text-lg font-semibold mb-2">Connection failed</h2>
+                        <p className="text-muted mb-6">{connectError}</p>
+                        <LemonButton type="primary" onClick={() => loadConnectInfo()}>
+                            Retry
+                        </LemonButton>
+                    </div>
+                )}
+
+                {appStatus === 'running' && !iframeSrc && !connectError && <StreamlitAppLoading />}
 
                 {appStatus === 'error' && (
                     <div className="flex flex-col items-center justify-center py-20 text-center">
                         <h2 className="text-lg font-semibold mb-2">App failed to start</h2>
-                        {sandboxStatus?.last_error && (
-                            <p className="text-muted mb-4 font-mono text-sm max-w-lg">{sandboxStatus.last_error}</p>
-                        )}
+                        <p className="text-muted mb-4 max-w-lg">{curateErrorMessage(sandboxStatus?.last_error)}</p>
                         <div className="flex gap-2">
                             <LemonButton type="primary" onClick={restartApp}>
                                 Try again
@@ -102,22 +156,6 @@ export function StreamlitAppViewer({ shortId }: StreamlitAppLogicProps): JSX.Ele
                         </LemonButton>
                     </div>
                 )}
-
-                {sandboxStatus &&
-                    sandboxStatus.current_viewers >= sandboxStatus.max_viewers &&
-                    appStatus === 'running' &&
-                    !iframeSrc && (
-                        <div className="flex flex-col items-center justify-center py-20 text-center">
-                            <h2 className="text-lg font-semibold mb-2">App is busy</h2>
-                            <p className="text-muted mb-4">
-                                This app has reached its viewer limit ({sandboxStatus.max_viewers}). Please try again in
-                                a few minutes.
-                            </p>
-                            <LemonButton type="primary" onClick={() => window.location.reload()}>
-                                Refresh
-                            </LemonButton>
-                        </div>
-                    )}
             </div>
         </div>
     )

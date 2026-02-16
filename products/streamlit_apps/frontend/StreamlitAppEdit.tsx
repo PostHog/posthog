@@ -2,13 +2,17 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { StreamlitAppZipUpload } from './StreamlitAppZipUpload'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
 import { StreamlitAppEditLogicProps, streamlitAppEditLogic } from './streamlitAppEditLogic'
+import { StreamlitAppZipUpload } from './StreamlitAppZipUpload'
 
 export const scene: SceneExport = {
     component: StreamlitAppEdit,
@@ -36,7 +40,8 @@ const MEMORY_OPTIONS = [
     { value: 16, label: '16 GB' },
 ]
 
-export function StreamlitAppEdit({ shortId = 'new' }: StreamlitAppEditLogicProps): JSX.Element {
+export function StreamlitAppEdit(props: Record<string, any>): JSX.Element {
+    const shortId = (props.id as string) || 'new'
     const {
         streamlitApp,
         streamlitAppLoading,
@@ -73,36 +78,34 @@ export function StreamlitAppEdit({ shortId = 'new' }: StreamlitAppEditLogicProps
 
     return (
         <div>
-            <div className="flex items-center justify-between mb-4">
-                <h1 className="text-2xl font-bold m-0">
-                    {isNew ? 'Create new app' : (streamlitApp?.name ?? 'Edit app')}
-                </h1>
-                {!isNew && (
-                    <LemonButton type="secondary" status="danger" onClick={deleteApp}>
-                        Delete
-                    </LemonButton>
-                )}
-            </div>
-
+            <SceneTitleSection
+                name={isNew ? 'New app' : (streamlitApp?.name ?? 'Edit app')}
+                resourceType={{ type: 'streamlit_app' }}
+            />
             <div className="max-w-xl space-y-6">
                 <div className="space-y-2">
-                    <label className="font-semibold">Name</label>
-                    <LemonInput value={name} onChange={setName} placeholder="My app" />
+                    <LemonLabel htmlFor="streamlit-app-name">Name</LemonLabel>
+                    <LemonInput id="streamlit-app-name" value={name} onChange={setName} placeholder="My app" />
                 </div>
 
                 <div className="space-y-2">
-                    <label className="font-semibold">Description</label>
-                    <LemonTextArea value={description} onChange={setDescription} placeholder="What does this app do?" />
+                    <LemonLabel htmlFor="streamlit-app-description">Description</LemonLabel>
+                    <LemonTextArea
+                        id="streamlit-app-description"
+                        value={description}
+                        onChange={setDescription}
+                        placeholder="What does this app do?"
+                    />
                 </div>
 
                 <div className="space-y-2">
-                    <label className="font-semibold">{isNew ? 'Upload' : 'Upload new version'}</label>
+                    <LemonLabel>{isNew ? 'Upload' : 'Upload new version'}</LemonLabel>
                     <StreamlitAppZipUpload file={zipFile} onFileChange={setZipFile} />
                 </div>
 
                 {!isNew && versions.length > 0 && (
                     <div className="space-y-2">
-                        <label className="font-semibold">Active version</label>
+                        <LemonLabel>Active version</LemonLabel>
                         <LemonSelect
                             value={streamlitApp?.active_version?.version_number}
                             onChange={(value) => {
@@ -119,7 +122,7 @@ export function StreamlitAppEdit({ shortId = 'new' }: StreamlitAppEditLogicProps
                 )}
 
                 <div className="space-y-2">
-                    <label className="font-semibold">Resources</label>
+                    <LemonLabel>Resources</LemonLabel>
                     <div className="flex gap-4">
                         <div className="flex-1 space-y-1">
                             <span className="text-sm text-muted">CPU</span>
@@ -132,18 +135,45 @@ export function StreamlitAppEdit({ shortId = 'new' }: StreamlitAppEditLogicProps
                     </div>
                 </div>
 
-                <div className="flex justify-end gap-2 pt-4">
-                    <LemonButton type="secondary" to={urls.streamlitApps()}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={saveApp}
-                        loading={savedAppLoading}
-                        disabledReason={!canSave ? 'Fill in all required fields' : undefined}
-                    >
-                        {isNew ? 'Create app' : 'Save changes'}
-                    </LemonButton>
+                <div className="flex justify-between pt-4">
+                    {!isNew ? (
+                        <LemonButton
+                            type="secondary"
+                            status="danger"
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Delete app?',
+                                    description:
+                                        'This will permanently delete this app and all its versions. This cannot be undone.',
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        status: 'danger',
+                                        onClick: () => deleteApp(),
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
+                            }}
+                        >
+                            Delete
+                        </LemonButton>
+                    ) : (
+                        <div />
+                    )}
+                    <div className="flex gap-2">
+                        <LemonButton type="secondary" to={urls.streamlitApps()}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={saveApp}
+                            loading={savedAppLoading}
+                            disabledReason={!canSave ? 'Fill in all required fields' : undefined}
+                        >
+                            {isNew ? 'Create app' : 'Save changes'}
+                        </LemonButton>
+                    </div>
                 </div>
             </div>
         </div>

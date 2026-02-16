@@ -227,11 +227,11 @@ import type {
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
 import {
-    StreamlitAppConnectUrl,
     StreamlitAppMinimalType,
     StreamlitAppSandbox,
     StreamlitAppType,
     StreamlitAppVersion,
+    StreamlitConnectInfo,
 } from 'products/streamlit_apps/frontend/types'
 import type { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
@@ -1178,7 +1178,7 @@ export class ApiRequest {
 
     // # Streamlit Apps
     public streamlitApps(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('streamlit_apps')
+        return this.environmentsDetail(teamId).addPathComponent('streamlit_apps')
     }
 
     public streamlitApp(shortId: string, teamId?: TeamType['id']): ApiRequest {
@@ -4640,8 +4640,8 @@ const api = {
         async restart(shortId: string): Promise<StreamlitAppType> {
             return await new ApiRequest().streamlitApp(shortId).withAction('restart').create()
         },
-        async connectUrl(shortId: string): Promise<StreamlitAppConnectUrl> {
-            return await new ApiRequest().streamlitApp(shortId).withAction('connect_url').get()
+        async connectInfo(shortId: string): Promise<StreamlitConnectInfo> {
+            return await new ApiRequest().streamlitApp(shortId).withAction('connect_info').get()
         },
     },
 

@@ -6,62 +6,14 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.streamlit_apps.backend.services.bridge import (
-    BRIDGE_TOKEN_SALT,
-    execute_bridge_query,
-    generate_bridge_token,
-    validate_bridge_token,
-)
-
-
-class TestBridgeToken(BaseTest):
-    def test_generate_and_validate_roundtrip(self):
-        token = generate_bridge_token(team_id=42, app_id="abc-123")
-        claims = validate_bridge_token(token)
-        assert claims.team_id == 42
-        assert claims.app_id == "abc-123"
-
-    def test_expired_token_raises(self):
-        from django.core.signing import TimestampSigner
-
-        signer = TimestampSigner(salt=BRIDGE_TOKEN_SALT)
-        payload = json.dumps({"team_id": 1, "app_id": "x"}, separators=(",", ":"))
-        token = signer.sign(payload)
-
-        with pytest.raises(Exception):
-            validate_bridge_token(token, max_age=0)
-
-    def test_tampered_token_raises(self):
-        from django.core.signing import BadSignature
-
-        token = generate_bridge_token(team_id=1, app_id="x")
-        tampered = token + "TAMPERED"
-        with pytest.raises(BadSignature):
-            validate_bridge_token(tampered)
-
-    def test_garbage_token_raises(self):
-        from django.core.signing import BadSignature
-
-        with pytest.raises(BadSignature):
-            validate_bridge_token("not-a-real-token")
-
-    @parameterized.expand(
-        [
-            ("simple_ids", 1, "abc"),
-            ("large_team_id", 999999, "def-456-ghi"),
-            ("uuid_app_id", 7, "550e8400-e29b-41d4-a716-446655440000"),
-        ]
-    )
-    def test_various_payloads(self, _name, team_id, app_id):
-        token = generate_bridge_token(team_id=team_id, app_id=app_id)
-        claims = validate_bridge_token(token)
-        assert claims.team_id == team_id
-        assert claims.app_id == app_id
+from products.streamlit_apps.backend.services.bridge import execute_bridge_query
 
 
 class TestExecuteBridgeQuery(BaseTest):
     @patch("products.streamlit_apps.backend.services.bridge.execute_hogql_query")
-    def test_returns_cleaned_response(self, mock_execute):
+    def test_returns_whitelisted_response(self, mock_execute):
+        """Only the columns/results/types fields are surfaced — clickhouse SQL,
+        hogql AST, internal timings, and modifiers must NOT leak through."""
         response = MagicMock()
         response.model_dump.return_value = {
             "results": [[1, "hello"]],
@@ -76,8 +28,9 @@ class TestExecuteBridgeQuery(BaseTest):
 
         result = execute_bridge_query(query="SELECT 1", team_id=self.team.id)
 
-        assert "results" in result
-        assert "columns" in result
+        assert result["results"] == [[1, "hello"]]
+        assert result["columns"] == ["id", "name"]
+        assert result["types"] == [["Int64"], ["String"]]
         assert "clickhouse" not in result
         assert "hogql" not in result
         assert "timings" not in result
@@ -105,8 +58,10 @@ class TestStreamlitBridgeView(APIBaseTest):
     def _url(self):
         return "/api/streamlit_bridge/query/"
 
-    def _token(self):
-        return generate_bridge_token(team_id=self.team.id, app_id="test-app")
+    def _streamlit_token(self) -> str:
+        from products.streamlit_apps.backend.services.oauth import create_streamlit_access_token
+
+        return create_streamlit_access_token(user=self.user, team_id=self.team.id)
 
     @parameterized.expand(
         [
@@ -127,13 +82,12 @@ class TestStreamlitBridgeView(APIBaseTest):
         assert response.status_code == expected_status
         assert expected_error in response.json()["error"]
 
-    def test_expired_token(self):
-        token = self._token()
+    def test_garbage_token_rejected(self):
         response = self.client.post(
             self._url(),
             data=json.dumps({"query": "SELECT 1"}),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {token}TAMPERED",
+            HTTP_AUTHORIZATION="Bearer not-a-real-token",
         )
         assert response.status_code == 401
 
@@ -142,7 +96,7 @@ class TestStreamlitBridgeView(APIBaseTest):
             self._url(),
             data="not json",
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self._token()}",
+            HTTP_AUTHORIZATION=f"Bearer {self._streamlit_token()}",
         )
         assert response.status_code == 400
         assert "Invalid JSON" in response.json()["error"]
@@ -160,13 +114,13 @@ class TestStreamlitBridgeView(APIBaseTest):
             self._url(),
             data=json.dumps(body),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self._token()}",
+            HTTP_AUTHORIZATION=f"Bearer {self._streamlit_token()}",
         )
         assert response.status_code == 400
         assert "query" in response.json()["error"].lower()
 
     @patch("products.streamlit_apps.backend.services.bridge.execute_hogql_query")
-    def test_successful_query(self, mock_execute):
+    def test_successful_query_with_oauth(self, mock_execute):
         response_obj = MagicMock()
         response_obj.model_dump.return_value = {
             "results": [[1, "test"]],
@@ -182,7 +136,7 @@ class TestStreamlitBridgeView(APIBaseTest):
             self._url(),
             data=json.dumps({"query": "SELECT id, name FROM persons"}),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self._token()}",
+            HTTP_AUTHORIZATION=f"Bearer {self._streamlit_token()}",
         )
         assert response.status_code == 200
         data = response.json()
@@ -198,7 +152,74 @@ class TestStreamlitBridgeView(APIBaseTest):
             self._url(),
             data=json.dumps({"query": "SELCT bad"}),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self._token()}",
+            HTTP_AUTHORIZATION=f"Bearer {self._streamlit_token()}",
         )
         assert response.status_code == 400
         assert "error" in response.json()
+
+    def test_expired_oauth_token_rejected(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from posthog.models.oauth import OAuthAccessToken
+        from posthog.models.utils import generate_random_oauth_access_token
+
+        from products.streamlit_apps.backend.services.oauth import get_streamlit_oauth_app
+
+        oauth_app = get_streamlit_oauth_app()
+        token_value = generate_random_oauth_access_token(None)
+        OAuthAccessToken.objects.create(
+            application=oauth_app,
+            token=token_value,
+            user=self.user,
+            expires=timezone.now() - timedelta(hours=1),
+            scope="query:read",
+            scoped_teams=[self.team.id],
+        )
+
+        response = self.client.post(
+            self._url(),
+            data=json.dumps({"query": "SELECT 1"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token_value}",
+        )
+        assert response.status_code == 401
+        assert "expired" in response.json()["error"].lower()
+
+    def test_oauth_token_from_other_application_rejected(self):
+        """A token minted against any non-streamlit OAuth app must be rejected
+        even if it has query:read scope and a valid scoped_teams entry."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+        from posthog.models.utils import generate_random_oauth_access_token
+
+        other_app = OAuthApplication.objects.create(
+            name="Some Other App",
+            client_type="confidential",
+            authorization_grant_type="authorization-code",
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+            is_first_party=True,
+        )
+        token_value = generate_random_oauth_access_token(None)
+        OAuthAccessToken.objects.create(
+            application=other_app,
+            token=token_value,
+            user=self.user,
+            expires=timezone.now() + timedelta(hours=1),
+            scope="query:read",
+            scoped_teams=[self.team.id],
+        )
+
+        response = self.client.post(
+            self._url(),
+            data=json.dumps({"query": "SELECT 1"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token_value}",
+        )
+        assert response.status_code == 401
+        assert "application" in response.json()["error"].lower()

@@ -87,8 +87,8 @@ from products.notifications.backend.presentation.views import NotificationsViewS
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.signals.backend.views import SignalViewSet
-from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.streamlit_apps.backend.api import StreamlitAppViewSet
+from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.visual_review.backend.presentation.views import (
     RepoViewSet as VisualReviewRepoViewSet,
@@ -885,11 +885,11 @@ projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
     r"streamlit_apps",
     StreamlitAppViewSet,
-    "project_streamlit_apps",
-    ["project_id"],
+    "environment_streamlit_apps",
+    ["team_id"],
 )
 
 projects_router.register(

@@ -1,12 +1,17 @@
-import { ProductManifest } from '../../frontend/src/types'
+import { urls } from 'scenes/urls'
+
+import { ProductKey } from '~/queries/schema/schema-general'
+
+import { FEATURE_FLAGS } from '../../frontend/src/lib/constants'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Streamlit apps',
     urls: {
-        streamlitApps: (): string => '/apps',
-        streamlitApp: (id: string): string => `/apps/${id}`,
-        streamlitAppEdit: (id: string): string => `/apps/${id}/edit`,
-        streamlitAppNew: (): string => '/apps/new',
+        streamlitApps: (): string => '/streamlit-apps',
+        streamlitApp: (id: string): string => `/streamlit-apps/${id}`,
+        streamlitAppEdit: (id: string): string => `/streamlit-apps/${id}/edit`,
+        streamlitAppNew: (): string => '/streamlit-apps/new',
     },
     scenes: {
         StreamlitApps: {
@@ -26,9 +31,23 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/apps': ['StreamlitApps', 'streamlitApps'],
-        '/apps/new': ['StreamlitAppEdit', 'streamlitAppNew'],
-        '/apps/:id': ['StreamlitApp', 'streamlitApp'],
-        '/apps/:id/edit': ['StreamlitAppEdit', 'streamlitAppEdit'],
+        '/streamlit-apps': ['StreamlitApps', 'streamlitApps'],
+        '/streamlit-apps/new': ['StreamlitAppEdit', 'streamlitAppNew'],
+        '/streamlit-apps/:id': ['StreamlitApp', 'streamlitApp'],
+        '/streamlit-apps/:id/edit': ['StreamlitAppEdit', 'streamlitAppEdit'],
     },
+    treeItemsProducts: [
+        {
+            path: 'Apps',
+            intents: [ProductKey.STREAMLIT_APPS],
+            href: urls.streamlitApps(),
+            type: 'streamlit_app',
+            category: 'Unreleased',
+            flag: FEATURE_FLAGS.STREAMLIT_APPS,
+            iconType: 'apps',
+            iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
+            sceneKey: 'StreamlitApps',
+            sceneKeys: ['StreamlitApps', 'StreamlitApp', 'StreamlitAppEdit'],
+        },
+    ],
 }

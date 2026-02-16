@@ -1,14 +1,23 @@
 from __future__ import annotations
 
-import re
+import os
 import zipfile
 from dataclasses import dataclass, field
 from io import BytesIO
 
-from products.streamlit_apps.backend.models import AllowedStreamlitPackage
-
 MAX_ZIP_SIZE = 10 * 1024 * 1024  # 10 MB
-REQUIREMENT_LINE_RE = re.compile(r"^([a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]?)(.*)$")
+MAX_UNCOMPRESSED_SIZE = 100 * 1024 * 1024  # 100 MB
+MAX_FILE_COUNT = 500
+
+
+def _format_mb(size_bytes: int) -> str:
+    return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+
+def is_safe_zip_path(filename: str) -> bool:
+    """Check if a zip entry filename is safe (no path traversal)."""
+    normalized = os.path.normpath(filename)
+    return not (normalized.startswith("..") or normalized.startswith("/"))
 
 
 @dataclass
@@ -16,12 +25,19 @@ class ValidationResult:
     valid: bool
     errors: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
+    # Kept on the dataclass for backward compatibility with the API/serializer
+    # — both default to empty/false because requirements.txt support is gone.
     packages: list[str] = field(default_factory=list)
     has_requirements: bool = False
 
 
 def validate_zip(file: BytesIO) -> ValidationResult:
-    """Validate an uploaded zip file for Streamlit app structure and packages."""
+    """Validate an uploaded zip file for Streamlit app structure.
+
+    requirements.txt support has been removed; sandboxes get only what's in
+    the base image. A `requirements.txt` in the upload is not an error — it's
+    silently ignored at upload time and dropped at sandbox-write time.
+    """
     result = ValidationResult(valid=True)
 
     file.seek(0, 2)
@@ -29,53 +45,44 @@ def validate_zip(file: BytesIO) -> ValidationResult:
     file.seek(0)
     if size > MAX_ZIP_SIZE:
         result.valid = False
-        result.errors.append(f"Zip file too large: {size} bytes (max {MAX_ZIP_SIZE})")
+        result.errors.append(f"Zip file too large ({_format_mb(size)}, max {_format_mb(MAX_ZIP_SIZE)})")
         return result
 
     try:
         with zipfile.ZipFile(file) as zf:
-            result.files = [info.filename for info in zf.infolist() if not info.is_dir()]
+            infolist = zf.infolist()
+
+            # Check uncompressed size and file count limits
+            non_dir_entries = [info for info in infolist if not info.is_dir()]
+            total_uncompressed = sum(info.file_size for info in non_dir_entries)
+            if total_uncompressed > MAX_UNCOMPRESSED_SIZE:
+                result.valid = False
+                result.errors.append(
+                    f"Total uncompressed size too large "
+                    f"({_format_mb(total_uncompressed)}, max {_format_mb(MAX_UNCOMPRESSED_SIZE)})"
+                )
+                return result
+            if len(non_dir_entries) > MAX_FILE_COUNT:
+                result.valid = False
+                result.errors.append(f"Too many files: {len(non_dir_entries)} (max {MAX_FILE_COUNT})")
+                return result
+
+            # Check for path traversal
+            for info in non_dir_entries:
+                if not is_safe_zip_path(info.filename):
+                    result.valid = False
+                    result.errors.append(f"Unsafe file path: {info.filename}")
+
+            if not result.valid:
+                return result
+
+            result.files = [info.filename for info in non_dir_entries]
 
             if "app.py" not in result.files:
                 result.valid = False
                 result.errors.append("Missing required file: app.py")
-
-            if "requirements.txt" in result.files:
-                result.has_requirements = True
-                requirements_content = zf.read("requirements.txt").decode("utf-8")
-                pkg_result = validate_requirements(requirements_content)
-                result.packages = pkg_result.packages
-                if not pkg_result.valid:
-                    result.valid = False
-                    result.errors.extend(pkg_result.errors)
     except zipfile.BadZipFile:
         result.valid = False
         result.errors.append("Invalid zip file")
-
-    return result
-
-
-def validate_requirements(requirements_txt: str) -> ValidationResult:
-    """Validate requirements.txt content against the package allowlist."""
-    result = ValidationResult(valid=True)
-    allowed = set(AllowedStreamlitPackage.objects.values_list("name", flat=True))
-
-    for line in requirements_txt.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or line.startswith("-"):
-            continue
-
-        match = REQUIREMENT_LINE_RE.match(line)
-        if not match:
-            result.valid = False
-            result.errors.append(f"Invalid requirement line: {line}")
-            continue
-
-        pkg_name = match.group(1).lower()
-        result.packages.append(pkg_name)
-
-        if pkg_name not in allowed:
-            result.valid = False
-            result.errors.append(f"Package not allowed: {pkg_name}")
 
     return result

@@ -224,6 +224,15 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
 
         _populate_local_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH)
 
+    elif template == SandboxTemplate.STREAMLIT_BASE:
+        # Copy all sibling files (streamlit_auth_proxy.py, entrypoint.sh, etc.)
+        # needed by COPY instructions in the Dockerfile
+        source_images_dir = source_dockerfile_path.parent
+        dest_images_dir = destination_dockerfile_path.parent
+        for sibling in source_images_dir.iterdir():
+            if sibling.is_file() and sibling != source_dockerfile_path:
+                shutil.copy2(sibling, dest_images_dir / sibling.name)
+
     return str(destination_dockerfile_path), str(context_dir)
 
 
