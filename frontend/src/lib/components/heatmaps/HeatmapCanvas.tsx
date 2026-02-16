@@ -101,8 +101,6 @@ export function HeatmapCanvas({
 
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
-    const heatmapJsDataRef = useRef(heatmapJsData)
-    heatmapJsDataRef.current = heatmapJsData
     const [hasValueUnderMouse, setHasValueUnderMouse] = useState(false)
 
     const heatmapJSColorGradient = useMemo((): Record<string, string> => {
@@ -119,6 +117,9 @@ export function HeatmapCanvas({
                 return { '.25': 'rgb(0,0,255)', '0.55': 'rgb(0,255,0)', '0.85': 'yellow', '1.0': 'rgb(255,0,0)' }
         }
     }, [heatmapColorPalette])
+
+    const heatmapJSColorGradientRef = useRef(heatmapJSColorGradient)
+    heatmapJSColorGradientRef.current = heatmapJSColorGradient
 
     const handleCanvasClick = useCallback(
         (e: React.MouseEvent<HTMLDivElement>): void => {
@@ -162,27 +163,18 @@ export function HeatmapCanvas({
         [heatmapElements, heatmapScrollY, windowWidth, windowWidthOverride, heatmapFixedPositionMode, setSelectedArea]
     )
 
-    const setHeatmapContainer = useCallback(
-        (container: HTMLDivElement | null): void => {
-            heatmapsJsContainerRef.current = container
-            if (!container) {
-                return
-            }
+    const setHeatmapContainer = useCallback((container: HTMLDivElement | null): void => {
+        heatmapsJsContainerRef.current = container
+        if (!container) {
+            return
+        }
 
-            heatmapsJsRef.current = heatmapsJs.create({
-                ...HEATMAP_CONFIG,
-                container,
-                gradient: heatmapJSColorGradient,
-            })
-
-            try {
-                heatmapsJsRef.current.setData(heatmapJsDataRef.current)
-            } catch (e) {
-                console.error('error setting data', e)
-            }
-        },
-        [heatmapJSColorGradient]
-    )
+        heatmapsJsRef.current = heatmapsJs.create({
+            ...HEATMAP_CONFIG,
+            container,
+            gradient: heatmapJSColorGradientRef.current,
+        })
+    }, [])
 
     useEffect(() => {
         try {
