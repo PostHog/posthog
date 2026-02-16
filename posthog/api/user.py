@@ -480,6 +480,7 @@ class UserViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "user"
+    required_scopes: list[str] | None = None
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [
@@ -641,6 +642,7 @@ class UserViewSet(
         methods=["GET", "PATCH"],
         detail=True,
         throttle_classes=[],
+        required_scopes=["user:read"],
         authentication_classes=[
             TemporaryTokenAuthentication,
             SessionAuthentication,
