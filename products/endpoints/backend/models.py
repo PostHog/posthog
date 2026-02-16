@@ -3,7 +3,7 @@ import json
 import uuid
 from typing import Any
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import models
 
 from posthog.models.team import Team
@@ -51,10 +51,6 @@ class EndpointVersion(models.Model):
         blank=True,
         help_text="Cache age in seconds. If null, uses default interval-based caching.",
     )
-    is_materialized = models.BooleanField(
-        default=False,
-        help_text="Whether this version's query results are materialized",
-    )
     saved_query = models.ForeignKey(
         "data_warehouse.DataWarehouseSavedQuery",
         null=True,
@@ -87,6 +83,16 @@ class EndpointVersion(models.Model):
 
     def __str__(self) -> str:
         return f"{self.endpoint.name} v{self.version}"
+
+    @property
+    def is_materialized(self) -> bool:
+        """Derived from saved_query.table_id — True only when materialization is complete."""
+        if self.saved_query_id is None:
+            return False
+        try:
+            return self.saved_query.table_id is not None
+        except ObjectDoesNotExist:
+            return False
 
     def can_materialize(self) -> tuple[bool, str]:
         """Check if this version can be materialized.
@@ -227,7 +233,6 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
             created_by=user,
             cache_age_seconds=previous_cache_age,
             description=previous_description,
-            is_materialized=False,
         )
 
         return version
