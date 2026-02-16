@@ -162,8 +162,7 @@ def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris=redirect_uri,
             algorithm="RS256",
-            skip_authorization=False,
-            is_first_party=False,
+            is_first_party=True,
         )
         logger.info(
             "toolbar_oauth_application_created",
