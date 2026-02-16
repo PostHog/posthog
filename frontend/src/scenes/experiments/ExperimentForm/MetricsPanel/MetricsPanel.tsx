@@ -24,6 +24,7 @@ export type MetricsPanelProps = {
     onSaveMetric: (metric: ExperimentMetric, context: MetricContext) => void
     onDeleteMetric: (metric: ExperimentMetric, context: MetricContext) => void
     onSaveSharedMetrics: (metrics: ExperimentMetric[], context: MetricContext) => void
+    compact?: boolean
 }
 
 const convertSharedMetricToExperimentMetric = ({ id, query, name }: SharedMetric): ExperimentMetric =>
@@ -40,6 +41,7 @@ export const MetricsPanel = ({
     onSaveMetric,
     onDeleteMetric,
     onSaveSharedMetrics,
+    compact,
 }: MetricsPanelProps): JSX.Element => {
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
@@ -55,8 +57,12 @@ export const MetricsPanel = ({
 
     return (
         <div>
-            <div className="font-semibold mb-2">Metrics</div>
-            <div className="text-muted mb-4">Add metrics to measure your experiment's impact.</div>
+            {!compact && (
+                <>
+                    <div className="font-semibold mb-2">Metrics</div>
+                    <div className="text-muted mb-4">Add metrics to measure your experiment's impact.</div>
+                </>
+            )}
 
             {primaryMetrics.length === 0 && secondaryMetrics.length === 0 ? (
                 <EmptyMetricsPanel />

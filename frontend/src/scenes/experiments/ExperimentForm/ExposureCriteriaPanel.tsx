@@ -15,23 +15,58 @@ import { commonActionFilterProps } from '../Metrics/Selectors'
 import { SelectableCard } from '../components/SelectableCard'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 
+const DEFAULT_EXPOSURE_CONFIG: ExperimentEventExposureConfig = {
+    kind: NodeKind.ExperimentEventExposureConfig,
+    event: '$feature_flag_called',
+    properties: [],
+}
+
 type ExposureCriteriaPanelProps = {
     experiment: Experiment
     onChange: (exposureCriteria: ExperimentExposureCriteria) => void
     compact?: boolean
 }
 
-function ExposureCriteriaFields({
+function InclusionActionFilter({
     experiment,
     onChange,
 }: {
     experiment: Experiment
     onChange: ExposureCriteriaPanelProps['onChange']
 }): JSX.Element {
-    const selectedExposureType = experiment.exposure_criteria?.exposure_config ? 'custom' : 'default'
+    return (
+        <ActionFilter
+            bordered
+            filters={exposureConfigToFilter(experiment.exposure_criteria?.exposure_config || DEFAULT_EXPOSURE_CONFIG)}
+            setFilters={({ events, actions }: Partial<FilterType>): void => {
+                const entity = events?.[0] || actions?.[0]
+                if (entity) {
+                    onChange({ exposure_config: filterToExposureConfig(entity) })
+                }
+            }}
+            typeKey="experiment-exposure-config"
+            buttonCopy="Add exposure event"
+            showSeriesIndicator={false}
+            hideRename={true}
+            entitiesLimit={1}
+            mathAvailability={MathAvailability.None}
+            showNumericalPropsOnly={false}
+            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+            propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
+        />
+    )
+}
 
-    const { currentTeam } = useValues(teamLogic)
-    const hasFilters = (currentTeam?.test_account_filters || []).length > 0
+function ExposureCriteriaFields({
+    experiment,
+    onChange,
+    hasFilters,
+}: {
+    experiment: Experiment
+    onChange: ExposureCriteriaPanelProps['onChange']
+    hasFilters: boolean
+}): JSX.Element {
+    const isCustom = !!experiment.exposure_criteria?.exposure_config
 
     return (
         <div className="space-y-4">
@@ -46,7 +81,7 @@ function ExposureCriteriaFields({
                             <strong>exposed</strong> to the experiment.
                         </>
                     }
-                    selected={selectedExposureType === 'default'}
+                    selected={!isCustom}
                     onClick={() => {
                         onChange({ exposure_config: undefined })
                     }}
@@ -59,48 +94,18 @@ function ExposureCriteriaFields({
                             runs. You can also filter out users you would like to exclude.
                         </>
                     }
-                    selected={selectedExposureType === 'custom'}
+                    selected={isCustom}
                     onClick={() => {
                         onChange({
-                            exposure_config: {
-                                kind: NodeKind.ExperimentEventExposureConfig,
-                                event: '$feature_flag_called',
-                                properties: [],
-                            },
+                            exposure_config: DEFAULT_EXPOSURE_CONFIG,
                         })
                     }}
                 />
             </div>
 
-            {/* Custom Event Configuration */}
-            {selectedExposureType === 'custom' && (
+            {isCustom && (
                 <div className="mb-4">
-                    <ActionFilter
-                        bordered
-                        filters={exposureConfigToFilter(
-                            experiment.exposure_criteria?.exposure_config ||
-                                ({
-                                    kind: NodeKind.ExperimentEventExposureConfig,
-                                    event: '$feature_flag_called',
-                                    properties: [],
-                                } as ExperimentEventExposureConfig)
-                        )}
-                        setFilters={({ events, actions }: Partial<FilterType>): void => {
-                            const entity = events?.[0] || actions?.[0]
-                            if (entity) {
-                                onChange({ exposure_config: filterToExposureConfig(entity) })
-                            }
-                        }}
-                        typeKey="experiment-exposure-config"
-                        buttonCopy="Add exposure event"
-                        showSeriesIndicator={false}
-                        hideRename={true}
-                        entitiesLimit={1}
-                        mathAvailability={MathAvailability.None}
-                        showNumericalPropsOnly={false}
-                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-                        propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
-                    />
+                    <InclusionActionFilter experiment={experiment} onChange={onChange} />
                 </div>
             )}
 
@@ -137,10 +142,7 @@ function ExposureCriteriaFields({
             {/* Test Account Filtering */}
             <div>
                 <TestAccountFilterSwitch
-                    checked={(() => {
-                        const val = experiment.exposure_criteria?.filterTestAccounts
-                        return hasFilters ? !!val : false
-                    })()}
+                    checked={hasFilters && !!experiment.exposure_criteria?.filterTestAccounts}
                     onChange={(checked: boolean) => {
                         onChange({ filterTestAccounts: checked })
                     }}
@@ -154,8 +156,115 @@ function ExposureCriteriaFields({
 }
 
 export function ExposureCriteriaPanel({ experiment, onChange, compact }: ExposureCriteriaPanelProps): JSX.Element {
+    const isCustom = !!experiment.exposure_criteria?.exposure_config
+
+    const { currentTeam } = useValues(teamLogic)
+    const hasFilters = (currentTeam?.test_account_filters || []).length > 0
+
     if (compact) {
-        return <ExposureCriteriaFields experiment={experiment} onChange={onChange} />
+        return (
+            <div className="space-y-4">
+                <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm text-secondary">Inclusion criteria</span>
+                        <LemonSelect
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            dropdownPlacement="bottom-end"
+                            value={isCustom ? 'custom' : 'default'}
+                            onChange={(value) => {
+                                if (value === 'custom') {
+                                    onChange({
+                                        exposure_config: DEFAULT_EXPOSURE_CONFIG,
+                                    })
+                                } else {
+                                    onChange({ exposure_config: undefined })
+                                }
+                            }}
+                            options={[
+                                {
+                                    value: 'default' as const,
+                                    label: 'On feature flag',
+                                    labelInMenu: (
+                                        <div>
+                                            <div>On feature flag</div>
+                                            <div className="text-xs text-muted font-normal">
+                                                When $feature_flag_called is recorded
+                                            </div>
+                                        </div>
+                                    ),
+                                },
+                                {
+                                    value: 'custom' as const,
+                                    label: 'Custom event',
+                                    labelInMenu: (
+                                        <div>
+                                            <div>Custom event</div>
+                                            <div className="text-xs text-muted font-normal">
+                                                Select a custom event to signal users reached the experiment
+                                            </div>
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    </div>
+                    {isCustom && <InclusionActionFilter experiment={experiment} onChange={onChange} />}
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm text-secondary">Multiple variant handling</span>
+                    <LemonSelect
+                        size="small"
+                        dropdownMatchSelectWidth={false}
+                        dropdownPlacement="bottom-end"
+                        value={experiment.exposure_criteria?.multiple_variant_handling || 'exclude'}
+                        onChange={(value) => {
+                            onChange({ multiple_variant_handling: value as 'exclude' | 'first_seen' })
+                        }}
+                        options={[
+                            {
+                                value: 'exclude',
+                                label: 'Exclude multi-variant users',
+                                labelInMenu: (
+                                    <div>
+                                        <div>Exclude multi-variant users</div>
+                                        <div className="text-xs text-muted font-normal">
+                                            Users exposed to multiple variants will be excluded (recommended)
+                                        </div>
+                                    </div>
+                                ),
+                                'data-attr': 'multiple-handling-exclude',
+                            },
+                            {
+                                value: 'first_seen',
+                                label: 'Use first seen variant',
+                                labelInMenu: (
+                                    <div>
+                                        <div>Use first seen variant</div>
+                                        <div className="text-xs text-muted font-normal">
+                                            Users will be analyzed using their first seen variant
+                                        </div>
+                                    </div>
+                                ),
+                                'data-attr': 'multiple-handling-first-seen',
+                            },
+                        ]}
+                    />
+                </div>
+
+                <TestAccountFilterSwitch
+                    checked={hasFilters && !!experiment.exposure_criteria?.filterTestAccounts}
+                    onChange={(checked: boolean) => {
+                        onChange({ filterTestAccounts: checked })
+                    }}
+                    bordered={false}
+                    fullWidth
+                    labelClassName="text-secondary"
+                    className="p-0"
+                />
+            </div>
+        )
     }
 
     return (
@@ -178,7 +287,11 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                         },
                         content: (
                             <div className="p-3">
-                                <ExposureCriteriaFields experiment={experiment} onChange={onChange} />
+                                <ExposureCriteriaFields
+                                    experiment={experiment}
+                                    onChange={onChange}
+                                    hasFilters={hasFilters}
+                                />
                             </div>
                         ),
                     },

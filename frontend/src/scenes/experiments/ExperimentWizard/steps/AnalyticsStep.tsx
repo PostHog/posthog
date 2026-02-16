@@ -18,11 +18,12 @@ export function AnalyticsStep(): JSX.Element {
                     <ExposureCriteriaPanel experiment={experiment} onChange={setExposureCriteria} compact />
                 </div>
 
-                <div>
+                <div className="mt-10">
                     <h3 className="text-lg font-semibold mb-1">How to measure impact?</h3>
                     <MetricsPanel
                         experiment={experiment}
                         sharedMetrics={sharedMetrics}
+                        compact
                         onSaveMetric={(metric, context) => {
                             const isNew = !experiment[context.field].some((m) => m.uuid === metric.uuid)
                             setExperiment({
