@@ -614,6 +614,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-spike-detection',
                 title: 'Spike detection',
                 component: <SpikeDetectionSettings />,
+                flag: 'ERROR_TRACKING_SPIKE_ALERTING',
             },
             {
                 id: 'error-tracking-auto-assignment',
