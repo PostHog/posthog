@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import {
     IconBolt,
+    IconCamera,
     IconCheck,
     IconCursorClick,
     IconDay,
@@ -42,6 +43,8 @@ import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { ProductToursSidebar } from '~/toolbar/product-tours/ProductToursSidebar'
 import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToolbarMenu'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
+import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
+import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUploadLogic'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
@@ -202,6 +205,8 @@ function MoreMenu(): JSX.Element {
     const { hedgehogMode, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } = useValues(toolbarLogic)
     const { setHedgehogMode, toggleTheme, setVisibleMenu, togglePiiMasking, setPiiMaskingColor, startGracefulExit } =
         useActions(toolbarLogic)
+    const { isTakingScreenshot } = useValues(screenshotUploadLogic)
+    const { takeScreenshot } = useActions(screenshotUploadLogic)
 
     const [loadingSurveys, setLoadingSurveys] = useState(true)
     const [surveysCount, setSurveysCount] = useState(0)
@@ -213,60 +218,71 @@ function MoreMenu(): JSX.Element {
         }, false)
     }, [posthog])
 
+    const showScreenshotForEvent = useToolbarFeatureFlag('event-media-previews')
+
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
 
     return (
-        <LemonMenu
-            placement="top-end"
-            fallbackPlacements={['bottom-end']}
-            items={
-                [
-                    {
-                        icon: <>🦔</>,
-                        label: hedgehogMode ? 'Disable hedgehog mode' : 'Hedgehog mode',
-                        onClick: () => {
-                            setHedgehogMode(!hedgehogMode)
+        <>
+            <ScreenshotUploadModal />
+            <LemonMenu
+                placement="top-end"
+                fallbackPlacements={['bottom-end']}
+                items={
+                    [
+                        {
+                            icon: <>🦔</>,
+                            label: hedgehogMode ? 'Disable hedgehog mode' : 'Hedgehog mode',
+                            onClick: () => {
+                                setHedgehogMode(!hedgehogMode)
+                            },
                         },
-                    },
-                    hedgehogMode
-                        ? {
-                              icon: <IconFlare />,
-                              label: 'Hedgehog options',
-                              onClick: () => {
-                                  setVisibleMenu('hedgehog')
-                              },
-                          }
-                        : undefined,
-                    {
-                        icon: currentlyLightMode ? <IconNight /> : <IconDay />,
-                        label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
-                        onClick: () => toggleTheme(),
-                    },
-                    ...piiMaskingMenuItem(
-                        piiMaskingEnabled,
-                        piiMaskingColor,
-                        togglePiiMasking,
-                        setPiiMaskingColor,
-                        piiWarning
-                    ),
-                    postHogDebugInfoMenuItem(posthog, loadingSurveys, surveysCount),
-                    {
-                        icon: <IconQuestion />,
-                        label: 'Help',
-                        onClick: () => {
-                            window.open(HELP_URL, '_blank')?.focus()
+                        hedgehogMode
+                            ? {
+                                  icon: <IconFlare />,
+                                  label: 'Hedgehog options',
+                                  onClick: () => {
+                                      setVisibleMenu('hedgehog')
+                                  },
+                              }
+                            : undefined,
+                        {
+                            icon: currentlyLightMode ? <IconNight /> : <IconDay />,
+                            label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
+                            onClick: () => toggleTheme(),
                         },
-                    },
-                    { icon: <IconX />, label: 'Close toolbar', onClick: startGracefulExit },
-                ].filter(Boolean) as LemonMenuItems
-            }
-            maxContentWidth={true}
-        >
-            <ToolbarButton>
-                <IconMenu />
-            </ToolbarButton>
-        </LemonMenu>
+                        showScreenshotForEvent
+                            ? {
+                                  icon: <IconCamera />,
+                                  label: 'Screenshot for event',
+                                  onClick: takeScreenshot,
+                                  disabled: isTakingScreenshot,
+                              }
+                            : undefined,
+                        ...piiMaskingMenuItem(
+                            piiMaskingEnabled,
+                            piiMaskingColor,
+                            togglePiiMasking,
+                            setPiiMaskingColor,
+                            piiWarning
+                        ),
+                        postHogDebugInfoMenuItem(posthog, loadingSurveys, surveysCount),
+                        {
+                            icon: <IconQuestion />,
+                            label: 'Help',
+                            onClick: () => {
+                                window.open(HELP_URL, '_blank')?.focus()
+                            },
+                        },
+                        { icon: <IconX />, label: 'Close toolbar', onClick: startGracefulExit },
+                    ].filter(Boolean) as LemonMenuItems
+                }
+                maxContentWidth={true}
+            >
+                <ToolbarButton>{isTakingScreenshot ? <Spinner /> : <IconMenu />}</ToolbarButton>
+            </LemonMenu>
+        </>
     )
 }
 

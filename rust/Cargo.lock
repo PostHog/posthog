@@ -4704,6 +4704,7 @@ dependencies = [
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.22.1",
+ "rand 0.8.5",
  "rayon",
  "rdkafka",
  "rocksdb",

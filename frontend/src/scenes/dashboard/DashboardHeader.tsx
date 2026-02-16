@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import {
     IconCode2,
+    IconCopy,
     IconGraph,
     IconGridMasonry,
     IconNotebook,
@@ -42,6 +43,7 @@ import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModa
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -103,6 +105,9 @@ export function DashboardHeader(): JSX.Element | null {
 
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
+    const interProjectTransfersEnabled = useFeatureFlag('INTER_PROJECT_TRANSFERS')
 
     const { tags } = useValues(tagsModel)
 
@@ -111,8 +116,6 @@ export function DashboardHeader(): JSX.Element | null {
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
 
     const [terraformModalOpen, setTerraformModalOpen] = useState(false)
-    const terraformFeatureEnabled = useFeatureFlag('MANAGE_INSIGHTS_THROUGH_TERRAFORM')
-
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
             return false
@@ -191,15 +194,14 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
+
                     {canEditDashboard && <DashboardInsightColorsModal />}
                     {user?.is_staff && <DashboardTemplateEditor />}
-                    {terraformFeatureEnabled && (
-                        <TerraformExportModal
-                            isOpen={terraformModalOpen}
-                            onClose={() => setTerraformModalOpen(false)}
-                            resource={{ type: 'dashboard', data: dashboard }}
-                        />
-                    )}
+                    <TerraformExportModal
+                        isOpen={terraformModalOpen}
+                        onClose={() => setTerraformModalOpen(false)}
+                        resource={{ type: 'dashboard', data: dashboard }}
+                    />
                 </>
             )}
 
@@ -229,6 +231,17 @@ export function DashboardHeader(): JSX.Element | null {
                                 dataAttrKey={RESOURCE_TYPE}
                                 onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
                             />
+                            {hasMultipleProjects && interProjectTransfersEnabled && (
+                                <ButtonPrimitive
+                                    menuItem
+                                    onClick={() => push(urls.resourceTransfer('Dashboard', dashboard.id))}
+                                    data-attr="dashboard-copy-to-project"
+                                    tooltip="Copy this dashboard to another project"
+                                >
+                                    <IconCopy />
+                                    Copy to another project
+                                </ButtonPrimitive>
+                            )}
                             <ScenePin
                                 dataAttrKey={RESOURCE_TYPE}
                                 onClick={() => {
@@ -342,7 +355,7 @@ export function DashboardHeader(): JSX.Element | null {
                         />
                     )}
 
-                    {dashboard && terraformFeatureEnabled && (
+                    {dashboard && (
                         <ButtonPrimitive
                             onClick={() => setTerraformModalOpen(true)}
                             menuItem

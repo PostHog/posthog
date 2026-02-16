@@ -30,6 +30,7 @@ use crate::store_manager::StoreManager;
 use anyhow::Result;
 use chrono::Utc;
 use dashmap::DashMap;
+use rand::seq::SliceRandom;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -173,11 +174,12 @@ impl CheckpointManager {
                     // the inner loop can block but if we miss a few ticks before
                     // completing the full partition loop, it's OK
                     _ = interval.tick() => {
-                        let candidates: Vec<Partition> = store_manager
+                        let mut candidates: Vec<Partition> = store_manager
                             .stores()
                             .iter()
                             .map(|entry| entry.key().clone())
                             .collect();
+                        candidates.shuffle(&mut rand::thread_rng());
                         let store_count = candidates.len();
                         if store_count == 0 {
                             debug!("No stores to flush");
