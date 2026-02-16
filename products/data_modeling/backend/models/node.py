@@ -19,9 +19,7 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     # models.PROTECT prevents deleting a saved query if its referenced by a Node
     saved_query = models.ForeignKey(DataWarehouseSavedQuery, on_delete=models.PROTECT, null=True, blank=True)
-    # NOTE: initially nullable for smooth migration
     dag = models.ForeignKey(DAG, on_delete=models.CASCADE, null=True, blank=True)
-    # NOTE: this will be dropped
     dag_id_text = models.TextField(max_length=256, default="posthog")
     # name of the source table, view, matview, etc.
     # for nodes with a saved_query, this is automatically synced from saved_query.name
@@ -47,12 +45,12 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             ),
             models.UniqueConstraint(
                 condition=models.Q(saved_query__isnull=False),
-                name="saved_query_unique_within_team_dag",
+                name="saved_query_unique_within_team_dag_text",
                 fields=["team", "dag_id_text", "saved_query"],
             ),
             models.UniqueConstraint(
                 condition=models.Q(saved_query__isnull=True),
-                name="name_unique_within_team_dag_for_tables",
+                name="name_unique_within_team_dag_text_for_tables",
                 fields=["team", "dag_id_text", "name"],
             ),
         ]

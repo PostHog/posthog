@@ -38,7 +38,7 @@ class DagMismatchTest(BaseTest):
             a1_node = Node.objects.create(team=cls.team, dag_id_text=A_DAG_ID, saved_query=a1_query, name="a1")
             a2_node = Node.objects.create(team=cls.team, dag_id_text=A_DAG_ID, saved_query=a2_query, name="a2")
             # a3 intentionally left disconnected to test connecting two nodes with same dag id with an edge
-            # that has a different dag_id
+            # that has a different dag_id_text
             Node.objects.create(team=cls.team, dag_id_text=A_DAG_ID, saved_query=a3_query, name="a3")
             Edge.objects.create(team=cls.team, dag_id_text=A_DAG_ID, source=a1_node, target=a2_node)
             b_query = DataWarehouseSavedQuery.objects.create(
