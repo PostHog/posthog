@@ -1,5 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
@@ -8,7 +9,7 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
     TaxonomicPopover,
@@ -16,6 +17,7 @@ import {
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { MathCategory, mathsLogic } from 'scenes/trends/mathsLogic'
 
@@ -44,9 +46,11 @@ interface ActionFilterGroupProps {
     showSeriesIndicator?: boolean
     seriesIndicatorType?: 'alpha' | 'numeric'
     actionsTaxonomicGroupTypes?: any[]
+    mathAvailability?: MathAvailability
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: any[]
     excludedProperties?: TaxonomicPopoverProps['excludedProperties']
+    groupTitle?: string
     trendsDisplayCategory?: any
     insightType?: InsightType
 }
@@ -55,22 +59,26 @@ export function ActionFilterGroup({
     filter,
     index,
     typeKey,
+    filterCount,
+    sortable,
     disabled = false,
     readOnly = false,
     hasBreakdown,
     showSeriesIndicator,
     seriesIndicatorType = 'alpha',
+    mathAvailability = MathAvailability.All,
     actionsTaxonomicGroupTypes = [],
     showNumericalPropsOnly,
     dataWarehousePopoverFields,
     excludedProperties,
+    groupTitle,
     trendsDisplayCategory,
     insightType,
 }: ActionFilterGroupProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { removeLocalFilter, splitLocalFilter } = useActions(entityFilterLogic({ typeKey }))
     const { mathDefinitions } = useValues(mathsLogic)
-    const { setNodeRef, attributes, transform, transition, isDragging } = useSortable({ id: filter.uuid })
+    const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
     const groupLogic = actionFilterGroupLogic({ filterUuid: filter.uuid, typeKey, groupIndex: index })
     const { nestedFilters, operator, isHogQLDropdownVisible } = useValues(groupLogic)
@@ -78,7 +86,7 @@ export function ActionFilterGroup({
 
     return (
         <li
-            className="relative min-w-0 max-w-full list-none"
+            className="ActionFilterGroup relative min-w-0 max-w-full list-none"
             ref={setNodeRef}
             {...attributes}
             // eslint-disable-next-line react/forbid-dom-props
@@ -88,121 +96,145 @@ export function ActionFilterGroup({
                 transition,
             }}
         >
-            <div className="flex flex-col overflow-hidden border border-primary rounded hover:border-secondary">
+            <div
+                className={clsx('flex flex-col overflow-hidden', {
+                    'border border-primary rounded hover:border-secondary': insightType === InsightType.TRENDS,
+                })}
+            >
                 {/* Header: series indicator, math controls, action buttons */}
-                <div className="flex flex-wrap items-start justify-between gap-2 px-4 py-3 border-b border-primary">
-                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                <div
+                    className={clsx(
+                        'ActionFilterGroup--header flex flex-wrap items-center justify-between gap-2 px-4 border-b border-primary',
+                        insightType === InsightType.FUNNELS ? 'py-4' : 'py-3'
+                    )}
+                >
+                    <div className="flex flex-wrap items-center gap-0 min-w-0">
+                        {sortable && filterCount > 1 && (
+                            <span className="ActionFilterRowDragHandle" {...listeners}>
+                                <SortableDragIcon />
+                            </span>
+                        )}
                         {showSeriesIndicator && (
-                            <div className="shrink-0">
+                            <div className="shrink-0 mr-2">
                                 {seriesIndicatorType === 'numeric' ? (
-                                    <span>{index + 1}</span>
+                                    <SeriesGlyph style={{ borderColor: 'var(--color-border-primary)' }}>
+                                        {index + 1}
+                                    </SeriesGlyph>
                                 ) : (
                                     <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
                                 )}
                             </div>
                         )}
 
-                        <div className="flex flex-wrap items-center gap-2 min-w-0">
-                            <span className="font-medium text-secondary whitespace-nowrap">Math:</span>
-                            <MathSelector
-                                size="small"
-                                math={filter.math}
-                                mathGroupTypeIndex={filter.math_group_type_index}
-                                index={index}
-                                onMathSelect={(_, math) => setMath(math)}
-                                disabled={disabled || readOnly}
-                                mathAvailability={MathAvailability.All}
-                                trendsDisplayCategory={trendsDisplayCategory}
-                            />
-                            {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]
-                                ?.category === MathCategory.PropertyValue && (
-                                <TaxonomicStringPopover
-                                    size="small"
-                                    groupType={
-                                        filter.math_property_type || TaxonomicFilterGroupType.NumericalEventProperties
-                                    }
-                                    groupTypes={[
-                                        TaxonomicFilterGroupType.DataWarehouseProperties,
-                                        TaxonomicFilterGroupType.NumericalEventProperties,
-                                        TaxonomicFilterGroupType.SessionProperties,
-                                        TaxonomicFilterGroupType.PersonProperties,
-                                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                                    ]}
-                                    value={filter.math_property}
-                                    onChange={setMathProperty}
-                                    eventNames={nestedFilters.map((v) => v.name).filter(Boolean) as string[]}
-                                    data-attr="math-property-select"
-                                    showNumericalPropsOnly={showNumericalPropsOnly}
-                                    renderValue={(currentValue) => (
-                                        <Tooltip
-                                            title={
-                                                currentValue === '$session_duration' ? (
-                                                    <>
-                                                        Calculate{' '}
-                                                        {(mathDefinitions as Record<string, any>)[
-                                                            filter.math ?? ''
-                                                        ].name.toLowerCase()}{' '}
-                                                        of the session duration. This is based on the{' '}
-                                                        <code>$session_id</code> property associated with events. The
-                                                        duration is derived from the time difference between the first
-                                                        and last event for each distinct <code>$session_id</code>.
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        Calculate{' '}
-                                                        {(mathDefinitions as Record<string, any>)[
-                                                            filter.math ?? ''
-                                                        ].name.toLowerCase()}{' '}
-                                                        from property <code>{currentValue}</code>. Note that only event
-                                                        occurrences where <code>{currentValue}</code> is set with a
-                                                        numeric value will be taken into account.
-                                                    </>
-                                                )
-                                            }
-                                            placement="right"
-                                        >
-                                            <PropertyKeyInfo
-                                                value={currentValue}
-                                                disablePopover
-                                                type={TaxonomicFilterGroupType.EventProperties}
-                                            />
-                                        </Tooltip>
-                                    )}
-                                />
-                            )}
+                        {groupTitle && (
+                            <span className="font-medium text-secondary whitespace-nowrap">{groupTitle}</span>
+                        )}
 
-                            {/* HogQL expression selector */}
-                            {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]
-                                ?.category === MathCategory.HogQLExpression && (
-                                <LemonDropdown
-                                    visible={isHogQLDropdownVisible}
-                                    closeOnClickInside={false}
-                                    onClickOutside={() => setHogQLDropdownVisible(false)}
-                                    overlay={
-                                        // eslint-disable-next-line react/forbid-dom-props
-                                        <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
-                                            <HogQLEditor
-                                                value={filter.math_hogql || 'count()'}
-                                                onChange={(currentValue) => {
-                                                    setMathHogQL(currentValue)
-                                                    setHogQLDropdownVisible(false)
-                                                }}
-                                            />
-                                        </div>
-                                    }
-                                >
-                                    <LemonButton
-                                        fullWidth
-                                        type="secondary"
+                        {mathAvailability !== MathAvailability.None &&
+                            mathAvailability !== MathAvailability.FunnelsOnly && (
+                                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                    <span className="font-medium text-secondary whitespace-nowrap">Math:</span>
+                                    <MathSelector
                                         size="small"
-                                        data-attr={`math-hogql-select-${index}`}
-                                        onClick={() => setHogQLDropdownVisible(!isHogQLDropdownVisible)}
-                                    >
-                                        <code>{filter.math_hogql || 'count()'}</code>
-                                    </LemonButton>
-                                </LemonDropdown>
+                                        math={filter.math}
+                                        mathGroupTypeIndex={filter.math_group_type_index}
+                                        index={index}
+                                        onMathSelect={(_, math) => setMath(math)}
+                                        disabled={disabled || readOnly}
+                                        mathAvailability={mathAvailability}
+                                        trendsDisplayCategory={trendsDisplayCategory}
+                                    />
+                                    {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]
+                                        ?.category === MathCategory.PropertyValue && (
+                                        <TaxonomicStringPopover
+                                            size="small"
+                                            groupType={
+                                                filter.math_property_type ||
+                                                TaxonomicFilterGroupType.NumericalEventProperties
+                                            }
+                                            groupTypes={[
+                                                TaxonomicFilterGroupType.DataWarehouseProperties,
+                                                TaxonomicFilterGroupType.NumericalEventProperties,
+                                                TaxonomicFilterGroupType.SessionProperties,
+                                                TaxonomicFilterGroupType.PersonProperties,
+                                                TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                            ]}
+                                            value={filter.math_property}
+                                            onChange={setMathProperty}
+                                            eventNames={nestedFilters.map((v) => v.name).filter(Boolean) as string[]}
+                                            data-attr="math-property-select"
+                                            showNumericalPropsOnly={showNumericalPropsOnly}
+                                            renderValue={(currentValue) => (
+                                                <Tooltip
+                                                    title={
+                                                        currentValue === '$session_duration' ? (
+                                                            <>
+                                                                Calculate{' '}
+                                                                {(mathDefinitions as Record<string, any>)[
+                                                                    filter.math ?? ''
+                                                                ].name.toLowerCase()}{' '}
+                                                                of the session duration. This is based on the{' '}
+                                                                <code>$session_id</code> property associated with
+                                                                events. The duration is derived from the time difference
+                                                                between the first and last event for each distinct{' '}
+                                                                <code>$session_id</code>.
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                Calculate{' '}
+                                                                {(mathDefinitions as Record<string, any>)[
+                                                                    filter.math ?? ''
+                                                                ].name.toLowerCase()}{' '}
+                                                                from property <code>{currentValue}</code>. Note that
+                                                                only event occurrences where <code>{currentValue}</code>{' '}
+                                                                is set with a numeric value will be taken into account.
+                                                            </>
+                                                        )
+                                                    }
+                                                    placement="right"
+                                                >
+                                                    <PropertyKeyInfo
+                                                        value={currentValue}
+                                                        disablePopover
+                                                        type={TaxonomicFilterGroupType.EventProperties}
+                                                    />
+                                                </Tooltip>
+                                            )}
+                                        />
+                                    )}
+                                    {/* HogQL expression selector */}
+                                    {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]
+                                        ?.category === MathCategory.HogQLExpression && (
+                                        <LemonDropdown
+                                            visible={isHogQLDropdownVisible}
+                                            closeOnClickInside={false}
+                                            onClickOutside={() => setHogQLDropdownVisible(false)}
+                                            overlay={
+                                                // eslint-disable-next-line react/forbid-dom-props
+                                                <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
+                                                    <HogQLEditor
+                                                        value={filter.math_hogql || 'count()'}
+                                                        onChange={(currentValue) => {
+                                                            setMathHogQL(currentValue)
+                                                            setHogQLDropdownVisible(false)
+                                                        }}
+                                                    />
+                                                </div>
+                                            }
+                                        >
+                                            <LemonButton
+                                                fullWidth
+                                                type="secondary"
+                                                size="small"
+                                                data-attr={`math-hogql-select-${index}`}
+                                                onClick={() => setHogQLDropdownVisible(!isHogQLDropdownVisible)}
+                                            >
+                                                <code>{filter.math_hogql || 'count()'}</code>
+                                            </LemonButton>
+                                        </LemonDropdown>
+                                    )}
+                                </div>
                             )}
-                        </div>
                     </div>
 
                     {!readOnly && (
@@ -234,7 +266,7 @@ export function ActionFilterGroup({
                 </div>
 
                 {/* Events list */}
-                <ul className="flex flex-col px-4 py-2.5">
+                <ul className="ActionFilterGroup--events-list flex flex-col px-4 py-2.5">
                     {nestedFilters.map((eventFilter, eventIndex) => {
                         const nestedLogicInstance = nestedFilterLogic({
                             groupFilterUuid: filter.uuid,
@@ -281,7 +313,7 @@ export function ActionFilterGroup({
 
                 {/* Add event button */}
                 {!readOnly && nestedFilters.length < 10 && (
-                    <div className="px-4 py-2.5">
+                    <div className="ActionFilterGroup--footer px-4 py-2.5">
                         <TaxonomicPopover
                             data-attr={`add-group-event-${index}`}
                             groupType={TaxonomicFilterGroupType.Events}

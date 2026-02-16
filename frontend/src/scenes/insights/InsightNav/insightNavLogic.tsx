@@ -268,7 +268,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 actions.setQuery({
                     ...query,
                     source: values.queryPropertyCache
-                        ? mergeCachedProperties(query.source, values.queryPropertyCache)
+                        ? mergeCachedProperties(query.source, values.queryPropertyCache, values.featureFlags)
                         : query.source,
                 } as InsightVizNode)
             } else {
@@ -334,7 +334,11 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     return newCache
 }
 
-const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCache): InsightQueryNode => {
+const mergeCachedProperties = (
+    query: InsightQueryNode,
+    cache: QueryPropertyCache,
+    featureFlags: Record<string, boolean | string | undefined>
+): InsightQueryNode => {
     const mergedQuery = {
         ...query,
         ...(cache.dateRange ? { dateRange: cache.dateRange } : {}),
@@ -348,6 +352,14 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
             if (isTrendsQuery(mergedQuery)) {
                 // Trends supports GroupNode, keep series as-is
                 mergedQuery.series = cleanSeriesMath(cache.series, MathAvailability.All) as TrendsQuery['series']
+            } else if (isFunnelsQuery(mergedQuery)) {
+                // Funnels supports GroupNode behind a feature flag, keep series as-is when the flag is enabled
+                const supportsCombinedEvents =
+                    !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_EVENTS_COMBINATION_IN_FUNNELS]
+                mergedQuery.series = cleanSeriesMath(
+                    supportsCombinedEvents ? cache.series : expandGroupNodes(cache.series),
+                    MathAvailability.FunnelsOnly
+                ) as FunnelsQuery['series']
             } else {
                 // Expand GroupNodes for insight types that don't support them
                 const expandedSeries = expandGroupNodes(cache.series)

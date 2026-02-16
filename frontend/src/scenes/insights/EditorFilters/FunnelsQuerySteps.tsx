@@ -1,3 +1,5 @@
+import './FunnelsQuerySteps.scss'
+
 import { useActions, useValues } from 'kea'
 
 import { Tooltip } from '@posthog/lemon-ui'
@@ -59,37 +61,40 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     </div>
                 </Tooltip>
             </div>
-            <ActionFilter
-                bordered
-                filters={actionFilters}
-                setFilters={setActionFilters}
-                typeKey={keyForInsightLogicProps('new')(insightProps)}
-                mathAvailability={MathAvailability.FunnelsOnly}
-                hideDeleteBtn={filterSteps.length === 1}
-                buttonCopy="Add step"
-                showSeriesIndicator={showSeriesIndicator}
-                seriesIndicatorType="numeric"
-                entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
-                sortable
-                showNestedArrow
-                propertiesTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                    TaxonomicFilterGroupType.EventMetadata,
-                    ...groupsTaxonomicTypes,
-                    TaxonomicFilterGroupType.Cohorts,
-                    TaxonomicFilterGroupType.Elements,
-                    TaxonomicFilterGroupType.SessionProperties,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                ]}
-                addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
-                actionsTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.Events,
-                    TaxonomicFilterGroupType.Actions,
-                    ...(supportsDwhFunnels ? [TaxonomicFilterGroupType.DataWarehouse] : []),
-                ]}
-            />
+            <div className="FunnelsQuerySteps">
+                <ActionFilter
+                    bordered
+                    filters={actionFilters}
+                    setFilters={setActionFilters}
+                    typeKey={keyForInsightLogicProps('new')(insightProps)}
+                    mathAvailability={MathAvailability.FunnelsOnly}
+                    hideDeleteBtn={filterSteps.length === 1}
+                    buttonCopy="Add step"
+                    showSeriesIndicator={showSeriesIndicator}
+                    seriesIndicatorType="numeric"
+                    entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
+                    sortable
+                    showNestedArrow
+                    propertiesTaxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        TaxonomicFilterGroupType.EventFeatureFlags,
+                        TaxonomicFilterGroupType.EventMetadata,
+                        ...groupsTaxonomicTypes,
+                        TaxonomicFilterGroupType.Cohorts,
+                        TaxonomicFilterGroupType.Elements,
+                        TaxonomicFilterGroupType.SessionProperties,
+                        TaxonomicFilterGroupType.HogQLExpression,
+                    ]}
+                    addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
+                    actionsTaxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.Events,
+                        TaxonomicFilterGroupType.Actions,
+                        ...(supportsDwhFunnels ? [TaxonomicFilterGroupType.DataWarehouse] : []),
+                    ]}
+                />
+            </div>
+
             <div className="mt-4 deprecated-space-y-4">
                 {showGroupsOptions && (
                     <div className="flex items-center w-full gap-2">

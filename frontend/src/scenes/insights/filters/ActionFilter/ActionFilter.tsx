@@ -17,7 +17,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 import {
     ActionFilter as ActionFilterType,
@@ -177,7 +177,18 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
     }
 
     const singleFilter = entitiesLimit === 1
-    const canAccessEventsCombination = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_EVENTS_COMBINATION_IN_TRENDS]
+
+    const canAccessEventsCombination = (): boolean => {
+        if (filters.insight === InsightType.TRENDS) {
+            return !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_EVENTS_COMBINATION_IN_TRENDS]
+        }
+
+        if (filters.insight === InsightType.FUNNELS) {
+            return !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_EVENTS_COMBINATION_IN_FUNNELS]
+        }
+
+        return false
+    }
 
     const commonProps = {
         logic,
@@ -197,7 +208,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         renderRow,
         hideRename,
         hideDuplicate,
-        showCombine: canAccessEventsCombination && filters.insight === InsightType.TRENDS,
+        showCombine: canAccessEventsCombination(),
         insightType: filters.insight,
         onRenameClick: showModal,
         sortable,
@@ -212,7 +223,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
     const sortedItemIds = localFilters.map((i) => i.uuid)
-    const isTrendsContext = isTrendsFilter(filters)
 
     return (
         <div
@@ -246,7 +256,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                             strategy={verticalListSortingStrategy}
                         >
                             {localFilters.map((filter, index) =>
-                                isTrendsContext && filter.type === EntityTypes.GROUPS ? (
+                                canAccessEventsCombination() && filter.type === EntityTypes.GROUPS ? (
                                     <ActionFilterGroup
                                         key={filter.uuid}
                                         filter={filter}
@@ -264,6 +274,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                                 : hideDeleteBtn
                                         }
                                         hasBreakdown={!!filters.breakdown}
+                                        mathAvailability={mathAvailability}
+                                        groupTitle={isFunnelsFilter(filters) ? 'Any of the events below' : undefined}
                                         actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
                                         dataWarehousePopoverFields={dataWarehousePopoverFields}
                                         excludedProperties={excludedProperties}
