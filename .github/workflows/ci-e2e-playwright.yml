@@ -139,7 +139,23 @@ jobs:
                   else
                     AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
-                    if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
+
+                    # Trusted bots that are allowed to run in update mode
+                    # Add bot usernames here to allow snapshot auto-updates on their PRs
+                    TRUSTED_BOTS=("mendral-app[bot]")
+
+                    IS_TRUSTED=false
+                    for bot in "${TRUSTED_BOTS[@]}"; do
+                      if [[ "$AUTHOR" == "$bot" ]]; then
+                        IS_TRUSTED=true
+                        break
+                      fi
+                    done
+
+                    if [[ "$IS_TRUSTED" == "true" ]]; then
+                      echo "mode=update" >> $GITHUB_OUTPUT
+                      echo "::notice::🔄 Trusted bot '$AUTHOR' - running in UPDATE mode"
+                    elif [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
                       echo "mode=check" >> $GITHUB_OUTPUT
                       echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
@@ -309,10 +325,11 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Wait for services to be available
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
+            - name: Start Docker services
+              run: docker compose -f docker-compose.dev.yml up -d
+
+            - name: Wait for Docker services
+              run: bin/wait-for-docker
 
             - name: Build frontend
               run: |

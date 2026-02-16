@@ -182,13 +182,36 @@ async function expectStoryToMatchSnapshot(
         // Stop all animations for consistent snapshots, and adjust other styles
         document.body.classList.add('storybook-test-runner')
         document.body.classList.add(`storybook-test-runner--${layout}`)
+
+        // Force all content-visibility:auto elements to render fully for deterministic snapshots.
+        // content-visibility:auto skips rendering offscreen content, which causes non-deterministic
+        // page heights depending on timing. We override it and trigger a synchronous reflow.
+        document.querySelectorAll('*').forEach((el) => {
+            if (el instanceof HTMLElement) {
+                const style = getComputedStyle(el)
+                if (style.contentVisibility === 'auto') {
+                    el.style.contentVisibility = 'visible'
+                }
+            }
+        })
+        // Force synchronous reflow so the browser recalculates layout
+        void document.body.offsetHeight
     }, storyContext.parameters?.layout || 'padded')
 
-    const {
-        waitForLoadersToDisappear = true,
-        waitForSelector,
-        waitForTimeout,
-    } = storyContext.parameters?.testOptions ?? {}
+    // Trigger ResizeObserver callbacks to ensure layout-dependent state (e.g. CardMeta's
+    // showControlsLabels) has settled before taking snapshots. ResizeObserver fires
+    // asynchronously after render, so without this nudge the observer may not have reported
+    // dimensions yet, causing non-deterministic button labels in dashboard stories.
+    await page.evaluate(() => {
+        // Force a reflow so ResizeObserver has up-to-date geometry to report
+        void document.body.offsetHeight
+        // Dispatch a resize event to trigger any observers that key off window size
+        window.dispatchEvent(new Event('resize'))
+    })
+    // Allow ResizeObserver callbacks to fire and React to re-render with updated dimensions
+    await page.waitForTimeout(300)
+
+    const { waitForLoadersToDisappear = true, waitForSelector } = storyContext.parameters?.testOptions ?? {}
 
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong

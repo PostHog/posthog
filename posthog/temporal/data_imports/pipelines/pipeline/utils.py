@@ -191,7 +191,7 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             table = table.set_column(table.schema.get_field_index(column_name), column_name, microsecond_timestamps)
 
     if delta_schema:
-        for field in delta_schema.to_pyarrow():
+        for field in pa.schema(delta_schema):
             if field.name not in py_table_field_names:
                 if field.nullable:
                     new_column_data = pa.array([None] * table.num_rows, type=field.type)
@@ -323,7 +323,7 @@ async def setup_partitioning(
         return pa_table
 
     if existing_delta_table:
-        delta_schema = existing_delta_table.schema().to_pyarrow()
+        delta_schema = existing_delta_table.schema().to_arrow()
         if PARTITION_KEY not in delta_schema.names:
             logger.debug("Delta table already exists without partitioning, skipping partitioning")
             return pa_table
