@@ -667,3 +667,32 @@ export const isThumbQuestion = (question: SurveyQuestion): boolean => {
         question.scale === SURVEY_RATING_SCALE.THUMB_2_POINT
     )
 }
+
+export const isEmojiScaleQuestion = (question: SurveyQuestion): boolean => {
+    return question.type === SurveyQuestionType.Rating && question.display === 'emoji'
+}
+
+const EMOJI_SCALE_3: Record<string, string> = {
+    '1': '😠',
+    '2': '😐',
+    '3': '😊',
+}
+
+const EMOJI_SCALE_5: Record<string, string> = {
+    '1': '😠',
+    '2': '🙁',
+    '3': '😐',
+    '4': '🙂',
+    '5': '😀',
+}
+
+export const getEmojiForRating = (value: unknown, scale: number): string | null => {
+    const stringValue = String(value)
+    if (scale === SURVEY_RATING_SCALE.EMOJI_3_POINT) {
+        return EMOJI_SCALE_3[stringValue] ?? null
+    }
+    if (scale === SURVEY_RATING_SCALE.LIKERT_5_POINT) {
+        return EMOJI_SCALE_5[stringValue] ?? null
+    }
+    return null
+}
