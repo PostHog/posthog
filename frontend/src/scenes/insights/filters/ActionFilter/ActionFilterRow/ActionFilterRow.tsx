@@ -177,6 +177,7 @@ export interface ActionFilterRowProps {
     addFilterDocLink?: string
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
+    hogQLGlobals?: Record<string, any>
 }
 
 export function ActionFilterRow({
@@ -214,6 +215,7 @@ export function ActionFilterRow({
     addFilterDocLink,
     excludedProperties,
     allowNonCapturedEvents,
+    hogQLGlobals,
 }: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
     const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
     const effectiveActionsTaxonomicGroupTypes = showQuickFilters
@@ -859,6 +861,7 @@ export function ActionFilterRow({
                         }
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
+                        hogQLGlobals={hogQLGlobals}
                     />
                 </div>
             )}

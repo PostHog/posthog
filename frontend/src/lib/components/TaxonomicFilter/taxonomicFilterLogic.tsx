@@ -394,6 +394,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.hideBehavioralCohorts],
             (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
         ],
+        hogQLGlobals: [
+            () => [(_, props) => props.hogQLGlobals],
+            (hogQLGlobals: Record<string, any> | undefined) => hogQLGlobals,
+        ],
         endpointFilters: [
             () => [(_, props) => props.endpointFilters],
             (endpointFilters: Record<string, any>) => endpointFilters,
@@ -414,6 +418,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.hideBehavioralCohorts,
                 s.endpointFilters,
                 p.taxonomicGroupTypes,
+                s.hogQLGlobals,
             ],
             (
                 currentTeam: TeamType,
@@ -429,7 +434,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
                 hideBehavioralCohorts: boolean,
                 endpointFilters: Record<string, any> | undefined,
-                propGroupTypes: TaxonomicFilterGroupType[] | undefined
+                propGroupTypes: TaxonomicFilterGroupType[] | undefined,
+                hogQLGlobals: Record<string, any> | undefined
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
@@ -1016,7 +1022,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'SQL expression',
-                        componentProps: { metadataSource },
+                        componentProps: { metadataSource, globals: hogQLGlobals },
                     },
                     {
                         name: 'Replay',
