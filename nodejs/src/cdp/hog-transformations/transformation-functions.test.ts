@@ -11,7 +11,7 @@ describe('transformation-functions', () => {
             ['exact match from list', '5.39.1.224', true],
             ['IPv4 within CIDR /24 range', '17.22.237.100', true],
             ['IPv4 within CIDR /27 range', '17.241.208.170', true],
-            ['IPv4 outside CIDR range', '17.22.237.0', true],
+            ['IPv4 outside CIDR range', '17.22.238.0', false],
             ['IPv4 just outside CIDR /27', '17.241.208.192', false],
             ['IPv6 within CIDR range', '2400:cb00::1', true],
             ['IPv6 outside known ranges', '2001:db8::1', false],
