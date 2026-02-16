@@ -101,6 +101,8 @@ export function HeatmapCanvas({
 
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
+    const heatmapJsDataRef = useRef(heatmapJsData)
+    heatmapJsDataRef.current = heatmapJsData
     const [hasValueUnderMouse, setHasValueUnderMouse] = useState(false)
 
     const heatmapJSColorGradient = useMemo((): Record<string, string> => {
@@ -160,14 +162,6 @@ export function HeatmapCanvas({
         [heatmapElements, heatmapScrollY, windowWidth, windowWidthOverride, heatmapFixedPositionMode, setSelectedArea]
     )
 
-    const updateHeatmapData = useCallback((): void => {
-        try {
-            heatmapsJsRef.current?.setData(heatmapJsData)
-        } catch (e) {
-            console.error('error setting data', e)
-        }
-    }, [heatmapJsData])
-
     const setHeatmapContainer = useCallback(
         (container: HTMLDivElement | null): void => {
             heatmapsJsContainerRef.current = container
@@ -181,14 +175,22 @@ export function HeatmapCanvas({
                 gradient: heatmapJSColorGradient,
             })
 
-            updateHeatmapData()
+            try {
+                heatmapsJsRef.current.setData(heatmapJsDataRef.current)
+            } catch (e) {
+                console.error('error setting data', e)
+            }
         },
-        [updateHeatmapData, heatmapJSColorGradient] // oxlint-disable-line react-hooks/exhaustive-deps
+        [heatmapJSColorGradient]
     )
 
     useEffect(() => {
-        updateHeatmapData()
-    }, [heatmapJsData]) // oxlint-disable-line react-hooks/exhaustive-deps
+        try {
+            heatmapsJsRef.current?.setData(heatmapJsData)
+        } catch (e) {
+            console.error('error setting data', e)
+        }
+    }, [heatmapJsData])
 
     useEffect(() => {
         if (!heatmapsJsContainerRef.current) {
