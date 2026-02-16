@@ -156,7 +156,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_HOST_URL: 'http://localhost:8010',
 
         // Internal API authentication
-        INTERNAL_API_SECRET: '',
+        INTERNAL_API_SECRET: isProdEnv() ? '' : 'posthog123',
 
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
