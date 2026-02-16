@@ -3049,6 +3049,8 @@ class PropertyOperator(StrEnum):
     SEMVER_TILDE = "semver_tilde"
     SEMVER_CARET = "semver_caret"
     SEMVER_WILDCARD = "semver_wildcard"
+    ICONTAINS_MULTI = "icontains_multi"
+    NOT_ICONTAINS_MULTI = "not_icontains_multi"
 
 
 class Mark(BaseModel):

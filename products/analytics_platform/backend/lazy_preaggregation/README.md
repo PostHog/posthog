@@ -52,7 +52,7 @@ from datetime import datetime
 from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import ensure_preaggregated, PreaggregationTable
 from posthog.hogql import ast
 
-# Ensure that the given query is preaggregated
+# Ensure that the given query is preaggregated with variable TTLs
 preagg_result = ensure_preaggregated(
     team=self.team,
     insert_query="""
@@ -68,10 +68,25 @@ preagg_result = ensure_preaggregated(
     """,
     time_range_start=datetime(2025, 12, 18),
     time_range_end=datetime(2025, 12, 25),
-    ttl_seconds=24 * 60 * 60,
+    # Variable TTL: recent data refreshes more often
+    ttl_seconds={
+        "0d": 15 * 60,           # current day: 15 min
+        "1d": 60 * 60,            # previous day: 1 hour
+        "7d": 24 * 60 * 60,       # last week: 1 day
+        "default": 7 * 24 * 60 * 60,  # older: 7 days
+    },
     table=PreaggregationTable.PREAGGREGATION_RESULTS,
     # Custom placeholders can be passed too
     placeholders={"some_filter": ast.Constant(value="filter_value")},
+)
+
+# A single int TTL still works for uniform expiry
+preagg_result = ensure_preaggregated(
+    team=self.team,
+    insert_query="...",
+    time_range_start=datetime(2025, 12, 18),
+    time_range_end=datetime(2025, 12, 25),
+    ttl_seconds=24 * 60 * 60,  # 1 day for all ranges
 )
 
 # Then query from this table directly using the job_ids
@@ -96,6 +111,20 @@ query = parse_select(
 )
 # note that this is using HogQL, which automatically adds a team_id condition
 ```
+
+### Variable TTL
+
+The `ttl_seconds` parameter accepts either an `int` (uniform TTL) or a `dict` mapping date strings to TTL values in seconds. Dict keys are parsed using `relative_date_parse` with the team's timezone:
+
+- `"0d"` — cutoff at start of today: windows from today onward match
+- `"1d"` — cutoff at start of yesterday: windows from yesterday onward match
+- `"7d"` — cutoff 7 days ago: windows from last week onward match
+- `"24h"` — cutoff 24 hours ago
+- `"2w"` — cutoff 2 weeks ago
+- `"2026-02-15"` — cutoff at a specific date
+- `"default"` — fallback TTL for windows older than all cutoffs
+
+Rules are matched most-specific first (shortest period wins). On the **read path**, existing jobs that are too stale for the requested TTL are skipped and recomputed. On the **write path**, each job is created with the TTL appropriate for its date range — ranges with different TTLs are never merged into a single job.
 
 ## Concurrency and race conditions
 
@@ -146,6 +175,5 @@ Stale jobs are marked FAILED and the normal replacement flow kicks in. This mean
 ## TODOs
 
 - While we are waiting, we block an entire django thread despite not doing any useful work. We should make it easier for people to use e.g. celery with this, this would involve using async queries though.
-- The TTL of an inserted job should be conditional on how recent the data is. Data from the same day might want a very short (e.g. 15 mins!) TTL, or to be skipped entirely and UNION'ed with real data, which we could make a bit easier.
 - The stale enum value isn't used for anything, we just mark stale jobs as errored
 - Add posthog logging for state transitions
