@@ -71,6 +71,7 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
         triggerDatasetItemModal,
         onUnmount,
     } = useActions(llmAnalyticsDatasetLogic)
+    const { searchParams } = useValues(router)
 
     const displayEditForm = isNewDataset || isEditingDataset
 
@@ -114,7 +115,9 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
                                                     editDataset(false)
                                                     loadDataset()
                                                 } else {
-                                                    router.actions.push(urls.llmAnalyticsDatasets())
+                                                    router.actions.push(
+                                                        combineUrl(urls.llmAnalyticsDatasets(), searchParams).url
+                                                    )
                                                 }
                                             }}
                                             disabledReason={isDatasetFormSubmitting ? 'Saving…' : undefined}
