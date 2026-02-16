@@ -18,7 +18,6 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -26,6 +25,7 @@ import { addProductIntent } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
@@ -164,6 +164,34 @@ export function appEditorUrl(
     return '/api/user/redirect_to_site/' + encodeParams(params, '?')
 }
 
+/**
+ * Builds a direct toolbar launch URL that navigates to the app with toolbar params in the hash.
+ * Unlike appEditorUrl which goes through redirect_to_site (generating a temporaryToken),
+ * this constructs the URL client-side so the toolbar uses OAuth for authentication.
+ */
+function directToolbarUrl(
+    appUrl: string,
+    options?: BuildToolbarParamsOptions & {
+        token?: string
+        dataAttributes?: string[]
+        userEmail?: string
+        distinctId?: string
+    }
+): string {
+    const params: Record<string, unknown> = {
+        action: 'ph_authorize',
+        token: options?.token,
+        toolbarVersion: 'toolbar',
+        instrument: true,
+        userEmail: options?.userEmail,
+        distinctId: options?.distinctId,
+        ...buildToolbarParams(options),
+        dataAttributes: options?.dataAttributes,
+    }
+    const state = encodeURIComponent(JSON.stringify(params))
+    return `${appUrl}#__posthog=${state}`
+}
+
 export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]): boolean => {
     try {
         const parsedUrl = typeof url === 'string' ? sanitizePossibleWildCardedURL(url) : url
@@ -256,7 +284,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     key((props) => `${props.type}-${props.experimentId}-${props.actionId}-${props.productTourId}`), // Some will be undefined but that's ok, this avoids experiment/action with same ID sharing same store
     props({ ...defaultAuthorizedUrlProperties } as AuthorizedUrlListLogicProps),
     connect(() => ({
-        values: [teamLogic, ['currentTeam', 'currentTeamId']],
+        values: [teamLogic, ['currentTeam', 'currentTeamId'], userLogic, ['user']],
         actions: [teamLogic, ['updateCurrentTeam']],
     })),
     actions(() => ({
@@ -270,7 +298,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         cancelProposingUrl: true,
         copyLaunchCode: (url: string) => ({ url }),
     })),
-    loaders(({ values, props }) => ({
+    loaders(({ values }) => ({
         suggestions: {
             __default: [] as SuggestedDomain[],
             loadSuggestions: async () => {
@@ -302,27 +330,6 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 )
 
                 return suggestedDomains.slice(0, 20)
-            },
-        },
-        manualLaunchParams: {
-            loadManualLaunchParams: async (url: string): Promise<string | undefined> => {
-                const response = await api.get(
-                    appEditorUrl(url, {
-                        ...(props?.actionId ? { actionId: props.actionId } : {}),
-                        ...(props?.experimentId ? { experimentId: props.experimentId } : {}),
-                        generateOnly: true,
-                    })
-                )
-
-                let decoded: string | undefined = undefined
-                try {
-                    if (response?.toolbarParams) {
-                        decoded = decodeURIComponent(response.toolbarParams)
-                    }
-                } catch {
-                    lemonToast.error('Failed to generate toolbar params')
-                }
-                return decoded
             },
         },
     })),
@@ -413,7 +420,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             }
         },
     })),
-    listeners(({ sharedListeners, values, actions }) => ({
+    listeners(({ sharedListeners, values, actions, props }) => ({
         setEditUrlIndex: () => {
             actions.setProposedUrlValue('url', values.urlToEdit)
         },
@@ -445,20 +452,28 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             actions.setEditUrlIndex(null)
             actions.resetProposedUrl()
         },
-        copyLaunchCode: ({ url }) => {
-            actions.loadManualLaunchParams(url)
-        },
-        loadManualLaunchParamsSuccess: async ({ manualLaunchParams }) => {
-            if (manualLaunchParams) {
-                const templateScript = `
+        copyLaunchCode: async () => {
+            const params: Record<string, unknown> = {
+                action: 'ph_authorize',
+                token: values.currentTeam?.api_token,
+                toolbarVersion: 'toolbar',
+                instrument: true,
+                userEmail: values.user?.email,
+                distinctId: values.user?.distinct_id,
+                ...buildToolbarParams({
+                    ...(props.actionId ? { actionId: props.actionId } : {}),
+                    ...(props.experimentId ? { experimentId: props.experimentId } : {}),
+                }),
+                dataAttributes: values.currentTeam?.data_attributes,
+            }
+            const templateScript = `
                 if (!window?.posthog) {
                     console.warn('PostHog must be added to the window object on this page, for this to work. This is normally done in the loaded callback of your posthog init code.')
                 } else {
-                    window.posthog.loadToolbar(${manualLaunchParams})
+                    window.posthog.loadToolbar(${JSON.stringify(params)})
                 }
                 `
-                await copyToClipboard(templateScript, 'code to paste into the console')
-            }
+            await copyToClipboard(templateScript, 'code to paste into the console')
         },
     })),
     selectors({
@@ -493,21 +508,28 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             },
         ],
         launchUrl: [
-            (_, p) => [p.actionId, p.experimentId, p.productTourId, p.userIntent ?? (() => undefined)],
-            (actionId, experimentId, productTourId, userIntent) => (url: string) => {
+            (s, p) => [
+                s.currentTeam,
+                s.user,
+                p.actionId,
+                p.experimentId,
+                p.productTourId,
+                p.userIntent ?? (() => undefined),
+            ],
+            (currentTeam, user, actionId, experimentId, productTourId, userIntent) => (url: string) => {
+                const commonOptions = {
+                    token: currentTeam?.api_token,
+                    dataAttributes: currentTeam?.data_attributes,
+                    userEmail: user?.email,
+                    distinctId: user?.distinct_id,
+                }
                 if (experimentId) {
-                    return appEditorUrl(url, {
-                        experimentId,
-                    })
+                    return directToolbarUrl(url, { ...commonOptions, experimentId })
                 }
-
                 if (productTourId) {
-                    return appEditorUrl(url, { productTourId, userIntent })
+                    return directToolbarUrl(url, { ...commonOptions, productTourId, userIntent })
                 }
-
-                return appEditorUrl(url, {
-                    actionId,
-                })
+                return directToolbarUrl(url, { ...commonOptions, actionId })
             },
         ],
         isAddUrlFormVisible: [(s) => [s.editUrlIndex], (editUrlIndex) => editUrlIndex === -1],
