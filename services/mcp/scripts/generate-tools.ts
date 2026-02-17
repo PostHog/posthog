@@ -19,6 +19,13 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parse as parseYaml } from 'yaml'
 
+import {
+    type CategoryConfig,
+    CategoryConfigSchema,
+    type EnabledToolConfig,
+    type ToolConfig,
+} from './yaml-config-schema'
+
 const MCP_ROOT = path.resolve(__dirname, '..')
 const REPO_ROOT = path.resolve(MCP_ROOT, '../..')
 const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
@@ -26,35 +33,6 @@ const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const GENERATED_DIR = path.resolve(MCP_ROOT, 'src/tools/generated')
 const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
-
-// ------------------------------------------------------------------
-// Types
-// ------------------------------------------------------------------
-
-interface ToolConfig {
-    operation: string
-    enabled: boolean
-    scopes: string[]
-    annotations: {
-        readOnly: boolean
-        destructive: boolean
-        idempotent: boolean
-    }
-    enrich_url?: string
-    list?: boolean
-    title?: string
-    description?: string
-    exclude_params?: string[]
-    include_params?: string[]
-    param_overrides?: Record<string, { description?: string }>
-}
-
-interface CategoryConfig {
-    category: string
-    feature: string
-    url_prefix: string
-    tools: Record<string, ToolConfig>
-}
 
 interface OpenApiParam {
     in: 'path' | 'query' | 'header' | 'cookie'
@@ -410,13 +388,22 @@ ${handlerBody}    },
 function generateCategoryFile(
     category: CategoryConfig,
     fileName: string,
+    moduleName: string,
     spec: OpenApiSpec
-): { code: string; enabledTools: [string, ToolConfig, ResolvedOperation][] } {
-    const enabledTools: [string, ToolConfig, ResolvedOperation][] = []
+): { code: string; enabledTools: [string, EnabledToolConfig, ResolvedOperation][] } {
+    const enabledTools: [string, EnabledToolConfig, ResolvedOperation][] = []
 
     for (const [name, config] of Object.entries(category.tools)) {
         if (!config.enabled) {
             continue
+        }
+        if (!config.scopes?.length) {
+            console.error(`Enabled tool "${name}" is missing required "scopes"`)
+            process.exit(1)
+        }
+        if (!config.annotations) {
+            console.error(`Enabled tool "${name}" is missing required "annotations"`)
+            process.exit(1)
         }
         const resolved = findOperation(spec, config.operation)
         if (!resolved) {
@@ -425,7 +412,7 @@ function generateCategoryFile(
             )
             continue
         }
-        enabledTools.push([name, config, resolved])
+        enabledTools.push([name, config as EnabledToolConfig, resolved])
     }
 
     const allOrvalImports = new Set<string>()
@@ -443,7 +430,7 @@ function generateCategoryFile(
 
     const orvalImportLine =
         allOrvalImports.size > 0
-            ? `\nimport { ${[...allOrvalImports].sort().join(', ')} } from '@/generated/api'\n`
+            ? `\nimport { ${[...allOrvalImports].sort().join(', ')} } from '@/generated/${moduleName}/api'\n`
             : ''
 
     const code = `// AUTO-GENERATED from ${fileName} + OpenAPI — do not edit
@@ -464,7 +451,7 @@ ${mapEntries}
 // ------------------------------------------------------------------
 
 function generateDefinitionsJson(
-    categories: { config: CategoryConfig; enabledTools: [string, ToolConfig, ResolvedOperation][] }[]
+    categories: { config: CategoryConfig; enabledTools: [string, EnabledToolConfig, ResolvedOperation][] }[]
 ): Record<string, unknown> {
     const definitions: Record<string, unknown> = {}
     for (const { config: category, enabledTools } of categories) {
@@ -565,14 +552,24 @@ function main(): void {
 
     fs.mkdirSync(GENERATED_DIR, { recursive: true })
 
-    const allCategories: { config: CategoryConfig; enabledTools: [string, ToolConfig, ResolvedOperation][] }[] = []
+    const allCategories: { config: CategoryConfig; enabledTools: [string, EnabledToolConfig, ResolvedOperation][] }[] =
+        []
     const generatedModules: string[] = []
 
     for (const def of definitionSources) {
         const content = fs.readFileSync(def.filePath, 'utf-8')
-        const config = parseYaml(content) as CategoryConfig
+        const parsed = parseYaml(content)
+        const result = CategoryConfigSchema.safeParse(parsed)
+        if (!result.success) {
+            console.error(`Invalid YAML config in ${def.filePath}:`)
+            for (const issue of result.error.issues) {
+                console.error(`  ${issue.path.join('.')}: ${issue.message}`)
+            }
+            process.exit(1)
+        }
+        const config = result.data
 
-        const { code, enabledTools } = generateCategoryFile(config, def.label, spec)
+        const { code, enabledTools } = generateCategoryFile(config, def.label, def.moduleName, spec)
 
         if (enabledTools.length > 0) {
             generatedModules.push(def.moduleName)

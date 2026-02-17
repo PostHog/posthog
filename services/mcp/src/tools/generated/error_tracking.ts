@@ -6,7 +6,7 @@ import {
     ErrorTrackingIssuesPartialUpdateBody,
     ErrorTrackingIssuesPartialUpdateParams,
     ErrorTrackingIssuesRetrieveParams,
-} from '@/generated/api'
+} from '@/generated/error_tracking/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ErrorTrackingIssuesListSchema = ErrorTrackingIssuesListQueryParams

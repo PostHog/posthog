@@ -1,3 +1,9 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Error tracking
 feature: error_tracking
 url_prefix: /error_tracking
@@ -8,6 +14,18 @@ tools:
     error-tracking-assignment-rules-create:
         operation: error_tracking_assignment_rules_create
         enabled: false
+    error-tracking-assignment-rules-retrieve:
+        operation: error_tracking_assignment_rules_retrieve
+        enabled: false
+    error-tracking-assignment-rules-update:
+        operation: error_tracking_assignment_rules_update
+        enabled: false
+    error-tracking-assignment-rules-partial-update:
+        operation: error_tracking_assignment_rules_partial_update
+        enabled: false
+    error-tracking-assignment-rules-destroy:
+        operation: error_tracking_assignment_rules_destroy
+        enabled: false
     error-tracking-assignment-rules-reorder-partial-update:
         operation: error_tracking_assignment_rules_reorder_partial_update
         enabled: false
@@ -17,11 +35,35 @@ tools:
     error-tracking-autocapture-controls-create:
         operation: error_tracking_autocapture_controls_create
         enabled: false
+    error-tracking-autocapture-controls-retrieve:
+        operation: error_tracking_autocapture_controls_retrieve
+        enabled: false
+    error-tracking-autocapture-controls-update:
+        operation: error_tracking_autocapture_controls_update
+        enabled: false
+    error-tracking-autocapture-controls-partial-update:
+        operation: error_tracking_autocapture_controls_partial_update
+        enabled: false
+    error-tracking-autocapture-controls-destroy:
+        operation: error_tracking_autocapture_controls_destroy
+        enabled: false
     error-tracking-external-references-list:
         operation: error_tracking_external_references_list
         enabled: false
     error-tracking-external-references-create:
         operation: error_tracking_external_references_create
+        enabled: false
+    error-tracking-external-references-retrieve:
+        operation: error_tracking_external_references_retrieve
+        enabled: false
+    error-tracking-external-references-update:
+        operation: error_tracking_external_references_update
+        enabled: false
+    error-tracking-external-references-partial-update:
+        operation: error_tracking_external_references_partial_update
+        enabled: false
+    error-tracking-external-references-destroy:
+        operation: error_tracking_external_references_destroy
         enabled: false
     error-tracking-fingerprints-list:
         operation: error_tracking_fingerprints_list
@@ -44,16 +86,24 @@ tools:
     error-tracking-grouping-rules-create:
         operation: error_tracking_grouping_rules_create
         enabled: false
+    error-tracking-grouping-rules-retrieve:
+        operation: error_tracking_grouping_rules_retrieve
+        enabled: false
+    error-tracking-grouping-rules-update:
+        operation: error_tracking_grouping_rules_update
+        enabled: false
+    error-tracking-grouping-rules-partial-update:
+        operation: error_tracking_grouping_rules_partial_update
+        enabled: false
+    error-tracking-grouping-rules-destroy:
+        operation: error_tracking_grouping_rules_destroy
+        enabled: false
     error-tracking-grouping-rules-reorder-partial-update:
         operation: error_tracking_grouping_rules_reorder_partial_update
         enabled: false
     error-tracking-issues-list:
         operation: error_tracking_issues_list
         enabled: true
-        title: List error tracking issues
-        description: >
-            List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and
-            assignee info.
         scopes:
             - error_tracking:read
         annotations:
@@ -61,38 +111,42 @@ tools:
             destructive: false
             idempotent: true
         list: true
+        title: List error tracking issues
+        description: >
+            List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and
+            assignee info.
     error-tracking-issues-create:
         operation: error_tracking_issues_create
         enabled: false
     error-tracking-issues-retrieve:
         operation: error_tracking_issues_retrieve
         enabled: true
-        title: Get error tracking issue
-        description: >
-            Get a specific error tracking issue by ID. Returns full issue details including status, description, volume, and
-            metadata.
         scopes:
             - error_tracking:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
+        title: Get error tracking issue
+        description: >
+            Get a specific error tracking issue by ID. Returns full issue details including status, description, volume, and
+            metadata.
     error-tracking-issues-update:
         operation: error_tracking_issues_update
         enabled: false
     error-tracking-issues-partial-update:
         operation: error_tracking_issues_partial_update
         enabled: true
-        title: Update error tracking issue
-        description: >
-            Update an error tracking issue. Can change status (active, resolved, suppressed), assign to a user, or update
-            description.
         scopes:
             - error_tracking:write
         annotations:
             readOnly: false
             destructive: false
             idempotent: true
+        title: Update error tracking issue
+        description: >
+            Update an error tracking issue. Can change status (active, resolved, suppressed), assign to a user, or update
+            description.
     error-tracking-issues-destroy:
         operation: error_tracking_issues_destroy
         enabled: false
@@ -155,6 +209,18 @@ tools:
         enabled: false
     error-tracking-suppression-rules-create:
         operation: error_tracking_suppression_rules_create
+        enabled: false
+    error-tracking-suppression-rules-retrieve:
+        operation: error_tracking_suppression_rules_retrieve
+        enabled: false
+    error-tracking-suppression-rules-update:
+        operation: error_tracking_suppression_rules_update
+        enabled: false
+    error-tracking-suppression-rules-partial-update:
+        operation: error_tracking_suppression_rules_partial_update
+        enabled: false
+    error-tracking-suppression-rules-destroy:
+        operation: error_tracking_suppression_rules_destroy
         enabled: false
     error-tracking-suppression-rules-reorder-partial-update:
         operation: error_tracking_suppression_rules_reorder_partial_update

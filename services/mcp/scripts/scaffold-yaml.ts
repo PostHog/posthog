@@ -2,21 +2,27 @@
 /**
  * Scaffolds YAML tool definitions from the OpenAPI schema.
  *
- * Reads the OpenAPI spec and generates starter YAML files with
- * all discovered operations set to `enabled: false`. Idempotent:
- * re-running on an existing file only adds newly discovered operations.
+ * Discovers operations by matching URL paths containing /{product}/,
+ * same approach as frontend/bin/generate-openapi-types.mjs.
+ *
+ * Idempotent: re-running on an existing file only adds newly discovered
+ * operations and removes stale ones. All hand-authored config is preserved.
  *
  * Usage:
- *   pnpm scaffold-yaml --tag actions
- *   pnpm scaffold-yaml --tag error_tracking --output ../../products/error_tracking/mcp/tools.yaml
+ *   pnpm scaffold-yaml --product actions
+ *   pnpm scaffold-yaml --product error_tracking --output ../../products/error_tracking/mcp/tools.yaml
  *   pnpm scaffold-yaml --path /api/projects/{project_id}/actions/
+ *   pnpm scaffold-yaml --sync-all
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
+import { CategoryConfigSchema, type ToolConfig } from './yaml-config-schema'
+
 const MCP_ROOT = path.resolve(__dirname, '..')
 const REPO_ROOT = path.resolve(MCP_ROOT, '../..')
+const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
 const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 
@@ -29,8 +35,6 @@ interface OpenApiOperation {
     parameters?: Array<{ in: string; name: string }>
     summary?: string
     description?: string
-    tags?: string[]
-    'x-explicit-tags'?: string[]
 }
 
 interface OpenApiSpec {
@@ -43,6 +47,14 @@ interface DiscoveredOperation {
     path: string
     description?: string | undefined
 }
+
+const YAML_HEADER = `# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+`
 
 // ------------------------------------------------------------------
 // Helpers
@@ -60,25 +72,31 @@ function operationIdToToolName(operationId: string): string {
     return operationId.replace(/_/g, '-')
 }
 
-function findOperationsByTag(spec: OpenApiSpec, tag: string): DiscoveredOperation[] {
+/**
+ * Find operations whose URL path contains /{product}/ — same approach
+ * as frontend/bin/generate-openapi-types.mjs matchUrlToProduct().
+ */
+function findOperationsByProduct(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
+    const needle = `/${product}/`
 
     for (const [urlPath, methods] of Object.entries(spec.paths)) {
+        if (!urlPath.toLowerCase().replace(/-/g, '_').includes(needle)) {
+            continue
+        }
+
         for (const [method, op] of Object.entries(methods)) {
             if (!httpMethods.has(method) || !op?.operationId) {
                 continue
             }
 
-            const tags = op['x-explicit-tags'] ?? op.tags ?? []
-            if (tags.some((t: string) => t.toLowerCase() === tag.toLowerCase())) {
-                ops.push({
-                    operationId: op.operationId,
-                    method: method.toUpperCase(),
-                    path: urlPath,
-                    description: op.summary || op.description,
-                })
-            }
+            ops.push({
+                operationId: op.operationId,
+                method: method.toUpperCase(),
+                path: urlPath,
+                description: op.summary || op.description,
+            })
         }
     }
 
@@ -157,7 +175,7 @@ function generateFreshYaml(ops: DiscoveredOperation[], tag: string): string {
         tools,
     }
 
-    return stringifyYaml(yaml, { lineWidth: 120 })
+    return YAML_HEADER + stringifyYaml(yaml, { lineWidth: 120 })
 }
 
 /**
@@ -171,17 +189,24 @@ function mergeWithExisting(
     ops: DiscoveredOperation[],
     tag: string
 ): { content: string; added: number; removed: number } {
-    const existing = parseYaml(fs.readFileSync(existingPath, 'utf-8')) as Record<string, unknown>
-    const existingTools = (existing.tools ?? {}) as Record<string, Record<string, unknown>>
+    const parsed = parseYaml(fs.readFileSync(existingPath, 'utf-8'))
+    const result = CategoryConfigSchema.safeParse(parsed)
+    if (!result.success) {
+        console.error(`Invalid existing YAML config in ${existingPath}:`)
+        for (const issue of result.error.issues) {
+            console.error(`  ${issue.path.join('.')}: ${issue.message}`)
+        }
+        process.exit(1)
+    }
+    const existing = result.data
+    const existingTools = existing.tools
 
     // Map base operationId → existing tool entry (name + config)
     // Uses base (strip _N suffix) so dedup changes don't lose existing config
-    const byBaseOperationId = new Map<string, { name: string; config: Record<string, unknown> }>()
+    const byBaseOperationId = new Map<string, { name: string; config: ToolConfig }>()
     for (const [name, config] of Object.entries(existingTools)) {
-        if (config.operation) {
-            const base = (config.operation as string).replace(/_\d+$/, '')
-            byBaseOperationId.set(base, { name, config })
-        }
+        const base = config.operation.replace(/_\d+$/, '')
+        byBaseOperationId.set(base, { name, config })
     }
 
     const openApiBaseIds = new Set(ops.map((op) => op.operationId.replace(/_\d+$/, '')))
@@ -214,22 +239,97 @@ function mergeWithExisting(
         tools: mergedTools,
     }
 
-    return { content: stringifyYaml(merged, { lineWidth: 120 }), added, removed }
+    return { content: YAML_HEADER + stringifyYaml(merged, { lineWidth: 120 }), added, removed }
 }
 
 // ------------------------------------------------------------------
 // CLI
 // ------------------------------------------------------------------
 
+/**
+ * Re-scaffold all existing YAML definitions. Reads the `feature` field
+ * from each YAML as the tag, finds matching OpenAPI operations, and
+ * merges new/removed operations. Idempotent and non-destructive.
+ */
+function syncAll(spec: OpenApiSpec): void {
+    interface SyncTarget {
+        product: string
+        filePath: string
+    }
+
+    const targets: SyncTarget[] = []
+
+    // Core definitions — product derived from filename (e.g. actions.yaml → "actions")
+    if (fs.existsSync(DEFINITIONS_DIR)) {
+        for (const file of fs.readdirSync(DEFINITIONS_DIR)) {
+            if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
+                continue
+            }
+            targets.push({
+                product: file.replace(/\.ya?ml$/, ''),
+                filePath: path.join(DEFINITIONS_DIR, file),
+            })
+        }
+    }
+
+    // Product definitions — product derived from directory name
+    if (fs.existsSync(PRODUCTS_DIR)) {
+        for (const entry of fs.readdirSync(PRODUCTS_DIR, { withFileTypes: true })) {
+            if (!entry.isDirectory() || entry.name.startsWith('_')) {
+                continue
+            }
+            const mcpDir = path.join(PRODUCTS_DIR, entry.name, 'mcp')
+            if (!fs.existsSync(mcpDir)) {
+                continue
+            }
+            for (const file of fs.readdirSync(mcpDir)) {
+                if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
+                    continue
+                }
+                const product =
+                    file === 'tools.yaml' || file === 'tools.yml' ? entry.name : file.replace(/\.ya?ml$/, '')
+                targets.push({ product, filePath: path.join(mcpDir, file) })
+            }
+        }
+    }
+
+    if (targets.length === 0) {
+        process.stdout.write('No existing YAML definitions found.\n')
+        return
+    }
+
+    for (const { product, filePath } of targets) {
+        const rawOps = findOperationsByProduct(spec, product)
+        const ops = deduplicateOperations(rawOps)
+        if (ops.length === 0) {
+            process.stdout.write(`${product}: no operations found in OpenAPI, skipping\n`)
+            continue
+        }
+        const { content, added, removed } = mergeWithExisting(filePath, ops, product)
+        fs.writeFileSync(filePath, content)
+        const parts = [`${ops.length} operation(s)`]
+        if (added > 0) {
+            parts.push(`${added} new`)
+        }
+        if (removed > 0) {
+            parts.push(`${removed} removed`)
+        }
+        if (added === 0 && removed === 0) {
+            parts.push('no changes')
+        }
+        process.stdout.write(`${product}: ${parts.join(', ')}\n`)
+    }
+}
+
 function main(): void {
     const args = process.argv.slice(2)
-    let tag: string | undefined
+    let product: string | undefined
     let pathPrefix: string | undefined
     let outputPath: string | undefined
 
     for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--tag' && args[i + 1]) {
-            tag = args[++i]
+        if (args[i] === '--product' && args[i + 1]) {
+            product = args[++i]
         } else if (args[i] === '--path' && args[i + 1]) {
             pathPrefix = args[++i]
         } else if (args[i] === '--output' && args[i + 1]) {
@@ -237,47 +337,37 @@ function main(): void {
         }
     }
 
-    if (!tag && !pathPrefix) {
-        console.error('Usage: scaffold-yaml --tag <tag> [--output <file>]')
-        console.error('       scaffold-yaml --path <prefix> [--output <file>]')
-
+    if (args.includes('--sync-all')) {
         const spec = loadOpenApi()
-        const tagCounts = new Map<string, number>()
-        for (const methods of Object.values(spec.paths)) {
-            for (const op of Object.values(methods)) {
-                if (!op?.operationId) {
-                    continue
-                }
-                for (const t of (op['x-explicit-tags'] ?? op.tags ?? []) as string[]) {
-                    tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1)
-                }
-            }
-        }
+        syncAll(spec)
+        return
+    }
 
-        console.error('\nAvailable tags:')
-        const sorted = [...tagCounts.entries()].sort((a, b) => b[1] - a[1])
-        for (const [t, count] of sorted.slice(0, 30)) {
-            console.error(`  ${t} (${count} operations)`)
-        }
+    if (!product && !pathPrefix) {
+        console.error('Usage: scaffold-yaml --product <name> [--output <file>]')
+        console.error('       scaffold-yaml --path <prefix> [--output <file>]')
+        console.error('       scaffold-yaml --sync-all')
+        console.error('')
+        console.error('Products are matched by URL path containing /<name>/.')
         process.exit(1)
     }
 
     const spec = loadOpenApi()
-    const rawOps = tag ? findOperationsByTag(spec, tag) : findOperationsByPath(spec, pathPrefix!)
+    const rawOps = product ? findOperationsByProduct(spec, product) : findOperationsByPath(spec, pathPrefix!)
     const ops = deduplicateOperations(rawOps)
 
     if (ops.length === 0) {
-        console.error(`No operations found for ${tag ? `tag "${tag}"` : `path "${pathPrefix}"`}`)
+        console.error(`No operations found for ${product ? `product "${product}"` : `path "${pathPrefix}"`}`)
         process.exit(1)
     }
 
-    // Default output: services/mcp/definitions/<tag>.yaml
+    const name = product ?? 'unknown'
     const resolvedOutput = outputPath
         ? path.resolve(MCP_ROOT, outputPath)
-        : path.join(DEFINITIONS_DIR, `${(tag ?? 'unknown').replace(/-/g, '_')}.yaml`)
+        : path.join(DEFINITIONS_DIR, `${name.replace(/-/g, '_')}.yaml`)
 
     if (fs.existsSync(resolvedOutput)) {
-        const { content, added, removed } = mergeWithExisting(resolvedOutput, ops, tag ?? 'unknown')
+        const { content, added, removed } = mergeWithExisting(resolvedOutput, ops, name)
         fs.writeFileSync(resolvedOutput, content)
         const parts = [`${ops.length} operation(s)`]
         if (added > 0) {
@@ -292,7 +382,7 @@ function main(): void {
         process.stdout.write(`${parts.join(', ')} — ${resolvedOutput}\n`)
     } else {
         fs.mkdirSync(path.dirname(resolvedOutput), { recursive: true })
-        fs.writeFileSync(resolvedOutput, generateFreshYaml(ops, tag ?? 'unknown'))
+        fs.writeFileSync(resolvedOutput, generateFreshYaml(ops, name))
         process.stdout.write(`${ops.length} operation(s) — created ${resolvedOutput}\n`)
     }
 }

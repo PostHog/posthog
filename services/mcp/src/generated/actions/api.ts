@@ -2,296 +2,11 @@
  * Auto-generated from the Django backend OpenAPI schema.
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
+ *
+ * PostHog API - MCP 6 ops
+ * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
-
-export const ErrorTrackingIssuesListParams = zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const ErrorTrackingIssuesListQueryParams = zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
-export const ErrorTrackingIssuesListResponse = zod.object({
-    count: zod.number(),
-    next: zod.string().url().nullish(),
-    previous: zod.string().url().nullish(),
-    results: zod.array(
-        zod.object({
-            id: zod.string().uuid(),
-            status: zod
-                .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
-                .optional()
-                .describe(
-                    '* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed'
-                ),
-            name: zod.string().nullish(),
-            description: zod.string().nullish(),
-            first_seen: zod.string().datetime({}),
-            assignee: zod.object({
-                id: zod.string(),
-                type: zod.string(),
-            }),
-            external_issues: zod.array(
-                zod.object({
-                    id: zod.string().uuid(),
-                    integration: zod.object({
-                        id: zod.number(),
-                        kind: zod
-                            .enum([
-                                'slack',
-                                'salesforce',
-                                'hubspot',
-                                'google-pubsub',
-                                'google-cloud-storage',
-                                'google-ads',
-                                'google-sheets',
-                                'snapchat',
-                                'linkedin-ads',
-                                'reddit-ads',
-                                'tiktok-ads',
-                                'bing-ads',
-                                'intercom',
-                                'email',
-                                'linear',
-                                'github',
-                                'gitlab',
-                                'meta-ads',
-                                'twilio',
-                                'clickup',
-                                'vercel',
-                                'databricks',
-                                'azure-blob',
-                                'firebase',
-                                'jira',
-                            ])
-                            .describe(
-                                '* `slack` - Slack\n* `salesforce` - Salesforce\n* `hubspot` - Hubspot\n* `google-pubsub` - Google Pubsub\n* `google-cloud-storage` - Google Cloud Storage\n* `google-ads` - Google Ads\n* `google-sheets` - Google Sheets\n* `snapchat` - Snapchat\n* `linkedin-ads` - Linkedin Ads\n* `reddit-ads` - Reddit Ads\n* `tiktok-ads` - Tiktok Ads\n* `bing-ads` - Bing Ads\n* `intercom` - Intercom\n* `email` - Email\n* `linear` - Linear\n* `github` - Github\n* `gitlab` - Gitlab\n* `meta-ads` - Meta Ads\n* `twilio` - Twilio\n* `clickup` - Clickup\n* `vercel` - Vercel\n* `databricks` - Databricks\n* `azure-blob` - Azure Blob\n* `firebase` - Firebase\n* `jira` - Jira'
-                            ),
-                        display_name: zod.string(),
-                    }),
-                    integration_id: zod.number(),
-                    config: zod.unknown(),
-                    issue: zod.string().uuid(),
-                    external_url: zod.string(),
-                })
-            ),
-            cohort: zod.string(),
-        })
-    ),
-})
-
-export const ErrorTrackingIssuesRetrieveParams = zod.object({
-    id: zod.string().uuid().describe('A UUID string identifying this error tracking issue.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const ErrorTrackingIssuesRetrieveResponse = zod.object({
-    id: zod.string().uuid(),
-    status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
-        .optional()
-        .describe(
-            '* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed'
-        ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.string().datetime({}),
-    assignee: zod.object({
-        id: zod.string(),
-        type: zod.string(),
-    }),
-    external_issues: zod.array(
-        zod.object({
-            id: zod.string().uuid(),
-            integration: zod.object({
-                id: zod.number(),
-                kind: zod
-                    .enum([
-                        'slack',
-                        'salesforce',
-                        'hubspot',
-                        'google-pubsub',
-                        'google-cloud-storage',
-                        'google-ads',
-                        'google-sheets',
-                        'snapchat',
-                        'linkedin-ads',
-                        'reddit-ads',
-                        'tiktok-ads',
-                        'bing-ads',
-                        'intercom',
-                        'email',
-                        'linear',
-                        'github',
-                        'gitlab',
-                        'meta-ads',
-                        'twilio',
-                        'clickup',
-                        'vercel',
-                        'databricks',
-                        'azure-blob',
-                        'firebase',
-                        'jira',
-                    ])
-                    .describe(
-                        '* `slack` - Slack\n* `salesforce` - Salesforce\n* `hubspot` - Hubspot\n* `google-pubsub` - Google Pubsub\n* `google-cloud-storage` - Google Cloud Storage\n* `google-ads` - Google Ads\n* `google-sheets` - Google Sheets\n* `snapchat` - Snapchat\n* `linkedin-ads` - Linkedin Ads\n* `reddit-ads` - Reddit Ads\n* `tiktok-ads` - Tiktok Ads\n* `bing-ads` - Bing Ads\n* `intercom` - Intercom\n* `email` - Email\n* `linear` - Linear\n* `github` - Github\n* `gitlab` - Gitlab\n* `meta-ads` - Meta Ads\n* `twilio` - Twilio\n* `clickup` - Clickup\n* `vercel` - Vercel\n* `databricks` - Databricks\n* `azure-blob` - Azure Blob\n* `firebase` - Firebase\n* `jira` - Jira'
-                    ),
-                display_name: zod.string(),
-            }),
-            integration_id: zod.number(),
-            config: zod.unknown(),
-            issue: zod.string().uuid(),
-            external_url: zod.string(),
-        })
-    ),
-    cohort: zod.string(),
-})
-
-export const ErrorTrackingIssuesPartialUpdateParams = zod.object({
-    id: zod.string().uuid().describe('A UUID string identifying this error tracking issue.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const ErrorTrackingIssuesPartialUpdateBody = zod.object({
-    status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
-        .optional()
-        .describe(
-            '* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed'
-        ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.string().datetime({}).optional(),
-    assignee: zod
-        .object({
-            id: zod.string(),
-            type: zod.string(),
-        })
-        .optional(),
-    external_issues: zod
-        .array(
-            zod.object({
-                id: zod.string().uuid(),
-                integration: zod.object({
-                    id: zod.number(),
-                    kind: zod
-                        .enum([
-                            'slack',
-                            'salesforce',
-                            'hubspot',
-                            'google-pubsub',
-                            'google-cloud-storage',
-                            'google-ads',
-                            'google-sheets',
-                            'snapchat',
-                            'linkedin-ads',
-                            'reddit-ads',
-                            'tiktok-ads',
-                            'bing-ads',
-                            'intercom',
-                            'email',
-                            'linear',
-                            'github',
-                            'gitlab',
-                            'meta-ads',
-                            'twilio',
-                            'clickup',
-                            'vercel',
-                            'databricks',
-                            'azure-blob',
-                            'firebase',
-                            'jira',
-                        ])
-                        .describe(
-                            '* `slack` - Slack\n* `salesforce` - Salesforce\n* `hubspot` - Hubspot\n* `google-pubsub` - Google Pubsub\n* `google-cloud-storage` - Google Cloud Storage\n* `google-ads` - Google Ads\n* `google-sheets` - Google Sheets\n* `snapchat` - Snapchat\n* `linkedin-ads` - Linkedin Ads\n* `reddit-ads` - Reddit Ads\n* `tiktok-ads` - Tiktok Ads\n* `bing-ads` - Bing Ads\n* `intercom` - Intercom\n* `email` - Email\n* `linear` - Linear\n* `github` - Github\n* `gitlab` - Gitlab\n* `meta-ads` - Meta Ads\n* `twilio` - Twilio\n* `clickup` - Clickup\n* `vercel` - Vercel\n* `databricks` - Databricks\n* `azure-blob` - Azure Blob\n* `firebase` - Firebase\n* `jira` - Jira'
-                        ),
-                    display_name: zod.string(),
-                }),
-                integration_id: zod.number(),
-                config: zod.unknown(),
-                issue: zod.string().uuid(),
-                external_url: zod.string(),
-            })
-        )
-        .optional(),
-})
-
-export const ErrorTrackingIssuesPartialUpdateResponse = zod.object({
-    id: zod.string().uuid(),
-    status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
-        .optional()
-        .describe(
-            '* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed'
-        ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.string().datetime({}),
-    assignee: zod.object({
-        id: zod.string(),
-        type: zod.string(),
-    }),
-    external_issues: zod.array(
-        zod.object({
-            id: zod.string().uuid(),
-            integration: zod.object({
-                id: zod.number(),
-                kind: zod
-                    .enum([
-                        'slack',
-                        'salesforce',
-                        'hubspot',
-                        'google-pubsub',
-                        'google-cloud-storage',
-                        'google-ads',
-                        'google-sheets',
-                        'snapchat',
-                        'linkedin-ads',
-                        'reddit-ads',
-                        'tiktok-ads',
-                        'bing-ads',
-                        'intercom',
-                        'email',
-                        'linear',
-                        'github',
-                        'gitlab',
-                        'meta-ads',
-                        'twilio',
-                        'clickup',
-                        'vercel',
-                        'databricks',
-                        'azure-blob',
-                        'firebase',
-                        'jira',
-                    ])
-                    .describe(
-                        '* `slack` - Slack\n* `salesforce` - Salesforce\n* `hubspot` - Hubspot\n* `google-pubsub` - Google Pubsub\n* `google-cloud-storage` - Google Cloud Storage\n* `google-ads` - Google Ads\n* `google-sheets` - Google Sheets\n* `snapchat` - Snapchat\n* `linkedin-ads` - Linkedin Ads\n* `reddit-ads` - Reddit Ads\n* `tiktok-ads` - Tiktok Ads\n* `bing-ads` - Bing Ads\n* `intercom` - Intercom\n* `email` - Email\n* `linear` - Linear\n* `github` - Github\n* `gitlab` - Gitlab\n* `meta-ads` - Meta Ads\n* `twilio` - Twilio\n* `clickup` - Clickup\n* `vercel` - Vercel\n* `databricks` - Databricks\n* `azure-blob` - Azure Blob\n* `firebase` - Firebase\n* `jira` - Jira'
-                    ),
-                display_name: zod.string(),
-            }),
-            integration_id: zod.number(),
-            config: zod.unknown(),
-            issue: zod.string().uuid(),
-            external_url: zod.string(),
-        })
-    ),
-    cohort: zod.string(),
-})
 
 export const ActionsListParams = zod.object({
     project_id: zod
@@ -570,6 +285,179 @@ export const ActionsRetrieveResponse = zod
             first_name: zod.string().max(actionsRetrieveResponseCreatedByOneFirstNameMax).optional(),
             last_name: zod.string().max(actionsRetrieveResponseCreatedByOneLastNameMax).optional(),
             email: zod.string().email().max(actionsRetrieveResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        }),
+        deleted: zod.boolean().optional(),
+        is_calculating: zod.boolean(),
+        last_calculated_at: zod.string().datetime({}).optional(),
+        team_id: zod.number(),
+        is_action: zod.boolean(),
+        bytecode_error: zod.string().nullable(),
+        pinned_at: zod.string().datetime({}).nullish(),
+        creation_context: zod.string(),
+        _create_in_folder: zod.string().optional(),
+        user_access_level: zod.string().nullable().describe('The effective access level the user has for this object'),
+    })
+    .describe('Serializer mixin that handles tags for objects.')
+
+export const ActionsUpdateParams = zod.object({
+    id: zod.number().describe('A unique integer value identifying this action.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ActionsUpdateQueryParams = zod.object({
+    format: zod.enum(['csv', 'json']).optional(),
+})
+
+export const actionsUpdateBodyNameMax = 400
+
+export const actionsUpdateBodySlackMessageFormatMax = 1200
+
+export const ActionsUpdateBody = zod
+    .object({
+        name: zod.string().max(actionsUpdateBodyNameMax).nullish(),
+        description: zod.string().optional(),
+        tags: zod.array(zod.unknown()).optional(),
+        post_to_slack: zod.boolean().optional(),
+        slack_message_format: zod.string().max(actionsUpdateBodySlackMessageFormatMax).optional(),
+        steps: zod
+            .array(
+                zod.object({
+                    event: zod.string().nullish(),
+                    properties: zod.array(zod.record(zod.string(), zod.unknown())).nullish(),
+                    selector: zod.string().nullish(),
+                    selector_regex: zod.string().nullable(),
+                    tag_name: zod.string().nullish(),
+                    text: zod.string().nullish(),
+                    text_matching: zod
+                        .union([
+                            zod
+                                .enum(['contains', 'regex', 'exact'])
+                                .describe('* `contains` - contains\n* `regex` - regex\n* `exact` - exact'),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                    href: zod.string().nullish(),
+                    href_matching: zod
+                        .union([
+                            zod
+                                .enum(['contains', 'regex', 'exact'])
+                                .describe('* `contains` - contains\n* `regex` - regex\n* `exact` - exact'),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                    url: zod.string().nullish(),
+                    url_matching: zod
+                        .union([
+                            zod
+                                .enum(['contains', 'regex', 'exact'])
+                                .describe('* `contains` - contains\n* `regex` - regex\n* `exact` - exact'),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+            )
+            .optional(),
+        deleted: zod.boolean().optional(),
+        last_calculated_at: zod.string().datetime({}).optional(),
+        pinned_at: zod.string().datetime({}).nullish(),
+        _create_in_folder: zod.string().optional(),
+    })
+    .describe('Serializer mixin that handles tags for objects.')
+
+export const actionsUpdateResponseNameMax = 400
+
+export const actionsUpdateResponseSlackMessageFormatMax = 1200
+
+export const actionsUpdateResponseCreatedByOneDistinctIdMax = 200
+
+export const actionsUpdateResponseCreatedByOneFirstNameMax = 150
+
+export const actionsUpdateResponseCreatedByOneLastNameMax = 150
+
+export const actionsUpdateResponseCreatedByOneEmailMax = 254
+
+export const actionsUpdateResponseIsActionDefault = true
+
+export const ActionsUpdateResponse = zod
+    .object({
+        id: zod.number(),
+        name: zod.string().max(actionsUpdateResponseNameMax).nullish(),
+        description: zod.string().optional(),
+        tags: zod.array(zod.unknown()).optional(),
+        post_to_slack: zod.boolean().optional(),
+        slack_message_format: zod.string().max(actionsUpdateResponseSlackMessageFormatMax).optional(),
+        steps: zod
+            .array(
+                zod.object({
+                    event: zod.string().nullish(),
+                    properties: zod.array(zod.record(zod.string(), zod.unknown())).nullish(),
+                    selector: zod.string().nullish(),
+                    selector_regex: zod.string().nullable(),
+                    tag_name: zod.string().nullish(),
+                    text: zod.string().nullish(),
+                    text_matching: zod
+                        .union([
+                            zod
+                                .enum(['contains', 'regex', 'exact'])
+                                .describe('* `contains` - contains\n* `regex` - regex\n* `exact` - exact'),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                    href: zod.string().nullish(),
+                    href_matching: zod
+                        .union([
+                            zod
+                                .enum(['contains', 'regex', 'exact'])
+                                .describe('* `contains` - contains\n* `regex` - regex\n* `exact` - exact'),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                    url: zod.string().nullish(),
+                    url_matching: zod
+                        .union([
+                            zod
+                                .enum(['contains', 'regex', 'exact'])
+                                .describe('* `contains` - contains\n* `regex` - regex\n* `exact` - exact'),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+            )
+            .optional(),
+        created_at: zod.string().datetime({}),
+        created_by: zod.object({
+            id: zod.number(),
+            uuid: zod.string().uuid(),
+            distinct_id: zod.string().max(actionsUpdateResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(actionsUpdateResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(actionsUpdateResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(actionsUpdateResponseCreatedByOneEmailMax),
             is_email_verified: zod.boolean().nullish(),
             hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
             role_at_organization: zod

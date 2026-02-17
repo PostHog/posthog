@@ -8,7 +8,7 @@ import {
     ActionsPartialUpdateBody,
     ActionsPartialUpdateParams,
     ActionsRetrieveParams,
-} from '@/generated/api'
+} from '@/generated/actions/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ActionsGetAllSchema = ActionsListQueryParams.omit({ format: true })
