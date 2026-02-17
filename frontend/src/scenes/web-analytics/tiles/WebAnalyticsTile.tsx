@@ -791,32 +791,62 @@ export const WebStatsTableTile = ({
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
+    const isCompoundBreakdown =
+        breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign ||
+        breakdownBy === WebStatsBreakdown.Viewport ||
+        breakdownBy === WebStatsBreakdown.Timezone
+
     const onClick = useCallback(
         (breakdownValue: string | null) => {
-            if (!key || !type) {
-                return
-            }
-
             if (productTab === ProductTab.PAGE_REPORTS) {
                 lemonToast.info('Filters are not yet supported in this tile')
                 return
             }
 
+            if (breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign && breakdownValue) {
+                const values = breakdownValue.split(' / ')
+                if (values[0] && values[0] !== '(none)') {
+                    togglePropertyFilter(PropertyFilterType.Session, '$entry_utm_source', values[0])
+                }
+                if (values[1] && values[1] !== '(none)') {
+                    togglePropertyFilter(PropertyFilterType.Session, '$entry_utm_medium', values[1])
+                }
+                if (values[2] && values[2] !== '(none)') {
+                    togglePropertyFilter(PropertyFilterType.Session, '$entry_utm_campaign', values[2])
+                }
+                return
+            }
+
+            if (breakdownBy === WebStatsBreakdown.Viewport && breakdownValue) {
+                const [width, height] = breakdownValue.split('x')
+                if (width) {
+                    togglePropertyFilter(PropertyFilterType.Event, '$viewport_width', Number(width))
+                }
+                if (height) {
+                    togglePropertyFilter(PropertyFilterType.Event, '$viewport_height', Number(height))
+                }
+                return
+            }
+
+            if (breakdownBy === WebStatsBreakdown.Timezone && breakdownValue) {
+                // Backend displays -(offset_minutes)/60, so reverse: offset = -(display * 60)
+                const offsetMinutes = -(Number(breakdownValue) * 60)
+                togglePropertyFilter(PropertyFilterType.Event, '$timezone_offset', offsetMinutes)
+                return
+            }
+
+            if (!key || !type) {
+                return
+            }
+
             togglePropertyFilter(type, key, breakdownValue)
         },
-        [togglePropertyFilter, type, key, productTab]
+        [togglePropertyFilter, type, key, productTab, breakdownBy]
     )
 
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
-            // `onClick` won't know how to handle the breakdown value if these don't exist,
-            // so let's prevent from `onClick` from being set up in the first place to avoid a noop click
-            if (!key || !type) {
-                return {}
-            }
-
-            // Tricky to calculate because the breakdown is a computed value rather than a DB column, make it non-filterable for now
-            if (breakdownBy === WebStatsBreakdown.Language || breakdownBy === WebStatsBreakdown.Timezone) {
+            if (!key && !type && !isCompoundBreakdown) {
                 return {}
             }
 
@@ -834,7 +864,7 @@ export const WebStatsTableTile = ({
             rowProps,
             compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
         }
-    }, [onClick, insightProps, breakdownBy, key, type, query])
+    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -875,6 +905,16 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
         case WebStatsBreakdown.City:
             if (Array.isArray(breakdownValue)) {
                 return breakdownValue[1]
+            }
+            break
+        case WebStatsBreakdown.Viewport:
+            if (Array.isArray(breakdownValue)) {
+                return `${breakdownValue[0]}x${breakdownValue[1]}`
+            }
+            break
+        case WebStatsBreakdown.Timezone:
+            if (typeof breakdownValue === 'number') {
+                return String(breakdownValue)
             }
             break
         case WebStatsBreakdown.FrustrationMetrics:
