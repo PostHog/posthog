@@ -1,5 +1,6 @@
 import json
 import uuid
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,8 +24,8 @@ from posthog.temporal.data_imports.workflow_activities.emit_signals import (
 MODULE_PATH = "posthog.temporal.data_imports.workflow_activities.emit_signals"
 
 
-def _make_config(**overrides) -> SignalSourceTableConfig:
-    defaults = {
+def _make_config(**overrides: Any) -> SignalSourceTableConfig:
+    defaults: dict[str, Any] = {
         "emitter": lambda team_id, record: SignalEmitterOutput(
             source_type="test",
             source_id=str(record.get("id", "unknown")),
@@ -264,7 +265,7 @@ class TestEmitDataImportSignalsWorkflow:
     async def test_executes_activity_with_inputs(self):
         schema_id = uuid.uuid4()
         source_id = uuid.uuid4()
-        captured_inputs = {}
+        captured_inputs: dict[str, Any] = {}
 
         @activity.defn(name="emit_data_import_signals_activity")
         async def mock_activity(inputs: EmitSignalsActivityInputs) -> dict:
