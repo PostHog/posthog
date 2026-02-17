@@ -204,6 +204,11 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     # Phase 2: batch classify all collected texts at once
     results = classify_batch([p.text for p in pending])
 
+    from posthog.temporal.llm_analytics.sentiment.metrics import record_messages_classified, record_traces_classified
+
+    record_traces_classified(1)
+    record_messages_classified(len(pending))
+
     # Phase 3: reconstruct per-generation and per-message structures
     # Messages are keyed by their original position in $ai_input so the
     # frontend can look up sentiment by the same stable index.
@@ -407,6 +412,15 @@ async def classify_sentiment_batch_activity(input: ClassifySentimentBatchInput) 
 
     # Batch classify all texts across all traces in one call
     all_results = classify_batch([p.text for p in pending]) if pending else []
+
+    if pending:
+        from posthog.temporal.llm_analytics.sentiment.metrics import (
+            record_messages_classified,
+            record_traces_classified,
+        )
+
+        record_traces_classified(len(input.trace_ids))
+        record_messages_classified(len(pending))
 
     # Build per-trace results
     output: dict[str, dict[str, Any]] = {}
