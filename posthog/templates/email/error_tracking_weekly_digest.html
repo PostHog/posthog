@@ -2,40 +2,49 @@
 {% load posthog_assets %}
 {% load posthog_filters %}
 
-{% block preheader %}Error tracking weekly digest{% endblock %}
+{% block head %}
+<style type="text/css">
+    body, .main { background-color: #f3f4f0 !important; }
+</style>
+{% endblock %}
 
-{% block heading %}Error tracking weekly digest{% endblock %}
+{% block preheader %}Error tracking weekly digest for {{ team.name }}{% endblock %}
+
+{% block heading %}{% endblock %}
 
 {% block section %}
-<p>
-    Here's your weekly error tracking summary for <strong>{{ team.name }}</strong>.
-</p>
-
-<div class="mb mt" style="border: 1px solid #e1e5e9; padding: 20px; border-radius: 8px; text-align: center;">
-    <p style="margin: 0 0 4px 0; font-size: 0.9em; color: #6b7280;">Exceptions caught in the last 7 days</p>
-    <p style="margin: 0 0 16px 0; font-size: 2.5em; font-weight: bold;">
-        {{ exception_count|intcomma }}
-    </p>
-    {% if daily_counts %}
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
-        <tr>
-            {% for day in daily_counts %}
-            <td align="center" valign="bottom" style="padding: 0 3px; height: 60px;">
-                <div style="width: 100%; min-width: 20px; height: {{ day.height_pct }}%; {% if day.height_pct > 0 %}min-height: 3px;{% endif %} background-color: #9f9fa9; border-radius: 3px 3px 0 0;"></div>
-            </td>
-            {% endfor %}
-        </tr>
-        <tr>
-            {% for day in daily_counts %}
-            <td align="center" style="padding: 4px 3px 0; font-size: 0.75em; color: #9ca3af;">{{ day.day }}</td>
-            {% endfor %}
-        </tr>
-    </table>
-    {% endif %}
+<!-- Section: Total -->
+<div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
+    <h3 style="margin: 0 0 4px 0; text-align: left;">Total</h3>
+    <p style="margin: 0 0 16px 0; font-size: 0.85em; color: #6b7280; text-align: left;">All exceptions captured across <strong>{{ team.name }}</strong> in the last 7 days.</p>
+    <div style="text-align: center;">
+        <p style="margin: 0 0 16px 0; font-size: 2.5em; font-weight: bold;">
+            {{ exception_count|intcomma }}
+        </p>
+        {% if daily_counts %}
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
+            <tr>
+                {% for day in daily_counts %}
+                <td align="center" valign="bottom" style="padding: 0 3px; height: 60px;">
+                    <div style="width: 100%; min-width: 20px; height: {{ day.height_pct }}%; {% if day.height_pct > 0 %}min-height: 3px;{% endif %} background-color: #9f9fa9; border-radius: 3px 3px 0 0;"></div>
+                </td>
+                {% endfor %}
+            </tr>
+            <tr>
+                {% for day in daily_counts %}
+                <td align="center" style="padding: 4px 3px 0; font-size: 0.75em; color: #9ca3af;">{{ day.day }}</td>
+                {% endfor %}
+            </tr>
+        </table>
+        {% endif %}
+    </div>
 </div>
 
+<!-- Section: Top issues -->
 {% if top_issues %}
-<div class="mb mt">
+<div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
+    <h3 style="margin: 0 0 4px 0; text-align: left;">Top issues</h3>
+    <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #6b7280; text-align: left;">The noisiest issues in your project this week, ranked by total occurrences.</p>
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
         <thead>
             <tr style="border-bottom: 1px solid #e1e5e9;">
@@ -66,7 +75,7 @@
                     </table>
                     {% endif %}
                 </td>
-                <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; font-weight: 600; color: #111827; white-space: nowrap; width: 90px;">
+                <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; color: #111827; white-space: nowrap; width: 90px;">
                     {{ issue.occurrence_count|intcomma }}
                 </td>
             </tr>
@@ -76,14 +85,59 @@
 </div>
 {% endif %}
 
-<div class="mb mt text-center">
+<!-- Section: New issues -->
+{% if new_issues %}
+<div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
+    <h3 style="margin: 0 0 4px 0; text-align: left;">New issues this week</h3>
+    <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #6b7280; text-align: left;">Issues first seen in the last 7 days. These may need triaging.</p>
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
+        <thead>
+            <tr style="border-bottom: 1px solid #e1e5e9;">
+                <th align="left" style="padding: 8px 8px 8px 0; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; text-align: left;">Issue</th>
+                <th align="center" style="padding: 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">Volume</th>
+                <th align="right" style="padding: 8px 0 8px 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">Occurrences</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for issue in new_issues %}
+            <tr style="border-bottom: 1px solid #f3f4f6;">
+                <td align="left" style="padding: 10px 8px 10px 0; vertical-align: top; text-align: left;">
+                    <a href="{{ issue.url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em;">{{ issue.name }}</a>
+                    {% if issue.description %}
+                    <div style="color: #6b7280; font-size: 0.8em; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px;">{{ issue.description }}</div>
+                    {% endif %}
+                </td>
+                <td align="center" style="padding: 10px 8px; vertical-align: middle; width: 90px;">
+                    {% if issue.sparkline %}
+                    <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto; height: 24px;">
+                        <tr>
+                            {% for bar in issue.sparkline %}
+                            <td valign="bottom" style="padding: 0 1px; height: 24px;">
+                                <div style="width: 8px; height: {{ bar.height_pct }}%; {% if bar.height_pct > 0 %}min-height: 2px;{% endif %} background-color: #9f9fa9; border-radius: 1px;"></div>
+                            </td>
+                            {% endfor %}
+                        </tr>
+                    </table>
+                    {% endif %}
+                </td>
+                <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; color: #111827; white-space: nowrap; width: 90px;">
+                    {{ issue.occurrence_count|intcomma }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<div style="margin-bottom: 16px; text-align: center;">
     <a class="button" href="{{ error_tracking_url }}">
         View Error Tracking
     </a>
 </div>
 
 {% if ingestion_failure_count > 0 %}
-<div class="mb mt" style="background-color: #fef3cd; border: 1px solid #ffc107; padding: 20px; border-radius: 8px;">
+<div style="background-color: #fef3cd; border: 1px solid #ffc107; padding: 20px; border-radius: 8px; margin-bottom: 16px;">
     <p style="margin: 0 0 8px 0; font-weight: 700; color: #856404; font-size: 1em;">
         &#9888; {{ ingestion_failure_count|intcomma }} exceptions failed to ingest
     </p>
