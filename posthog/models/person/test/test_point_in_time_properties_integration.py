@@ -12,10 +12,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
-from posthog.models.person.point_in_time_properties import (
-    build_person_properties_at_time,
-    build_person_properties_at_time_with_set_once,
-)
+from posthog.models.person.point_in_time_properties import build_person_properties_at_time
 
 
 class TestPointInTimePropertiesIntegration(TestCase):
@@ -178,7 +175,7 @@ class TestPointInTimePropertiesIntegration(TestCase):
 
         # Test the final state
         final_timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties = build_person_properties_at_time_with_set_once("bob123", 1, final_timestamp)
+        properties = build_person_properties_at_time("bob123", 1, final_timestamp, include_set_once=True)
 
         expected = {
             "first_seen": "2023-01-01",

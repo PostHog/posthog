@@ -130,24 +130,3 @@ def build_person_properties_at_time(
                 continue
 
     return person_properties
-
-
-# Backward compatibility wrapper - deprecated
-def build_person_properties_at_time_with_set_once(
-    distinct_id: str,
-    team_id: int,
-    timestamp: datetime,
-    timeout: Optional[int] = 30,
-) -> dict[str, Any]:
-    """
-    DEPRECATED: Use build_person_properties_at_time(include_set_once=True) instead.
-
-    Build person properties at a specific point in time, handling both $set and $set_once operations.
-    """
-    return build_person_properties_at_time(
-        distinct_id=distinct_id,
-        team_id=team_id,
-        timestamp=timestamp,
-        include_set_once=True,
-        timeout=timeout,
-    )

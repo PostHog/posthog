@@ -10,10 +10,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
-from posthog.models.person.point_in_time_properties import (
-    build_person_properties_at_time,
-    build_person_properties_at_time_with_set_once,
-)
+from posthog.models.person.point_in_time_properties import build_person_properties_at_time
 
 
 class TestPointInTimeProperties(TestCase):
@@ -136,7 +133,7 @@ class TestPointInTimePropertiesWithSetOnce(TestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time_with_set_once("user123", 1, timestamp)
+        result = build_person_properties_at_time("user123", 1, timestamp, include_set_once=True)
 
         # name should remain "John" (not overwritten by $set_once)
         # email should be set by $set_once since it didn't exist
@@ -157,7 +154,7 @@ class TestPointInTimePropertiesWithSetOnce(TestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time_with_set_once("user123", 1, timestamp)
+        result = build_person_properties_at_time("user123", 1, timestamp, include_set_once=True)
 
         # $set_once sets name first, then $set overwrites it
         expected = {"name": "John", "email": "jane@example.com"}
@@ -181,7 +178,7 @@ class TestPointInTimePropertiesWithSetOnce(TestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time_with_set_once("user123", 1, timestamp)
+        result = build_person_properties_at_time("user123", 1, timestamp, include_set_once=True)
 
         # First $set_once should win for name, second should set location
         expected = {"name": "First", "email": "first@example.com", "location": "SF"}
