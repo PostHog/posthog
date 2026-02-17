@@ -80,17 +80,17 @@ describe('experimentsTabLogic', () => {
         })
         initKeaTests()
 
-        theToolbarConfigLogic = toolbarConfigLogic.build({ apiURL: 'http://localhost', temporaryToken: 'test-token' })
-        theToolbarConfigLogic.mount()
-
-        theToolbarLogic = toolbarLogic()
-        theToolbarLogic.mount()
-
         theExperimentsLogic = experimentsLogic()
         theExperimentsLogic.mount()
 
         theExperimentsTabLogic = experimentsTabLogic()
         theExperimentsTabLogic.mount()
+
+        theToolbarLogic = toolbarLogic()
+        theToolbarLogic.mount()
+
+        theToolbarConfigLogic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+        theToolbarConfigLogic.mount()
     })
 
     describe('core assumptions', () => {
