@@ -27,26 +27,18 @@ class ErrorTrackingSpikeDetectionConfigSerializer(serializers.ModelSerializer):
 class ErrorTrackingSpikeDetectionConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
 
+    def _get_or_create_config(self):
+        config, _ = ErrorTrackingSpikeDetectionConfig.objects.get_or_create(team=self.team)
+        return config
+
     def list(self, request, *args, **kwargs):
-        try:
-            config = ErrorTrackingSpikeDetectionConfig.objects.get(team=self.team)
-        except ErrorTrackingSpikeDetectionConfig.DoesNotExist:
-            return Response(None, status=status.HTTP_200_OK)
+        config = self._get_or_create_config()
         serializer = ErrorTrackingSpikeDetectionConfigSerializer(config)
         return Response(serializer.data)
 
-    @action(detail=False, methods=["post"])
-    def enable(self, request, *args, **kwargs):
-        config, created = ErrorTrackingSpikeDetectionConfig.objects.get_or_create(team=self.team)
-        serializer = ErrorTrackingSpikeDetectionConfigSerializer(config)
-        return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
-
     @action(detail=False, methods=["patch"])
     def update_config(self, request, *args, **kwargs):
-        try:
-            config = ErrorTrackingSpikeDetectionConfig.objects.get(team=self.team)
-        except ErrorTrackingSpikeDetectionConfig.DoesNotExist:
-            return Response({"detail": "Spike detection is not enabled."}, status=status.HTTP_404_NOT_FOUND)
+        config = self._get_or_create_config()
         serializer = ErrorTrackingSpikeDetectionConfigSerializer(config, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()

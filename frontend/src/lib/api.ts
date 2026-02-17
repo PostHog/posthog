@@ -3633,12 +3633,8 @@ const api = {
             return await new ApiRequest().errorTrackingIssueCohort(issueId).put({ data: { cohortId } })
         },
 
-        async getSpikeDetectionConfig(): Promise<ErrorTrackingSpikeDetectionConfig | null> {
+        async getSpikeDetectionConfig(): Promise<ErrorTrackingSpikeDetectionConfig> {
             return await new ApiRequest().errorTrackingSpikeDetectionConfig().get()
-        },
-
-        async enableSpikeDetection(): Promise<ErrorTrackingSpikeDetectionConfig> {
-            return await new ApiRequest().errorTrackingSpikeDetectionConfig().addPathComponent('enable').create()
         },
 
         async updateSpikeDetectionConfig(

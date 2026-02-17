@@ -44,27 +44,16 @@ export const spikeDetectionConfigLogic = kea<spikeDetectionConfigLogicType>([
         ],
     }),
 
-    loaders(({ actions }) => ({
+    loaders({
         config: [
             null as ErrorTrackingSpikeDetectionConfig | null,
             {
                 loadConfig: async () => {
                     return await api.errorTracking.getSpikeDetectionConfig()
                 },
-                enableSpikeDetection: async () => {
-                    const config = await api.errorTracking.enableSpikeDetection()
-                    actions.resetConfigForm({
-                        snooze_duration_minutes: config.snooze_duration_minutes,
-                        multiplier: config.multiplier,
-                        threshold: config.threshold,
-                    })
-                    posthog.capture('error_tracking_spike_detection_enabled')
-                    lemonToast.success('Spike detection enabled')
-                    return config
-                },
             },
         ],
-    })),
+    }),
 
     forms(({ actions }) => ({
         configForm: {
