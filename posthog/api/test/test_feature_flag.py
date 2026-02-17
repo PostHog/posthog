@@ -10362,17 +10362,20 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             for i in range(10)
         ]
 
-        with patch("posthog.models.feature_flag.feature_flag.set_feature_flags_for_team_in_cache") as mock_cache:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
-                {"ids": [f.id for f in flags]},
-            )
+        # Mock on_commit to execute callbacks immediately (Django test transactions don't commit)
+        # Patch at source module since the import happens inside the function
+        with patch("posthog.api.feature_flag.transaction.on_commit", side_effect=lambda fn: fn()):
+            with patch("posthog.models.feature_flag.feature_flag.set_feature_flags_for_team_in_cache") as mock_cache:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+                    {"ids": [f.id for f in flags]},
+                )
 
-            assert response.status_code == 200
-            assert len(response.json()["deleted"]) == 10
+                assert response.status_code == 200
+                assert len(response.json()["deleted"]) == 10
 
-            # Cache should be invalidated only once, not 10 times
-            assert mock_cache.call_count == 1
+                # Cache should be invalidated only once, not 10 times
+                assert mock_cache.call_count == 1
 
     def test_bulk_delete_handles_mixed_key_rename_scenarios(self):
         """Test bulk delete correctly handles mix of flags needing key rename and not."""
