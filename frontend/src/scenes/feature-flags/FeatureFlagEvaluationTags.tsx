@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 
 import { IconBolt, IconCheck, IconPencil, IconPlus, IconX } from '@posthog/icons'
 
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -97,28 +96,53 @@ export function FeatureFlagEvaluationTags({
                     value={localTags}
                     options={tagsAvailable?.map((t: string) => ({ key: t, label: t }))}
                     onChange={handleTagsChange}
+                    onBlur={() => {
+                        // Exit editing mode if no tags were added
+                        if (localTags.length === 0) {
+                            setIsEditing(false)
+                        }
+                    }}
                     loading={featureFlagLoading}
                     data-attr="feature-flag-tags-input"
-                    placeholder='Add evaluation contexts like "marketing-page", "app", "docs"'
+                    placeholder='Add tags like "v2-launch", "experiment", or contexts like "marketing", "checkout"'
                     autoFocus
                 />
 
                 {localTags.length > 0 && (
-                    <div className="bg-border-light rounded p-2">
-                        <div className="text-xs text-muted mb-2">
-                            Select which tags should act as evaluation contexts. Flags tagged with evaluation contexts
-                            will only evaluate when the SDK is initialized with matching environment tags, providing
-                            fine-grained runtime control over flag evaluation.
+                    <div className="flex flex-col gap-2">
+                        <div className="text-xs text-muted">
+                            Click the bolt icon on a tag to restrict flag evaluation to that context.
                         </div>
-                        <div className="flex flex-col gap-1">
-                            {localTags.map((tag: string) => (
-                                <LemonCheckbox
-                                    key={tag}
-                                    checked={localEvaluationTags.includes(tag)}
-                                    onChange={() => toggleEvaluationTag(tag)}
-                                    label={<span className="text-sm">Use "{tag}" as evaluation context</span>}
-                                />
-                            ))}
+                        <div className="flex flex-wrap gap-1.5">
+                            {localTags.map((tag: string) => {
+                                const isEvaluationTag = localEvaluationTags.includes(tag)
+                                return (
+                                    <Tooltip
+                                        key={tag}
+                                        title={
+                                            isEvaluationTag
+                                                ? 'Restricts where flag evaluates. Click to remove restriction.'
+                                                : 'Click to restrict evaluation to this context'
+                                        }
+                                    >
+                                        <LemonTag
+                                            type={isEvaluationTag ? 'primary' : colorForString(tag)}
+                                            icon={
+                                                <IconBolt
+                                                    className={clsx(
+                                                        'cursor-pointer transition-opacity',
+                                                        isEvaluationTag ? 'opacity-100' : 'opacity-30 hover:opacity-60'
+                                                    )}
+                                                />
+                                            }
+                                            onClick={() => toggleEvaluationTag(tag)}
+                                            className="cursor-pointer"
+                                        >
+                                            {tag}
+                                        </LemonTag>
+                                    </Tooltip>
+                                )
+                            })}
                         </div>
                     </div>
                 )}
@@ -156,12 +180,9 @@ export function FeatureFlagEvaluationTags({
                 tags.map((tag) => {
                     const isEvaluationTag = evaluationTags.includes(tag)
                     return (
-                        <Tooltip
-                            key={tag}
-                            title={isEvaluationTag ? 'This tag is used as an evaluation context' : undefined}
-                        >
+                        <Tooltip key={tag} title={isEvaluationTag ? 'Restricts where flag evaluates' : undefined}>
                             <LemonTag
-                                type={isEvaluationTag ? 'success' : colorForString(tag)}
+                                type={isEvaluationTag ? 'primary' : colorForString(tag)}
                                 icon={isEvaluationTag ? <IconBolt /> : undefined}
                             >
                                 {tag}
