@@ -250,7 +250,7 @@
      WHERE bitTest(steps_bitfield, 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -655,7 +655,7 @@
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -728,7 +728,7 @@
      WHERE bitTest(steps_bitfield, 1)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -801,7 +801,7 @@
      WHERE bitTest(steps_bitfield, 2)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -1466,7 +1466,7 @@
                                                   and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -1538,7 +1538,7 @@
                                                   and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -1610,7 +1610,7 @@
                                                   and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -1682,7 +1682,7 @@
                                                   and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,

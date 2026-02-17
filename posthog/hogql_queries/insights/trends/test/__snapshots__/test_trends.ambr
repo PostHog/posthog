@@ -418,7 +418,7 @@
      GROUP BY person.id
      HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY source.event_count DESC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -1729,7 +1729,7 @@
      GROUP BY person.id
      HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY source.event_count DESC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,

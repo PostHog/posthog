@@ -42,7 +42,7 @@
      WHERE and(ifNull(equals(success_bool, 1), 0), ifNull(equals(entrance_period_start, toDateTime64('today', 6, 'UTC')), 0))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -125,7 +125,7 @@
      WHERE and(ifNull(notEquals(success_bool, 1), 1), ifNull(equals(entrance_period_start, toDateTime64('today', 6, 'UTC')), 0))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -208,7 +208,7 @@
      WHERE and(ifNull(equals(success_bool, 1), 0), ifNull(equals(entrance_period_start, toDateTime64('today', 6, 'UTC')), 0))
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
   ORDER BY source.id ASC
-  LIMIT 2001
+  LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
