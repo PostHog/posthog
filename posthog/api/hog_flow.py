@@ -540,6 +540,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response(
                 {
                     "users_affected": users_affected,
+                    "cursor": users_affected[-1] if users_affected else None,
                 }
             )
         except Exception as e:
