@@ -11,6 +11,7 @@ from posthog.models import Dashboard, DashboardTile, Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
+from posthog.models.team.team import SessionRecordingRetentionPeriod
 
 from .base import BaseTest
 
@@ -205,3 +206,25 @@ class TestTeam(BaseTest):
             initiating_user=self.user, organization=self.organization, extra_settings=input_extra_settings
         )
         self.assertEqual(team.extra_settings, expected_extra_settings)
+
+    def test_self_hosted_team_has_five_year_retention(self):
+        with self.is_cloud(False):
+            team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+            self.assertEqual(team.session_recording_retention_period, SessionRecordingRetentionPeriod.FIVE_YEARS)
+
+    def test_cloud_team_uses_default_retention(self):
+        with self.is_cloud(True):
+            team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+            self.assertEqual(team.session_recording_retention_period, SessionRecordingRetentionPeriod.THIRTY_DAYS)
+
+    def test_self_hosted_team_has_encryption_disabled(self):
+        with self.is_cloud(False):
+            team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+            self.assertFalse(team.session_recording_encryption)
+
+    def test_cloud_team_uses_default_encryption(self):
+        with self.is_cloud(True):
+            team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+            self.assertEqual(
+                team.session_recording_encryption, Team._meta.get_field("session_recording_encryption").default
+            )

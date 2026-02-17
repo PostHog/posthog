@@ -296,10 +296,6 @@ export class RecordingApi {
 
             // Serialize response
             if (!result.ok) {
-                if (result.error === 'not_supported') {
-                    res.status(501).json({ error: 'Recording deletion is not supported for this deployment' })
-                    return
-                }
                 if (result.error === 'cleanup_failed') {
                     res.status(500).json({ error: 'Recording key deleted but post-deletion cleanup failed' })
                     return

@@ -85,7 +85,7 @@ from posthog.session_recordings.utils import (
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage.recordings import file_storage
 from posthog.storage.recordings.block_storage import BlockStorage, cleartext_block_storage, encrypted_block_storage
-from posthog.storage.recordings.errors import BlockDeletionNotSupportedError, BlockFetchError, RecordingDeletedError
+from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
@@ -1393,7 +1393,7 @@ class SessionRecordingViewSet(
 
         try:
             return async_to_sync(_delete)()
-        except (BlockFetchError, BlockDeletionNotSupportedError) as e:
+        except BlockFetchError as e:
             logger.warning(
                 "recording_api_delete_failed",
                 error=str(e),

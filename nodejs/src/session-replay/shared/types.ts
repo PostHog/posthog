@@ -52,7 +52,6 @@ export type DeleteKeyResult =
     | { deleted: true; deletedAt: number }
     | { deleted: false; reason: 'not_found' }
     | { deleted: false; reason: 'already_deleted'; deletedAt: number }
-    | { deleted: false; reason: 'not_supported' }
 
 export interface KeyStore {
     start(): Promise<void>

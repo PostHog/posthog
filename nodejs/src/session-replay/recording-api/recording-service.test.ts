@@ -301,14 +301,6 @@ describe('RecordingService', () => {
             expect(mockPostgres.query).not.toHaveBeenCalled()
         })
 
-        it('returns not_supported when keystore does not support deletion', async () => {
-            mockKeyStore.deleteKey.mockResolvedValue({ deleted: false, reason: 'not_supported' })
-
-            const result = await service.deleteRecording('session-123', 1)
-
-            expect(result).toEqual({ ok: false, error: 'not_supported' })
-        })
-
         it('returns cleanup_failed when metadata store fails after key deletion', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({ deleted: true, deletedAt: 1700000000 })
             const kafkaError = new Error('Kafka connection lost')

@@ -5,7 +5,7 @@ import snappy
 import aiohttp
 
 from posthog.storage.recordings.block_storage import EncryptedBlockStorage, encrypted_block_storage
-from posthog.storage.recordings.errors import BlockDeletionNotSupportedError, BlockFetchError, RecordingDeletedError
+from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
 
 
 class TestEncryptedBlockStorage:
@@ -257,18 +257,6 @@ class TestDeleteRecording:
         mock_session.delete = MagicMock(return_value=mock_response)
 
         with pytest.raises(BlockFetchError, match="Recording key not found"):
-            await client.delete_recording("session-123", 1)
-
-    @pytest.mark.asyncio
-    async def test_501_raises_not_supported_error(self, client, mock_session):
-        mock_response = AsyncMock()
-        mock_response.status = 501
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
-        mock_session.delete = MagicMock(return_value=mock_response)
-
-        with pytest.raises(BlockDeletionNotSupportedError, match="not supported"):
             await client.delete_recording("session-123", 1)
 
     @pytest.mark.asyncio

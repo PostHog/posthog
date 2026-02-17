@@ -23,7 +23,6 @@ export type GetBlockResult =
 export type DeleteRecordingResult =
     | { ok: true; deletedAt: number }
     | { ok: false; error: 'not_found' }
-    | { ok: false; error: 'not_supported' }
     | { ok: false; error: 'cleanup_failed'; metadataError?: unknown; postgresError?: unknown }
 
 export type BulkDeleteRecordingsResult = {
@@ -145,10 +144,6 @@ export class RecordingService {
                 deleted_at: result.deletedAt,
             })
             return { ok: true, deletedAt: result.deletedAt }
-        }
-
-        if (result.reason === 'not_supported') {
-            return { ok: false, error: 'not_supported' }
         }
 
         return { ok: false, error: 'not_found' }

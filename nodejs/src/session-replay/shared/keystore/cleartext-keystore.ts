@@ -26,8 +26,7 @@ export class CleartextKeyStore implements KeyStore {
     }
 
     deleteKey(_sessionId: string, _teamId: number): Promise<DeleteKeyResult> {
-        // Crypto-shredding is not supported for cleartext sessions (non-cloud deployments)
-        return Promise.resolve({ deleted: false, reason: 'not_supported' })
+        return Promise.resolve({ deleted: true, deletedAt: Math.floor(Date.now() / 1000) })
     }
 
     stop(): void {}

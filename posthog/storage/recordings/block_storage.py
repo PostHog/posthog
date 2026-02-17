@@ -12,7 +12,7 @@ import aioboto3
 import structlog
 from botocore.client import Config
 
-from posthog.storage.recordings.errors import BlockDeletionNotSupportedError, BlockFetchError, RecordingDeletedError
+from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
 
 logger = structlog.get_logger(__name__)
 
@@ -265,11 +265,9 @@ class EncryptedBlockStorage:
             async with self.session.delete(url) as response:
                 if response.status == 404:
                     raise BlockFetchError("Recording key not found")
-                if response.status == 501:
-                    raise BlockDeletionNotSupportedError("Recording deletion is not supported for this deployment")
                 response.raise_for_status()
                 return True
-        except (BlockFetchError, BlockDeletionNotSupportedError):
+        except BlockFetchError:
             raise
         except aiohttp.ClientError as e:
             logger.exception(
