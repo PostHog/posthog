@@ -5,7 +5,6 @@ from uuid import uuid4
 
 from django.conf import settings
 
-import pytz
 import httpx
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
@@ -54,24 +53,24 @@ async def load_recordings_with_person(input: RecordingsWithPersonInput) -> list[
     bind_contextvars(distinct_ids=input.distinct_ids, team_id=input.team_id)
     tag_queries(product=Product.REPLAY, team_id=input.team_id)
     logger = LOGGER.bind()
-    logger.info(f"Loading all sessions for {len(input.distinct_ids)} distinct IDs")
+    logger.info("Loading all sessions for distinct IDs", distinct_id_count=len(input.distinct_ids))
 
     query: str = SessionReplayEvents.get_sessions_from_distinct_id_query(format="JSON")
     parameters = {
         "team_id": input.team_id,
         "distinct_ids": input.distinct_ids,
-        "python_now": datetime.now(pytz.timezone("UTC")),
+        "python_now": datetime.now(UTC),
     }
 
     ch_query_id = str(uuid4())
-    logger.info(f"Querying ClickHouse with query_id: {ch_query_id}")
+    logger.info("Querying ClickHouse", query_id=ch_query_id)
     raw_response: bytes = b""
     async with get_client() as client:
         async with client.aget_query(query=query, query_parameters=parameters, query_id=ch_query_id) as ch_response:
             raw_response = await ch_response.content.read()
 
     session_ids: list[str] = _parse_session_recording_list_response(raw_response)
-    logger.info(f"Successfully loaded {len(session_ids)} session IDs")
+    logger.info("Successfully loaded session IDs", session_count=len(session_ids))
     return session_ids
 
 
@@ -80,28 +79,30 @@ async def load_recordings_with_team_id(input: RecordingsWithTeamInput) -> list[s
     bind_contextvars(team_id=input.team_id)
     tag_queries(product=Product.REPLAY, team_id=input.team_id)
     logger = LOGGER.bind()
-    logger.info(f"Loading all sessions for team ID {input.team_id}")
+    logger.info("Loading all sessions for team")
 
     query: str = SessionReplayEvents.get_sessions_from_team_id_query(format="JSON")
     parameters = {
         "team_id": input.team_id,
-        "python_now": datetime.now(pytz.timezone("UTC")),
+        "python_now": datetime.now(UTC),
     }
 
     ch_query_id = str(uuid4())
-    logger.info(f"Querying ClickHouse with query_id: {ch_query_id}")
+    logger.info("Querying ClickHouse", query_id=ch_query_id)
     raw_response: bytes = b""
     async with get_client() as client:
         async with client.aget_query(query=query, query_parameters=parameters, query_id=ch_query_id) as ch_response:
             raw_response = await ch_response.content.read()
 
     session_ids: list[str] = _parse_session_recording_list_response(raw_response)
-    logger.info(f"Successfully loaded {len(session_ids)} session IDs")
+    logger.info("Successfully loaded session IDs", session_count=len(session_ids))
     return session_ids
 
 
 @activity.defn(name="load-recordings-with-query")
 async def load_recordings_with_query(input: RecordingsWithQueryInput) -> list[str]:
+    bind_contextvars(team_id=input.team_id)
+    tag_queries(product=Product.REPLAY, team_id=input.team_id)
     logger = LOGGER.bind()
     logger.info("Loading all sessions matching query")
 
@@ -116,7 +117,7 @@ async def load_recordings_with_query(input: RecordingsWithQueryInput) -> list[st
         .aget(id=input.team_id)
     )
 
-    session_ids = []
+    session_ids: list[str] = []
 
     async def get_session_ids(query: RecordingsQuery, batch_count: int) -> tuple[bool, str | None]:
         query_instance = SessionRecordingListFromQuery(
@@ -128,7 +129,7 @@ async def load_recordings_with_query(input: RecordingsWithQueryInput) -> list[st
         new_sessions = [session["session_id"] for session in query_results.results]
         session_ids.extend(new_sessions)
 
-        logger.info(f"Loaded recording batch {batch_count}", session_count=len(new_sessions))
+        logger.info("Loaded recording batch", batch=batch_count, session_count=len(new_sessions))
 
         return query_results.has_more_recording, query_results.next_cursor
 
@@ -198,8 +199,13 @@ async def purge_deleted_metadata(input: PurgeDeletedMetadataInput) -> PurgeDelet
 @activity.defn(name="bulk-delete-recordings")
 async def bulk_delete_recordings(input: BulkDeleteInput) -> BulkDeleteResult:
     """Bulk delete recordings via the recording API bulk-delete endpoint."""
-    bind_contextvars(team_id=input.team_id, session_count=len(input.session_ids))
+    bind_contextvars(team_id=input.team_id, session_count=len(input.session_ids), dry_run=input.dry_run)
     logger = LOGGER.bind()
+
+    if input.dry_run:
+        logger.info("Dry run: skipping deletion")
+        return BulkDeleteResult(deleted=[], failed=[])
+
     logger.info("Deleting recordings via recording API")
 
     recording_api_url = settings.RECORDING_API_URL
