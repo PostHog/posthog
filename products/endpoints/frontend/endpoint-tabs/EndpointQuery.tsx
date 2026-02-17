@@ -88,6 +88,8 @@ function EndpointHogQLQuery({
 }): JSX.Element {
     const variables = query.variables || {}
     const sqlEditorTabId = useMemo(() => `endpoint-query-${tabId}-${version ?? 'latest'}`, [tabId, version])
+    const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
+    const { queryInput } = useValues(sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded }))
     const { setQueryInput, setSourceQuery, runQuery } = useActions(
         sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
     )
@@ -105,6 +107,19 @@ function EndpointHogQLQuery({
         })
         runQuery(query.query)
     }, [query.query, query.variables, runQuery, setQueryInput, setSourceQuery])
+
+    useEffect(() => {
+        if (queryInput === query.query) {
+            setLocalQuery(null)
+            return
+        }
+
+        setLocalQuery({
+            kind: NodeKind.HogQLQuery,
+            query: queryInput,
+            variables: query.variables,
+        })
+    }, [query.query, query.variables, queryInput, setLocalQuery])
 
     return (
         <div className="flex gap-4">
