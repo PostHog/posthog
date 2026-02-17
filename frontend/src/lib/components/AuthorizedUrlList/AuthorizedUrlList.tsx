@@ -55,7 +55,8 @@ export function AuthorizedUrlList({
         allowWildCards,
     })
 
-    const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains } = useValues(logic)
+    const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains, manualLaunchParamsLoading } =
+        useValues(logic)
     const { addUrl, removeUrl, newUrl, setEditUrlIndex, copyLaunchCode } = useActions(logic)
 
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
@@ -183,6 +184,7 @@ export function AuthorizedUrlList({
                                                                 onClick={() => {
                                                                     copyLaunchCode(keyedURL.url)
                                                                 }}
+                                                                loading={manualLaunchParamsLoading}
                                                             >
                                                                 Copy launch code
                                                             </LemonButton>
