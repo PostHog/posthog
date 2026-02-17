@@ -1,4 +1,4 @@
-from posthog.temporal.llm_analytics.sentiment.on_demand import (
+from posthog.temporal.llm_analytics.sentiment.classify import (
     OnDemandSentimentBatchWorkflow,
     OnDemandSentimentWorkflow,
     classify_sentiment_batch_activity,

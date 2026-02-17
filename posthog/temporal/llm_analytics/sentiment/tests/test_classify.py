@@ -3,13 +3,13 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.temporal.llm_analytics.sentiment.model import SentimentResult
-from posthog.temporal.llm_analytics.sentiment.on_demand import (
+from posthog.temporal.llm_analytics.sentiment.classify import (
     OnDemandSentimentBatchInput,
     OnDemandSentimentInput,
     classify_sentiment_batch_activity,
     classify_sentiment_on_demand_activity,
 )
+from posthog.temporal.llm_analytics.sentiment.model import SentimentResult
 
 
 def _make_generation_row(uuid: str, messages: list[dict], trace_id: str = "trace-1") -> tuple:
