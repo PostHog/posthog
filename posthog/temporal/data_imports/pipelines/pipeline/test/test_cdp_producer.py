@@ -197,8 +197,9 @@ async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, team):
     mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
-    mock_kafka_producer.produce = MagicMock()
-    mock_kafka_producer.flush = MagicMock()
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
 
     test_data = pa.table({"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]})
     parquet_buffer = BytesIO()
@@ -250,8 +251,9 @@ async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, team):
     mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
-    mock_kafka_producer.produce = MagicMock()
-    mock_kafka_producer.flush = MagicMock()
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
 
     mock_fs = MagicMock()
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock())
@@ -286,8 +288,9 @@ async def test_produce_to_kafka_from_s3_kafka_failure(mock_capture_exception, mo
     mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
-    mock_kafka_producer.produce = MagicMock(side_effect=Exception("Kafka connection failed"))
-    mock_kafka_producer.flush = MagicMock()
+    mock_kafka_producer.produce = mock.AsyncMock(side_effect=Exception("Kafka connection failed"))
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
 
     test_data = pa.table({"id": [1], "name": ["Alice"]})
     parquet_buffer = BytesIO()
@@ -334,8 +337,9 @@ async def test_produce_to_kafka_from_s3_s3_read_failure(mock_capture_exception, 
     mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
-    mock_kafka_producer.produce = MagicMock()
-    mock_kafka_producer.flush = MagicMock()
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
 
     mock_fs = MagicMock()
     mock_fs.open_input_file.side_effect = Exception("S3 read failed")
@@ -374,8 +378,9 @@ async def test_produce_to_kafka_from_s3_with_large_batch(mock_get_s3_client, tea
     mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
 
     mock_kafka_producer = MagicMock()
-    mock_kafka_producer.produce = MagicMock()
-    mock_kafka_producer.flush = MagicMock()
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
 
     test_data = pa.table({"id": list(range(15000)), "value": [f"val_{i}" for i in range(15000)]})
     parquet_buffer = BytesIO()

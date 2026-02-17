@@ -3023,8 +3023,9 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     )
 
     mock_kafka_producer = mock.MagicMock()
-    mock_kafka_producer.produce = mock.MagicMock()
-    mock_kafka_producer.flush = mock.MagicMock()
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
 
     with (
         mock.patch.object(CDPProducer, "_get_kafka_producer", return_value=mock_kafka_producer),
