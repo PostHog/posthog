@@ -54,9 +54,11 @@ const FEEDBACK_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
 const SINGLE_TRACE_PAGE_LOADED_EVENT = 'llma single trace loaded'
 
 export interface SingleTraceLoadTiming {
-    trace_timestamp_utc: string | null
+    min_trace_timestamp_utc: string | null
+    max_trace_timestamp_utc: string | null
     now_timestamp_utc: string | null
-    trace_oldness_minutes: number | null
+    trace_age_minutes: number | null
+    trace_timespan_seconds: number | null
     trace_query_runner_load_duration_ms: number | null
 }
 
@@ -65,35 +67,48 @@ export function getSingleTraceLoadTiming(
     nowTimestamp: string,
     traceQueryRunnerLoadDurationMs: number | null
 ): SingleTraceLoadTiming {
-    const earliestEventTimestampUTC = trace.events
+    const eventTimestampsUTC = trace.events
         .map((event) => dayjs.utc(event.createdAt))
-        .filter((timestamp) => timestamp.isValid())
-        .reduce(
-            (earliest, timestamp) => (earliest === null || timestamp.isBefore(earliest) ? timestamp : earliest),
-            null as dayjs.Dayjs | null
-        )
+        .filter((timestamp): timestamp is dayjs.Dayjs => timestamp.isValid())
+
+    const minEventTimestampUTC = eventTimestampsUTC.reduce(
+        (earliest, timestamp) => (earliest === null || timestamp.isBefore(earliest) ? timestamp : earliest),
+        null as dayjs.Dayjs | null
+    )
+
+    const maxEventTimestampUTC = eventTimestampsUTC.reduce(
+        (latest, timestamp) => (latest === null || timestamp.isAfter(latest) ? timestamp : latest),
+        null as dayjs.Dayjs | null
+    )
 
     const fallbackTraceTimestampUTC = dayjs.utc(trace.createdAt)
-    const traceTimestampUTC =
-        earliestEventTimestampUTC ?? (fallbackTraceTimestampUTC.isValid() ? fallbackTraceTimestampUTC : null)
+    const minTraceTimestampUTC =
+        minEventTimestampUTC ?? (fallbackTraceTimestampUTC.isValid() ? fallbackTraceTimestampUTC : null)
+    const maxTraceTimestampUTC =
+        maxEventTimestampUTC ?? (fallbackTraceTimestampUTC.isValid() ? fallbackTraceTimestampUTC : null)
 
     const nowTimestampUTC = dayjs.utc(nowTimestamp)
 
-    if (!traceTimestampUTC?.isValid() || !nowTimestampUTC.isValid()) {
+    if (!minTraceTimestampUTC?.isValid() || !maxTraceTimestampUTC?.isValid() || !nowTimestampUTC.isValid()) {
         return {
-            trace_timestamp_utc: null,
+            min_trace_timestamp_utc: null,
+            max_trace_timestamp_utc: null,
             now_timestamp_utc: null,
-            trace_oldness_minutes: null,
+            trace_age_minutes: null,
+            trace_timespan_seconds: null,
             trace_query_runner_load_duration_ms: traceQueryRunnerLoadDurationMs,
         }
     }
 
-    const traceOldnessMinutes = nowTimestampUTC.diff(traceTimestampUTC, 'minute', true)
+    const traceAgeMinutes = nowTimestampUTC.diff(minTraceTimestampUTC, 'minute', true)
+    const traceTimespanSeconds = maxTraceTimestampUTC.diff(minTraceTimestampUTC, 'second', true)
 
     return {
-        trace_timestamp_utc: traceTimestampUTC.toISOString(),
+        min_trace_timestamp_utc: minTraceTimestampUTC.toISOString(),
+        max_trace_timestamp_utc: maxTraceTimestampUTC.toISOString(),
         now_timestamp_utc: nowTimestampUTC.toISOString(),
-        trace_oldness_minutes: traceOldnessMinutes,
+        trace_age_minutes: traceAgeMinutes,
+        trace_timespan_seconds: traceTimespanSeconds,
         trace_query_runner_load_duration_ms: traceQueryRunnerLoadDurationMs,
     }
 }

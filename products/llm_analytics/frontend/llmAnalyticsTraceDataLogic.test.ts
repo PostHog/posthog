@@ -406,9 +406,11 @@ describe('getSingleTraceLoadTiming', () => {
         const timing = getSingleTraceLoadTiming(trace, '2024-01-01T08:00:00Z', 70)
 
         expect(timing).toEqual({
-            trace_timestamp_utc: '2024-01-01T05:00:00.000Z',
+            min_trace_timestamp_utc: '2024-01-01T05:00:00.000Z',
+            max_trace_timestamp_utc: '2024-01-01T06:30:00.000Z',
             now_timestamp_utc: '2024-01-01T08:00:00.000Z',
-            trace_oldness_minutes: 180,
+            trace_age_minutes: 180,
+            trace_timespan_seconds: 5400,
             trace_query_runner_load_duration_ms: 70,
         })
     })
@@ -431,14 +433,16 @@ describe('getSingleTraceLoadTiming', () => {
         const timing = getSingleTraceLoadTiming(trace, '2024-01-01T11:00:00Z', null)
 
         expect(timing).toEqual({
-            trace_timestamp_utc: '2024-01-01T10:00:00.000Z',
+            min_trace_timestamp_utc: '2024-01-01T10:00:00.000Z',
+            max_trace_timestamp_utc: '2024-01-01T10:00:00.000Z',
             now_timestamp_utc: '2024-01-01T11:00:00.000Z',
-            trace_oldness_minutes: 60,
+            trace_age_minutes: 60,
+            trace_timespan_seconds: 0,
             trace_query_runner_load_duration_ms: null,
         })
     })
 
-    it('returns null oldness when now timestamp is invalid, but keeps query runner duration', () => {
+    it('returns null trace age when now timestamp is invalid, but keeps query runner duration', () => {
         const trace: LLMTrace = {
             id: 'trace-1',
             createdAt: '2024-01-01T10:00:00Z',
@@ -449,9 +453,11 @@ describe('getSingleTraceLoadTiming', () => {
         const timing = getSingleTraceLoadTiming(trace, 'not-a-timestamp', 30)
 
         expect(timing).toEqual({
-            trace_timestamp_utc: null,
+            min_trace_timestamp_utc: null,
+            max_trace_timestamp_utc: null,
             now_timestamp_utc: null,
-            trace_oldness_minutes: null,
+            trace_age_minutes: null,
+            trace_timespan_seconds: null,
             trace_query_runner_load_duration_ms: 30,
         })
     })
@@ -480,9 +486,11 @@ describe('getSingleTraceLoadTiming', () => {
         const timing = getSingleTraceLoadTiming(trace, '2024-01-01T11:00:00Z', 30)
 
         expect(timing).toEqual({
-            trace_timestamp_utc: '2024-01-01T09:00:00.000Z',
+            min_trace_timestamp_utc: '2024-01-01T09:00:00.000Z',
+            max_trace_timestamp_utc: '2024-01-01T10:00:00.000Z',
             now_timestamp_utc: '2024-01-01T11:00:00.000Z',
-            trace_oldness_minutes: 120,
+            trace_age_minutes: 120,
+            trace_timespan_seconds: 3600,
             trace_query_runner_load_duration_ms: 30,
         })
     })
@@ -498,9 +506,11 @@ describe('getSingleTraceLoadTiming', () => {
         const timing = getSingleTraceLoadTiming(trace, '2024-01-01T11:00:00Z', null)
 
         expect(timing).toEqual({
-            trace_timestamp_utc: '2024-01-01T10:00:00.000Z',
+            min_trace_timestamp_utc: '2024-01-01T10:00:00.000Z',
+            max_trace_timestamp_utc: '2024-01-01T10:00:00.000Z',
             now_timestamp_utc: '2024-01-01T11:00:00.000Z',
-            trace_oldness_minutes: 60,
+            trace_age_minutes: 60,
+            trace_timespan_seconds: 0,
             trace_query_runner_load_duration_ms: null,
         })
     })
