@@ -38,6 +38,7 @@ import { XMLViewer } from './XMLViewer'
 export function ConversationMessagesDisplay({
     inputNormalized,
     outputNormalized,
+    inputSourceIndices,
     errorData,
     httpStatus,
     raisedError,
@@ -48,6 +49,8 @@ export function ConversationMessagesDisplay({
 }: {
     inputNormalized: CompatMessage[]
     outputNormalized: CompatMessage[]
+    /** Maps each inputNormalized[i] to its original index in $ai_input. */
+    inputSourceIndices?: number[]
     errorData: any
     httpStatus?: number
     raisedError?: boolean
@@ -149,17 +152,16 @@ export function ConversationMessagesDisplay({
             </div>
         ) : undefined
 
-    // Build a user-message index counter so we can match per-message sentiment
-    let userMessageIndex = 0
+    // Look up per-message sentiment by original $ai_input index (stable key),
+    // avoiding fragile counters that can drift when normalizeMessage transforms messages.
     const inputDisplay =
         inputNormalized.length > 0 ? (
             inputNormalized.map((message, i) => {
-                const isUserMessage = message.role === 'user'
+                const sourceIndex = inputSourceIndices?.[i]
                 const messageSentiment =
-                    isUserMessage && generationSentiment ? generationSentiment.messages?.[userMessageIndex] : undefined
-                if (isUserMessage) {
-                    userMessageIndex++
-                }
+                    message.role === 'user' && generationSentiment && sourceIndex !== undefined && sourceIndex >= 0
+                        ? generationSentiment.messages?.[sourceIndex]
+                        : undefined
                 return (
                     <React.Fragment key={i}>
                         <LLMMessageDisplay

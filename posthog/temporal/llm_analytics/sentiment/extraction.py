@@ -6,6 +6,19 @@ from posthog.temporal.llm_analytics.message_utils import _extract_content_text
 from posthog.temporal.llm_analytics.sentiment.constants import MAX_MESSAGE_CHARS, MAX_USER_MESSAGES
 
 
+def _is_tool_result_message(content: Union[str, list, dict, None]) -> bool:
+    """Check if message content consists entirely of tool_result blocks.
+
+    In Anthropic format, tool results are sent as user-role messages with
+    content like [{"type": "tool_result", "tool_use_id": "...", "content": "..."}].
+    These aren't real user messages and should be excluded from sentiment
+    classification so that backend message indices match the frontend.
+    """
+    if not isinstance(content, list) or not content:
+        return False
+    return all(isinstance(block, dict) and block.get("type") == "tool_result" for block in content)
+
+
 def extract_user_messages(ai_input: Union[str, list, dict, None]) -> str:
     """Extract and concatenate all user messages from $ai_input.
 
@@ -31,6 +44,8 @@ def extract_user_messages(ai_input: Union[str, list, dict, None]) -> str:
         user_texts = []
         for msg in ai_input:
             if isinstance(msg, dict) and msg.get("role") == "user":
+                if _is_tool_result_message(msg.get("content")):
+                    continue
                 text = _extract_content_text(msg.get("content", ""))
                 if text:
                     user_texts.append(text)
@@ -39,32 +54,37 @@ def extract_user_messages(ai_input: Union[str, list, dict, None]) -> str:
     return ""
 
 
-def extract_user_messages_individually(ai_input: Union[str, list, dict, None]) -> list[str]:
+def extract_user_messages_individually(ai_input: Union[str, list, dict, None]) -> list[tuple[int, str]]:
     """Extract the last N individual user messages from $ai_input.
 
-    Same filtering logic as extract_user_messages, but returns each
-    user message as a separate item instead of concatenating.
+    Returns (original_index, text) tuples where original_index is the
+    position in the $ai_input array. This index serves as a stable key
+    for matching sentiment results to frontend message rendering,
+    regardless of how each side normalizes/filters messages.
+
     Limited to the last MAX_USER_MESSAGES to bound compute.
     """
     if not ai_input:
         return []
 
     if isinstance(ai_input, str):
-        return [ai_input] if ai_input else []
+        return [(0, ai_input)] if ai_input else []
 
     if isinstance(ai_input, dict):
         if ai_input.get("role") == "user":
             text = _extract_content_text(ai_input.get("content", ""))
-            return [text] if text else []
+            return [(0, text)] if text else []
         return []
 
     if isinstance(ai_input, list):
-        result = []
-        for msg in ai_input:
+        result: list[tuple[int, str]] = []
+        for i, msg in enumerate(ai_input):
             if isinstance(msg, dict) and msg.get("role") == "user":
+                if _is_tool_result_message(msg.get("content")):
+                    continue
                 text = _extract_content_text(msg.get("content", ""))
                 if text:
-                    result.append(text)
+                    result.append((i, text))
         return result[-MAX_USER_MESSAGES:]
 
     return []

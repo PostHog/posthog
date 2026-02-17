@@ -92,7 +92,7 @@ export interface TraceSentimentChipProps {
     sentiment: {
         label?: string
         score?: number
-        generations?: Record<string, { messages?: { label?: string; scores?: Record<string, number> }[] }>
+        generations?: Record<string, { messages?: Record<number, { label?: string; scores?: Record<string, number> }> }>
     }
 }
 
@@ -106,7 +106,7 @@ export function TraceSentimentChip({ sentiment }: TraceSentimentChipProps): JSX.
     let maxNegative = 0
     if (sentiment.generations) {
         for (const gen of Object.values(sentiment.generations)) {
-            for (const msg of gen.messages ?? []) {
+            for (const msg of Object.values(gen.messages ?? {})) {
                 if (msg.label === 'positive' && msg.scores && msg.scores.positive > maxPositive) {
                     maxPositive = msg.scores.positive
                 }

@@ -10,8 +10,7 @@ export interface SentimentDateRange {
     dateTo?: string | null
 }
 
-interface MessageSentiment {
-    index: number
+export interface MessageSentiment {
     label: string
     score: number
     scores: Record<string, number>
@@ -21,7 +20,9 @@ export interface GenerationSentiment {
     label: string
     score: number
     scores: Record<string, number>
-    messages: MessageSentiment[]
+    // Keyed by original position in $ai_input array — stable across
+    // backend extraction and frontend normalizeMessages rendering.
+    messages: Record<number, MessageSentiment>
 }
 
 export interface SentimentResult {

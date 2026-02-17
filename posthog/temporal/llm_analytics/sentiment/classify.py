@@ -171,7 +171,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
 
         gen_uuids_seen.append(event_uuid)
 
-        for idx, msg_text in enumerate(user_messages):
+        for original_index, msg_text in user_messages:
             if len(pending) >= MAX_TOTAL_CLASSIFICATIONS:
                 cap_hit = True
                 break
@@ -179,7 +179,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
                 _PendingClassification(
                     trace_id=input.trace_id,
                     gen_uuid=event_uuid,
-                    msg_index=idx,
+                    msg_index=original_index,
                     text=truncate_to_token_limit(msg_text),
                 )
             )
@@ -205,17 +205,18 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     results = classify_batch([p.text for p in pending])
 
     # Phase 3: reconstruct per-generation and per-message structures
-    gen_messages: dict[str, list[dict[str, Any]]] = {}
+    # Messages are keyed by their original position in $ai_input so the
+    # frontend can look up sentiment by the same stable index.
+    gen_messages: dict[str, dict[int, dict[str, Any]]] = {}
     all_scores: list[dict[str, float]] = []
 
     for item, result in zip(pending, results):
         msg_dict = {
-            "index": item.msg_index,
             "label": result.label,
             "score": result.score,
             "scores": result.scores,
         }
-        gen_messages.setdefault(item.gen_uuid, []).append(msg_dict)
+        gen_messages.setdefault(item.gen_uuid, {})[item.msg_index] = msg_dict
         all_scores.append(result.scores)
 
     generations: dict[str, Any] = {}
@@ -223,7 +224,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
         msgs = gen_messages.get(gen_uuid)
         if not msgs:
             continue
-        gen_scores = _average_scores(msgs)
+        gen_scores = _average_scores(list(msgs.values()))
         gen_label = max(gen_scores, key=gen_scores.get)  # type: ignore
         generations[gen_uuid] = {
             "label": gen_label,
@@ -288,24 +289,23 @@ def _build_trace_result(
             "message_count": 0,
         }, 0
 
-    gen_messages: dict[str, list[dict[str, Any]]] = {}
+    gen_messages: dict[str, dict[int, dict[str, Any]]] = {}
     all_scores: list[dict[str, float]] = []
 
     for item, result in zip(trace_pending, trace_results):
         msg_dict = {
-            "index": item.msg_index,
             "label": result.label,
             "score": result.score,
             "scores": result.scores,
         }
-        gen_messages.setdefault(item.gen_uuid, []).append(msg_dict)
+        gen_messages.setdefault(item.gen_uuid, {})[item.msg_index] = msg_dict
         all_scores.append(result.scores)
 
     generations: dict[str, Any] = {}
     trace_gen_uuids = [u for u in gen_uuids_seen if u in gen_messages]
     for gen_uuid in trace_gen_uuids:
         msgs = gen_messages[gen_uuid]
-        gen_scores = _average_scores(msgs)
+        gen_scores = _average_scores(list(msgs.values()))
         gen_label = max(gen_scores, key=gen_scores.get)  # type: ignore
         generations[gen_uuid] = {
             "label": gen_label,
@@ -392,14 +392,14 @@ async def classify_sentiment_batch_activity(input: ClassifySentimentBatchInput) 
 
             gen_uuids_seen.append(event_uuid)
 
-            for idx, msg_text in enumerate(user_messages):
+            for original_index, msg_text in user_messages:
                 if trace_count >= MAX_TOTAL_CLASSIFICATIONS:
                     break
                 pending.append(
                     _PendingClassification(
                         trace_id=trace_id,
                         gen_uuid=event_uuid,
-                        msg_index=idx,
+                        msg_index=original_index,
                         text=truncate_to_token_limit(msg_text),
                     )
                 )
