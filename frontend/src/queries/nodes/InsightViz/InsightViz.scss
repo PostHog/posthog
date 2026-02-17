@@ -17,6 +17,10 @@
         flex-flow: row wrap;
         align-items: flex-start;
 
+        // Prevent the layout from expanding infinitely on wide screens
+        // This keeps the gap between filters and visualization consistent
+        max-width: 100rem;
+
         .EditorFiltersWrapper {
             width: 100%;
 
