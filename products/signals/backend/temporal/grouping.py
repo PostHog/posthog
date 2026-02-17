@@ -799,7 +799,7 @@ async def emit_to_clickhouse_activity(input: EmitToClickHouseInput) -> None:
         raise
 
 
-CONTINUE_AS_NEW_THRESHOLD = 200
+CONTINUE_AS_NEW_THRESHOLD = 20
 
 
 async def _process_one_signal(inputs: EmitSignalInputs) -> str:

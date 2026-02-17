@@ -70,7 +70,9 @@ async def emit_signal(
         TeamSignalGroupingInput(team_id=team.id),
         id=workflow_id,
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-        execution_timeout=timedelta(hours=24),
+        # run_timeout resets on each continue_as_new; execution_timeout would span all
+        # continuations and eventually kill a healthy long-running entity workflow.
+        run_timeout=timedelta(hours=1),
         start_signal="submit_signal",
         start_signal_args=[signal_input],
     )
