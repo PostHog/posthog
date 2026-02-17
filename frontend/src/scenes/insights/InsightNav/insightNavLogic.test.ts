@@ -8,16 +8,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import {
-    BaseMathType,
-    FunnelsQuery,
-    GroupNode,
-    InsightVizNode,
-    Node,
-    NodeKind,
-    TrendsQuery,
-} from '~/queries/schema/schema-general'
+import { FunnelsQuery, GroupNode, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { BaseMathType } from '~/types'
 import {
     FilterLogicalOperator,
     FunnelVizType,
