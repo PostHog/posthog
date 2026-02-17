@@ -141,6 +141,7 @@ jobs:
 
             - name: Detect snapshot mode
               id: detect-snapshot-mode
+              if: github.event_name == 'push' || steps.filter.outputs.backend == 'true'
               run: |
                   if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
                     echo "mode=check" >> $GITHUB_OUTPUT
