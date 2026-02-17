@@ -2,8 +2,8 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { windowValues } from 'kea-window-values'
 import { PostHog } from 'posthog-js'
 
-import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
-import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
+import { HedgehogActor } from 'lib/components/HedgehogMode/types'
 import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
@@ -22,6 +22,8 @@ import { generatePiiMaskingCSS } from './piiMaskingStyles'
 import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2
+const HEDGEHOG_OFFSET = 80
+
 const PII_MASKING_STYLESHEET_ID = 'posthog-pii-masking-styles'
 
 export type MenuState =
@@ -65,6 +67,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['allExperimentsLoading'],
             webVitalsToolbarLogic,
             ['remoteWebVitalsLoading'],
+            hedgehogModeLogic,
+            ['hedgehogMode'],
         ],
         actions: [
             toolbarConfigLogic,
@@ -98,10 +102,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
     actions(() => ({
         toggleTheme: (theme?: 'light' | 'dark') => ({ theme }),
         toggleMinimized: (minimized?: boolean) => ({ minimized }),
-        setHedgehogMode: (hedgehogMode: boolean) => ({ hedgehogMode }),
+        setHedgehogModeEnabled: (hedgehogModeEnabled: boolean) => ({ hedgehogModeEnabled }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
-        setHedgehogActor: (actor: HedgehogActor | null) => ({ actor }),
         syncWithHedgehog: true,
+        openHedgehogOptions: true,
         setVisibleMenu: (visibleMenu: MenuState) => ({
             visibleMenu,
         }),
@@ -141,8 +145,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             'none' as MenuState,
             {
                 setVisibleMenu: (_, { visibleMenu }) => visibleMenu,
-                setHedgehogMode: (state, { hedgehogMode }) =>
-                    hedgehogMode ? 'hedgehog' : state === 'hedgehog' ? 'none' : state,
             },
         ],
         minimized: [
@@ -191,17 +193,11 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 setFixedPosition: (_, { position }) => position,
             },
         ],
-        hedgehogMode: [
+        hedgehogModeEnabled: [
             false,
             { persist: true },
             {
-                setHedgehogMode: (_, { hedgehogMode }) => hedgehogMode,
-            },
-        ],
-        hedgehogActor: [
-            null as HedgehogActor | null,
-            {
-                setHedgehogActor: (_, { actor }) => actor,
+                setHedgehogModeEnabled: (_, { hedgehogModeEnabled }) => hedgehogModeEnabled,
             },
         ],
         isEmbeddedInApp: [
@@ -348,6 +344,19 @@ export const toolbarLogic = kea<toolbarLogicType>([
             },
         ],
 
+        getHedgehogActor: [
+            (s) => [s.hedgehogMode],
+            (hedgehogMode): (() => HedgehogActor | null) => {
+                return () => {
+                    const player = hedgehogMode?.stateManager?.getPlayerHedgehogActor()
+                    if (!player || !player.rigidBody) {
+                        return null
+                    }
+
+                    return player
+                }
+            },
+        ],
         piiWarning: [
             (s) => [s.posthog, s.piiMaskingEnabled],
             (posthog: PostHog | null, piiMaskingEnabled: boolean) => {
@@ -423,18 +432,14 @@ export const toolbarLogic = kea<toolbarLogicType>([
 
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
-                values.hedgehogActor?.setOnFire(1)
+                values.getHedgehogActor()?.setOnFire(1)
             } else if (visibleMenu === 'actions') {
                 actions.showButtonActions()
-                values.hedgehogActor?.setAnimation('action')
             } else if (visibleMenu === 'experiments') {
                 actions.showButtonExperiments()
-                values.hedgehogActor?.setAnimation('action')
             } else if (visibleMenu === 'flags') {
-                values.hedgehogActor?.setAnimation('flag')
             } else if (visibleMenu === 'inspect') {
                 actions.enableInspect()
-                values.hedgehogActor?.setAnimation('inspect')
             } else if (visibleMenu === 'product-tours') {
                 actions.showButtonProductTours()
             }
@@ -510,21 +515,30 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
         },
 
-        setDragging: ({ dragging }) => {
-            if (values.hedgehogActor) {
-                values.hedgehogActor.isDragging = dragging
-                values.hedgehogActor.update()
-            }
-        },
-
         syncWithHedgehog: () => {
-            const actor = values.hedgehogActor
-            if (!values.hedgehogMode || !actor) {
+            const player = values.getHedgehogActor()
+
+            if (!values.hedgehogModeEnabled || !player) {
                 return
             }
 
-            const newX = actor.x + SPRITE_SIZE * 0.5
-            const newY = values.windowHeight - actor.y - SPRITE_SIZE - 20
+            if (values.minimized !== values.hedgehogMode?.gameUI?.visible) {
+                actions.toggleMinimized(values.hedgehogMode?.gameUI?.visible)
+            }
+
+            if (values.isDragging) {
+                // Set the hedgehog position instead
+                player.setPosition({
+                    x: values.position.x,
+                    y: values.position.y + HEDGEHOG_OFFSET,
+                })
+
+                return
+            }
+
+            const { x, y } = player.rigidBody.position
+            const newX = x
+            const newY = y - HEDGEHOG_OFFSET
             actions.setDragPosition(newX, newY)
         },
 
@@ -548,6 +562,13 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     '*'
                 )
             }
+        },
+        openHedgehogOptions: () => {
+            values.hedgehogMode?.gameUI?.show({
+                screen: 'configuration',
+                messages: [],
+                actor: values.getHedgehogActor() ?? undefined,
+            })
         },
         togglePiiMasking: () => {
             const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
@@ -607,6 +628,16 @@ export const toolbarLogic = kea<toolbarLogicType>([
             makeNavigateWrapper(actions.maybeSendNavigationMessage, '__ph_toolbar_logic_wrapped__'),
             'historyProxy'
         )
+
+        cache.disposables.add(() => {
+            const syncHedgehogLoop = setInterval(() => {
+                if (values.hedgehogModeEnabled && values.getHedgehogActor()) {
+                    actions.syncWithHedgehog()
+                }
+            }, 100)
+
+            return () => clearInterval(syncHedgehogLoop)
+        }, 'syncHedgehogLoop')
 
         // Initialize PII masking if already enabled
         // Remove stylesheet on unmount
