@@ -561,10 +561,25 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
     """Remove a person from a static cohort in ClickHouse.
 
     Uses DELETE FROM with mutations_sync=0 and lightweight_deletes_sync=0 to avoid replica
-    synchronization issues when some replicas are inactive. This is an exception to PostHog's usual
-    pattern due to the table lacking an is_deleted and version columns.
+    synchronization issues when some replicas are inactive. In tests, uses synchronous mutations
+    for deterministic behavior. This is an exception to PostHog's usual pattern due to the table
+    lacking an is_deleted and version columns.
     """
     tag_queries(cohort_id=cohort_id, team_id=team_id, name="remove_person_from_static_cohort", feature=Feature.COHORT)
+    
+    # Use synchronous mutations in tests for deterministic behavior
+    if settings.TEST:
+        ch_settings = {
+            "mutations_sync": "1",
+            "lightweight_deletes_sync": "1",
+        }
+    else:
+        # Use async mutations in production to avoid replica sync issues
+        ch_settings = {
+            "mutations_sync": "0",
+            "lightweight_deletes_sync": "0",
+        }
+    
     sync_execute(
         DELETE_PERSON_FROM_STATIC_COHORT,
         {
@@ -572,10 +587,7 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
             "cohort_id": cohort_id,
             "team_id": team_id,
         },
-        settings={
-            "mutations_sync": "0",
-            "lightweight_deletes_sync": "0",
-        },
+        settings=ch_settings,
     )
 
 
