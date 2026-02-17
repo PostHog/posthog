@@ -25,7 +25,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
-import { isCoreFilter } from '~/taxonomy/helpers'
+import { getFilterLabel, isCoreFilter } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionType,
@@ -348,6 +348,8 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             ? 'When a user loads (or reloads) a page.'
             : 'When a user loads a screen in a mobile app.'
         const propertyName = isPageview ? '$current_url' : '$screen_name'
+        const eventLabel = getFilterLabel(eventName, TaxonomicFilterGroupType.Events)
+        const propertyLabel = getFilterLabel(propertyName, TaxonomicFilterGroupType.EventProperties)
 
         return (
             <>
@@ -357,10 +359,9 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                             {eventDescription}
                             <br />
                             <br />
-                            Selecting this will add a{' '}
-                            <span className="font-mono text-xs font-semibold">{eventName}</span> event filtered by{' '}
-                            <span className="font-mono text-xs font-semibold">{propertyName}</span> matching{' '}
-                            <span className="font-mono text-xs font-semibold">{_definition.name}</span>.
+                            Selecting this will add a <span className="font-semibold">{eventLabel}</span> event filtered
+                            by <span className="font-semibold">{propertyLabel}</span> matching{' '}
+                            <span className="font-semibold break-all">{_definition.name}</span>.
                         </>
                     }
                 />

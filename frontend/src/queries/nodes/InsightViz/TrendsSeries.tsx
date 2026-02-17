@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { alphabet } from 'lib/utils'
+import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
@@ -30,13 +31,15 @@ export function TrendsSeries(): JSX.Element | null {
     // Disable groups for calendar heatmap
     const showGroupsOptions = display === ChartDisplayType.CalendarHeatmap ? false : showGroupsOptionsFromModel
 
+    const { hasPageview, hasScreen } = getProjectEventExistence()
+
     const propertiesTaxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.EventMetadata,
-        TaxonomicFilterGroupType.PageviewEvents,
-        TaxonomicFilterGroupType.ScreenEvents,
+        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
+        ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
@@ -97,8 +100,8 @@ export function TrendsSeries(): JSX.Element | null {
                 actionsTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
-                    TaxonomicFilterGroupType.PageviewEvents,
-                    TaxonomicFilterGroupType.ScreenEvents,
+                    ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
+                    ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
                     ...(isTrends && display !== ChartDisplayType.CalendarHeatmap
                         ? [TaxonomicFilterGroupType.DataWarehouse]
                         : []),
