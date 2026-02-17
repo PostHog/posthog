@@ -968,17 +968,8 @@ def toolbar_oauth_authorize(request):
 
     request.session["toolbar_oauth_code_verifier"] = code_verifier
 
-    parsed_redirect = urllib.parse.urlparse(redirect_url)
-    return render_template(
-        "authorize_and_redirect.html",
-        request=request,
-        context={
-            "email": request.user,
-            "domain": parsed_redirect.hostname,
-            "redirect_url": redirect_url,
-            "authorization_url": authorization_url,
-        },
-    )
+    # Redirect to the authorization URL
+    return redirect(authorization_url)
 
 
 @require_http_methods(["GET"])
