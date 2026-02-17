@@ -185,6 +185,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
 
     listeners(({ actions, values }) => ({
         toggleGuide: () => {
+            actions.reportExperimentWizardGuideToggled(values.showGuide, values.currentStep)
             try {
                 localStorage.setItem(SHOW_GUIDE_STORAGE_KEY, JSON.stringify(values.showGuide))
             } catch {

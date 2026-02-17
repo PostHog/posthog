@@ -433,6 +433,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
+        reportExperimentWizardGuideToggled: (visible: boolean, currentStep: string) => ({ visible, currentStep }),
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentPaused: (experiment: Experiment) => ({ experiment }),
         reportExperimentResumed: (experiment: Experiment) => ({ experiment }),
@@ -1195,6 +1196,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentReset: ({ experiment }) => {
             posthog.capture('experiment reset', {
                 ...getEventPropertiesForExperiment(experiment),
+            })
+        },
+        reportExperimentWizardGuideToggled: ({ visible, currentStep }) => {
+            posthog.capture('experiment wizard guide toggled', {
+                visible,
+                current_step: currentStep,
             })
         },
         reportExperimentCreated: ({ experiment }) => {
