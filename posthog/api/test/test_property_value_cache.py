@@ -1,5 +1,6 @@
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from posthog.api.property_value_cache import (
     PROPERTY_VALUES_CACHE_TTL,
@@ -7,6 +8,12 @@ from posthog.api.property_value_cache import (
     get_cached_property_values,
 )
 from posthog.redis import get_client
+from posthog.tasks.property_value_cache import (
+    refresh_event_property_values_cache,
+    refresh_person_property_values_cache,
+    run_event_property_query_and_cache,
+    run_person_property_query_and_cache,
+)
 
 
 class TestPropertyValueCache(ClickhouseTestMixin, APIBaseTest):
@@ -191,3 +198,109 @@ class TestPropertyValueCache(ClickhouseTestMixin, APIBaseTest):
         assert cached_all == values_all_events
         assert cached_filtered == values_filtered_events
         assert cached_all != cached_filtered
+
+    def test_event_property_values_served_from_cache_on_hit(self):
+        with freeze_time("2020-01-20 20:00:00"):
+            _create_event(
+                distinct_id="test_user",
+                event="test_event",
+                team=self.team,
+                properties={"color": "db_value"},
+            )
+            flush_persons_and_events()
+
+            cache_property_values(
+                team_id=self.team.pk,
+                property_type="event",
+                property_key="color",
+                values=[{"name": "cached_value"}],
+            )
+
+            with patch.object(refresh_event_property_values_cache, "delay", return_value=None):
+                response = self.client.get(f"/api/projects/{self.team.pk}/events/values/?key=color")
+
+            assert response.status_code == 200
+            assert response.json() == [{"name": "cached_value"}]
+
+    def test_event_background_refresh_updates_cache_on_hit(self):
+        with freeze_time("2020-01-20 20:00:00"):
+            _create_event(
+                distinct_id="test_user",
+                event="test_event",
+                team=self.team,
+                properties={"color": "db_value"},
+            )
+            flush_persons_and_events()
+
+            cache_property_values(
+                team_id=self.team.pk,
+                property_type="event",
+                property_key="color",
+                values=[{"name": "old_cached_value"}],
+            )
+
+            with (
+                patch.object(
+                    refresh_event_property_values_cache, "delay", side_effect=run_event_property_query_and_cache
+                ),
+                patch("time.sleep"),
+            ):
+                response = self.client.get(f"/api/projects/{self.team.pk}/events/values/?key=color")
+
+            assert response.status_code == 200
+            assert response.json() == [{"name": "old_cached_value"}]
+
+            updated = get_cached_property_values(team_id=self.team.pk, property_type="event", property_key="color")
+            assert updated is not None
+            assert {"name": "db_value"} in updated
+
+    def test_person_property_values_served_from_cache_on_hit(self):
+        with freeze_time("2020-01-20 20:00:00"):
+            _create_person(
+                distinct_ids=["user1"],
+                team=self.team,
+                properties={"plan": "db_value"},
+            )
+
+            cache_property_values(
+                team_id=self.team.pk,
+                property_type="person",
+                property_key="plan",
+                values=[{"name": "cached_value", "count": 1}],
+            )
+
+            with patch.object(refresh_person_property_values_cache, "delay", return_value=None):
+                response = self.client.get(f"/api/projects/{self.team.pk}/persons/values/?key=plan")
+
+            assert response.status_code == 200
+            assert response.json() == [{"name": "cached_value", "count": 1}]
+
+    def test_person_background_refresh_updates_cache_on_hit(self):
+        with freeze_time("2020-01-20 20:00:00"):
+            _create_person(
+                distinct_ids=["user1"],
+                team=self.team,
+                properties={"plan": "db_value"},
+            )
+
+            cache_property_values(
+                team_id=self.team.pk,
+                property_type="person",
+                property_key="plan",
+                values=[{"name": "old_cached_value", "count": 1}],
+            )
+
+            with (
+                patch.object(
+                    refresh_person_property_values_cache, "delay", side_effect=run_person_property_query_and_cache
+                ),
+                patch("time.sleep"),
+            ):
+                response = self.client.get(f"/api/projects/{self.team.pk}/persons/values/?key=plan")
+
+            assert response.status_code == 200
+            assert response.json() == [{"name": "old_cached_value", "count": 1}]
+
+            updated = get_cached_property_values(team_id=self.team.pk, property_type="person", property_key="plan")
+            assert updated is not None
+            assert any(item["name"] == "db_value" for item in updated)

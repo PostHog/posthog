@@ -1,4 +1,3 @@
-import json
 import uuid
 import asyncio
 import builtins
@@ -24,7 +23,6 @@ from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from statshog.defaults.django import statsd
 from temporalio import common
 
 from posthog.schema import ProductKey
@@ -39,7 +37,6 @@ from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
-from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Cohort, Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -62,7 +59,6 @@ from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUno
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
-from posthog.queries.property_values import get_person_property_values_for_key
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
@@ -73,7 +69,7 @@ from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
-from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
+from posthog.utils import format_query_params_absolute_url, is_anonymous_id
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -517,66 +513,31 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             span.set_attribute("property_key", key or "")
             span.set_attribute("has_value_filter", value is not None)
 
-            flattened = []
-            if key and not key.startswith("$virt"):
-                result = self._get_person_property_values_for_key(key, value)
+            if not key or key.startswith("$virt"):
+                span.set_attribute("result_count", 0)
+                return response.Response([])
 
-                for value, count in result:
-                    try:
-                        # Try loading as json for dicts or arrays
-                        flattened.append(
-                            {
-                                "name": convert_property_value(json.loads(value)),
-                                "count": count,
-                            }
-                        )
-                    except json.decoder.JSONDecodeError:
-                        flattened.append({"name": convert_property_value(value), "count": count})
-
-            span.set_attribute("result_count", len(flattened))
-            return response.Response(flattened)
-
-    @timed("get_person_property_values_for_key_timer")
-    def _get_person_property_values_for_key(self, key, value):
-        try:
-            result = get_person_property_values_for_key(key, self.team, value)
-            statsd.incr(
-                "get_person_property_values_for_key_success",
-                tags={"team_id": self.team.id},
+            from posthog.api.property_value_cache import get_cached_property_values
+            from posthog.tasks.property_value_cache import (
+                refresh_person_property_values_cache,
+                run_person_property_query_and_cache,
             )
 
-            # Cache the results in Redis with 7-day expiry
-            # Convert result tuples (value, count) to dict format for caching
-            if isinstance(result, list):
-                from posthog.api.property_value_cache import cache_property_values
-
-                cached_values = []
-                for val, count in result:
-                    try:
-                        cached_values.append({"name": convert_property_value(json.loads(val)), "count": count})
-                    except json.decoder.JSONDecodeError:
-                        cached_values.append({"name": convert_property_value(val), "count": count})
-
-                cache_property_values(
-                    team_id=self.team.pk,
-                    property_type="person",
-                    property_key=key,
-                    values=cached_values,
-                    search_value=value,
-                )
-        except Exception as e:
-            statsd.incr(
-                "get_person_property_values_for_key_error",
-                tags={
-                    "error": str(e),
-                    "key": key,
-                    "value": value,
-                    "team_id": self.team.id,
-                },
+            cached = get_cached_property_values(
+                team_id=self.team.pk,
+                property_type="person",
+                property_key=key,
+                search_value=value,
             )
-            raise
 
-        return result
+            if cached is not None:
+                refresh_person_property_values_cache.delay(self.team.pk, key, value)  # type: ignore[operator]
+                span.set_attribute("result_count", len(cached))
+                return response.Response(cached)
+
+            result = run_person_property_query_and_cache(self.team.pk, key, value)
+            span.set_attribute("result_count", len(result))
+            return response.Response(result)
 
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
