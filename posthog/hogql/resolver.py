@@ -8,6 +8,7 @@ from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
@@ -398,7 +399,7 @@ class Resolver(CloningVisitor):
 
                 return node
 
-            database_table = self.database.get_table(table_name_chain)
+            database_table = cast(Database, self.database).get_table(table_name_chain)
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
