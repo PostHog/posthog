@@ -20,6 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.data_imports.signals import SignalEmitter, SignalSourceTableConfig, get_signal_config
 from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput
 
@@ -67,54 +68,56 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
             extra=inputs.properties_to_log,
         )
         return {"status": "skipped", "reason": "no_config_registered", "signals_emitted": 0}
-    # Fetch schema and team
-    schema, team = await database_sync_to_async(_fetch_schema_and_team, thread_sensitive=False)(
-        inputs.schema_id, inputs.team_id
-    )
-    if schema.table is None:
-        activity.logger.warning(
-            f"Schema {inputs.schema_id} has no table for emitting signals", extra=inputs.properties_to_log
+
+    async with Heartbeater():
+        # Fetch schema and team
+        schema, team = await database_sync_to_async(_fetch_schema_and_team, thread_sensitive=False)(
+            inputs.schema_id, inputs.team_id
         )
-        return {"status": "skipped", "reason": "no_table", "signals_emitted": 0}
-    # Query for new records
-    records = await database_sync_to_async(_query_new_records, thread_sensitive=False)(
-        team=team,
-        table_name=schema.table.name,
-        last_synced_at=inputs.last_synced_at,
-        config=config,
-        extra=inputs.properties_to_log,
-    )
-    if not records:
-        activity.logger.warning(
-            f"No new records found for {inputs.source_type}/{inputs.schema_name} for emitting signals",
+        if schema.table is None:
+            activity.logger.warning(
+                f"Schema {inputs.schema_id} has no table for emitting signals", extra=inputs.properties_to_log
+            )
+            return {"status": "skipped", "reason": "no_table", "signals_emitted": 0}
+        # Query for new records
+        records = await database_sync_to_async(_query_new_records, thread_sensitive=False)(
+            team=team,
+            table_name=schema.table.name,
+            last_synced_at=inputs.last_synced_at,
+            config=config,
             extra=inputs.properties_to_log,
         )
-        return {"status": "success", "reason": "no_new_records", "signals_emitted": 0}
-    # Build emitter outputs, filtering out records with missing data
-    outputs = _build_emitter_outputs(
-        team_id=inputs.team_id,
-        records=records,
-        emitter=config.emitter,
-    )
-    # Keep only actionable signals, when the prompt is defined
-    if config.actionability_prompt:
-        outputs = await _filter_actionable(
+        if not records:
+            activity.logger.warning(
+                f"No new records found for {inputs.source_type}/{inputs.schema_name} for emitting signals",
+                extra=inputs.properties_to_log,
+            )
+            return {"status": "success", "reason": "no_new_records", "signals_emitted": 0}
+        # Build emitter outputs, filtering out records with missing data
+        outputs = _build_emitter_outputs(
+            team_id=inputs.team_id,
+            records=records,
+            emitter=config.emitter,
+        )
+        # Keep only actionable signals, when the prompt is defined
+        if config.actionability_prompt:
+            outputs = await _filter_actionable(
+                outputs=outputs,
+                actionability_prompt=config.actionability_prompt,
+                extra=inputs.properties_to_log,
+            )
+        if not outputs:
+            return {"status": "success", "reason": "no_actionable_records", "signals_emitted": 0}
+        signals_emitted = await _emit_signals(
+            team=team,
             outputs=outputs,
-            actionability_prompt=config.actionability_prompt,
             extra=inputs.properties_to_log,
         )
-    if not outputs:
-        return {"status": "success", "reason": "no_actionable_records", "signals_emitted": 0}
-    signals_emitted = await _emit_signals(
-        team=team,
-        outputs=outputs,
-        extra=inputs.properties_to_log,
-    )
-    activity.logger.info(
-        f"Emitted {signals_emitted} signals for {inputs.source_type}/{inputs.schema_name}",
-        extra=inputs.properties_to_log,
-    )
-    return {"status": "success", "signals_emitted": signals_emitted}
+        activity.logger.info(
+            f"Emitted {signals_emitted} signals for {inputs.source_type}/{inputs.schema_name}",
+            extra=inputs.properties_to_log,
+        )
+        return {"status": "success", "signals_emitted": signals_emitted}
 
 
 def _fetch_schema_and_team(schema_id: uuid.UUID, team_id: int) -> tuple[ExternalDataSchema, Team]:
