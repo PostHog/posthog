@@ -7,14 +7,6 @@ from typing import Any
 @dataclass
 class ClassifySentimentInput:
     team_id: int
-    trace_id: str
-    date_from: str | None = None
-    date_to: str | None = None
-
-
-@dataclass
-class ClassifySentimentBatchInput:
-    team_id: int
     trace_ids: list[str]
     date_from: str | None = None
     date_to: str | None = None

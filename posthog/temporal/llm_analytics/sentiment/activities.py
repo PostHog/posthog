@@ -10,7 +10,7 @@ from typing import Any
 import structlog
 import temporalio
 
-from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentBatchInput, PendingClassification
+from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentInput, PendingClassification
 from posthog.temporal.llm_analytics.sentiment.utils import build_trace_result, collect_pending, resolve_date_bounds
 
 logger = structlog.get_logger(__name__)
@@ -29,7 +29,7 @@ _GENERATIONS_QUERY = """
 
 
 @temporalio.activity.defn
-async def classify_sentiment_batch_activity(input: ClassifySentimentBatchInput) -> dict[str, dict[str, Any]]:
+async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str, dict[str, Any]]:
     """Fetch $ai_generation events for traces and classify sentiment on user messages."""
     from posthog.hogql import ast
     from posthog.hogql.constants import LimitContext

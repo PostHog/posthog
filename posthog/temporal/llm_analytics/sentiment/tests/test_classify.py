@@ -3,9 +3,9 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.temporal.llm_analytics.sentiment.activities import classify_sentiment_batch_activity
+from posthog.temporal.llm_analytics.sentiment.activities import classify_sentiment_activity
 from posthog.temporal.llm_analytics.sentiment.model import SentimentResult
-from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentBatchInput
+from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentInput
 
 
 def _make_row(uuid: str, messages: list[dict], trace_id: str = "trace-1") -> tuple:
@@ -24,8 +24,8 @@ def _mock_hogql_result(rows: list[tuple]) -> MagicMock:
     return result
 
 
-def _single_input(trace_id: str = "trace-1", **kwargs) -> ClassifySentimentBatchInput:
-    return ClassifySentimentBatchInput(team_id=1, trace_ids=[trace_id], **kwargs)
+def _single_input(trace_id: str = "trace-1", **kwargs) -> ClassifySentimentInput:
+    return ClassifySentimentInput(team_id=1, trace_ids=[trace_id], **kwargs)
 
 
 _PATCH_HOGQL = "posthog.hogql.query.execute_hogql_query"
@@ -47,7 +47,7 @@ class TestClassifySentimentSingleTrace:
     async def test_empty_query_returns_neutral(self, mock_hogql: MagicMock):
         mock_hogql.return_value = _mock_hogql_result([])
 
-        result = await classify_sentiment_batch_activity(_single_input())
+        result = await classify_sentiment_activity(_single_input())
 
         assert result["trace-1"]["label"] == "neutral"
         assert result["trace-1"]["generation_count"] == 0
@@ -64,7 +64,7 @@ class TestClassifySentimentSingleTrace:
         )
         mock_classify.return_value = [_make_sentiment_result("positive", 0.9)]
 
-        result = await classify_sentiment_batch_activity(_single_input())
+        result = await classify_sentiment_activity(_single_input())
 
         mock_classify.assert_called_once_with(["I love this product"])
         assert result["trace-1"]["generation_count"] == 1
@@ -93,7 +93,7 @@ class TestClassifySentimentSingleTrace:
             _make_sentiment_result("neutral", 0.7),
         ]
 
-        result = await classify_sentiment_batch_activity(_single_input())
+        result = await classify_sentiment_activity(_single_input())
 
         mock_classify.assert_called_once_with(["msg-a", "msg-b", "msg-c"])
         trace = result["trace-1"]
@@ -125,7 +125,7 @@ class TestClassifySentimentSingleTrace:
             _make_sentiment_result("negative", 0.8),
         ]
 
-        result = await classify_sentiment_batch_activity(_single_input())
+        result = await classify_sentiment_activity(_single_input())
 
         texts_classified = mock_classify.call_args[0][0]
         assert len(texts_classified) == 3
@@ -145,7 +145,7 @@ class TestClassifySentimentSingleTrace:
         )
         mock_classify.return_value = [_make_sentiment_result("positive", 0.9)]
 
-        result = await classify_sentiment_batch_activity(_single_input())
+        result = await classify_sentiment_activity(_single_input())
 
         mock_classify.assert_called_once_with(["a real message"])
         trace = result["trace-1"]
@@ -164,7 +164,7 @@ class TestClassifySentimentSingleTrace:
         )
         mock_classify.return_value = [_make_sentiment_result("positive", 0.9)]
 
-        await classify_sentiment_batch_activity(_single_input(date_from="2025-01-01", date_to="2025-01-31"))
+        await classify_sentiment_activity(_single_input(date_from="2025-01-01", date_to="2025-01-31"))
 
         call_kwargs = mock_hogql.call_args.kwargs
         placeholders = call_kwargs["placeholders"]
@@ -182,7 +182,7 @@ class TestClassifySentimentSingleTrace:
         )
         mock_classify.return_value = [_make_sentiment_result("positive", 0.9)]
 
-        await classify_sentiment_batch_activity(_single_input(date_from="-1h", date_to=None))
+        await classify_sentiment_activity(_single_input(date_from="-1h", date_to=None))
 
         call_kwargs = mock_hogql.call_args.kwargs
         placeholders = call_kwargs["placeholders"]
@@ -198,7 +198,7 @@ class TestClassifySentimentBatch:
     async def test_empty_query_returns_neutral_for_all(self, mock_hogql: MagicMock):
         mock_hogql.return_value = _mock_hogql_result([])
 
-        result = await classify_sentiment_batch_activity(ClassifySentimentBatchInput(team_id=1, trace_ids=["t1", "t2"]))
+        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_ids=["t1", "t2"]))
 
         assert result["t1"]["label"] == "neutral"
         assert result["t2"]["label"] == "neutral"
@@ -218,7 +218,7 @@ class TestClassifySentimentBatch:
             _make_sentiment_result("negative", 0.8),
         ]
 
-        result = await classify_sentiment_batch_activity(ClassifySentimentBatchInput(team_id=1, trace_ids=["t1", "t2"]))
+        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_ids=["t1", "t2"]))
 
         # One classify_batch call with all texts
         mock_classify.assert_called_once_with(["hello from t1", "hello from t2"])
@@ -241,7 +241,7 @@ class TestClassifySentimentBatch:
         )
         mock_classify.return_value = [_make_sentiment_result("positive", 0.9)]
 
-        result = await classify_sentiment_batch_activity(ClassifySentimentBatchInput(team_id=1, trace_ids=["t1", "t2"]))
+        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_ids=["t1", "t2"]))
 
         assert result["t1"]["label"] == "positive"
         assert result["t2"]["label"] == "neutral"

@@ -28,7 +28,7 @@ from posthog.rate_limit import (
     LLMAnalyticsSentimentSustainedThrottle,
 )
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentBatchInput, ClassifySentimentInput
+from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentInput
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
 
@@ -36,6 +36,7 @@ logger = structlog.get_logger(__name__)
 
 CACHE_TTL = 60 * 60 * 24  # 24 hours — events are immutable once ingested
 BATCH_MAX_TRACE_IDS = 25
+WORKFLOW_NAME = "llma-sentiment-classify"
 
 
 class SentimentRequestSerializer(serializers.Serializer):
@@ -78,27 +79,28 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     def _execute_workflow(
         self,
         client,
-        trace_id: str,
+        trace_ids: list[str],
         date_from: str | None = None,
         date_to: str | None = None,
-    ) -> dict:
+        task_timeout: timedelta = timedelta(seconds=30),
+    ) -> dict[str, dict]:
         workflow_input = ClassifySentimentInput(
             team_id=self.team_id,
-            trace_id=trace_id,
+            trace_ids=trace_ids,
             date_from=date_from,
             date_to=date_to,
         )
-        workflow_id = f"llma-sentiment-{self.team_id}-{trace_id}-{int(time.time() * 1000)}"
+        workflow_id = f"llma-sentiment-{self.team_id}-{int(time.time() * 1000)}"
 
         return asyncio.run(
             client.execute_workflow(
-                "llma-sentiment-classify",
+                WORKFLOW_NAME,
                 workflow_input,
                 id=workflow_id,
                 task_queue=settings.LLMA_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 retry_policy=RetryPolicy(maximum_attempts=2),
-                task_timeout=timedelta(seconds=30),
+                task_timeout=task_timeout,
             )
         )
 
@@ -122,7 +124,8 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
         try:
             client = sync_connect()
-            result = self._execute_workflow(client, trace_id, date_from=date_from, date_to=date_to)
+            results = self._execute_workflow(client, [trace_id], date_from=date_from, date_to=date_to)
+            result = results[trace_id]
 
             cache.set(cache_key, result, timeout=CACHE_TTL)
 
@@ -181,24 +184,8 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         if misses:
             try:
                 client = sync_connect()
-                workflow_input = ClassifySentimentBatchInput(
-                    team_id=self.team_id,
-                    trace_ids=misses,
-                    date_from=date_from,
-                    date_to=date_to,
-                )
-                workflow_id = f"llma-sentiment-batch-{self.team_id}-{int(time.time() * 1000)}"
-
-                batch_results: dict[str, dict] = asyncio.run(
-                    client.execute_workflow(
-                        "llma-sentiment-classify-batch",
-                        workflow_input,
-                        id=workflow_id,
-                        task_queue=settings.LLMA_TASK_QUEUE,
-                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                        retry_policy=RetryPolicy(maximum_attempts=2),
-                        task_timeout=timedelta(seconds=60),
-                    )
+                batch_results = self._execute_workflow(
+                    client, misses, date_from=date_from, date_to=date_to, task_timeout=timedelta(seconds=60)
                 )
 
                 to_cache: dict[str, dict] = {}
