@@ -110,6 +110,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
         similarIssuesMaxDistance: 0.2 as number,
+        similarIssuesError: null as string | null,
     }),
 
     reducers(({ values }) => ({
@@ -125,6 +126,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
         similarIssuesMaxDistance: {
             setSimilarIssuesMaxDistance: (_, { distance }) => distance,
+        },
+        similarIssuesError: {
+            loadSimilarIssues: () => null,
+            loadSimilarIssuesSuccess: () => null,
+            loadSimilarIssuesFailure: (_, { error }) => error,
         },
         initialEventTimestamp: {
             setInitialEventTimestamp: (state, { timestamp }) => {

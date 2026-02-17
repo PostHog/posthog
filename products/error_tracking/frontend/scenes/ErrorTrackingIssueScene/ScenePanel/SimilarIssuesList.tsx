@@ -2,7 +2,7 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
-import { IconSearch } from '@posthog/icons'
+import { IconSearch, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { LemonModalContent, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
@@ -19,7 +19,7 @@ import { useErrorTagRenderer } from '../../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 
 export const SimilarIssuesList = (): JSX.Element => {
-    const { issue, similarIssues, similarIssuesLoading, similarIssuesMaxDistance } =
+    const { issue, similarIssues, similarIssuesLoading, similarIssuesMaxDistance, similarIssuesError } =
         useValues(errorTrackingIssueSceneLogic)
     const { loadSimilarIssues, setSimilarIssuesMaxDistance } = useActions(errorTrackingIssueSceneLogic)
     const { mergeIssues } = useAsyncActions(issueActionsLogic)
@@ -62,6 +62,17 @@ export const SimilarIssuesList = (): JSX.Element => {
                 />
             ) : similarIssuesLoading ? (
                 <Spinner className="m-auto" />
+            ) : similarIssuesError ? (
+                <EmptyState
+                    icon={<IconWarning className="text-warning text-3xl" />}
+                    title="Embeddings not available"
+                    description="No embeddings have been generated for this issue yet. Embeddings may still be processing, please try again later."
+                    action={
+                        <LemonButton type="primary" size="small" onClick={() => loadSimilarIssues(true)}>
+                            Retry
+                        </LemonButton>
+                    }
+                />
             ) : similarIssues.length > 0 ? (
                 <div className="flex flex-col gap-1 divide-y overflow-y-auto flex-1 min-h-0" tabIndex={-1}>
                     {similarIssues.map((similarIssue: SimilarIssue) => {
@@ -112,17 +123,19 @@ export const SimilarIssuesList = (): JSX.Element => {
 }
 
 const EmptyState = ({
+    icon,
     title,
     description,
     action,
 }: {
+    icon?: JSX.Element
     title: string
     description: string
     action: JSX.Element
 }): JSX.Element => {
     return (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 p-6 text-center">
-            <IconSearch className="text-secondary text-3xl" />
+            {icon ?? <IconSearch className="text-secondary text-3xl" />}
             <div className="flex flex-col gap-1">
                 <h4 className="font-semibold mb-0">{title}</h4>
                 <p className="text-secondary text-sm max-w-80 mb-0">{description}</p>

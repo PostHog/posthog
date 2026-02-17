@@ -6,7 +6,7 @@ from django.db.models.aggregates import Max
 
 import structlog
 from pydantic import BaseModel
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.schema import (
     CachedErrorTrackingSimilarIssuesQueryResponse,
@@ -247,15 +247,42 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
             cast(datetime, fingerprint["first_seen"]) + time_window for fingerprint in matched_fingerprints
         )
         target_fingerprints = [fingerprint["fingerprint"] for fingerprint in matched_fingerprints]
-        return parse_select(
-            self.query_template,
+
+        avg_embedding_query = parse_select(
+            """
+            SELECT avgForEach(embedding)
+            FROM document_embeddings
+            WHERE document_type = 'fingerprint'
+            AND rendering = {rendering}
+            AND model_name = {model_name}
+            AND document_id IN {fingerprints}
+            AND product = 'error_tracking'
+            AND timestamp >= {min_target_timestamp}
+            AND timestamp <= {max_target_timestamp}
+            """,
             placeholders={
                 "fingerprints": ast.Constant(value=target_fingerprints),
                 "model_name": ast.Constant(value=self.model_name),
                 "rendering": ast.Constant(value=self.rendering),
-                "max_distance": ast.Constant(value=self.max_distance),
                 "min_target_timestamp": ast.Constant(value=min_timestamp),
                 "max_target_timestamp": ast.Constant(value=max_timestamp),
+            },
+        )
+        result = execute_hogql_query(avg_embedding_query, team=self.team)
+        avg_embedding = result.results[0][0] if result.results else []
+        if len(avg_embedding) == 0:
+            raise ValidationError(
+                "No embeddings have been generated for this issue yet. Embeddings may still be processing."
+            )
+
+        return parse_select(
+            self.query_template,
+            placeholders={
+                "fingerprints": ast.Constant(value=target_fingerprints),
+                "avg_embedding": ast.Constant(value=avg_embedding),
+                "model_name": ast.Constant(value=self.model_name),
+                "rendering": ast.Constant(value=self.rendering),
+                "max_distance": ast.Constant(value=self.max_distance),
                 "limit": ast.Constant(value=self.query.limit),
             },
         )
@@ -268,18 +295,7 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
             SELECT
                 document_id as fingerprint,
                 timestamp,
-                cosineDistance(
-                    (SELECT avgForEach(embedding)
-                     FROM document_embeddings
-                     WHERE document_type = 'fingerprint'
-                     AND rendering = {rendering}
-                     AND model_name = {model_name}
-                     AND document_id IN {fingerprints}
-                     AND product = 'error_tracking'
-                     AND timestamp >= {min_target_timestamp}
-                     AND timestamp <= {max_target_timestamp}),
-                    embedding
-                ) as distance
+                cosineDistance({avg_embedding}, embedding) as distance
             FROM document_embeddings
             WHERE document_type = 'fingerprint'
             AND rendering = {rendering}
