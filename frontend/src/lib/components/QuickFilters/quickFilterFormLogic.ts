@@ -1,16 +1,16 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 
-import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { uuid } from 'lib/utils'
 
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, QuickFilter, QuickFilterOption } from '~/types'
+import { QuickFilterType } from '~/queries/schema/schema-general'
+import { PropertyOperator, QuickFilter, QuickFilterOption } from '~/types'
 
 import type { quickFilterFormLogicType } from './quickFilterFormLogicType'
 import { quickFiltersLogic } from './quickFiltersLogic'
 import { quickFiltersModalLogic } from './quickFiltersModalLogic'
+import { isAutoDiscoveryQuickFilter, isManualQuickFilter } from './utils'
 
 export interface QuickFilterFormLogicProps {
     filter: QuickFilter | null
@@ -20,7 +20,10 @@ export interface QuickFilterFormLogicProps {
 export interface QuickFilterFormValues {
     name: string
     propertyName: string
+    type: QuickFilterType
     options: QuickFilterOption[]
+    valuePattern: string
+    operator: PropertyOperator
 }
 
 export const allowedOperators = [
@@ -51,8 +54,7 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
     key((props) => `${props.context}-${props.filter?.id || 'new'}`),
 
     connect((props: QuickFilterFormLogicProps) => ({
-        values: [propertyDefinitionsModel, ['options as propertyOptions']],
-        actions: [propertyDefinitionsModel, ['loadPropertyValues'], quickFiltersModalLogic(props), ['closeModal']],
+        actions: [quickFiltersModalLogic(props), ['closeModal']],
     })),
 
     actions({
@@ -66,11 +68,18 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
             defaults: {
                 name: props.filter?.name || '',
                 propertyName: props.filter?.property_name || '',
-                options: (props.filter?.options || [
-                    { id: uuid(), value: null, label: '', operator: PropertyOperator.Exact },
-                ]) as QuickFilterOption[],
+                type: (props.filter?.type || 'manual-options') as QuickFilterType,
+                options: (isManualQuickFilter(props.filter)
+                    ? props.filter.options
+                    : [
+                          { id: uuid(), value: null, label: '', operator: PropertyOperator.Exact },
+                      ]) as QuickFilterOption[],
+                valuePattern: isAutoDiscoveryQuickFilter(props.filter) ? props.filter.options.value_pattern : '',
+                operator: isAutoDiscoveryQuickFilter(props.filter)
+                    ? props.filter.options.operator
+                    : PropertyOperator.Exact,
             } as QuickFilterFormValues,
-            errors: ({ name, propertyName, options }) => {
+            errors: ({ name, propertyName, type, options, valuePattern }) => {
                 const errors: Record<string, string | object | undefined> = {}
 
                 if (!name.trim()) {
@@ -81,49 +90,77 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
                     errors.propertyName = 'Event property is required'
                 }
 
-                if (options.length === 0) {
-                    errors.options = 'At least one option is required'
-                } else {
-                    const optionErrors: Record<string, string>[] = []
-                    let hasOptionErrors = false
+                if (type === 'manual-options') {
+                    if (options.length === 0) {
+                        errors.options = 'At least one option is required'
+                    } else {
+                        const optionErrors: Record<string, string>[] = []
+                        let hasOptionErrors = false
 
-                    options.forEach((opt: QuickFilterOption, index: number) => {
-                        const optError: Record<string, string> = {}
+                        options.forEach((opt: QuickFilterOption, index: number) => {
+                            const optError: Record<string, string> = {}
 
-                        if (!opt.label.trim()) {
-                            optError.label = 'Display name is required'
-                            hasOptionErrors = true
-                        }
-
-                        const operatorNeedsValue = !operatorsWithoutValues.includes(opt.operator as PropertyOperator)
-                        if (operatorNeedsValue) {
-                            if (!opt.value || (Array.isArray(opt.value) && opt.value.length === 0)) {
-                                optError.value = 'Value is required'
+                            if (!opt.label.trim()) {
+                                optError.label = 'Display name is required'
                                 hasOptionErrors = true
                             }
+
+                            const operatorNeedsValue = !operatorsWithoutValues.includes(
+                                opt.operator as PropertyOperator
+                            )
+                            if (operatorNeedsValue) {
+                                if (!opt.value || (Array.isArray(opt.value) && opt.value.length === 0)) {
+                                    optError.value = 'Value is required'
+                                    hasOptionErrors = true
+                                }
+                            }
+
+                            optionErrors[index] = optError
+                        })
+
+                        if (hasOptionErrors) {
+                            errors.options = optionErrors
                         }
+                    }
+                }
 
-                        optionErrors[index] = optError
-                    })
-
-                    if (hasOptionErrors) {
-                        errors.options = optionErrors
+                if (type === 'auto-discovery' && valuePattern) {
+                    try {
+                        new RegExp(valuePattern)
+                    } catch {
+                        errors.valuePattern = 'Invalid regex pattern'
                     }
                 }
 
                 return errors
             },
-            submit: async ({ name, propertyName, options }) => {
-                const payload = {
+            submit: async ({ name, propertyName, type, options, valuePattern }) => {
+                const basePayload = {
                     name: name.trim(),
                     property_name: propertyName.trim(),
-                    type: 'manual-options' as const,
-                    options: options.map((opt: QuickFilterOption) => ({
-                        id: opt.id,
-                        value: trimValue(opt.value),
-                        label: opt.label.trim(),
-                        operator: opt.operator || PropertyOperator.Exact,
-                    })),
+                }
+
+                let payload
+                if (type === 'auto-discovery') {
+                    payload = {
+                        ...basePayload,
+                        type: 'auto-discovery' as const,
+                        options: {
+                            value_pattern: valuePattern.trim(),
+                            operator: PropertyOperator.Exact,
+                        },
+                    }
+                } else {
+                    payload = {
+                        ...basePayload,
+                        type: 'manual-options' as const,
+                        options: options.map((opt: QuickFilterOption) => ({
+                            id: opt.id,
+                            value: trimValue(opt.value),
+                            label: opt.label.trim(),
+                            operator: opt.operator || PropertyOperator.Exact,
+                        })),
+                    }
                 }
 
                 if (props.filter) {
@@ -140,29 +177,15 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
     selectors({
         name: [(s) => [s.quickFilter], (quickFilter) => quickFilter.name],
         propertyName: [(s) => [s.quickFilter], (quickFilter) => quickFilter.propertyName],
+        type: [(s) => [s.quickFilter], (quickFilter) => quickFilter.type],
         options: [(s) => [s.quickFilter], (quickFilter) => quickFilter.options],
-        suggestions: [
-            (s) => [s.propertyName, s.propertyOptions],
-            (propertyName, propertyOptions): any[] => {
-                return propertyName ? propertyOptions[propertyName]?.values || [] : []
-            },
-        ],
+        valuePattern: [(s) => [s.quickFilter], (quickFilter) => quickFilter.valuePattern],
+        operator: [(s) => [s.quickFilter], (quickFilter) => quickFilter.operator],
     }),
 
     listeners(({ actions, values }) => ({
         setQuickFilterValue: ({ name, value }) => {
-            if (name === 'propertyName' && value) {
-                actions.loadPropertyValues({
-                    endpoint: undefined,
-                    type: propertyFilterTypeToPropertyDefinitionType(PropertyFilterType.Event),
-                    newInput: '',
-                    propertyKey: value as string,
-                    eventNames: [],
-                    properties: [],
-                })
-            }
-
-            // Auto-fill label when value is set and label is empty
+            // Auto-fill label when value is set and label is empty (manual options only)
             if (Array.isArray(name) && name[0] === 'options' && name[2] === 'value') {
                 const optionIndex = name[1] as number
                 const currentOption = values.options[optionIndex]

@@ -6,6 +6,8 @@ import { quickFiltersLogic } from 'lib/components/QuickFilters'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { PropertyOperator, QuickFilterOption } from '~/types'
 
+import { isAutoDiscoveryQuickFilter } from './utils'
+
 import { QuickFiltersEvents } from './consts'
 import type { quickFiltersSectionLogicType } from './quickFiltersSectionLogicType'
 
@@ -73,7 +75,15 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
                 return
             }
 
-            const updatedOption = filter.options.find((o) => o.id === currentSelection.optionId)
+            // For auto-discovery filters, values are loaded dynamically so we can't check
+            // whether the selected option still exists in the filter's config
+            if (isAutoDiscoveryQuickFilter(filter)) {
+                return
+            }
+
+            const updatedOption = (filter.options as QuickFilterOption[]).find(
+                (o) => o.id === currentSelection.optionId
+            )
             if (updatedOption) {
                 actions.setQuickFilterValue(filter.property_name, updatedOption)
             } else {
