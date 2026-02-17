@@ -10,7 +10,7 @@ from django.conf import settings
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from google.genai import types
-from posthoganalytics.ai.gemini import genai
+from posthoganalytics.ai.gemini import AsyncClient, genai
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -184,12 +184,12 @@ def _build_emitter_outputs(
 
 
 async def _check_actionability(
+    client: AsyncClient,
     output: SignalEmitterOutput,
     actionability_prompt: str,
 ) -> bool:
     """Check if the signal is actionable through LLM-as-a-judge call"""
     try:
-        client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
         prompt = actionability_prompt.format(description=output.description)
         response = await client.models.generate_content(
             model="models/gemini-3-flash-preview",
@@ -219,11 +219,12 @@ async def _filter_actionable(
     extra: dict[str, Any],
 ) -> list[SignalEmitterOutput]:
     """Keep only actionable signals"""
+    client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
 
     async def _bounded_check(output: SignalEmitterOutput) -> bool:
         async with semaphore:
-            return await _check_actionability(output, actionability_prompt)
+            return await _check_actionability(client, output, actionability_prompt)
 
     tasks: dict[int, asyncio.Task[bool]] = {}
     async with asyncio.TaskGroup() as tg:
