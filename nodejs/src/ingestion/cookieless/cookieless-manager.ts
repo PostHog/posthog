@@ -546,13 +546,15 @@ export class CookielessManager {
 
             const identifiesCacheItem = identifiesCache[identifiesRedisKey]
 
+            // Compute n without mutating the identifies set yet — we only commit the
+            // mutation after the hash succeeds so a DLQ'd event doesn't inflate the
+            // count for subsequent events in the same batch.
             let n: number
+            let isIdentifyEvent = false
             if (event.event === '$identify') {
-                identifiesCacheItem.identifyEventIds.add(event.uuid)
-                identifiesCacheItem.isDirty = true
-
-                // identify, we want the number of identifies from before this event
-                n = identifiesCacheItem.identifyEventIds.size - 1
+                isIdentifyEvent = true
+                const alreadySeen = identifiesCacheItem.identifyEventIds.has(event.uuid)
+                n = identifiesCacheItem.identifyEventIds.size - (alreadySeen ? 1 : 0)
             } else if (event.distinct_id === COOKIELESS_SENTINEL_VALUE) {
                 // non-identify event
                 n = identifiesCacheItem.identifyEventIds.size
@@ -577,6 +579,11 @@ export class CookielessManager {
             if (!hashValueResult.success) {
                 results[originalIndex] = dlq('cookieless_unexpected_date_validation_failure')
                 continue
+            }
+
+            if (isIdentifyEvent) {
+                identifiesCacheItem.identifyEventIds.add(event.uuid)
+                identifiesCacheItem.isDirty = true
             }
             const distinctId = hashToDistinctId(hashValueResult.salt)
             const sessionRedisKey = getRedisSessionsKey(hashValueResult.salt, team.id)
