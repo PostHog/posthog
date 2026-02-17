@@ -333,7 +333,7 @@ async def run_benchmark(
                                 return_exceptions=True,
                             )
                             for r in concurrent_results:
-                                if isinstance(r, Exception):
+                                if isinstance(r, BaseException):
                                     print(f"    concurrent error: {r}")
                                 else:
                                     all_results.append(r)

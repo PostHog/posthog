@@ -51,12 +51,12 @@ python benchmark.py --report results/benchmark_YYYYMMDD_HHMMSS.json
 
 ## Default models
 
-| Model | Provider |
-|---|---|
-| gpt-4.1-mini | OpenAI |
-| gpt-4.1-nano | OpenAI |
+| Model                      | Provider  |
+| -------------------------- | --------- |
+| gpt-4.1-mini               | OpenAI    |
+| gpt-4.1-nano               | OpenAI    |
 | claude-sonnet-4-5-20250514 | Anthropic |
-| claude-haiku-4-5-20251001 | Anthropic |
+| claude-haiku-4-5-20251001  | Anthropic |
 
 ## Output
 
