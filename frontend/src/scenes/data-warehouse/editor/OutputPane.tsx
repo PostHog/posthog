@@ -538,12 +538,14 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                             onClick={() => toggleChartSettingsPanel()}
                                             tooltip="Visualization settings"
                                         />
-                                        {(editingInsight || insightLoading) && (
+                                        {editingInsight || insightLoading ? (
                                             <LemonButton
                                                 disabledReason={
-                                                    (!updateInsightButtonEnabled && 'No updates to save') ||
-                                                    (insightLoading && 'Loading...') ||
-                                                    undefined
+                                                    !updateInsightButtonEnabled
+                                                        ? 'No updates to save'
+                                                        : insightLoading
+                                                          ? 'Loading...'
+                                                          : undefined
                                                 }
                                                 loading={insightLoading}
                                                 type="primary"
@@ -567,8 +569,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                             >
                                                 Save insight
                                             </LemonButton>
-                                        )}
-                                        {!editingInsight && !insightLoading && (
+                                        ) : (
                                             <LemonButton
                                                 disabledReason={!hasColumns ? 'No results to save' : undefined}
                                                 type="primary"
@@ -663,6 +664,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                     responseError={responseError}
                     responseLoading={responseLoading}
                     response={response}
+                    insightLoading={insightLoading}
                     sourceQuery={sourceQuery}
                     queryCancelled={queryCancelled}
                     columns={columns}
@@ -821,6 +823,7 @@ const Content = ({
     pollResponse,
     setProgress,
     progress,
+    insightLoading,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
     const { featureFlags } = useValues(featureFlagLogic)
@@ -871,7 +874,7 @@ const Content = ({
         )
     }
 
-    if (responseLoading) {
+    if (responseLoading || insightLoading) {
         return (
             <div className="flex flex-1 p-2 w-full justify-center items-center border-t">
                 <StatelessInsightLoadingState
