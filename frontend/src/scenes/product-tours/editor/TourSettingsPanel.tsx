@@ -57,19 +57,30 @@ export function TourSettingsPanel({ tourId }: TourSettingsPanelProps): JSX.Eleme
 
     const displayContent = (
         <div className="space-y-4">
-            <div className="flex items-center justify-between">
-                <span className="text-sm">Auto-show this {entityKeyword}</span>
-                <LemonSwitch
-                    checked={productTourForm.auto_launch}
-                    onChange={(checked) => setProductTourFormValue('auto_launch', checked)}
-                />
+            <div>
+                <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Auto-show this {entityKeyword}</span>
+                    <LemonSwitch
+                        checked={productTourForm.auto_launch}
+                        onChange={(checked) => setProductTourFormValue('auto_launch', checked)}
+                    />
+                </div>
+                {productTourForm.auto_launch && (
+                    <>
+                        <p className="text-xs text-secondary mt-2 mb-2">
+                            Show automatically when some conditions are met
+                        </p>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconGear />}
+                            onClick={() => setShowAutoShowModal(true)}
+                            fullWidth
+                        >
+                            Configure targeting
+                        </LemonButton>
+                    </>
+                )}
             </div>
-
-            {productTourForm.auto_launch && (
-                <LemonButton type="secondary" icon={<IconGear />} onClick={() => setShowAutoShowModal(true)} fullWidth>
-                    Configure targeting
-                </LemonButton>
-            )}
 
             <div className="pt-4 border-t">
                 <div className="flex items-center justify-between">

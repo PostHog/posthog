@@ -50,14 +50,13 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 import { WebVitalsToolbarMenu } from '~/toolbar/web-vitals/WebVitalsToolbarMenu'
 
-import { HedgehogMenu } from '../hedgehog/HedgehogMenu'
 import { ToolbarButton } from './ToolbarButton'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
 function EnabledStatusItem({ label, value }: { label: string; value: boolean }): JSX.Element {
     return (
-        <div className="flex w-full justify-between items-center">
+        <div className="flex justify-between items-center w-full">
             <div>{label}: </div>
             <div>{value ? <IconCheck /> : <IconX />}</div>
         </div>
@@ -77,7 +76,7 @@ function postHogDebugInfoMenuItem(
         items: [
             {
                 label: (
-                    <div className="flex w-full justify-between items-center">
+                    <div className="flex justify-between items-center w-full">
                         <div>version: </div>
                         <div>{posthog?.version || 'posthog not available'}</div>
                     </div>
@@ -85,7 +84,7 @@ function postHogDebugInfoMenuItem(
             },
             {
                 label: (
-                    <div className="flex w-full justify-between items-center">
+                    <div className="flex justify-between items-center w-full">
                         <div>api host: </div>
                         <div>{posthog?.config.api_host}</div>
                     </div>
@@ -93,7 +92,7 @@ function postHogDebugInfoMenuItem(
             },
             {
                 label: (
-                    <div className="flex w-full justify-between items-center">
+                    <div className="flex justify-between items-center w-full">
                         <div>ui host: </div>
                         <div>{posthog?.config.ui_host || 'not set'}</div>
                     </div>
@@ -119,7 +118,7 @@ function postHogDebugInfoMenuItem(
             { label: <EnabledStatusItem label="heatmaps" value={!!posthog?.heatmaps?.isEnabled} /> },
             {
                 label: (
-                    <div className="flex w-full justify-between items-center">
+                    <div className="flex justify-between items-center w-full">
                         <div>surveys: </div>
                         <div>
                             {loadingSurveys ? <Spinner /> : <LemonBadge.Number showZero={true} count={surveysCount} />}
@@ -130,7 +129,7 @@ function postHogDebugInfoMenuItem(
             { label: <EnabledStatusItem label="session recording" value={!!posthog?.sessionRecording?.started} /> },
             {
                 label: (
-                    <div className="flex w-full justify-between items-center">
+                    <div className="flex justify-between items-center w-full">
                         <div>session recording status: </div>
                         <div>{posthog?.sessionRecording?.status || 'unknown'}</div>
                     </div>
@@ -138,7 +137,7 @@ function postHogDebugInfoMenuItem(
             },
             {
                 label: (
-                    <div className="flex w-full items-center">
+                    <div className="flex items-center w-full">
                         <Link to={posthog?.get_session_replay_url()} target="_blank">
                             View current session recording
                         </Link>
@@ -202,9 +201,16 @@ function piiMaskingMenuItem(
 }
 
 function MoreMenu(): JSX.Element {
-    const { hedgehogMode, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } = useValues(toolbarLogic)
-    const { setHedgehogMode, toggleTheme, setVisibleMenu, togglePiiMasking, setPiiMaskingColor, startGracefulExit } =
-        useActions(toolbarLogic)
+    const { hedgehogModeEnabled, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } =
+        useValues(toolbarLogic)
+    const {
+        setHedgehogModeEnabled,
+        toggleTheme,
+        togglePiiMasking,
+        setPiiMaskingColor,
+        startGracefulExit,
+        openHedgehogOptions,
+    } = useActions(toolbarLogic)
     const { isTakingScreenshot } = useValues(screenshotUploadLogic)
     const { takeScreenshot } = useActions(screenshotUploadLogic)
 
@@ -233,17 +239,17 @@ function MoreMenu(): JSX.Element {
                     [
                         {
                             icon: <>🦔</>,
-                            label: hedgehogMode ? 'Disable hedgehog mode' : 'Hedgehog mode',
+                            label: hedgehogModeEnabled ? 'Disable hedgehog mode' : 'Hedgehog mode',
                             onClick: () => {
-                                setHedgehogMode(!hedgehogMode)
+                                setHedgehogModeEnabled(!hedgehogModeEnabled)
                             },
                         },
-                        hedgehogMode
+                        hedgehogModeEnabled
                             ? {
                                   icon: <IconFlare />,
                                   label: 'Hedgehog options',
                                   onClick: () => {
-                                      setVisibleMenu('hedgehog')
+                                      openHedgehogOptions()
                                   },
                               }
                             : undefined,
@@ -305,8 +311,6 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <HeatmapToolbarMenu />
     ) : visibleMenu === 'actions' ? (
         <ActionsToolbarMenu />
-    ) : visibleMenu === 'hedgehog' ? (
-        <HedgehogMenu />
     ) : visibleMenu === 'debugger' ? (
         <EventDebugMenu />
     ) : visibleMenu === 'web-vitals' ? (

@@ -1901,7 +1901,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                     bottom-right cell shows the grand total. The displayed time is based
                                                     on your project's date and time settings (UTC by default,
                                                     configurable in{' '}
-                                                    <Link to={urls.settings('project', 'date-and-time')}>
+                                                    <Link
+                                                        to={urls.settings('environment-customization', 'date-and-time')}
+                                                    >
                                                         project settings
                                                     </Link>
                                                     ).
@@ -1962,7 +1964,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                     bottom-right cell shows the grand total. The displayed time is based
                                                     on your project's date and time settings (UTC by default,
                                                     configurable in{' '}
-                                                    <Link to={urls.settings('project', 'date-and-time')}>
+                                                    <Link
+                                                        to={urls.settings('environment-customization', 'date-and-time')}
+                                                    >
                                                         project settings
                                                     </Link>
                                                     ).
