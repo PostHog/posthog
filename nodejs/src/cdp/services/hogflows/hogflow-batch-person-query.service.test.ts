@@ -119,22 +119,35 @@ describe('HogFlowBatchPersonQueryService', () => {
     })
 
     describe('getBlastRadiusPersons', () => {
-        it('calls the Django persons endpoint with cursor pagination and returns parsed response', async () => {
+        it("uses the first page's cursor for the next page request", async () => {
             const service = createService('internal-secret')
-            const response: BlastRadiusPersonsResponse = {
+            const firstPageResponse: BlastRadiusPersonsResponse = {
                 users_affected: ['person_1'],
                 cursor: 'next-cursor',
                 has_more: true,
             }
+            const secondPageResponse: BlastRadiusPersonsResponse = {
+                users_affected: ['person_2'],
+                cursor: null,
+                has_more: false,
+            }
 
-            fetchMock.mockResolvedValue({
-                fetchResponse: createFetchResponse(200, response),
+            fetchMock.mockResolvedValueOnce({
+                fetchResponse: createFetchResponse(200, firstPageResponse),
+                fetchError: null,
+            })
+            fetchMock.mockResolvedValueOnce({
+                fetchResponse: createFetchResponse(200, secondPageResponse),
                 fetchError: null,
             })
 
-            await expect(service.getBlastRadiusPersons(team, filters, 2, 'cursor-abc')).resolves.toEqual(response)
+            const firstPage = await service.getBlastRadiusPersons(team, filters, 2)
+            await expect(service.getBlastRadiusPersons(team, filters, 2, firstPage.cursor)).resolves.toEqual(
+                secondPageResponse
+            )
 
-            expect(fetchMock).toHaveBeenCalledWith({
+            expect(fetchMock).toHaveBeenCalledTimes(2)
+            expect(fetchMock).toHaveBeenNthCalledWith(1, {
                 url: 'http://localhost:8000/api/projects/123/internal/hog_flows/user_blast_radius_persons',
                 fetchParams: {
                     method: 'POST',
@@ -145,7 +158,22 @@ describe('HogFlowBatchPersonQueryService', () => {
                     body: JSON.stringify({
                         filters,
                         group_type_index: 2,
-                        cursor: 'cursor-abc',
+                        cursor: null,
+                    }),
+                },
+            })
+            expect(fetchMock).toHaveBeenNthCalledWith(2, {
+                url: 'http://localhost:8000/api/projects/123/internal/hog_flows/user_blast_radius_persons',
+                fetchParams: {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: 'Bearer internal-secret',
+                    },
+                    body: JSON.stringify({
+                        filters,
+                        group_type_index: 2,
+                        cursor: 'next-cursor',
                     }),
                 },
             })

@@ -27,7 +27,11 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.models import Team
-from posthog.models.feature_flag.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
+from posthog.models.feature_flag.user_blast_radius import (
+    PERSON_BATCH_SIZE,
+    get_user_blast_radius,
+    get_user_blast_radius_persons,
+)
 from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
@@ -480,6 +484,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
     scope_object = "INTERNAL"
     authentication_classes = [InternalAPIAuthentication]
 
+    PERSON_BATCH_SIZE = 500
+
     # Internal service-to-service endpoints (authenticated with INTERNAL_API_SECRET)
     def internal_user_blast_radius(self, request: Request, team_id: str) -> Response:
         """
@@ -541,6 +547,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                 {
                     "users_affected": users_affected,
                     "cursor": users_affected[-1] if users_affected else None,
+                    "has_more": len(users_affected) == PERSON_BATCH_SIZE,  # Assuming page size of 100
                 }
             )
         except Exception as e:

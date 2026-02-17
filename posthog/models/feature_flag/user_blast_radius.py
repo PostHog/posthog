@@ -184,6 +184,9 @@ def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
     return total_affected, total_groups
 
 
+PERSON_BATCH_SIZE = 500
+
+
 def _build_group_query(
     team: Team,
     filter: Filter,
@@ -396,7 +399,7 @@ def _build_group_query(
     # Add ORDER BY and LIMIT for pagination when returning keys
     if not return_count:
         select_query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["groups", "key"]), order="ASC")]
-        select_query.limit = ast.Constant(value=500)
+        select_query.limit = ast.Constant(value=PERSON_BATCH_SIZE)
 
     return select_query
 
