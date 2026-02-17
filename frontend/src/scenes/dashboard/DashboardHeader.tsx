@@ -458,7 +458,7 @@ export function DashboardHeader(): JSX.Element | null {
                 forceEdit={dashboardMode === DashboardMode.Edit || isNewDashboard}
                 renameDebounceMs={1000}
                 maxToolProps={
-                    dashboard && canEditDashboard
+                    dashboard && canEditDashboard && isRemovingSidePanelFlag
                         ? {
                               identifier: 'upsert_dashboard',
                               context: {
