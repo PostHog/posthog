@@ -1107,10 +1107,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         - include_set_once: Whether to handle $set_once operations (default: false)
         - debug: Whether to include debug information with raw events (default: false)
         """
-        from posthog.models.person.point_in_time_properties import (
-            build_person_properties_at_time,
-            build_person_properties_at_time_with_set_once,
-        )
+        from posthog.models.person.point_in_time_properties import build_person_properties_at_time
 
         distinct_id = request.GET.get("distinct_id")
         timestamp_str = request.GET.get("timestamp")
@@ -1155,14 +1152,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             # Build point-in-time properties
-            if include_set_once:
-                point_in_time_properties = build_person_properties_at_time_with_set_once(
-                    distinct_id=distinct_id, team_id=self.team_id, timestamp=timestamp
-                )
-            else:
-                point_in_time_properties = build_person_properties_at_time(
-                    distinct_id=distinct_id, team_id=self.team_id, timestamp=timestamp
-                )
+            point_in_time_properties = build_person_properties_at_time(
+                distinct_id=distinct_id, team_id=self.team_id, timestamp=timestamp, include_set_once=include_set_once
+            )
 
             # Serialize the person object
             person_data = PersonSerializer(person, context={"get_team": lambda: self.team}).data
@@ -1182,21 +1174,35 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 from posthog.clickhouse.client import sync_execute
 
                 # Run the same query that the point-in-time function uses
-                query = """
-                SELECT
-                    toJSONString(properties) as properties_json,
-                    timestamp,
-                    event
-                FROM events
-                WHERE team_id = %(team_id)s
-                    AND distinct_id = %(distinct_id)s
-                    AND timestamp <= %(timestamp)s
-                    AND (
-                        event = '$set'
-                        OR JSONHas(properties, '$set')
-                    )
-                ORDER BY timestamp ASC
-                """
+                if include_set_once:
+                    query = """
+                    SELECT
+                        toJSONString(properties) as properties_json,
+                        timestamp,
+                        event
+                    FROM events
+                    WHERE team_id = %(team_id)s
+                        AND distinct_id = %(distinct_id)s
+                        AND event IN ('$set', '$set_once')
+                        AND timestamp <= %(timestamp)s
+                    ORDER BY timestamp ASC
+                    """
+                else:
+                    query = """
+                    SELECT
+                        toJSONString(properties) as properties_json,
+                        timestamp,
+                        event
+                    FROM events
+                    WHERE team_id = %(team_id)s
+                        AND distinct_id = %(distinct_id)s
+                        AND timestamp <= %(timestamp)s
+                        AND (
+                            event = '$set'
+                            OR JSONHas(properties, '$set')
+                        )
+                    ORDER BY timestamp ASC
+                    """
 
                 params = {
                     "team_id": self.team_id,
