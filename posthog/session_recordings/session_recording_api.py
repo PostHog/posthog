@@ -128,6 +128,12 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     labelnames=["blob_version", "decompress"],
 )
 
+FETCH_BLOCKS_HISTOGRAM = Histogram(
+    "session_snapshots_fetch_blocks_seconds",
+    "Time taken to fetch recording blocks from storage",
+    labelnames=["source", "decompress", "encrypted"],
+)
+
 LOADING_V2_LTS_COUNTER = Counter(
     "session_snapshots_loading_v2_lts_counter", "Count of times we loaded a v2 recording from the lts path"
 )
@@ -1476,10 +1482,14 @@ class SessionRecordingViewSet(
         storage_cm = encrypted_block_storage() if use_recording_api else cleartext_block_storage()
 
         async with storage_cm as block_storage:
-            with timer(span_name), tracer.start_as_current_span(span_name):
-                return await self._fetch_blocks_parallel(
-                    blocks, min_blob_key, max_blob_key, recording, block_storage, decompress
-                )
+            encrypted_label = str(self.team.session_recording_encryption)
+            with FETCH_BLOCKS_HISTOGRAM.labels(
+                source=source_label, decompress=str(decompress), encrypted=encrypted_label
+            ).time():
+                with timer(span_name), tracer.start_as_current_span(span_name):
+                    return await self._fetch_blocks_parallel(
+                        blocks, min_blob_key, max_blob_key, recording, block_storage, decompress
+                    )
 
     @tracer.start_as_current_span("_stream_decompressed_blocks")
     async def _stream_decompressed_blocks(

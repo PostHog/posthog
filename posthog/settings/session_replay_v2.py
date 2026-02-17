@@ -29,4 +29,4 @@ SESSION_RECORDING_V2_S3_PREFIX = os.getenv("SESSION_RECORDING_V2_S3_PREFIX", "se
 if TEST or DEBUG:
     RECORDING_API_URL = os.getenv("RECORDING_API_URL", "http://localhost:6738")
 else:
-    RECORDING_API_URL = get_from_env("RECORDING_API_URL")
+    RECORDING_API_URL = os.getenv("RECORDING_API_URL", "")

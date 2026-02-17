@@ -97,7 +97,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         _mock_exists,
         _mock_should_use_recording_api,
     ) -> None:
-        """Test that blob_v2 with blob_keys parameter works correctly"""
         session_id = str(uuid7())
 
         # Mock the session recording
@@ -200,7 +199,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
-        """Test that requesting more than 100 blob keys returns 400"""
         session_id = str(uuid7())
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
@@ -251,7 +249,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
-        """Test that providing both blob_key and blob_keys returns 400"""
         session_id = str(uuid7())
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
@@ -275,7 +272,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
-        """Test that requesting block indices out of range returns 404"""
         session_id = str(uuid7())
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
@@ -546,7 +542,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_async_client,
         _mock_should_use_recording_api,
     ) -> None:
-        """Test that decompress=false returns proper length-prefixed binary format"""
         import struct
 
         import snappy
@@ -634,7 +629,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         _mock_exists,
         _mock_should_use_recording_api,
     ) -> None:
-        """Test that blob_v2 with blob_keys works when using the Recording API"""
         session_id = str(uuid7())
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
@@ -695,7 +689,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_encrypted_block_storage,
         _mock_should_use_recording_api,
     ) -> None:
-        """Test decompress parameter when using the Recording API"""
         import snappy
 
         session_id = str(uuid7())
@@ -746,7 +739,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_encrypted_block_storage,
         _mock_should_use_recording_api,
     ) -> None:
-        """Test that decompress defaults to true when using the Recording API"""
         session_id = str(uuid7())
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
@@ -786,7 +778,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_encrypted_block_storage,
         _mock_should_use_recording_api,
     ) -> None:
-        """Test that decompress=false returns proper length-prefixed binary format via Recording API"""
         import struct
 
         import snappy
