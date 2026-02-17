@@ -401,6 +401,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
     query: RecordingsQuery | None = None
     try:
         with REPLAY_PLAYLIST_COUNT_TIMER.time():
+            # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
             playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
             redis_client = get_client()
 

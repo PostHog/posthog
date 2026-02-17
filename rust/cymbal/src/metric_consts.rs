@@ -84,3 +84,22 @@ pub const SPIKE_EMIT_EVENTS_TIME: &str = "cymbal_spike_emit_events_time";
 pub const SPIKE_ISSUES_CHECKED: &str = "cymbal_spike_issues_checked";
 pub const SPIKE_ISSUES_SPIKING: &str = "cymbal_spike_issues_spiking";
 pub const SPIKE_ISSUES_BLOCKED_BY_COOLDOWN: &str = "cymbal_spike_issues_blocked_by_cooldown";
+
+// Stages Name.
+// We want to keep previous value for comparison, can be changed later on
+pub const EXCEPTION_PROCESSING_PIPELINE: &str = EXCEPTION_PROCESSING_TIME;
+pub const PRE_PROCESSING_STAGE: &str = "cymbal_exception_pre_processing_stage";
+pub const POST_PROCESSING_STAGE: &str = "cymbal_exception_post_processing_stage";
+pub const RESOLUTION_STAGE: &str = STACK_PROCESSING_TIME;
+pub const LINKING_STAGE: &str = ISSUE_PROCESSING_TIME;
+pub const GROUPING_STAGE: &str = "cymbal_exception_grouping_stage";
+pub const ALERTING_STAGE: &str = "cymbal_exception_alerting_stage";
+pub const SPIKE_ALERT_STAGE: &str = SPIKE_DETECTION_TIME;
+
+// Operators
+pub const FRAME_RESOLVER_OPERATOR: &str = FRAME_BATCH_TIME;
+pub const EXCEPTION_RESOLVER_OPERATOR: &str = "cymbal_exception_exception_resolver_operator";
+pub const PROPERTIES_RESOLVER_OPERATOR: &str = "cymbal_exception_properties_resolver_operator";
+pub const ISSUE_LINKER_OPERATOR: &str = "cymbal_exception_issue_linker_operator";
+pub const ISSUE_SUPPRESSION_OPERATOR: &str = "cymbal_exception_issue_suppression_operator";
+pub const FINGERPRINT_GENERATOR_OPERATOR: &str = "cymbal_exception_fingerprint_generator_operator";

@@ -1076,7 +1076,7 @@ class ExperimentQueryBuilder:
         - Custom exposure events via event_or_action_to_filter
         - Special $feature_flag_called filtering (matching the flag key)
 
-        Used by both _build_exposure_predicate() and get_exposure_query_for_preaggregation().
+        Used by both _build_exposure_predicate() and get_exposure_query_for_precomputation().
         """
         event_predicate = event_or_action_to_filter(self.team, self.exposure_config)
 
@@ -1127,8 +1127,8 @@ class ExperimentQueryBuilder:
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:
-        if self.preaggregation_job_ids:
-            return self._build_exposure_from_preaggregated(self.preaggregation_job_ids)
+        if self.preaggregation_job_ids and not self.breakdowns:
+            return self._build_exposure_from_precomputed(self.preaggregation_job_ids)
         return self._build_exposure_select_query()
 
     def _build_exposure_select_query(self) -> ast.SelectQuery:
@@ -1171,14 +1171,14 @@ class ExperimentQueryBuilder:
 
         return exposure_query
 
-    def _build_exposure_from_preaggregated(self, job_ids: list[str]) -> ast.SelectQuery:
+    def _build_exposure_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
         """
-        Builds the exposure CTE by reading from the preaggregated table instead of scanning events.
+        Builds the exposure CTE by reading from the lazy-computed table instead of scanning events.
 
         Re-aggregates across jobs since the same user can appear in multiple time-window jobs.
         Returns the same column shape as _build_exposure_select_query().
         """
-        # The preaggregated table stores entity_id as String, but person_id is UUID in events.
+        # The lazy-computed table stores entity_id as String, but person_id is UUID in events.
         # Cast back to match the type expected by downstream JOINs.
         entity_id_expr = (
             parse_expr("toUUID(t.entity_id)") if self.entity_key == "person_id" else parse_expr("t.entity_id")
@@ -1216,14 +1216,14 @@ class ExperimentQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def get_exposure_query_for_preaggregation(self) -> tuple[str, dict[str, ast.Expr]]:
+    def get_exposure_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
-        Returns the exposure query and placeholders for preaggregation.
+        Returns the exposure query and placeholders for lazy computation.
 
         The query string uses {time_window_min} and {time_window_max} placeholders
-        which are filled in by the preaggregation system for each daily bucket.
+        which are filled in by the lazy computation system for each daily bucket.
         Other placeholders are returned in the dict and should be passed to
-        ensure_preaggregated().
+        ensure_precomputed().
 
         Returns:
             Tuple of (query_string, placeholders_dict)
@@ -1240,8 +1240,7 @@ class ExperimentQueryBuilder:
                 max(timestamp) AS last_exposure_time,
                 argMin(uuid, timestamp) AS exposure_event_uuid,
                 argMin(`$session_id`, timestamp) AS exposure_session_id,
-                [] AS breakdown_value,
-                today() + INTERVAL 1 DAY AS expires_at
+                [] AS breakdown_value
             FROM events
             WHERE timestamp >= {time_window_min}
                 AND timestamp < {time_window_max}

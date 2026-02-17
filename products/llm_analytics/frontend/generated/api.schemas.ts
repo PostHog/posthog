@@ -243,7 +243,7 @@ export interface PaginatedEvaluationListApi {
     results: EvaluationApi[]
 }
 
-export type ClusteringRunRequestApiTraceFiltersItem = { [key: string]: unknown }
+export type ClusteringRunRequestApiEventFiltersItem = { [key: string]: unknown }
 
 /**
  * * `none` - none
@@ -369,7 +369,7 @@ export interface ClusteringRunRequestApi {
 * `tsne` - tsne */
     visualization_method?: VisualizationMethodEnumApi
     /** Property filters to scope which traces are included in clustering (PostHog standard format) */
-    trace_filters?: ClusteringRunRequestApiTraceFiltersItem[]
+    event_filters?: ClusteringRunRequestApiEventFiltersItem[]
 }
 
 /**
@@ -413,7 +413,6 @@ export interface EvaluationPatternApi {
     title: string
     description: string
     frequency: string
-    example_reasoning: string
     example_generation_ids: string[]
 }
 

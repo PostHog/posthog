@@ -1072,6 +1072,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return queryInput && (queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1)
             },
         ],
+        hasQueryInput: [(s) => [s.queryInput], (queryInput) => !!queryInput],
         dataLogicKey: [(_, p) => [p.tabId], (tabId) => `data-warehouse-editor-data-node-${tabId}`],
         isDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? !!activeTab.draft?.id : false)],
         currentDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? activeTab.draft : null)],

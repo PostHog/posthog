@@ -218,7 +218,6 @@ describe('EventPipelineRunner', () => {
             hub.teamManager,
             hub.groupTypeManager,
             pluginEvent,
-            undefined,
             personsStoreForBatch,
             groupStoreForBatch,
             undefined // headers
@@ -238,12 +237,7 @@ describe('EventPipelineRunner', () => {
         it('runs steps', async () => {
             await runner.runEventPipeline(pluginEvent, team)
 
-            expect(runner.steps).toEqual([
-                'transformEventStep',
-                'normalizeEventStep',
-                'processPersonsStep',
-                'prepareEventStep',
-            ])
+            expect(runner.steps).toEqual(['normalizeEventStep', 'processPersonsStep', 'prepareEventStep'])
             expect(forSnapshot(runner.stepsWithArgs)).toMatchSnapshot()
         })
 
@@ -255,7 +249,7 @@ describe('EventPipelineRunner', () => {
             if (isOkResult(result)) {
                 expect(result.value.error).toBeUndefined()
             }
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(4)
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(3)
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
@@ -353,7 +347,6 @@ describe('EventPipelineRunner', () => {
                     hub.teamManager,
                     hub.groupTypeManager,
                     heatmapEvent,
-                    undefined,
                     personsStore,
                     heatmapGroupStoreForBatch,
                     undefined // headers

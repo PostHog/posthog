@@ -103,18 +103,18 @@
      GROUP BY exposures.variant,
               exposures.entity_id) AS entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_action_and_event_sources
@@ -221,18 +221,18 @@
      GROUP BY exposures.variant,
               exposures.entity_id) AS entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_different_math_types
@@ -339,18 +339,18 @@
      GROUP BY exposures.variant,
               exposures.entity_id) AS entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_same_event_different_properties
@@ -457,18 +457,18 @@
      GROUP BY exposures.variant,
               exposures.entity_id) AS entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_with_conversion_window
@@ -575,18 +575,18 @@
      GROUP BY exposures.variant,
               exposures.entity_id) AS entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_with_data_warehouse_sources
@@ -691,18 +691,18 @@
      GROUP BY exposures.variant,
               exposures.entity_id) AS entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_with_parametric_aggregation
@@ -809,18 +809,18 @@
      GROUP BY exposures.variant,
               exposures.entity_id) AS entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_zero_denominator
@@ -927,17 +927,17 @@
      GROUP BY exposures.variant,
               exposures.entity_id) AS entity_metrics
   GROUP BY entity_metrics.variant
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=600,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=39728447488,
-                     allow_experimental_analyzer=1,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=600,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=39728447488,
+                      allow_experimental_analyzer=1,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---

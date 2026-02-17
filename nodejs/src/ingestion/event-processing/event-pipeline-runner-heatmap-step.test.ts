@@ -2,7 +2,8 @@ import { DateTime } from 'luxon'
 import { v4 } from 'uuid'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
-import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
+import { createTestPipelineEvent } from '../../../tests/helpers/pipeline-event'
+import { createTestTeam } from '../../../tests/helpers/team'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, ISOTimestamp, PipelineEvent, PreIngestionEvent, ProjectId, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
@@ -35,28 +36,6 @@ jest.mock('../../utils/posthog', () => ({
     captureException: jest.fn(),
 }))
 
-const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
-    id: 1,
-    project_id: 1 as ProjectId,
-    organization_id: 'test-org-id',
-    uuid: v4(),
-    name: 'Test Team',
-    anonymize_ips: false,
-    api_token: 'test-api-token',
-    slack_incoming_webhook: null,
-    session_recording_opt_in: true,
-    person_processing_opt_out: null,
-    heatmaps_opt_in: null,
-    ingested_event: true,
-    person_display_name_properties: null,
-    test_account_filters: null,
-    cookieless_server_hash_mode: null,
-    timezone: 'UTC',
-    available_features: [],
-    drop_events_older_than_seconds: null,
-    ...overrides,
-})
-
 const createTestPreIngestionEvent = (overrides: Partial<PreIngestionEvent> = {}): PreIngestionEvent => {
     return {
         eventUuid: 'test-uuid',
@@ -75,7 +54,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
     let mockKafkaProducer: KafkaProducerWrapper
     let mockTeamManager: TeamManager
     let mockGroupTypeManager: GroupTypeManager
-    let mockHogTransformer: HogTransformerService
     let mockPersonsStore: PersonsStore
     let mockGroupStore: GroupStoreForBatch
     let mockEventPipelineRunner: jest.Mocked<EventPipelineRunner>
@@ -100,11 +78,10 @@ describe('event-pipeline-runner-heatmap-step', () => {
         mockKafkaProducer = {} as KafkaProducerWrapper
         mockTeamManager = {} as TeamManager
         mockGroupTypeManager = {} as GroupTypeManager
-        mockHogTransformer = {} as HogTransformerService
         mockPersonsStore = {} as PersonsStore
         mockGroupStore = {} as GroupStoreForBatch
 
-        mockEvent = {
+        mockEvent = createTestPipelineEvent({
             uuid: v4(),
             distinct_id: 'test-distinct-id',
             ip: null,
@@ -113,7 +90,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
             now: new Date().toISOString(),
             event: '$$heatmap',
             properties: { $elements: [{ tag_name: 'div' }] },
-        }
+        })
 
         mockTeam = createTestTeam()
         mockHeaders = createTestEventHeaders()
@@ -134,7 +111,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockKafkaProducer,
             mockTeamManager,
             mockGroupTypeManager,
-            mockHogTransformer,
             mockPersonsStore
         )
 
@@ -154,7 +130,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockTeamManager,
             mockGroupTypeManager,
             mockEvent,
-            mockHogTransformer,
             mockPersonsStore,
             mockGroupStore,
             mockHeaders
@@ -177,7 +152,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockKafkaProducer,
             mockTeamManager,
             mockGroupTypeManager,
-            mockHogTransformer,
             mockPersonsStore
         )
 
@@ -206,7 +180,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockKafkaProducer,
             mockTeamManager,
             mockGroupTypeManager,
-            mockHogTransformer,
             mockPersonsStore
         )
 
@@ -236,7 +209,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockKafkaProducer,
             mockTeamManager,
             mockGroupTypeManager,
-            mockHogTransformer,
             mockPersonsStore
         )
 
@@ -256,7 +228,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockTeamManager,
             mockGroupTypeManager,
             mockEvent,
-            mockHogTransformer,
             mockPersonsStore,
             mockGroupStore,
             customHeaders
@@ -272,7 +243,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockKafkaProducer,
             mockTeamManager,
             mockGroupTypeManager,
-            mockHogTransformer,
             mockPersonsStore
         )
 
@@ -304,7 +274,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockKafkaProducer,
             mockTeamManager,
             mockGroupTypeManager,
-            mockHogTransformer,
             mockPersonsStore
         )
 

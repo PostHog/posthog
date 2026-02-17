@@ -1,6 +1,8 @@
 import logging
 from dataclasses import dataclass
 
+from django.conf import settings
+
 from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
@@ -83,6 +85,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             "POSTHOG_PROJECT_ID": str(ctx.team_id),
             "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
         }
+
+        if settings.SANDBOX_LLM_GATEWAY_URL:
+            environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),

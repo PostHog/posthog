@@ -8703,6 +8703,9 @@
                       is_identified: {
                         hidden: False
                       },
+                      last_seen_at: {
+                        hidden: False
+                      },
                       pdi: {
                         hidden: False
                       },

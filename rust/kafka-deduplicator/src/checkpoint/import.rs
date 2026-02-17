@@ -56,7 +56,7 @@ impl Drop for ImportCleanupGuard {
                         topic = %self.topic,
                         partition = self.partition,
                         path = %self.path.display(),
-                        error = %e,
+                        error = ?e,
                         "Import cleanup guard: failed to remove directory, orphan cleaner will handle it"
                     );
                 }
@@ -95,10 +95,11 @@ impl CheckpointImporter {
     ///
     /// This method will:
     /// 1. Fetch checkpoint metadata.json files from the most recent N checkpoints for the topic+partition
-    /// 2. For each metadata file (newest to oldest), attempt to download all tracked files directly
-    ///    to the store directory: `<store_base_path>/<topic>/<partition>/`
+    /// 2. For each metadata file (newest to oldest), attempt to download all tracked files to a
+    ///    timestamped store directory: `<store_base_path>/<topic>_<partition>/<timestamp_millis>/`
     /// 3. If a checkpoint import fails, fall back to the next most recent (up to import_attempt_depth)
-    /// 4. If successful, return the store path where files were imported
+    /// 4. If successful, write metadata.json and a `.imported_<timestamp>` marker to that directory,
+    ///    then return the store path
     pub async fn import_checkpoint_for_topic_partition(
         &self,
         topic: &str,
@@ -181,7 +182,7 @@ impl CheckpointImporter {
             checkpoint_metadata.len());
 
         // checkpoints iterated in order of recency; we keep the first good one we fetch
-        for attempt in checkpoint_metadata {
+        for mut attempt in checkpoint_metadata {
             // Check cancellation before each attempt
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
@@ -246,7 +247,18 @@ impl CheckpointImporter {
                 Ok(_) => {
                     let attempt_duration = attempt_start.elapsed().as_secs_f64();
 
-                    // Write marker file with checkpoint metadata to identify this as an imported store
+                    // Persist metadata.json to the local store directory (write_to_dir stamps updated_at = Utc::now())
+                    attempt
+                        .write_to_dir(&local_attempt_path)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "Failed to write metadata.json to import dir: {}",
+                                local_attempt_path.display()
+                            )
+                        })?;
+
+                    // Write .imported_<timestamp> marker (same metadata JSON) to identify this as an imported store
                     let marker_filename =
                         format!(".imported_{}", import_timestamp.timestamp_millis());
                     let marker_path = local_attempt_path.join(&marker_filename);
@@ -287,7 +299,7 @@ impl CheckpointImporter {
                         checkpoint = attempt_tag,
                         local_attempt_path = local_path_tag,
                         attempt_duration_secs = attempt_duration,
-                        error = e.to_string(),
+                        error = ?e,
                         "Failed to import checkpoint files"
                     );
                     continue;
@@ -323,11 +335,11 @@ impl CheckpointImporter {
                         fetched_metadata_files.push(metadata);
                     }
                     Err(e) => {
-                        error!("Failed to parse metadata from file bytes: {remote_key}: {e}");
+                        error!("Failed to parse metadata from file bytes: {remote_key}: {e:#}");
                     }
                 },
                 Err(e) => {
-                    error!("Failed to download metadata file: {remote_key}: {e}");
+                    error!("Failed to download metadata file: {remote_key}: {e:#}");
                 }
             }
         }
@@ -379,7 +391,7 @@ impl CheckpointImporter {
                 Ok(())
             }
             Err(e) => {
-                error!("Failed to download checkpoint files to: {local_attempt_path:?}: {e}");
+                error!("Failed to download checkpoint files to: {local_attempt_path:?}: {e:#}");
                 Err(e)
             }
         }
@@ -724,6 +736,21 @@ mod tests {
         assert!(
             imported_file.exists(),
             "Imported SST file should exist after successful import"
+        );
+
+        // Verify metadata.json exists and round-trips with correct topic/partition and updated_at
+        let loaded_metadata = CheckpointMetadata::load_from_dir(&import_path)
+            .await
+            .expect("metadata.json should exist and deserialize");
+        assert_eq!(loaded_metadata.topic, topic);
+        assert_eq!(loaded_metadata.partition, partition);
+        assert!(
+            loaded_metadata.updated_at.timestamp_millis() >= before_import.timestamp_millis(),
+            "updated_at should be >= before_import"
+        );
+        assert!(
+            loaded_metadata.updated_at.timestamp_millis() <= after_import.timestamp_millis(),
+            "updated_at should be <= after_import"
         );
     }
 

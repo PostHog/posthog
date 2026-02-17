@@ -115,6 +115,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                               expandedRowRender: (job) => (
                                   <div className="p-4">
                                       <LogsViewer
+                                          logicKey={`external_data_jobs:${job.id}`}
                                           sourceType="external_data_jobs"
                                           sourceId={job.schema.id}
                                           groupByInstanceId={false}

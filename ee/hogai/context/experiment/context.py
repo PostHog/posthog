@@ -1,3 +1,6 @@
+from posthog.schema import MaxExperimentMetricResult
+
+from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Experiment, Team
 from posthog.sync import database_sync_to_async
 
@@ -116,6 +119,100 @@ class ExperimentContext:
             feature_flag_variants_section=feature_flag_variants_section,
             experiment_created_at=experiment.created_at.isoformat() if experiment.created_at else "Unknown",
         ).strip()
+
+    @database_sync_to_async
+    def format_experiment_results_data(
+        self,
+        experiment: Experiment,
+        exposures: dict[str, float] | None = None,
+        primary_metrics_results: list[MaxExperimentMetricResult] | None = None,
+        secondary_metrics_results: list[MaxExperimentMetricResult] | None = None,
+    ) -> str:
+        """Format experiment results data including metrics for AI analysis."""
+        lines: list[str] = []
+
+        stats_method = get_experiment_stats_method(experiment)
+
+        multivariate = experiment.feature_flag.filters.get("multivariate", {})
+        variants = [v.get("key") for v in multivariate.get("variants", []) if v.get("key")]
+
+        lines.append(f"## Experiment: {experiment.name}")
+        lines.append(f"**ID:** {experiment.id}")
+        lines.append(f"**Statistical Method:** {stats_method.title()}")
+
+        if experiment.description:
+            lines.append(f"**Hypothesis:** {experiment.description}")
+
+        if variants:
+            lines.append(f"\n**Variants:** {', '.join(variants)}")
+
+        if exposures:
+            lines.append("\n### Exposures")
+            total = sum(exposures.values())
+            lines.append(f"**Total:** {int(total)}")
+
+            for variant_key, count in exposures.items():
+                if variant_key == "$multiple":
+                    continue
+                percentage = (count / total * 100) if total > 0 else 0
+                lines.append(f"- {variant_key}: {int(count)} ({percentage:.1f}%)")
+
+            if "$multiple" in exposures:
+                multiple_count = exposures.get("$multiple", 0)
+                multiple_pct = (multiple_count / total * 100) if total > 0 else 0
+                lines.append(f"- $multiple: {int(multiple_count)} ({multiple_pct:.1f}%)")
+                if multiple_pct > 0.5:
+                    lines.append("**Warning:** Users exposed to multiple variants detected")
+
+        if not primary_metrics_results and not secondary_metrics_results:
+            lines.append("\n**No metrics results available yet.**")
+            return "\n".join(lines)
+
+        def format_metrics_section(metrics: list[MaxExperimentMetricResult], section_name: str) -> None:
+            if not metrics:
+                return
+
+            lines.append(f"\n### {section_name}")
+            for metric in metrics[:10]:
+                lines.append(f"\n**Metric: {metric.name}**")
+                if metric.goal and metric.goal.value:
+                    lines.append(f"Goal: {metric.goal.value.title()}")
+
+                if not metric.variant_results:
+                    continue
+
+                for variant in metric.variant_results:
+                    lines.append(f"\n*{variant.key}:*")
+
+                    if stats_method == "bayesian":
+                        if hasattr(variant, "chance_to_win") and variant.chance_to_win is not None:
+                            lines.append(f"  - Chance to win: {variant.chance_to_win:.1%}")
+
+                        if hasattr(variant, "credible_interval") and variant.credible_interval:
+                            ci_low, ci_high = variant.credible_interval[:2]
+                            lines.append(f"  - 95% credible interval: {ci_low:.1%} - {ci_high:.1%}")
+
+                        if hasattr(variant, "delta") and variant.delta is not None:
+                            lines.append(f"  - Delta (effect size): {variant.delta:.1%}")
+
+                        lines.append(f"  - Significant: {'Yes' if variant.significant else 'No'}")
+                    else:
+                        if hasattr(variant, "p_value") and variant.p_value is not None:
+                            lines.append(f"  - P-value: {variant.p_value:.4f}")
+
+                        if hasattr(variant, "confidence_interval") and variant.confidence_interval:
+                            ci_low, ci_high = variant.confidence_interval[:2]
+                            lines.append(f"  - 95% confidence interval: {ci_low:.1%} - {ci_high:.1%}")
+
+                        if hasattr(variant, "delta") and variant.delta is not None:
+                            lines.append(f"  - Delta (effect size): {variant.delta:.1%}")
+
+                        lines.append(f"  - Significant: {'Yes' if variant.significant else 'No'}")
+
+        format_metrics_section(primary_metrics_results or [], "Primary Metrics")
+        format_metrics_section(secondary_metrics_results or [], "Secondary Metrics")
+
+        return "\n".join(lines)
 
     async def execute_and_format(self) -> str:
         """

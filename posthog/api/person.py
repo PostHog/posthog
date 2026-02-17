@@ -174,8 +174,9 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "properties",
             "created_at",
             "uuid",
+            "last_seen_at",
         ]
-        read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid")
+        read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid", "last_seen_at")
 
     def get_name(self, person: Person) -> str:
         team = self.context["get_team"]()
@@ -194,6 +195,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
                 "properties": instance.properties,
                 "created_at": None,
                 "uuid": instance.uuid,
+                "last_seen_at": None,
             }
 
 
@@ -722,6 +724,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person = get_pk_or_uuid(self.get_queryset(), request.GET["person_id"]).get()
         cohort_ids = get_all_cohort_ids_by_person_uuid(person.uuid, team.pk)
 
+        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from team-scoped ClickHouse query)
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
 
         return response.Response({"results": CohortMinimalSerializer(cohorts, many=True).data})

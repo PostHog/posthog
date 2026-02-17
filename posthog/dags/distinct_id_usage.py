@@ -11,6 +11,7 @@ from clickhouse_driver import Client
 from posthog import settings
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.common import JobOwners, settings_with_log_comment
+from posthog.dags.slack_alerts import notification_channel_per_team
 from posthog.models.distinct_id_usage.sql import TABLE_BASE_NAME
 
 JOB_NAME = "distinct_id_usage_monitoring"
@@ -27,12 +28,16 @@ class DistinctIdUsageMonitoringConfig(dagster.Config):
         default=10_000,
         description="Minimum total team events required before high usage percentage alerts apply (filters out low-volume test accounts)",
     )
+    high_usage_distinct_id_min_events: int = pydantic.Field(
+        default=100_000,
+        description="Minimum events from a distinct_id to trigger high usage alerts (reduces noise from low-volume distinct_ids)",
+    )
     high_cardinality_threshold: int = pydantic.Field(
         default=1_000_000,
         description="Number of unique distinct_ids per team that triggers a high cardinality alert",
     )
     burst_threshold: int = pydantic.Field(
-        default=10_000,
+        default=100_000,
         description="Events per minute from a single (team, distinct_id) that triggers a burst alert",
     )
     default_lookback_hours: int = pydantic.Field(
@@ -137,7 +142,8 @@ def query_distinct_id_usage(
         FROM distinct_id_totals d
         JOIN team_totals t ON d.team_id = t.team_id
         WHERE d.event_count * 100.0 / t.total_events >= %(threshold)s
-        ORDER BY percentage DESC
+          AND d.event_count >= %(distinct_id_min_events)s
+        ORDER BY d.event_count DESC
         LIMIT 100
         """
 
@@ -147,6 +153,7 @@ def query_distinct_id_usage(
                 "lookback_start": lookback_start,
                 "threshold": config.high_usage_percentage_threshold,
                 "min_events_threshold": config.high_usage_min_events_threshold,
+                "distinct_id_min_events": config.high_usage_distinct_id_min_events,
             },
             settings=query_settings,
         )
@@ -348,16 +355,21 @@ def send_alerts(
 
     try:
         slack_client = slack.get_client()
-        channel = settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL
+        channel = notification_channel_per_team.get(
+            JobOwners.TEAM_INGESTION.value, settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL
+        )
 
         # Post the summary message
-        slack_client.chat_postMessage(channel=channel, blocks=blocks)
+        response = slack_client.chat_postMessage(channel=channel, blocks=blocks)
+
+        # Get channel ID from the response (files_upload_v2 requires channel ID, not name)
+        channel_id = response.get("channel")
 
         # Upload detailed report as a file
         csv_report = generate_csv_report(results)
         timestamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
-        slack_client.files_upload_v2(  # type: ignore[attr-defined]
-            channel=channel,
+        slack_client.files_upload_v2(
+            channel=channel_id,
             content=csv_report,
             filename=f"distinct_id_usage_report_{timestamp}.csv",
             title="Distinct ID Usage Report",

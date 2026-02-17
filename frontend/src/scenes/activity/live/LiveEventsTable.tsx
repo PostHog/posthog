@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconPauseFilled, IconPlayFilled, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LiveRecordingsCount, LiveUserCount } from 'lib/components/LiveUserCount'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -11,6 +11,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -23,7 +24,6 @@ import { ActivityTab, LiveEvent } from '~/types'
 
 import { EventName } from 'products/actions/frontend/components/EventName'
 
-import { useActivityTabs } from '../explore/utils'
 import { liveEventsLogic } from './liveEventsLogic'
 import { liveEventsTableSceneLogic } from './liveEventsTableSceneLogic'
 
@@ -90,7 +90,6 @@ export const scene: SceneExport = {
 export function LiveEventsTable(): JSX.Element {
     const { events, streamPaused, filters } = useValues(liveEventsLogic)
     const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsLogic)
-    const tabs = useActivityTabs()
 
     const { isVisible } = usePageVisibility()
     useEffect(() => {
@@ -103,12 +102,12 @@ export function LiveEventsTable(): JSX.Element {
 
     return (
         <SceneContent data-attr="manage-events-table">
-            <LemonTabs activeKey={ActivityTab.LiveEvents} tabs={tabs} sceneInset className="mb-3" />
+            <ActivitySceneTabs activeKey={ActivityTab.LiveEvents} />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Activity].name}
                 description={sceneConfigurations[Scene.Activity].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.Activity].iconType || 'default_icon_type',
+                    type: sceneConfigurations[Scene.LiveEvents].iconType || 'default_icon_type',
                 }}
             />
             <div className="mb-4 flex w-full justify-between items-center">

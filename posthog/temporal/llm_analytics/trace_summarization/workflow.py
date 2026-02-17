@@ -199,6 +199,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             model=inputs.model,
             window_start=window_start,
             window_end=window_end,
+            event_filters=inputs.event_filters,
         )
 
         semaphore = asyncio.Semaphore(inputs.batch_size)
