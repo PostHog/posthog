@@ -95,6 +95,7 @@ export function TrendsSeries(): JSX.Element | null {
                 actionsTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.ScreenEvents,
                     ...(isTrends && display !== ChartDisplayType.CalendarHeatmap
                         ? [TaxonomicFilterGroupType.DataWarehouse]
                         : []),

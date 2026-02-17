@@ -87,6 +87,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 actionsTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.ScreenEvents,
                     ...(supportsDwhFunnels ? [TaxonomicFilterGroupType.DataWarehouse] : []),
                 ]}
             />
