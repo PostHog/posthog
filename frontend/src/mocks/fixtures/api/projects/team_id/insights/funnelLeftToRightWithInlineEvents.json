@@ -15,7 +15,7 @@
     "result": [
         {
             "action_id": "$pageview, $pageleave",
-            "name": "$pageview, $pageleave",
+            "name": "Pageview, Pageleave",
             "custom_name": null,
             "order": 0,
             "people": [],
@@ -28,7 +28,7 @@
         },
         {
             "action_id": "$pageview",
-            "name": "$pageview",
+            "name": "Pageview",
             "custom_name": null,
             "order": 1,
             "people": [],
@@ -83,7 +83,7 @@
             "series": [
                 {
                     "kind": "GroupNode",
-                    "name": "$pageview, $pageleave",
+                    "name": "Pageview, Pageleave",
                     "operator": "OR",
                     "nodes": [
                         {
