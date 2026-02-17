@@ -18,7 +18,8 @@ export function GroupedAccessControlRuleModal(props: {
     onSave: (params: { scopeType: ScopeType; scopeId: string | null; levels: AccessControlLevelMapping[] }) => void
     resources: { key: APIScopeObject; label: string }[]
     getLevelOptionsForResource: (
-        resourceKey: APIScopeObject
+        resourceKey: APIScopeObject,
+        minimumProjectLevel?: AccessControlLevel
     ) => { value: AccessControlLevel; label: string; disabledReason?: string }[]
     loading: boolean
     projectId: string
@@ -26,6 +27,9 @@ export function GroupedAccessControlRuleModal(props: {
     memberIsOrgAdmin: boolean
     memberHasRoleWithAdminAccess: boolean
     projectHasDefaultAdminAccess: boolean
+    roleEffectiveProjectLevel: AccessControlLevel
+    roleHasLowerSavedLevel: boolean
+    projectDefaultLevel: AccessControlLevel
 }): JSX.Element | null {
     const logic = accessControlsLogic({ projectId: props.projectId })
     const { groupedRulesForm } = useValues(logic)
@@ -96,6 +100,10 @@ export function GroupedAccessControlRuleModal(props: {
                 memberIsOrgAdmin={props.memberIsOrgAdmin}
                 memberHasRoleWithAdminAccess={props.memberHasRoleWithAdminAccess}
                 projectHasDefaultAdminAccess={props.projectHasDefaultAdminAccess}
+                scopeType={scopeType}
+                roleEffectiveProjectLevel={props.roleEffectiveProjectLevel}
+                roleHasLowerSavedLevel={props.roleHasLowerSavedLevel}
+                projectDefaultLevel={props.projectDefaultLevel}
             />
         </LemonModal>
     )
@@ -141,12 +149,17 @@ function GroupedAccessControlRuleModalContent(props: {
     resources: { key: APIScopeObject; label: string }[]
     groupedRuleForm: GroupedAccessControlRulesForm
     getLevelOptionsForResource: (
-        resourceKey: APIScopeObject
+        resourceKey: APIScopeObject,
+        minimumProjectLevel?: AccessControlLevel
     ) => { value: AccessControlLevel; label: string; disabledReason?: string }[]
     canEdit: boolean
     memberIsOrgAdmin: boolean
     memberHasRoleWithAdminAccess: boolean
     projectHasDefaultAdminAccess: boolean
+    scopeType: ScopeType
+    roleEffectiveProjectLevel: AccessControlLevel
+    roleHasLowerSavedLevel: boolean
+    projectDefaultLevel: AccessControlLevel
 }): JSX.Element {
     const mappedLevels = props.groupedRuleForm.levels.reduce(
         (prev, mapping) => {
@@ -154,6 +167,22 @@ function GroupedAccessControlRuleModalContent(props: {
         },
         {} as Record<APIScopeObject, AccessControlLevel>
     )
+
+    // For roles: when saved level is lower than default, show the effective (default) level
+    const displayedProjectLevel = useMemo(() => {
+        if (props.scopeType === 'role' && props.roleHasLowerSavedLevel) {
+            return props.roleEffectiveProjectLevel
+        }
+        return mappedLevels['project'] ?? null
+    }, [props.scopeType, props.roleHasLowerSavedLevel, props.roleEffectiveProjectLevel, mappedLevels])
+
+    // For roles and members: determine the minimum project level based on the project default
+    const minimumProjectLevel = useMemo(() => {
+        if (props.scopeType === 'role' || props.scopeType === 'member') {
+            return props.projectDefaultLevel
+        }
+        return undefined
+    }, [props.scopeType, props.projectDefaultLevel])
 
     const disabledReasonForFeatures = useMemo(() => {
         if (props.loading) {
@@ -175,12 +204,19 @@ function GroupedAccessControlRuleModalContent(props: {
         if (props.memberHasRoleWithAdminAccess) {
             return 'User already has a role with Admin access and can access all features in the project'
         }
+
+        // For roles: if effective project level is Admin (even if saved is lower), disable features
+        if (props.scopeType === 'role' && props.roleEffectiveProjectLevel === AccessControlLevel.Admin) {
+            return 'Role has Admin access to the project, so all features are accessible'
+        }
     }, [
         props.loading,
         props.canEdit,
         props.projectHasDefaultAdminAccess,
         props.memberIsOrgAdmin,
         props.memberHasRoleWithAdminAccess,
+        props.scopeType,
+        props.roleEffectiveProjectLevel,
     ])
 
     const disabledReasonForProject = useMemo(() => {
@@ -223,7 +259,7 @@ function GroupedAccessControlRuleModalContent(props: {
                 <div className="min-w-[8rem]">
                     <LemonSelect
                         dropdownPlacement="bottom-end"
-                        value={mappedLevels['project'] ?? null}
+                        value={displayedProjectLevel}
                         disabledReason={disabledReasonForProject}
                         size="small"
                         className="w-36"
@@ -234,7 +270,7 @@ function GroupedAccessControlRuleModalContent(props: {
                             ]
                             props.onUpdate(newLevels)
                         }}
-                        options={props.getLevelOptionsForResource('project' as APIScopeObject)}
+                        options={props.getLevelOptionsForResource('project' as APIScopeObject, minimumProjectLevel)}
                     />
                 </div>
             </div>

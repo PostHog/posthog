@@ -35,6 +35,9 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         ruleModalMemberIsOrgAdmin,
         ruleModalMemberHasRoleWithAdminAccess,
         ruleModalProjectHasDefaultAdminAccess,
+        ruleModalRoleEffectiveProjectLevel,
+        ruleModalRoleHasLowerSavedLevel,
+        projectDefaultLevel,
     } = useValues(logic)
 
     const { setActiveTab, setSearchText, setFilters, openRuleModal, closeRuleModal, saveGroupedRules } =
@@ -101,6 +104,9 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                     memberIsOrgAdmin={ruleModalMemberIsOrgAdmin}
                     memberHasRoleWithAdminAccess={ruleModalMemberHasRoleWithAdminAccess}
                     projectHasDefaultAdminAccess={ruleModalProjectHasDefaultAdminAccess}
+                    roleEffectiveProjectLevel={ruleModalRoleEffectiveProjectLevel}
+                    roleHasLowerSavedLevel={ruleModalRoleHasLowerSavedLevel}
+                    projectDefaultLevel={projectDefaultLevel}
                 />
             )}
         </>

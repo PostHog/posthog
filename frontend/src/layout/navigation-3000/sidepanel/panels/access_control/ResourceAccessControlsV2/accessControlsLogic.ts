@@ -245,14 +245,30 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     levels: defaultLevels,
                 })
 
+                // Helper to find highest access level
+                const getHighestLevel = (levels: AccessControlLevel[]): AccessControlLevel => {
+                    return levels.reduce((highest, current) => {
+                        const currentIndex = projectAvailableLevels.indexOf(current)
+                        const highestIndex = projectAvailableLevels.indexOf(highest)
+                        return currentIndex > highestIndex ? current : highest
+                    })
+                }
+
                 // Role scope rows
                 if (canUseRoles) {
                     for (const role of roles ?? []) {
                         const levels: AccessControlLevelMapping[] = []
                         const projectOverride = accessControlRoles.find((o) => o.role === role.id)
+                        const savedLevel = projectOverride?.access_level as AccessControlLevel | undefined
+
+                        // Show effective level (max of saved and default)
+                        const effectiveProjectLevel = savedLevel
+                            ? getHighestLevel([savedLevel, projectDefaultLevel])
+                            : projectDefaultLevel
+
                         levels.push({
                             resourceKey: 'project',
-                            level: (projectOverride?.access_level ?? projectDefaultLevel) as AccessControlLevel,
+                            level: effectiveProjectLevel,
                         })
 
                         const roleResourceEntry = roleResourceAccessControls.find((r) => r.role?.id === role.id)
@@ -297,15 +313,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     },
                     {} as Record<string, MemberResourceAccessControls>
                 )
-
-                // Helper to find highest access level
-                const getHighestLevel = (levels: AccessControlLevel[]): AccessControlLevel => {
-                    return levels.reduce((highest, current) => {
-                        const currentIndex = projectAvailableLevels.indexOf(current)
-                        const highestIndex = projectAvailableLevels.indexOf(highest)
-                        return currentIndex > highestIndex ? current : highest
-                    })
-                }
 
                 for (const member of allMembers) {
                     const levels: AccessControlLevelMapping[] = []
@@ -380,14 +387,17 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 projectAvailableLevels,
                 resourceAvailableLevels
             ): ((
-                resourceKey: APIScopeObject
+                resourceKey: APIScopeObject,
+                minimumProjectLevel?: AccessControlLevel
             ) => { value: AccessControlLevel; label: string; disabledReason?: string }[]) => {
                 return (
-                    resourceKey: APIScopeObject
+                    resourceKey: APIScopeObject,
+                    minimumProjectLevel?: AccessControlLevel
                 ): { value: AccessControlLevel; label: string; disabledReason?: string }[] => {
                     const availableLevels = resourceKey === 'project' ? projectAvailableLevels : resourceAvailableLevels
                     const uniqueLevels = Array.from(new Set(availableLevels))
-                    const minimumLevel = resourceKey === 'project' ? null : getMinimumAccessLevel(resourceKey)
+                    const minimumLevel =
+                        resourceKey === 'project' ? (minimumProjectLevel ?? null) : getMinimumAccessLevel(resourceKey)
                     const maximumLevel = resourceKey === 'project' ? null : getMaximumAccessLevel(resourceKey)
                     const minimumIndex = minimumLevel ? uniqueLevels.indexOf(minimumLevel) : null
                     const maximumIndex = maximumLevel ? uniqueLevels.indexOf(maximumLevel) : null
@@ -399,10 +409,19 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                             maximumIndex !== null && maximumIndex !== -1 ? index > maximumIndex : false
                         const isDisabled = isBelowMinimum || isAboveMaximum
 
+                        let disabledReason: string | undefined
+                        if (isDisabled) {
+                            if (resourceKey === 'project' && minimumProjectLevel) {
+                                disabledReason = `Project has default ${toSentenceCase(minimumProjectLevel)} access`
+                            } else {
+                                disabledReason = 'Not available for this feature'
+                            }
+                        }
+
                         return {
                             value: level,
                             label: level === AccessControlLevel.None ? 'None' : toSentenceCase(level),
-                            disabledReason: isDisabled ? 'Not available for this feature' : undefined,
+                            disabledReason,
                         }
                     })
                 }
@@ -499,6 +518,53 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             (s) => [s.projectDefaultLevel],
             (projectDefaultLevel): boolean => {
                 return projectDefaultLevel === AccessControlLevel.Admin
+            },
+        ],
+
+        ruleModalRoleEffectiveProjectLevel: [
+            (s) => [s.ruleModalState, s.projectDefaultLevel, s.accessControlRoles, s.projectAvailableLevels],
+            (ruleModalState, projectDefaultLevel, accessControlRoles, projectAvailableLevels): AccessControlLevel => {
+                if (!ruleModalState || !ruleModalState.row.id.startsWith('role:')) {
+                    return projectDefaultLevel
+                }
+
+                const roleId = ruleModalState.row.role.id
+                const roleOverride = accessControlRoles.find((o) => o.role === roleId)
+                const savedLevel = roleOverride?.access_level as AccessControlLevel | undefined
+
+                if (!savedLevel) {
+                    return projectDefaultLevel
+                }
+
+                // Return the higher of the two levels
+                const savedIndex = projectAvailableLevels.indexOf(savedLevel)
+                const defaultIndex = projectAvailableLevels.indexOf(projectDefaultLevel)
+                return savedIndex > defaultIndex ? savedLevel : projectDefaultLevel
+            },
+        ],
+
+        ruleModalRoleSavedProjectLevel: [
+            (s) => [s.ruleModalState, s.accessControlRoles],
+            (ruleModalState, accessControlRoles): AccessControlLevel | null => {
+                if (!ruleModalState || !ruleModalState.row.id.startsWith('role:')) {
+                    return null
+                }
+
+                const roleId = ruleModalState.row.role.id
+                const roleOverride = accessControlRoles.find((o) => o.role === roleId)
+                return (roleOverride?.access_level as AccessControlLevel) ?? null
+            },
+        ],
+
+        ruleModalRoleHasLowerSavedLevel: [
+            (s) => [s.ruleModalRoleSavedProjectLevel, s.projectDefaultLevel, s.projectAvailableLevels],
+            (savedLevel, projectDefaultLevel, projectAvailableLevels): boolean => {
+                if (!savedLevel) {
+                    return false
+                }
+                const savedIndex = projectAvailableLevels.indexOf(savedLevel)
+                const defaultIndex = projectAvailableLevels.indexOf(projectDefaultLevel)
+                return savedIndex < defaultIndex
             },
         ],
     }),
