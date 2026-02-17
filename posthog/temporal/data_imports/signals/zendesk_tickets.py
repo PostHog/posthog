@@ -53,10 +53,8 @@ def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitte
 
 ZENDESK_TICKETS_CONFIG = SignalSourceTableConfig(
     emitter=zendesk_ticket_emitter,
-    # TODO: Decide on using just partition field or incremental field also, if we want to generalize the emitter solution
     partition_field="created_at",
     where_clause=f"status NOT IN {ZENDESK_IGNORED_STATUSES!r}",
-    first_sync_limit=100,
     first_sync_lookback_days=7,
     actionability_prompt=ZENDESK_ACTIONABILITY_PROMPT,
 )

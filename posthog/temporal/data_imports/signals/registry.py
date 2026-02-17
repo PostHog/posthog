@@ -26,8 +26,8 @@ class SignalSourceTableConfig:
     # Optional HogQL WHERE clause to append to every query
     # e.g., "status NOT IN ('closed', 'solved')" for Zendesk
     where_clause: str | None = None
-    # Max records on first ever sync
-    first_sync_limit: int = 100
+    # Max records to process per sync
+    max_records: int = 1000
     # Lookback window in days for first ever sync
     first_sync_lookback_days: int = 7
     # Optional LLM prompt to check if a record is actionable before emitting.

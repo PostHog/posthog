@@ -26,8 +26,6 @@ from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput
 from products.data_warehouse.backend.models import ExternalDataSchema
 from products.signals.backend.api import emit_signal
 
-# Maximum number of records to emit signals for per syncg
-MAX_SIGNALS_PER_SYNC = 1000
 EMIT_SIGNALS_FEATURE_FLAG = "emit-data-import-signals"
 # Concurrent LLM calls limit for actionability checks
 LLM_CONCURRENCY_LIMIT = 10
@@ -145,15 +143,13 @@ def _query_new_records(
 ) -> list[dict[str, Any]]:
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
-    # Continuous sync - need to analyze all that happened since the last one
+    # Continuous sync - need to analyze all that happened since the last one (based on the schema schedule)
     if last_synced_at is not None:
         where_parts.append(f"{config.partition_field} > {{last_synced_at}}")
         placeholders["last_synced_at"] = last_synced_at
-        limit = MAX_SIGNALS_PER_SYNC
     # First ever sync - look back a limited window
     else:
         where_parts.append(f"{config.partition_field} > now() - interval {config.first_sync_lookback_days} day")
-        limit = config.first_sync_limit
     if config.where_clause:
         where_parts.append(config.where_clause)
     where_sql = " AND ".join(where_parts)
@@ -162,7 +158,7 @@ def _query_new_records(
         FROM {table_name}
         WHERE {where_sql}
         ORDER BY {config.partition_field} DESC
-        LIMIT {limit}
+        LIMIT {config.max_records}
     """
     parsed = parse_select(query, placeholders=placeholders) if placeholders else parse_select(query)
     try:
