@@ -1357,9 +1357,9 @@ def send_organization_deleted_email(
 def send_error_tracking_weekly_digest() -> None:
     """
     Send weekly digest email to teams with exception events.
-    Fans out to batched tasks that each query ClickHouse for a chunk of team IDs.
+    Queries ClickHouse for all teams with exceptions, then fans out per-team email tasks.
     """
-    from products.error_tracking.backend.weekly_digest import ERROR_TRACKING_WEEKLY_DIGEST_BATCH_SIZE
+    from products.error_tracking.backend.weekly_digest import get_exception_counts
 
     logger.info("Starting Error Tracking weekly digest task")
 
@@ -1371,29 +1371,18 @@ def send_error_tracking_weekly_digest() -> None:
         return
 
     if "*" in allowed_team_ids:
-        all_team_ids = list(Team.objects.values_list("id", flat=True))
+        team_ids = None
     else:
-        all_team_ids = [int(tid) for tid in allowed_team_ids]
+        team_ids = [int(tid) for tid in allowed_team_ids]
 
-    logger.info(
-        f"Scheduling Error Tracking weekly digest for {len(all_team_ids)} teams in batches of {ERROR_TRACKING_WEEKLY_DIGEST_BATCH_SIZE}"
-    )
+    results = get_exception_counts(team_ids)
 
-    for i in range(0, len(all_team_ids), ERROR_TRACKING_WEEKLY_DIGEST_BATCH_SIZE):
-        batch = all_team_ids[i : i + ERROR_TRACKING_WEEKLY_DIGEST_BATCH_SIZE]
-        send_error_tracking_weekly_digest_batch.delay(batch)
+    logger.info(f"Found {len(results)} teams with exceptions, fanning out digest emails")
 
-    logger.info("Completed Error Tracking weekly digest fan-out")
-
-
-@shared_task(ignore_result=True)
-def send_error_tracking_weekly_digest_batch(team_ids: list[int]) -> None:
-    """Query ClickHouse for exception counts for a batch of team IDs, then fan out per-team."""
-    from products.error_tracking.backend.weekly_digest import get_batch_exception_counts
-
-    results = get_batch_exception_counts(team_ids)
     for team_id, exception_count, ingestion_failure_count in results:
         send_error_tracking_weekly_digest_for_team.delay(team_id, exception_count, ingestion_failure_count)
+
+    logger.info("Completed Error Tracking weekly digest fan-out")
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

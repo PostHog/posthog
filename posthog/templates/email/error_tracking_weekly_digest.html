@@ -90,7 +90,7 @@
 <!-- Section: New issues -->
 {% if new_issues %}
 <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
-    <h3 style="margin: 0 0 4px 0; text-align: left;">New issues this week</h3>
+    <h3 style="margin: 0 0 4px 0; text-align: left;">Top new issues this week</h3>
     <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #6b7280; text-align: left;">Issues first seen in the last 7 days. These may need triaging.</p>
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
         <thead>
@@ -141,12 +141,10 @@
     <p style="margin: 0 0 16px 0; color: #664d03; font-size: 0.9em;">
         Sometimes our ingestion pipeline fails to process exceptions. This is usually caused by malformed events being sent. You can inspect each failed exception to see what went wrong by expanding it.
     </p>
-    <table cellpadding="0" cellspacing="0" border="0">
+    <table cellpadding="0" cellspacing="0" border="0" width="100%">
         <tr>
-            <td style="padding-right: 8px;">
-                <a href="{{ ingestion_failures_url }}" target="_blank" style="display: inline-block; padding: 8px 16px; background-color: #856404; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 0.9em; font-weight: 500;">View these exceptions</a>
-            </td>
-            <td>
+            <td align="right">
+                <a href="{{ ingestion_failures_url }}" target="_blank" style="display: inline-block; padding: 8px 16px; background-color: #856404; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 0.9em; font-weight: 500; margin-right: 8px;">View these exceptions</a>
                 <a href="{{ contact_support_url }}" target="_blank" style="display: inline-block; padding: 8px 16px; background-color: transparent; color: #856404; text-decoration: none; border: 1px solid #856404; border-radius: 6px; font-size: 0.9em; font-weight: 500;">Contact support</a>
             </td>
         </tr>

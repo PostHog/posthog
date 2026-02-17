@@ -9,14 +9,18 @@ from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
 
-ERROR_TRACKING_WEEKLY_DIGEST_BATCH_SIZE = 1000
 
-
-def get_batch_exception_counts(team_ids: list[int]) -> list[tuple[int, int, int]]:
-    """Query ClickHouse for exception counts and ingestion failures for a batch of team IDs."""
+def get_exception_counts(team_ids: list[int] | None = None) -> list:
+    """Query ClickHouse for exception counts and ingestion failures, optionally filtered to specific team IDs."""
     from posthog.clickhouse.client import sync_execute
 
-    exception_counts_query = """
+    team_filter = ""
+    query_params: dict = {}
+    if team_ids is not None:
+        team_filter = "AND team_id IN %(team_ids)s"
+        query_params["team_ids"] = team_ids
+
+    exception_counts_query = f"""
     SELECT
         team_id,
         count() as exception_count,
@@ -25,12 +29,12 @@ def get_batch_exception_counts(team_ids: list[int]) -> list[tuple[int, int, int]
     WHERE event = '$exception'
     AND timestamp >= now() - INTERVAL 7 DAY
     AND timestamp < now()
-    AND team_id IN %(team_ids)s
+    {team_filter}
     GROUP BY team_id
     HAVING exception_count > 0
     """
 
-    results = sync_execute(exception_counts_query, {"team_ids": team_ids})
+    results = sync_execute(exception_counts_query, query_params)
     return results if isinstance(results, list) else []
 
 
