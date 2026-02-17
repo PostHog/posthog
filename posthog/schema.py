@@ -1633,6 +1633,7 @@ class ExternalDataSourceType(StrEnum):
     SHOPIFY = "Shopify"
     ATTIO = "Attio"
     SNAPCHAT_ADS = "SnapchatAds"
+    LINEAR = "Linear"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1933,17 +1934,44 @@ class HeatmapSettings(BaseModel):
     yAxisLabel: str | None = None
 
 
-class HedgehogColorOptions(StrEnum):
+class HedgehogActorAccessoryOption(StrEnum):
+    BERET = "beret"
+    CAP = "cap"
+    CHEF = "chef"
+    COWBOY = "cowboy"
+    EYEPATCH = "eyepatch"
+    FLAG = "flag"
+    GLASSES = "glasses"
+    GRADUATION = "graduation"
+    PARROT = "parrot"
+    PARTY = "party"
+    PINEAPPLE = "pineapple"
+    SUNGLASSES = "sunglasses"
+    TOPHAT = "tophat"
+    XMAS_HAT = "xmas-hat"
+    XMAS_ANTLERS = "xmas-antlers"
+    XMAS_SCARF = "xmas-scarf"
+
+
+class HedgehogActorColorOption(StrEnum):
     GREEN = "green"
     RED = "red"
     BLUE = "blue"
     PURPLE = "purple"
     DARK = "dark"
     LIGHT = "light"
+    GREYSCALE = "greyscale"
     SEPIA = "sepia"
     INVERT = "invert"
-    INVERT_HUE = "invert-hue"
-    GREYSCALE = "greyscale"
+    RAINBOW = "rainbow"
+
+
+class HedgehogActorSkinOption(StrEnum):
+    DEFAULT = "default"
+    SPIDERHOG = "spiderhog"
+    ROBOHOG = "robohog"
+    HOGZILLA = "hogzilla"
+    GHOST = "ghost"
 
 
 class HogCompileResponse(BaseModel):
@@ -2630,8 +2658,9 @@ class MinimalHedgehogConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accessories: list[str]
-    color: HedgehogColorOptions | None = None
+    accessories: list[HedgehogActorAccessoryOption] | None = None
+    color: HedgehogActorColorOption | None = None
+    skin: HedgehogActorSkinOption | None = None
     use_as_profile: bool
 
 
@@ -3130,6 +3159,11 @@ class QueryLogTags(BaseModel):
             " churn the Schema when we add a new Scene *"
         ),
     )
+
+
+class LimitContext(Enum):
+    POSTHOG_AI = "posthog_ai"
+    NONE_TYPE_NONE = None
 
 
 class QueryResponseAlternative7(BaseModel):
@@ -18847,6 +18881,10 @@ class QueryRequest(BaseModel):
         description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
     )
     filters_override: DashboardFilter | None = None
+    limit_context: LimitContext | None = Field(
+        default=None,
+        description=("Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value."),
+    )
     name: str | None = Field(
         default=None,
         description=(

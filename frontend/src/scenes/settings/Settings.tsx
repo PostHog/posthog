@@ -6,9 +6,10 @@ import { router } from 'kea-router'
 import React from 'react'
 
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -340,7 +341,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                 settings.map((x, index) => (
                     <div key={`${x.id}-${index}`} className="relative last:mb-4">
                         {!settingsInSidebar && x.title && (
-                            <h2 id={x.id} className="flex gap-2 items-center">
+                            <h2 id={x.id} className="flex gap-2 items-center text-base font-semibold mb-0">
                                 {x.title}
                                 {props.logicKey === 'settingsScene' && (
                                     <LemonButton
@@ -353,9 +354,22 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                                         }}
                                     />
                                 )}
+                                {x.platformSupport && <SupportedPlatforms config={x.platformSupport} />}
                             </h2>
                         )}
-                        {x.description && <p className="max-w-160">{x.description}</p>}
+                        {x.description && (
+                            <p className="max-w-160 text-sm text-secondary mb-4">
+                                {x.description}
+                                {x.docsUrl && (
+                                    <>
+                                        {' '}
+                                        <Link to={x.docsUrl} target="_blank" data-attr={`settings-docs-link-${x.id}`}>
+                                            Docs
+                                        </Link>
+                                    </>
+                                )}
+                            </p>
+                        )}
 
                         {x.component}
                     </div>

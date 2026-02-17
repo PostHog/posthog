@@ -2,13 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { JSSnippet, JSSnippetV2 } from 'lib/components/JSSnippet'
+import { JSSnippet, JSSnippetV2 as JSSnippetV2Component } from 'lib/components/JSSnippet'
 import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
@@ -17,7 +16,6 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -58,45 +56,26 @@ export function TeamDisplayName({ updateInline = false }: { updateInline?: boole
 export function WebSnippet(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
 
-    return (
-        <>
-            <p>
-                PostHog's configurable web snippet allows you to (optionally) autocapture events, record user sessions,
-                and more with no extra work. Place the following snippet in your website's HTML, ideally just above the{' '}
-                <code>{'</head>'}</code> tag.
-            </p>
-            <p>
-                For more guidance, including on identifying users,{' '}
-                <Link to="https://posthog.com/docs/libraries/js">see PostHog Docs</Link>.
-            </p>
-            {currentTeamLoading && !currentTeam ? (
-                <div className="deprecated-space-y-4">
-                    <LemonSkeleton className="w-1/2 h-4" />
-                    <LemonSkeleton repeat={3} />
-                </div>
-            ) : (
-                <JSSnippet />
-            )}
+    return currentTeamLoading && !currentTeam ? (
+        <div className="deprecated-space-y-4">
+            <LemonSkeleton className="w-1/2 h-4" />
+            <LemonSkeleton repeat={3} />
+        </div>
+    ) : (
+        <JSSnippet />
+    )
+}
 
-            <FlaggedFeature flag="remote-config">
-                <h3 className="mt-4 flex items-center gap-2">
-                    Web Snippet V2 <LemonTag type="warning">Experimental</LemonTag>
-                </h3>
-                <p>
-                    The V2 version of the snippet is more advanced and includes your project config automatically along
-                    with the PostHog JS code. This generally leads to faster load times and fewer calls needed before
-                    the SDK is fully functional.
-                </p>
-                {currentTeamLoading && !currentTeam ? (
-                    <div className="deprecated-space-y-4">
-                        <LemonSkeleton className="w-1/2 h-4" />
-                        <LemonSkeleton repeat={3} />
-                    </div>
-                ) : (
-                    <JSSnippetV2 />
-                )}
-            </FlaggedFeature>
-        </>
+export function WebSnippetV2(): JSX.Element {
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+
+    return currentTeamLoading && !currentTeam ? (
+        <div className="deprecated-space-y-4">
+            <LemonSkeleton className="w-1/2 h-4" />
+            <LemonSkeleton repeat={3} />
+        </div>
+    ) : (
+        <JSSnippetV2Component />
     )
 }
 
@@ -232,35 +211,25 @@ export function TeamVariables(): JSX.Element {
 
 export function TeamTimezone({ displayWarning = true }: { displayWarning?: boolean }): JSX.Element {
     return (
-        <>
-            <p>
-                The timezone config affect how PostHog displays, buckets, and filters time-series data.{' '}
-                {displayWarning && 'You may need to refresh insights for new settings to apply.'}
-            </p>
-            <div className="flex flex-col sm:flex-row gap-8">
-                <div className="flex flex-col gap-2 flex-1 max-w-160">
-                    <LemonLabel id="timezone">Time zone</LemonLabel>
-                    <TimezoneConfig displayWarning={displayWarning} />
-                </div>
-                <div className="flex flex-col gap-2">
-                    <LemonLabel id="timezone">Week starts on</LemonLabel>
-                    <WeekStartConfig displayWarning={displayWarning} />
-                </div>
+        <div className="flex flex-col sm:flex-row gap-8">
+            <div className="flex flex-col gap-2 flex-1 max-w-120">
+                <LemonLabel id="timezone">Time zone</LemonLabel>
+                <TimezoneConfig displayWarning={displayWarning} />
             </div>
-        </>
+            <div className="flex flex-col gap-2">
+                <LemonLabel id="timezone">Week starts on</LemonLabel>
+                <WeekStartConfig displayWarning={displayWarning} />
+            </div>
+        </div>
     )
 }
 
 export function TeamBusinessModel(): JSX.Element {
     return (
-        <>
-            <p>Set your business model if you want tailored UI, recommendations, and insights to your use case.</p>
-            <div className="deprecated-space-y-2">
-                <LemonLabel id="business-model">Business model</LemonLabel>
-                <BusinessModelConfig />
-                <p className="text-muted text-xs">Whether this project serves B2B or B2C customers.</p>
-            </div>
-        </>
+        <div className="deprecated-space-y-2">
+            <LemonLabel id="business-model">Business model</LemonLabel>
+            <BusinessModelConfig />
+        </div>
     )
 }
 
@@ -272,32 +241,11 @@ export function TeamAuthorizedURLs(): JSX.Element {
             : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
 
     return (
-        <>
-            <p>
-                These are the URLs where you can see{' '}
-                <b>
-                    <Link to={urls.webAnalytics()}>Web Analytics</Link>
-                </b>{' '}
-                and{' '}
-                <b>
-                    <Link to={urls.experiments()}>Web Experiments</Link>
-                </b>{' '}
-                data from. You can also{' '}
-                <b>
-                    <Link to={urls.toolbarLaunch()}>launch the Toolbar</Link>
-                </b>{' '}
-                on these pages.
-            </p>
-            <p>
-                <b>Wildcards are not allowed</b> (example: <code>https://*.example.com</code>). The URL needs to be
-                something concrete that can be launched.
-            </p>
-            <AuthorizedUrlList
-                type={AuthorizedUrlListType.WEB_ANALYTICS}
-                allowWildCards={false}
-                allowAdd={canEdit}
-                allowDelete={canEdit}
-            />
-        </>
+        <AuthorizedUrlList
+            type={AuthorizedUrlListType.WEB_ANALYTICS}
+            allowWildCards={false}
+            allowAdd={canEdit}
+            allowDelete={canEdit}
+        />
     )
 }

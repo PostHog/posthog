@@ -23,7 +23,7 @@ import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Var
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 
-import { multitabEditorLogic } from './multitabEditorLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 interface QueryVariablesMenuProps {
     disabledReason?: string
@@ -144,7 +144,7 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
         useValues(variablesLogic)
     const { setSearchTerm, updateVariableValue, addVariable } = useActions(variablesLogic)
     const { openNewVariableModal, openExistingVariableModal } = useActions(variableModalLogic)
-    const { insertTextAtCursor } = useActions(multitabEditorLogic)
+    const { insertTextAtCursor } = useActions(sqlEditorLogic)
     const [isMenuOpen, setIsMenuOpen] = useState(false)
 
     const closeMenu = (): void => {
