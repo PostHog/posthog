@@ -148,9 +148,12 @@ export function SidePanel({
 
     const activeTab = sidePanelOpen && selectedTab
 
-    const isInfoTabActive = activeTab === SidePanelTab.Info && scenePanelIsPresent
-    const PanelContent =
-        activeTab && (visibleTabs.includes(activeTab) || isInfoTabActive) ? SIDE_PANEL_TABS[activeTab]?.Content : null
+    // When the flag is on, determine content tab even when closed for pre-rendering.
+    // This keeps the content component mounted so opening the panel is instant.
+    const contentTab = isRemovingSidePanelFlag ? selectedTab : activeTab
+    const isContentTabValid =
+        contentTab && (visibleTabs.includes(contentTab) || (contentTab === SidePanelTab.Info && scenePanelIsPresent))
+    const PanelContent = isContentTabValid ? SIDE_PANEL_TABS[contentTab]?.Content : null
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -187,13 +190,20 @@ export function SidePanel({
         selectedTab &&
         sidePanelOpen &&
         (visibleTabs.includes(selectedTab) || (selectedTab === SidePanelTab.Info && scenePanelIsPresent))
+    const openWidth = Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH)
+    // Layout width: reported to panelLayoutLogic so main content adjusts
     const sidePanelWidth = !visibleTabs.length
         ? 0
         : sidePanelOpenAndAvailable
-          ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH)
+          ? openWidth
           : isRemovingSidePanelFlag
             ? 0
             : SIDE_PANEL_BAR_WIDTH
+    // DOM width: for pre-rendering, use real width even when closed so the browser
+    // computes layout ahead of time. The panel is absolutely positioned so this
+    // doesn't affect the main content flow.
+    const sidePanelDomWidth =
+        isRemovingSidePanelFlag && !sidePanelOpenAndAvailable && visibleTabs.length ? openWidth : sidePanelWidth
 
     // Update sidepanel width in panelLayoutLogic
     useEffect(() => {
@@ -247,13 +257,13 @@ export function SidePanel({
                 isResizeInProgress && 'SidePanel3000--resizing',
                 isRemovingSidePanelFlag &&
                     '@container/side-panel bg-surface-secondary absolute top-0 right-0 bottom-0 h-full flex flex-col border-t-none',
-                isRemovingSidePanelFlag && !sidePanelOpen && 'hidden',
+                isRemovingSidePanelFlag && !sidePanelOpen && 'invisible pointer-events-none overflow-hidden',
                 className
             )}
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: isRemovingSidePanelFlag ? (sidePanelOpenAndAvailable ? sidePanelWidth : '0px') : sidePanelWidth,
+                width: sidePanelDomWidth,
                 ...theme?.sidebarStyle,
             }}
             id="side-panel"
@@ -350,7 +360,7 @@ export function SidePanel({
                         </div>
                     ) : (
                         <SidePanelNavigation
-                            activeTab={activeTab as SidePanelTab}
+                            activeTab={contentTab as SidePanelTab}
                             onTabChange={(tab) => openSidePanel(tab)}
                         >
                             <ErrorBoundary>
