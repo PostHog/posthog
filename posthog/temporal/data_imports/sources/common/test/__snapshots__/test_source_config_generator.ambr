@@ -50,6 +50,7 @@
           ExternalDataSourceType.BRAZE: BrazeSourceConfig,
           ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
           ExternalDataSourceType.CLERK: ClerkSourceConfig,
+          ExternalDataSourceType.CONVEX: ConvexSourceConfig,
           ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
           ExternalDataSourceType.DOIT: DoItSourceConfig,
           ExternalDataSourceType.GITHUB: GithubSourceConfig,

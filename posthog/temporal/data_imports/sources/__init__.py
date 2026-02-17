@@ -6,6 +6,7 @@ from .braze.source import BrazeSource
 from .chargebee.source import ChargebeeSource
 from .clerk.source import ClerkSource
 from .common.registry import SourceRegistry
+from .convex.source import ConvexSource
 from .customer_io.source import CustomerIOSource
 from .doit.source import DoItSource
 from .github.source import GithubSource
@@ -48,6 +49,7 @@ __all__ = [
     "BrazeSource",
     "ChargebeeSource",
     "ClerkSource",
+    "ConvexSource",
     "DoItSource",
     "GoogleAdsSource",
     "GoogleSheetsSource",
