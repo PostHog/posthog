@@ -17,6 +17,7 @@ from django.utils.safestring import mark_safe
 
 from structlog import get_logger
 from temporalio import common
+from temporalio.client import WorkflowExecutionStatus
 
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
@@ -586,7 +587,7 @@ class TeamAdmin(admin.ModelAdmin):
         """Fetch recent delete-recordings workflows for this team from Temporal."""
         try:
             temporal = sync_connect()
-            query = f'WorkflowId STARTS_WITH "delete-recordings-{team_id}-"'
+            query = f'WorkflowId STARTS_WITH "delete-recordings-{team_id}-" ORDER BY StartTime DESC'
 
             async def fetch_workflows():
                 workflows = []
@@ -824,9 +825,17 @@ class TeamAdmin(admin.ModelAdmin):
 
             async def get_result():
                 handle = temporal.get_workflow_handle(workflow_id)
-                return await handle.result()
+                desc = await handle.describe()
+                if desc.status != WorkflowExecutionStatus.COMPLETED:
+                    return (
+                        None,
+                        f"Workflow is {desc.status.name.lower()}, certificate is only available after completion",
+                    )
+                return await handle.result(), None
 
-            certificate = asyncio.run(get_result())
+            certificate, error = asyncio.run(get_result())
+            if error:
+                return None, error
             return certificate, None
         except Exception as e:
             logger.warning("Failed to fetch deletion certificate", workflow_id=workflow_id, error=str(e))

@@ -1,26 +1,29 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+MAX_BULK_DELETE_BATCH_SIZE = 100
 
 
 class RecordingsWithPersonInput(BaseModel):
     distinct_ids: list[str]
     team_id: int
-    batch_size: int = 100
+    dry_run: bool = False
+    batch_size: Annotated[int, Field(ge=1, le=MAX_BULK_DELETE_BATCH_SIZE)] = MAX_BULK_DELETE_BATCH_SIZE
 
 
 class RecordingsWithTeamInput(BaseModel):
     team_id: int
     dry_run: bool = False
-    batch_size: int = 100
+    batch_size: Annotated[int, Field(ge=1, le=MAX_BULK_DELETE_BATCH_SIZE)] = MAX_BULK_DELETE_BATCH_SIZE
 
 
 class RecordingsWithQueryInput(BaseModel):
     query: str
     team_id: int
     dry_run: bool = False
-    batch_size: int = 100
+    batch_size: Annotated[int, Field(ge=1, le=MAX_BULK_DELETE_BATCH_SIZE)] = MAX_BULK_DELETE_BATCH_SIZE
     query_limit: int = 100
 
 
@@ -29,14 +32,17 @@ class BulkDeleteInput(BaseModel):
     session_ids: list[str]
 
 
+class DeleteFailure(BaseModel):
+    session_id: str
+    error: str
+
+
 class BulkDeleteResult(BaseModel):
     deleted: list[str]
-    not_found: list[str]
-    already_deleted: list[str]
-    errors: list[dict]
+    failed: list[DeleteFailure]
 
 
-class DeletedRecordingEntry(BaseModel):
+class DeleteSuccess(BaseModel):
     session_id: str
     deleted_at: datetime
 
@@ -58,15 +64,11 @@ class DeletionCertificate(BaseModel):
     # Summary statistics
     total_recordings_found: int
     total_deleted: int
-    total_not_found: int
-    total_already_deleted: int
-    total_errors: int
+    total_failed: int
 
     # Detailed records
-    deleted_recordings: list[DeletedRecordingEntry]
-    not_found_session_ids: list[str]
-    already_deleted_session_ids: list[str]
-    errors: list[dict]
+    deleted_recordings: list[DeleteSuccess]
+    failed: list[DeleteFailure]
 
 
 class LoadRecordingError(Exception):
@@ -76,7 +78,7 @@ class LoadRecordingError(Exception):
 class PurgeDeletedMetadataInput(BaseModel):
     """Input for the nightly metadata purge workflow."""
 
-    grace_period_days: int = 7
+    grace_period_days: int = 10
 
 
 class PurgeDeletedMetadataResult(BaseModel):

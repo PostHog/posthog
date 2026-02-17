@@ -19,7 +19,9 @@ from posthog.redis import get_async_client
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import list_blocks
-from posthog.storage.recordings import block_storage, file_storage
+from posthog.storage.recordings import file_storage
+from posthog.storage.recordings.block_storage import encrypted_block_storage
+from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
@@ -173,40 +175,42 @@ async def export_recording_data(input: ExportContext) -> None:
     block_manifest: list[dict] = []
 
     r = get_async_client(_redis_url(input.redis_config))
-    for block in recording_blocks:
-        _, _, s3_path, _, query, _ = parse.urlparse(block.url)
+    async with encrypted_block_storage() as storage:
+        for block in recording_blocks:
+            _, _, s3_path, _, query, _ = parse.urlparse(block.url)
 
-        filename = s3_path.split("/")[-1]
+            filename = s3_path.split("/")[-1]
 
-        match = re.match(r"^range=bytes=(\d+)-(\d+)$", query)
+            match = re.match(r"^range=bytes=(\d+)-(\d+)$", query)
 
-        if not match:
-            logger.warning(f"Got malformed byte range in block URL: {query}, skipping...")
-            continue
+            if not match:
+                logger.warning(f"Got malformed byte range in block URL: {query}, skipping...")
+                continue
 
-        block_offset = int(match.group(1))
+            block_offset = int(match.group(1))
 
-        try:
-            async with block_storage.cleartext_block_storage() as storage:
-                block_data = await storage.fetch_compressed_block(block.url)
-            logger.info(f"Successfully fetched block data ({len(block_data)} bytes)")
-        except block_storage.BlockFetchError:
-            logger.warning(f"Failed to fetch block at {block.url}, skipping...")
-            continue
+            try:
+                block_data = await storage.fetch_compressed_block(block.url, input.session_id, input.team_id)
+                logger.info(f"Successfully fetched block data ({len(block_data)} bytes)")
+            except RecordingDeletedError:
+                raise
+            except BlockFetchError:
+                logger.warning(f"Failed to fetch block at {block.url}, skipping...")
+                continue
 
-        redis_key = _redis_key(input.export_id, "block", filename)
-        encoded_data = base64.b64encode(block_data).decode("utf-8")
-        await r.setex(redis_key, input.redis_config.redis_ttl, encoded_data)
+            redis_key = _redis_key(input.export_id, "block", filename)
+            encoded_data = base64.b64encode(block_data).decode("utf-8")
+            await r.setex(redis_key, input.redis_config.redis_ttl, encoded_data)
 
-        block_manifest.append(
-            {
-                "filename": filename,
-                "offset": block_offset,
-                "redis_key": redis_key,
-            }
-        )
+            block_manifest.append(
+                {
+                    "filename": filename,
+                    "offset": block_offset,
+                    "redis_key": redis_key,
+                }
+            )
 
-        logger.info(f"Wrote block data to Redis key {redis_key}")
+            logger.info(f"Wrote block data to Redis key {redis_key}")
 
     manifest_key = _redis_key(input.export_id, "block-manifest")
     await r.setex(manifest_key, input.redis_config.redis_ttl, json.dumps(block_manifest))
