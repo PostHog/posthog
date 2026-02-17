@@ -63,6 +63,13 @@ class TestToolbarEndpointOAuthAuth(APIBaseTest):
     TOOLBAR_ENDPOINTS = [
         ("actions_list", "/api/projects/{team_id}/actions/", "get", "action"),
         ("feature_flags_list", "/api/projects/{team_id}/feature_flags/", "get", "feature_flag"),
+        ("feature_flags_my_flags", "/api/projects/{team_id}/feature_flags/my_flags/", "get", "feature_flag"),
+        (
+            "feature_flags_evaluation_reasons",
+            "/api/projects/{team_id}/feature_flags/evaluation_reasons/?distinct_id=test",
+            "get",
+            "feature_flag",
+        ),
         ("web_experiments_list", "/api/projects/{team_id}/web_experiments/", "get", "experiment"),
         ("product_tours_list", "/api/projects/{team_id}/product_tours/", "get", "product_tour"),
         ("web_vitals_list", "/api/environments/{team_id}/web_vitals/?pathname=/", "get", "query"),
@@ -239,6 +246,56 @@ class TestUploadedMediaOAuthAuth(APIBaseTest):
         self.user.save(update_fields=["temporary_token"])
         response = self.client.post(f"{self._url()}?temporary_token=tmp_media_tok")
         assert response.status_code != 401
+
+
+class TestHedgehogConfigOAuthAuth(APIBaseTest):
+    """hedgehog_config uses /api/users/@me/ path, not team-scoped, so tested separately."""
+
+    def setUp(self):
+        super().setUp()
+        self.oauth_app = _make_oauth_app(self.organization, self.user)
+
+    def _url(self):
+        return f"/api/users/@me/hedgehog_config/"
+
+    def test_read_token_grants_get_access(self):
+        token = _make_token(self.user, self.oauth_app, "pha_hh_read", scope="user:read")
+        self.client.logout()
+        response = self.client.get(self._url(), HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        assert response.status_code == 200
+
+    def test_read_token_rejected_for_patch(self):
+        token = _make_token(self.user, self.oauth_app, "pha_hh_read_patch", scope="user:read")
+        self.client.logout()
+        response = self.client.patch(
+            self._url(),
+            data={"color": "red"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token.token}",
+        )
+        assert response.status_code == 403
+
+    def test_write_token_grants_patch_access(self):
+        token = _make_token(self.user, self.oauth_app, "pha_hh_write", scope="user:write")
+        self.client.logout()
+        response = self.client.patch(
+            self._url(),
+            data={"color": "red"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token.token}",
+        )
+        assert response.status_code == 200
+
+    def test_expired_token_is_rejected(self):
+        token = _make_token(self.user, self.oauth_app, "pha_hh_exp", scope="user:read", delta_hours=-1)
+        self.client.logout()
+        response = self.client.get(self._url(), HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        assert response.status_code == 401
+
+    def test_unauthenticated_is_rejected(self):
+        self.client.logout()
+        response = self.client.get(self._url())
+        assert response.status_code in (401, 403)
 
 
 class TestToolbarOAuthScopesConfig(APIBaseTest):
