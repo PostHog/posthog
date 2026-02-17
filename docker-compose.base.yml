@@ -393,6 +393,8 @@ services:
             CLICKHOUSE_VERIFY: 'false'
             COOKIELESS_REDIS_HOST: redis7
             COOKIELESS_REDIS_PORT: 6379
+            SESSION_RECORDING_API_REDIS_HOST: redis7
+            SESSION_RECORDING_API_REDIS_PORT: 6379
 
     livestream:
         image: 'ghcr.io/posthog/posthog/livestream:master'
