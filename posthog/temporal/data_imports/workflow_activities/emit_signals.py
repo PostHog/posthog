@@ -216,7 +216,7 @@ async def _filter_actionable(
     """Keep only actionable signals"""
     client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
-    activity.heartbeat(f"filtering {len(outputs)} records for actionability")
+    activity.heartbeat()
     checked_count = 0
 
     async def _bounded_check(output: SignalEmitterOutput) -> bool:
@@ -225,7 +225,7 @@ async def _filter_actionable(
             result = await _check_actionability(client, output, actionability_prompt)
             checked_count += 1
             if checked_count % LLM_CONCURRENCY_LIMIT == 0:
-                activity.heartbeat(f"filtered {checked_count}/{len(outputs)} records")
+                activity.heartbeat()
             return result
 
     tasks: dict[int, asyncio.Task[bool]] = {}
@@ -254,7 +254,7 @@ async def _emit_signals(
     extra: dict[str, Any],
 ) -> int:
     semaphore = asyncio.Semaphore(EMIT_CONCURRENCY_LIMIT)
-    activity.heartbeat(f"emitting {len(outputs)} signals")
+    activity.heartbeat()
     emitted_count = 0
 
     async def _bounded_emit(output: SignalEmitterOutput) -> bool:
@@ -272,7 +272,7 @@ async def _emit_signals(
                 )
                 emitted_count += 1
                 if emitted_count % EMIT_CONCURRENCY_LIMIT == 0:
-                    activity.heartbeat(f"emitted {emitted_count}/{len(outputs)} signals")
+                    activity.heartbeat()
                 return True
             except Exception as e:
                 activity.logger.exception(f"Error emitting signal for record: {e}", extra=extra)
