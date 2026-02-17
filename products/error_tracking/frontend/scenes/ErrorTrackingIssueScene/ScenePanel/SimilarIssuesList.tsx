@@ -2,16 +2,19 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
+import { IconSearch } from '@posthog/icons'
 import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { LemonModalContent, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { urls } from 'scenes/urls'
 
 import { SimilarIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionCard } from '../../../components/ExceptionCard'
 import { issueActionsLogic } from '../../../components/IssueActions/issueActionsLogic'
-import SimilarIssueCard from '../../../components/SimilarIssueCard'
+import SimilarIssueCard, { MergeAction } from '../../../components/SimilarIssueCard'
+import { StyleVariables } from '../../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 
@@ -20,11 +23,14 @@ export const SimilarIssuesList = (): JSX.Element => {
         useValues(errorTrackingIssueSceneLogic)
     const { loadSimilarIssues, setSimilarIssuesMaxDistance } = useActions(errorTrackingIssueSceneLogic)
     const { mergeIssues } = useAsyncActions(issueActionsLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const [selectedIssue, setSelectedIssue] = useState<SimilarIssue | null>(null)
 
     useEffect(() => {
-        loadSimilarIssues()
-    }, [loadSimilarIssues])
+        if (dataProcessingAccepted) {
+            loadSimilarIssues()
+        }
+    }, [loadSimilarIssues, dataProcessingAccepted])
 
     const handleMerge = async (relatedIssueId: string, maxDistance: number): Promise<void> => {
         if (issue) {
@@ -39,11 +45,25 @@ export const SimilarIssuesList = (): JSX.Element => {
     }
 
     return (
-        <>
-            {similarIssuesLoading ? (
-                <Spinner />
+        <div className="flex flex-col h-full min-h-0">
+            {!dataProcessingAccepted ? (
+                <EmptyState
+                    title="AI data processing required"
+                    description="Similar issue search uses AI embeddings to find related issues. Enable AI data processing for your organization to use this feature."
+                    action={
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            to={urls.settings('organization-details', 'organization-ai-consent')}
+                        >
+                            Go to organization settings
+                        </LemonButton>
+                    }
+                />
+            ) : similarIssuesLoading ? (
+                <Spinner className="m-auto" />
             ) : similarIssues.length > 0 ? (
-                <div className="flex flex-col gap-1 divide-y">
+                <div className="flex flex-col gap-1 divide-y overflow-y-auto flex-1 min-h-0" tabIndex={-1}>
                     {similarIssues.map((similarIssue: SimilarIssue) => {
                         return (
                             <SimilarIssueCard
@@ -51,36 +71,64 @@ export const SimilarIssuesList = (): JSX.Element => {
                                 issue={similarIssue}
                                 onClick={() => setSelectedIssue(similarIssue)}
                                 actions={
-                                    <ButtonPrimitive
-                                        size="xxs"
+                                    <MergeAction
                                         onClick={() => handleMerge(similarIssue.id, similarIssuesMaxDistance)}
-                                        className="shrink-0 px-2 py-3 h-full"
-                                    >
-                                        Merge
-                                    </ButtonPrimitive>
+                                    />
                                 }
                             />
                         )
                     })}
                 </div>
             ) : (
-                <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <LemonButton size="small" onClick={increaseMaxDistance} className="w-fit" type="primary">
-                        No similar issues found. Search further?
-                    </LemonButton>
-                </div>
+                <EmptyState
+                    title="No similar issues found"
+                    description="No issues within the current search distance match this issue. Try expanding the search range to find more distant matches."
+                    action={
+                        <LemonButton type="primary" size="small" onClick={increaseMaxDistance}>
+                            Search further
+                        </LemonButton>
+                    }
+                />
             )}
 
             {/* Issue Detail Modal */}
-            <LemonModal isOpen={!!selectedIssue} onClose={() => setSelectedIssue(null)} width="95%" maxWidth="1400px">
-                <LemonModalHeader>
+            <LemonModal
+                isOpen={!!selectedIssue}
+                onClose={() => setSelectedIssue(null)}
+                width="95%"
+                maxWidth="1400px"
+                className="h-[80vh]"
+                simple
+            >
+                <LemonModalHeader className="shrink-0">
                     <h3>{selectedIssue?.name || 'Issue Details'}</h3>
                 </LemonModalHeader>
-                <LemonModalContent>
+                <LemonModalContent embedded className="flex-1 flex flex-col min-h-0 !overflow-y-hidden">
                     {selectedIssue && <IssueModalContent issueId={selectedIssue.id} />}
                 </LemonModalContent>
             </LemonModal>
-        </>
+        </div>
+    )
+}
+
+const EmptyState = ({
+    title,
+    description,
+    action,
+}: {
+    title: string
+    description: string
+    action: JSX.Element
+}): JSX.Element => {
+    return (
+        <div className="flex flex-col items-center justify-center flex-1 gap-3 p-6 text-center">
+            <IconSearch className="text-secondary text-3xl" />
+            <div className="flex flex-col gap-1">
+                <h4 className="font-semibold mb-0">{title}</h4>
+                <p className="text-secondary text-sm max-w-80 mb-0">{description}</p>
+            </div>
+            {action}
+        </div>
     )
 }
 
@@ -92,16 +140,14 @@ const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
     const tagRenderer = useErrorTagRenderer()
 
     return (
-        <div className="ErrorTrackingIssue">
-            <div className="space-y-2">
-                <ExceptionCard
-                    issueId={issueId}
-                    issueName={issue?.name ?? null}
-                    loading={issueLoading || initialEventLoading}
-                    event={selectedEvent ?? undefined}
-                    label={tagRenderer(selectedEvent)}
-                />
-            </div>
-        </div>
+        <StyleVariables className="ErrorTrackingIssue flex-1 min-h-0 flex flex-col">
+            <ExceptionCard
+                issueId={issueId}
+                issueName={issue?.name ?? null}
+                loading={issueLoading || initialEventLoading}
+                event={selectedEvent ?? undefined}
+                label={tagRenderer(selectedEvent)}
+            />
+        </StyleVariables>
     )
 }
