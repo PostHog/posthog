@@ -4,7 +4,7 @@ import { Message } from 'node-rdkafka'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { EventHeaders, Team } from '../../types'
+import { EventHeaders, Person, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import {
     EventPipelineResult,
@@ -25,7 +25,7 @@ export interface EventPipelineRunnerInput {
     headers: EventHeaders
     groupStoreForBatch: GroupStoreForBatch
     processPerson: boolean
-    forceDisablePersonProcessing: boolean
+    personlessPerson?: Person
 }
 
 export type EventPipelineRunnerStepResult = EventPipelineResult & {
@@ -51,7 +51,7 @@ export function createEventPipelineRunnerV1Step(
             message: inputMessage,
             groupStoreForBatch,
             processPerson,
-            forceDisablePersonProcessing,
+            personlessPerson,
         } = input
 
         const runner = new EventPipelineRunner(
@@ -64,13 +64,7 @@ export function createEventPipelineRunnerV1Step(
             groupStoreForBatch,
             inputHeaders
         )
-        const result = await runner.runEventPipeline(
-            normalizedEvent,
-            timestamp,
-            team,
-            processPerson,
-            forceDisablePersonProcessing
-        )
+        const result = await runner.runEventPipeline(normalizedEvent, timestamp, team, processPerson, personlessPerson)
 
         if (isOkResult(result)) {
             const stepResult: EventPipelineRunnerStepResult = {
