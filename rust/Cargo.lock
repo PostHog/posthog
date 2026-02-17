@@ -1195,6 +1195,7 @@ dependencies = [
  "metrics",
  "moka",
  "natord",
+ "posthog-rs",
  "rayon",
  "rdkafka",
  "reqwest 0.12.15",
@@ -6303,16 +6304,18 @@ checksum = "7170ef9988bc169ba16dd36a7fa041e5c4cbeb6a35b76d4c03daded371eae7c0"
 
 [[package]]
 name = "posthog-rs"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ead24e7bd3ce35a88fffe1f9a4747b4844335fa837eddecf9e7ad9708f3e26b3"
+version = "0.4.1"
 dependencies = [
  "chrono",
  "derive_builder",
+ "regex",
  "reqwest 0.11.24",
  "semver",
  "serde",
  "serde_json",
+ "sha1",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -7183,6 +7186,7 @@ version = "0.11.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6920094eb85afde5e4a138be3f2de8bbdf28000f0029e72c45025a56b042251"
 dependencies = [
+ "async-compression",
  "base64 0.21.7",
  "bytes",
  "encoding_rs",

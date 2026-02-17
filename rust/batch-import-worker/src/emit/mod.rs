@@ -6,6 +6,7 @@ use common_types::InternallyCapturedEvent;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
+pub mod capture;
 pub mod kafka;
 
 #[async_trait]
