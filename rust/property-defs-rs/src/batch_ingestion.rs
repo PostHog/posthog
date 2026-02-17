@@ -507,10 +507,14 @@ async fn write_event_definitions_batch(
 
         // TODO: see if we can eliminate last_seen_at from being exposed in the UI,
         // then convert this stmt to ON CONFLICT DO NOTHING
+        //
+        // enforcement_mode is hardcoded to 'allow' on INSERT so new event defs
+        // are always created in a permissive state. It is intentionally excluded
+        // from the ON CONFLICT UPDATE so user-set 'reject' values are preserved.
         let result = sqlx::query(
             r#"
-            INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at)
-                (SELECT * FROM UNNEST (
+            INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at, enforcement_mode)
+                (SELECT *, 'allow' FROM UNNEST (
                     $1::uuid[],
                     $2::varchar[],
                     $3::int[],
