@@ -48,7 +48,7 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token }}
                   commit-message: 'Update bot IPs from GoodBots repository'
-                  title: '🤖 Update bot IPs from GoodBots repository'
+                  title: 'chore(ci): Update bot IPs from GoodBots repository'
                   body: |
                       This PR updates the bot IPs list from the [GoodBots repository](https://github.com/AnTheMaker/GoodBots).
 
@@ -66,3 +66,4 @@ jobs:
                       dependencies
                   reviewers: |
                       PostHog/team-workflows
+                      PostHog/team-ingestion

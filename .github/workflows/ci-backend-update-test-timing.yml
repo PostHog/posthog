@@ -153,3 +153,5 @@ jobs:
                   branch: chore/update-test-timings
                   base: master
                   delete-branch: true
+                  reviewers: |
+                      PostHog/team-devex
