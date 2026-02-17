@@ -14,7 +14,7 @@ export const ExperimentTemplates = (): JSX.Element => {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {EXPERIMENT_TEMPLATES.map((template) => (
-                    <ExperimentTemplateCard key={template.id} template={template} />
+                    <ExperimentTemplateCard key={template.id} template={template} onSelect={() => {}} />
                 ))}
             </div>
         </>
