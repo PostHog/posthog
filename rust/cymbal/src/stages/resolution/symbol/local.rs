@@ -282,7 +282,7 @@ mod test {
             panic!("Expected a Raw stacktrace")
         };
 
-        // We're going to pretend out stack consists exclusively of JS frames whose source
+        // We're going to pretend our stack consists exclusively of JS frames whose source
         // we have locally
         test_stack.retain(|s| {
             let RawFrame::JavaScriptWeb(s) = s else {
