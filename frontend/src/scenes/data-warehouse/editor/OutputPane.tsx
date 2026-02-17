@@ -292,8 +292,15 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { setActiveTab } = useActions(outputPaneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { sourceQuery, exportContext, editingInsight, insightLoading, updateInsightButtonEnabled, showLegacyFilters, hasQueryInput } =
-        useValues(sqlEditorLogic)
+    const {
+        sourceQuery,
+        exportContext,
+        editingInsight,
+        insightLoading,
+        updateInsightButtonEnabled,
+        showLegacyFilters,
+        hasQueryInput,
+    } = useValues(sqlEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -533,7 +540,11 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                         />
                                         {(editingInsight || insightLoading) && (
                                             <LemonButton
-                                                disabledReason={!updateInsightButtonEnabled && 'No updates to save'}
+                                                disabledReason={
+                                                    (!updateInsightButtonEnabled && 'No updates to save') ||
+                                                    (insightLoading && 'Loading...') ||
+                                                    undefined
+                                                }
                                                 loading={insightLoading}
                                                 type="primary"
                                                 onClick={() => updateInsight()}
