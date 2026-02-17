@@ -539,7 +539,6 @@ async def materialize_model(
                 data=batch,
                 mode=mode,
                 schema_mode=schema_mode,
-                engine="rust",
             )
             write_duration = (dt.datetime.now() - write_start).total_seconds()
 
