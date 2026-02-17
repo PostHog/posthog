@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -184,14 +185,14 @@ func (s *Stream) connectAndStream() error {
 		params = append(params, "geo=true")
 	}
 
-	url := s.client.Host + "/events"
+	endpoint := s.client.Host + "/events"
 	if len(params) > 0 {
-		url += "?" + strings.Join(params, "&")
+		endpoint += "?" + strings.Join(params, "&")
 	}
 
-	debug.Log(s.label, "connecting to %s", url)
+	debug.Log(s.label, "connecting to %s", endpoint)
 
-	req, err := http.NewRequestWithContext(s.ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(s.ctx, "GET", endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("request create: %w", err)
 	}
