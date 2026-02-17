@@ -70,6 +70,22 @@ def normalize_step(step: dict) -> dict:
     return step
 
 
+def _validate_launch(steps: list[dict]):
+    [_validate_step_targeting(step, idx) for idx, step in enumerate(steps)]
+
+
+def _validate_step_targeting(step: dict, idx: int):
+    targeting = step.get("elementTargeting")
+    if not targeting:
+        return
+
+    if targeting == "manual" and not step.get("selector"):
+        raise serializers.ValidationError(f"Step {idx + 1} is missing an element selector")
+
+    if targeting == "auto" and not step.get("inferenceData"):
+        raise serializers.ValidationError(f"Step {idx + 1} requires an element to be selected")
+
+
 class TourStepContent(BaseModel):
     """A single step in the generated tour."""
 
@@ -223,7 +239,14 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
     def validate(self, data):
         from posthog.models.feature_flag import FeatureFlag
 
-        linked_flag_id = data.get("linked_flag_id")
+        # For partial updates (PATCH), fall back to the instance's existing
+        # linked_flag_id when the field wasn't included in the request.
+        # "linked_flag_id" absent from data = not sent; present as None = explicitly cleared.
+        if "linked_flag_id" not in data and self.instance is not None:
+            linked_flag_id = self.instance.linked_flag_id
+        else:
+            linked_flag_id = data.get("linked_flag_id")
+
         linked_flag = None
         if linked_flag_id:
             try:
@@ -249,6 +272,14 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
                     )
         elif linked_flag_variant and not linked_flag_id:
             raise serializers.ValidationError("linkedFlagVariant can only be used when a linked_flag_id is specified")
+
+        # Block launching or updating a live tour with incomplete element targeting
+        is_launching = "start_date" in data and data["start_date"] is not None
+        is_launched = self.instance is not None and self.instance.start_date is not None
+        if is_launching or is_launched:
+            launch_content = data.get("content") or (self.instance.content if self.instance else None) or {}
+            steps = launch_content.get("steps", [])
+            _validate_launch(steps)
 
         return data
 

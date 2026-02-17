@@ -147,7 +147,7 @@ intents:
 
     error_tracking:
         description: 'Track and analyze application errors'
-        capabilities: [event_ingestion, error_symbolication, property_definitions, nodejs_cdp]
+        capabilities: [event_ingestion, error_symbolication, embedding_service, property_definitions, nodejs_cdp]
 
     session_replay:
         description: 'Record and replay user sessions'

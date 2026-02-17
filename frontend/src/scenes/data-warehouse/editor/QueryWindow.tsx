@@ -31,7 +31,7 @@ import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { FixErrorButton } from './components/FixErrorButton'
 import { draftsLogic } from './draftsLogic'
-import { multitabEditorLogic } from './multitabEditorLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -53,7 +53,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         currentDraft,
         changesToSave,
         inProgressViewEdits,
-    } = useValues(multitabEditorLogic)
+    } = useValues(sqlEditorLogic)
 
     const {
         setQueryInput,
@@ -66,8 +66,8 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         updateView,
         setSuggestedQueryInput,
         reportAIQueryPromptOpen,
-    } = useActions(multitabEditorLogic)
-    const { openHistoryModal } = useActions(multitabEditorLogic)
+    } = useActions(sqlEditorLogic)
+    const { openHistoryModal } = useActions(sqlEditorLogic)
 
     const { saveOrUpdateDraft } = useActions(draftsLogic)
     const { response } = useValues(dataNodeLogic)
@@ -340,10 +340,10 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
 }
 
 function RunButton(): JSX.Element {
-    const { runQuery } = useActions(multitabEditorLogic)
+    const { runQuery } = useActions(sqlEditorLogic)
     const { cancelQuery } = useActions(dataNodeLogic)
     const { responseLoading } = useValues(dataNodeLogic)
-    const { metadata, queryInput, isSourceQueryLastRun } = useValues(multitabEditorLogic)
+    const { metadata, queryInput, isSourceQueryLastRun } = useValues(sqlEditorLogic)
 
     const isUsingIndices = metadata?.isUsingIndices === 'yes'
 
@@ -392,7 +392,7 @@ function RunButton(): JSX.Element {
 }
 
 const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
-    const { finishedLoading } = useValues(multitabEditorLogic)
+    const { finishedLoading } = useValues(sqlEditorLogic)
 
     // NOTE: hacky way to avoid flicker loading
     if (finishedLoading) {

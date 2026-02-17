@@ -100,7 +100,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
     def to_query(self, skip_entity_filter=False, skip_step_filter=False) -> ast.SelectQuery:
         table_configs_to_steps: dict[str, TableConfigWithSteps] = {}
-        seen_config_keys: dict[tuple[str, str, str], int] = {}
+        seen_config_keys: dict[tuple[str, str, str, str], int] = {}
 
         # collect the steps by their source table and configuration, so we can build one query per source table/configuration
         for step_index, node in enumerate(self.context.query.series):
@@ -493,7 +493,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                             f"""tupleElement((
                                 throwIf(isNull({{id_field}}), {{exception_message}}),
                                 toUUIDOrDefault(
-                                    {{id_field}},
+                                    toString({{id_field}}),
                                     reinterpretAsUUID(md5(concat({{table_prefix}}, toString({{id_field}}))))
                                 )
                             ), 2)""",
