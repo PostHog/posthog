@@ -1,6 +1,12 @@
-import { LLMTraceEvent } from '~/queries/schema/schema-general'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { TraceTreeNode, getEffectiveEventId, getInitialFocusEventId, restoreTree } from './llmAnalyticsTraceDataLogic'
+import {
+    TraceTreeNode,
+    getEffectiveEventId,
+    getInitialFocusEventId,
+    getSingleTraceLoadTiming,
+    restoreTree,
+} from './llmAnalyticsTraceDataLogic'
 
 describe('llmAnalyticsTraceDataLogic: restoreTree', () => {
     it('should group a basic trace into a tree', () => {
@@ -372,5 +378,130 @@ describe('getEffectiveEventId', () => {
 
     it('returns null when both eventId and initialFocusEventId are null', () => {
         expect(getEffectiveEventId(null, null)).toBeNull()
+    })
+})
+
+describe('getSingleTraceLoadTiming', () => {
+    it('computes trace age from earliest event timestamp in UTC with query runner duration', () => {
+        const trace: LLMTrace = {
+            id: 'trace-1',
+            createdAt: '2024-01-01T06:00:00Z',
+            distinctId: 'user-1',
+            events: [
+                {
+                    id: 'event-1',
+                    event: '$ai_span',
+                    properties: {},
+                    createdAt: '2024-01-01T00:00:00-05:00',
+                },
+                {
+                    id: 'event-2',
+                    event: '$ai_span',
+                    properties: {},
+                    createdAt: '2024-01-01T07:30:00+01:00',
+                },
+            ],
+        }
+
+        const timing = getSingleTraceLoadTiming(trace, '2024-01-01T08:00:00Z', 70)
+
+        expect(timing).toEqual({
+            trace_timestamp_utc: '2024-01-01T05:00:00.000Z',
+            now_timestamp_utc: '2024-01-01T08:00:00.000Z',
+            trace_oldness_minutes: 180,
+            trace_query_runner_load_duration_ms: 70,
+        })
+    })
+
+    it('falls back to trace.createdAt when all event timestamps are invalid and duration is missing', () => {
+        const trace: LLMTrace = {
+            id: 'trace-1',
+            createdAt: '2024-01-01T10:00:00Z',
+            distinctId: 'user-1',
+            events: [
+                {
+                    id: 'event-1',
+                    event: '$ai_span',
+                    properties: {},
+                    createdAt: 'not-a-timestamp',
+                },
+            ],
+        }
+
+        const timing = getSingleTraceLoadTiming(trace, '2024-01-01T11:00:00Z', null)
+
+        expect(timing).toEqual({
+            trace_timestamp_utc: '2024-01-01T10:00:00.000Z',
+            now_timestamp_utc: '2024-01-01T11:00:00.000Z',
+            trace_oldness_minutes: 60,
+            trace_query_runner_load_duration_ms: null,
+        })
+    })
+
+    it('returns null oldness when now timestamp is invalid, but keeps query runner duration', () => {
+        const trace: LLMTrace = {
+            id: 'trace-1',
+            createdAt: '2024-01-01T10:00:00Z',
+            distinctId: 'user-1',
+            events: [],
+        }
+
+        const timing = getSingleTraceLoadTiming(trace, 'not-a-timestamp', 30)
+
+        expect(timing).toEqual({
+            trace_timestamp_utc: null,
+            now_timestamp_utc: null,
+            trace_oldness_minutes: null,
+            trace_query_runner_load_duration_ms: 30,
+        })
+    })
+
+    it('uses earliest valid event timestamp even if trace.createdAt is invalid', () => {
+        const trace: LLMTrace = {
+            id: 'trace-1',
+            createdAt: 'not-a-timestamp',
+            distinctId: 'user-1',
+            events: [
+                {
+                    id: 'event-1',
+                    event: '$ai_span',
+                    properties: {},
+                    createdAt: '2024-01-01T10:00:00Z',
+                },
+                {
+                    id: 'event-2',
+                    event: '$ai_span',
+                    properties: {},
+                    createdAt: '2024-01-01T09:00:00Z',
+                },
+            ],
+        }
+
+        const timing = getSingleTraceLoadTiming(trace, '2024-01-01T11:00:00Z', 30)
+
+        expect(timing).toEqual({
+            trace_timestamp_utc: '2024-01-01T09:00:00.000Z',
+            now_timestamp_utc: '2024-01-01T11:00:00.000Z',
+            trace_oldness_minutes: 120,
+            trace_query_runner_load_duration_ms: 30,
+        })
+    })
+
+    it('keeps null query runner duration when none is provided', () => {
+        const trace: LLMTrace = {
+            id: 'trace-1',
+            createdAt: '2024-01-01T10:00:00Z',
+            distinctId: 'user-1',
+            events: [],
+        }
+
+        const timing = getSingleTraceLoadTiming(trace, '2024-01-01T11:00:00Z', null)
+
+        expect(timing).toEqual({
+            trace_timestamp_utc: '2024-01-01T10:00:00.000Z',
+            now_timestamp_utc: '2024-01-01T11:00:00.000Z',
+            trace_oldness_minutes: 60,
+            trace_query_runner_load_duration_ms: null,
+        })
     })
 })

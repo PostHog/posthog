@@ -1,5 +1,9 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+
+import { dayjs } from 'lib/dayjs'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -47,6 +51,52 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
 }
 
 const FEEDBACK_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
+const SINGLE_TRACE_PAGE_LOADED_EVENT = 'llma single trace loaded'
+
+export interface SingleTraceLoadTiming {
+    trace_timestamp_utc: string | null
+    now_timestamp_utc: string | null
+    trace_oldness_minutes: number | null
+    trace_query_runner_load_duration_ms: number | null
+}
+
+export function getSingleTraceLoadTiming(
+    trace: LLMTrace,
+    nowTimestamp: string,
+    traceQueryRunnerLoadDurationMs: number | null
+): SingleTraceLoadTiming {
+    const earliestEventTimestampUTC = trace.events
+        .map((event) => dayjs.utc(event.createdAt))
+        .filter((timestamp) => timestamp.isValid())
+        .reduce(
+            (earliest, timestamp) => (timestamp.isBefore(earliest) ? timestamp : earliest),
+            null as dayjs.Dayjs | null
+        )
+
+    const fallbackTraceTimestampUTC = dayjs.utc(trace.createdAt)
+    const traceTimestampUTC =
+        earliestEventTimestampUTC ?? (fallbackTraceTimestampUTC.isValid() ? fallbackTraceTimestampUTC : null)
+
+    const nowTimestampUTC = dayjs.utc(nowTimestamp)
+
+    if (!traceTimestampUTC?.isValid() || !nowTimestampUTC.isValid()) {
+        return {
+            trace_timestamp_utc: null,
+            now_timestamp_utc: null,
+            trace_oldness_minutes: null,
+            trace_query_runner_load_duration_ms: traceQueryRunnerLoadDurationMs,
+        }
+    }
+
+    const traceOldnessMinutes = nowTimestampUTC.diff(traceTimestampUTC, 'minute', true)
+
+    return {
+        trace_timestamp_utc: traceTimestampUTC.toISOString(),
+        now_timestamp_utc: nowTimestampUTC.toISOString(),
+        trace_oldness_minutes: traceOldnessMinutes,
+        trace_query_runner_load_duration_ms: traceQueryRunnerLoadDurationMs,
+    }
+}
 
 /**
  * Find all parent events for a given event, including the event itself
@@ -92,9 +142,21 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             llmAnalyticsTraceLogic,
             ['eventId', 'searchQuery', 'initialTab'],
             dataNodeLogic(getDataNodeLogicProps(props)),
-            ['response', 'responseLoading', 'responseError'],
+            ['elapsedTime', 'response', 'responseLoading', 'responseError'],
         ],
     })),
+    actions({
+        reportSingleTraceLoadIfReady: true,
+        setSingleTraceLoadReported: true,
+    }),
+    reducers({
+        singleTraceLoadReported: [
+            false,
+            {
+                setSingleTraceLoadReported: () => true,
+            },
+        ],
+    }),
     selectors({
         trace: [
             (s) => [s.response],
@@ -296,7 +358,31 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
         ],
     }),
 
-    subscriptions(({ props }) => ({
+    listeners(({ actions, props, values }) => ({
+        reportSingleTraceLoadIfReady: () => {
+            const trace = values.trace
+            if (!trace || !props.traceId || values.singleTraceLoadReported) {
+                return
+            }
+
+            actions.setSingleTraceLoadReported()
+
+            const nowTimestamp = dayjs.utc().toISOString()
+            const appContext = getAppContext()
+            const traceQueryRunnerLoadDurationMs = values.elapsedTime ?? null
+            const timing = getSingleTraceLoadTiming(trace, nowTimestamp, traceQueryRunnerLoadDurationMs)
+
+            posthog.capture(SINGLE_TRACE_PAGE_LOADED_EVENT, {
+                trace_id: trace.id,
+                team_id: appContext?.current_team?.id ?? null,
+                project_id: appContext?.current_team?.project_id ?? null,
+                organization_id: appContext?.current_team?.organization ?? null,
+                organization_name: appContext?.current_user?.organization?.name ?? null,
+                ...timing,
+            })
+        },
+    })),
+    subscriptions(({ actions, props }) => ({
         trace: (trace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
                 llmAnalyticsTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
@@ -305,6 +391,8 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             if (trace?.distinctId) {
                 llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
             }
+
+            actions.reportSingleTraceLoadIfReady()
         },
     })),
 ])
