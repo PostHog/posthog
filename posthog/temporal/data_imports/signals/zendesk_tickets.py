@@ -9,6 +9,7 @@ logger = get_logger(__name__)
 # We don't want to analyze tickets that were already solved
 ZENDESK_IGNORED_STATUSES = ("closed", "solved")
 
+# Injecting ticket description into the prompt could cause a security issue, but it should be covered by the Signals pipeline checks
 ZENDESK_ACTIONABILITY_PROMPT = """You are a product feedback analyst. Given a customer support ticket, determine if it contains actionable product feedback.
 
 A ticket is ACTIONABLE if it describes:
