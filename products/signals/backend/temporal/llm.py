@@ -117,14 +117,12 @@ async def call_llm(
         # only if we fail to validate the response.
         response = await client.messages.create(**create_kwargs)
         text_content = _extract_text_content(response)
-        if thinking:
-            text_content = _strip_markdown_json_fences(text_content)
-        else:
+        text_content = _strip_markdown_json_fences(text_content)
+        if not thinking:
             # Prepend the `{` we pre-filled
             text_content = "{" + text_content
         try:
             return validate(text_content)
-
         except Exception as e:
             logger.warning(
                 f"LLM call failed (attempt {attempt + 1}/{retries}): {e}",
@@ -145,6 +143,10 @@ async def call_llm(
                     "content": f"Your previous response failed validation. Error: {e}\n\nPlease try again with a valid JSON response.",
                 }
             )
+            # Re-add assistant pre-fill for non-thinking calls so the LLM
+            # continues from `{` on the next attempt (matching the prepend above).
+            if not thinking:
+                messages.append({"role": "assistant", "content": "{"})
             last_exception = e
             continue
 

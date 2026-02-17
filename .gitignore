@@ -169,3 +169,9 @@ agent-os/
 
 # MCP build files
 services/mcp/ui-apps-dist
+
+# Product skills
+.claude/skills/error-tracking
+
+# Downloaded GitHub issues for signals
+products/signals/backend/github_issues/

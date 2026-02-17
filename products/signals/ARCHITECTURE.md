@@ -31,6 +31,57 @@ Step 1 runs two activities in parallel. Step 2 depends on step 1 (needs the type
 
 > **TODO:** Currently, multiple `EmitSignalWorkflow` instances can race for the same team. We should refactor to a single long-running "entity workflow" per team that receives signals via `@workflow.signal`, processes them sequentially, and uses `continue_as_new` to keep history bounded. `emit_signal()` would use `signal_with_start` to lazily create the workflow on first signal. This serializes grouping per team and gives a natural place to batch/debounce in the future.
 
+#### Entity Workflow Migration Plan
+
+**Problem:** Multiple concurrent `EmitSignalWorkflow` instances for the same team race on:
+
+1. **Semantic search** — a signal isn't in CH yet when a concurrent workflow searches, so two related signals each get matched to different (or new) reports.
+2. **LLM matching** — two signals that should be grouped together each independently create new reports because neither sees the other.
+3. **Weight accumulation** — `select_for_update` in Postgres prevents data corruption, but the LLM decision was already made on stale data, so correctness is not guaranteed.
+
+**Target: `TeamSignalGroupingWorkflow`** — a single long-running entity workflow per team.
+
+**Design:**
+
+1. **Workflow ID:** `team-signal-grouping-{team_id}` — exactly one per team.
+2. **Signal input:** New signals arrive via `@workflow.signal`. The workflow maintains an internal `signal_buffer: list[EmitSignalInputs]` that acts as a FIFO queue.
+3. **Main loop:**
+
+   ```python
+   while True:
+       await workflow.wait_condition(lambda: len(self.signal_buffer) > 0)
+       signal = self.signal_buffer.pop(0)
+       # Process signal (same logic as current EmitSignalWorkflow.run):
+       #   embed → search → LLM match → assign → emit to CH → maybe spawn summary
+       await self._process_signal(signal)
+       self.signals_processed += 1
+       if self.signals_processed >= CONTINUE_AS_NEW_THRESHOLD:
+           workflow.continue_as_new(TeamSignalGroupingInput(
+               team_id=self.team_id,
+               pending_signals=self.signal_buffer,  # carry over unprocessed signals
+           ))
+   ```
+
+4. **`continue_as_new`:** After processing `CONTINUE_AS_NEW_THRESHOLD` signals (e.g. 200), carry over any buffered-but-unprocessed signals as workflow input. This keeps Temporal history bounded.
+5. **`emit_signal()` in `api.py`:** Replace `client.start_workflow(EmitSignalWorkflow, ...)` with `client.signal_with_start(TeamSignalGroupingWorkflow, signal=..., ...)`. This atomically creates the workflow if it doesn't exist, or sends a signal if it does.
+6. **Summary spawning:** Stays as-is — `start_child_workflow(SignalReportSummaryWorkflow, ...)` with `ParentClosePolicy.ABANDON` so it survives `continue_as_new`.
+7. **Shutdown/drain:** On `continue_as_new`, pending signals are passed as input args. No signals are lost.
+
+**Migration steps:**
+
+1. Create `TeamSignalGroupingWorkflow` in `backend/temporal/grouping.py` alongside the existing `EmitSignalWorkflow`. Extract the processing logic from `EmitSignalWorkflow.run` into a shared `_process_one_signal()` method (or standalone async function) that both can call.
+2. Register the new workflow in `backend/temporal/__init__.py`.
+3. Update `emit_signal()` in `api.py` to use `signal_with_start` targeting the new workflow. The workflow ID is deterministic per team (`team-signal-grouping-{team_id}`), so no lookup needed.
+4. Keep `EmitSignalWorkflow` temporarily for any in-flight workflows, remove it once all existing executions have completed.
+5. Update the `workflow_id_for` dedup logic — with the entity model, dedup of the same `source_id` can happen inside the workflow itself (check buffer + check CH before processing).
+
+**Future opportunities this unlocks:**
+
+- **Batching:** Process N signals in a single LLM call instead of 1:1.
+- **Debouncing:** Wait a short window after receiving a signal before processing, to batch burst arrivals.
+- **Per-team rate limiting:** Trivial — just add a sleep between iterations.
+- **Ordering guarantees:** Signals for a team are processed in arrival order.
+
 ### `SignalReportSummaryWorkflow` (`signal-report-summary`)
 
 Runs when a report is promoted to `candidate` status. Summarizes the signal group, then runs judges to determine the report's fate.
