@@ -287,8 +287,8 @@ export function QueryVariablesMenu({ disabledReason }: QueryVariablesMenuProps):
         <>
             <LemonMenu items={menuItems} visible={isMenuOpen} onVisibilityChange={setIsMenuOpen}>
                 <LemonButton
-                    type="tertiary"
-                    size="xsmall"
+                    type="secondary"
+                    size="small"
                     icon={<IconBrackets />}
                     disabledReason={disabledReason}
                     data-attr="sql-editor-variables-button"

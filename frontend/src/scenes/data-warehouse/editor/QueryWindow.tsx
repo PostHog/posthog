@@ -118,160 +118,200 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     </span>
                 </div>
             )}
-            <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
-                <RunButton />
-                <LemonDivider vertical />
-                {!isEmbeddedMode && isDraft && featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
-                    <>
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            id="sql-editor-query-window-save-as-draft"
-                            onClick={() => {
-                                if (editingView) {
-                                    saveOrUpdateDraft(
-                                        {
-                                            kind: NodeKind.HogQLQuery,
-                                            query: queryInput ?? '',
-                                        },
-                                        editingView.id,
-                                        currentDraft?.id || undefined,
-                                        activeTab ?? undefined
-                                    )
-                                } else {
-                                    saveOrUpdateDraft(
-                                        {
-                                            kind: NodeKind.HogQLQuery,
-                                            query: queryInput ?? '',
-                                        },
-                                        undefined,
-                                        currentDraft?.id || undefined,
-                                        activeTab ?? undefined
-                                    )
-                                }
-                            }}
-                        >
-                            Save
-                        </LemonButton>
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            id="sql-editor-query-window-publish-draft"
-                            disabledReason={editingViewDisabledReason}
-                            onClick={() => {
-                                if (editingView && currentDraft?.id && activeTab) {
-                                    updateView(
-                                        {
-                                            id: editingView.id,
-                                            query: {
-                                                ...sourceQuery.source,
-                                                query: queryInput ?? '',
-                                            },
-                                            name: editingView.name,
-                                            types: response && 'types' in response ? (response?.types ?? []) : [],
-                                            shouldRematerialize: isMaterializedView,
-                                            edited_history_id: activeTab.view?.latest_history_id,
-                                        },
-                                        currentDraft.id
-                                    )
-                                } else {
-                                    saveAsView(false, currentDraft?.id)
-                                }
-                            }}
-                            tooltip={
-                                editingView
-                                    ? 'Publishing will update the view with these changes.'
-                                    : 'The view this draft is based on has been deleted. Publishing will create a new view.'
-                            }
-                        >
-                            {!editingView && <IconInfo className="mr-1" color="var(--warning)" />}
-                            Publish
-                        </LemonButton>
-                    </>
-                )}
-                {!isEmbeddedMode && editingView && !isDraft && activeTab && (
-                    <>
-                        {featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
-                            <LemonButton
-                                type="tertiary"
-                                size="xsmall"
-                                id="sql-editor-query-window-save-draft"
-                                onClick={() => {
-                                    saveDraft(activeTab, queryInput ?? '', editingView.id)
-                                }}
-                            >
-                                Save draft
-                            </LemonButton>
-                        )}
-                        <LemonButton
-                            onClick={() =>
-                                updateView({
-                                    id: editingView.id,
-                                    query: {
-                                        ...sourceQuery.source,
-                                        query: queryInput ?? '',
-                                    },
-                                    types: response && 'types' in response ? (response?.types ?? []) : [],
-                                    shouldRematerialize: isMaterializedView,
-                                    edited_history_id: inProgressViewEdits[editingView.id],
-                                })
-                            }
-                            disabledReason={editingViewDisabledReason}
-                            icon={<EditingViewButtonIcon />}
-                            type="tertiary"
-                            size="xsmall"
-                            id={`sql-editor-query-window-update-${isMaterializedView ? 'materialize' : 'view'}`}
-                        >
-                            {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
-                        </LemonButton>
-                    </>
-                )}
-                {!isEmbeddedMode && editingView && (
-                    <>
-                        <LemonButton
-                            onClick={() => openHistoryModal()}
-                            icon={<IconBook />}
-                            type="tertiary"
-                            size="xsmall"
-                            id="sql-editor-query-window-history"
-                        >
-                            History
-                        </LemonButton>
-                    </>
-                )}
-                {!isEmbeddedMode && !editingInsight && !editingView && !insightLoading && (
-                    <>
-                        <AppShortcut
-                            name="SQLEditorSaveAsView"
-                            keybind={[keyBinds.save]}
-                            intent="Save as view"
-                            interaction="click"
-                            scope={Scene.SQLEditor}
-                        >
-                            <LemonButton
-                                onClick={() => saveAsView()}
-                                icon={<IconDownload />}
-                                type="tertiary"
-                                size="xsmall"
-                                data-attr="sql-editor-save-view-button"
-                                id="sql-editor-query-window-save-as-view"
-                            >
-                                Save as view
-                            </LemonButton>
-                        </AppShortcut>
-                    </>
-                )}
-                <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
-                <div className="ml-auto flex items-center gap-1">
+
+            <QueryPane
+                originalValue={originalQueryInput ?? ''}
+                queryInput={(suggestedQueryInput || queryInput) ?? ''}
+                sourceQuery={sourceQuery.source}
+                promptError={null}
+                onRun={runQuery}
+                editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
+                codeEditorProps={{
+                    queryKey: codeEditorKey,
+
+                    onChange: (v) => {
+                        setQueryInput(v ?? '')
+                    },
+                    onMount: (editor, monaco) => {
+                        onSetMonacoAndEditor(monaco, editor)
+                    },
+                    onPressCmdEnter: (value, selectionType) => {
+                        if (value && selectionType === 'selection') {
+                            runQuery(value)
+                        } else {
+                            runQuery()
+                        }
+                    },
+                    onError: (error) => {
+                        setError(error)
+                    },
+                    onMetadata: (metadata) => {
+                        setMetadata(metadata)
+                    },
+                    onMetadataLoading: (loading) => {
+                        setMetadataLoading(loading)
+                    },
+                }}
+            />
+
+            <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b py-1">
+                <div className="flex items-center gap-2">
+                    <RunButton />
+                    <LemonDivider vertical />
                     <QueryVariablesMenu
                         disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
                     />
+                </div>
+
+                <div className="ml-auto flex items-center gap-2">
+                    {!isEmbeddedMode && isDraft && featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                id="sql-editor-query-window-save-as-draft"
+                                onClick={() => {
+                                    if (editingView) {
+                                        saveOrUpdateDraft(
+                                            {
+                                                kind: NodeKind.HogQLQuery,
+                                                query: queryInput ?? '',
+                                            },
+                                            editingView.id,
+                                            currentDraft?.id || undefined,
+                                            activeTab ?? undefined
+                                        )
+                                    } else {
+                                        saveOrUpdateDraft(
+                                            {
+                                                kind: NodeKind.HogQLQuery,
+                                                query: queryInput ?? '',
+                                            },
+                                            undefined,
+                                            currentDraft?.id || undefined,
+                                            activeTab ?? undefined
+                                        )
+                                    }
+                                }}
+                            >
+                                Save
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                id="sql-editor-query-window-publish-draft"
+                                disabledReason={editingViewDisabledReason}
+                                onClick={() => {
+                                    if (editingView && currentDraft?.id && activeTab) {
+                                        updateView(
+                                            {
+                                                id: editingView.id,
+                                                query: {
+                                                    ...sourceQuery.source,
+                                                    query: queryInput ?? '',
+                                                },
+                                                name: editingView.name,
+                                                types: response && 'types' in response ? (response?.types ?? []) : [],
+                                                shouldRematerialize: isMaterializedView,
+                                                edited_history_id: activeTab.view?.latest_history_id,
+                                            },
+                                            currentDraft.id
+                                        )
+                                    } else {
+                                        saveAsView(false, currentDraft?.id)
+                                    }
+                                }}
+                                tooltip={
+                                    editingView
+                                        ? 'Publishing will update the view with these changes.'
+                                        : 'The view this draft is based on has been deleted. Publishing will create a new view.'
+                                }
+                            >
+                                {!editingView && <IconInfo className="mr-1" color="var(--warning)" />}
+                                Publish
+                            </LemonButton>
+                        </>
+                    )}
+                    {!isEmbeddedMode && editingView && !isDraft && activeTab && (
+                        <>
+                            {featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    id="sql-editor-query-window-save-draft"
+                                    onClick={() => {
+                                        saveDraft(activeTab, queryInput ?? '', editingView.id)
+                                    }}
+                                >
+                                    Save draft
+                                </LemonButton>
+                            )}
+                            <LemonButton
+                                onClick={() =>
+                                    updateView({
+                                        id: editingView.id,
+                                        query: {
+                                            ...sourceQuery.source,
+                                            query: queryInput ?? '',
+                                        },
+                                        types: response && 'types' in response ? (response?.types ?? []) : [],
+                                        shouldRematerialize: isMaterializedView,
+                                        edited_history_id: inProgressViewEdits[editingView.id],
+                                    })
+                                }
+                                disabledReason={editingViewDisabledReason}
+                                icon={<EditingViewButtonIcon />}
+                                type="secondary"
+                                size="small"
+                                id={`sql-editor-query-window-update-${isMaterializedView ? 'materialize' : 'view'}`}
+                            >
+                                {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                            </LemonButton>
+                        </>
+                    )}
+                    {!isEmbeddedMode && editingView && (
+                        <>
+                            <LemonButton
+                                onClick={() => openHistoryModal()}
+                                icon={<IconBook />}
+                                type="secondary"
+                                size="small"
+                                id="sql-editor-query-window-history"
+                            >
+                                History
+                            </LemonButton>
+                        </>
+                    )}
+                    {!isEmbeddedMode && !editingInsight && !editingView && !insightLoading && (
+                        <>
+                            <AppShortcut
+                                name="SQLEditorSaveAsView"
+                                keybind={[keyBinds.save]}
+                                intent="Save as view"
+                                interaction="click"
+                                scope={Scene.SQLEditor}
+                            >
+                                <LemonButton
+                                    onClick={() => saveAsView()}
+                                    icon={<IconDownload />}
+                                    type="secondary"
+                                    size="small"
+                                    data-attr="sql-editor-save-view-button"
+                                    id="sql-editor-query-window-save-as-view"
+                                >
+                                    Save as view
+                                </LemonButton>
+                            </AppShortcut>
+                        </>
+                    )}
+                    <FixErrorButton type="secondary" size="small" source="action-bar" />
                     {vimModeFeatureEnabled && (
                         <LemonSwitch
                             checked={editorVimModeEnabled}
                             onChange={setEditorVimModeEnabled}
                             label="Vim"
                             size="small"
+                            bordered
                             data-attr="sql-editor-vim-toggle"
                         />
                     )}
@@ -303,40 +343,8 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     )}
                 </div>
             </div>
-            <QueryPane
-                originalValue={originalQueryInput ?? ''}
-                queryInput={(suggestedQueryInput || queryInput) ?? ''}
-                sourceQuery={sourceQuery.source}
-                promptError={null}
-                onRun={runQuery}
-                editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
-                codeEditorProps={{
-                    queryKey: codeEditorKey,
-                    onChange: (v) => {
-                        setQueryInput(v ?? '')
-                    },
-                    onMount: (editor, monaco) => {
-                        onSetMonacoAndEditor(monaco, editor)
-                    },
-                    onPressCmdEnter: (value, selectionType) => {
-                        if (value && selectionType === 'selection') {
-                            runQuery(value)
-                        } else {
-                            runQuery()
-                        }
-                    },
-                    onError: (error) => {
-                        setError(error)
-                    },
-                    onMetadata: (metadata) => {
-                        setMetadata(metadata)
-                    },
-                    onMetadataLoading: (loading) => {
-                        setMetadataLoading(loading)
-                    },
-                }}
-            />
             <InternalQueryWindow tabId={tabId} />
+
             <QueryHistoryModal />
         </div>
     )
@@ -384,8 +392,8 @@ function RunButton(): JSX.Element {
                     }
                 }}
                 icon={responseLoading ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
-                type="tertiary"
-                size="xsmall"
+                type="primary"
+                size="small"
                 tooltip={tooltipContent}
             >
                 {responseLoading ? 'Cancel' : 'Run'}
