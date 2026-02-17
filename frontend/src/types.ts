@@ -401,6 +401,7 @@ export interface NotificationSettings {
     project_weekly_digest_disabled: Record<string, boolean>
     all_weekly_digest_disabled: boolean
     error_tracking_issue_assigned: boolean
+    error_tracking_weekly_digest: boolean
     discussions_mentioned: boolean
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean

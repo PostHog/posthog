@@ -516,6 +516,10 @@ POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 # Comma-separated list of team IDs that should receive the digest
 HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS", ""))
 
+# Feature flag to enable Error Tracking weekly digest email for specific teams
+# Comma-separated list of team IDs, or "*" for all teams
+ERROR_TRACKING_WEEKLY_DIGEST_TEAM_IDS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_TEAM_IDS", ""))
+
 ####
 # OAuth
 

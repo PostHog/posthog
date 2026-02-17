@@ -1,0 +1,65 @@
+{% extends "email/base.html" %}
+{% load posthog_assets %}
+{% load posthog_filters %}
+
+{% block preheader %}Error tracking weekly digest{% endblock %}
+
+{% block heading %}Error tracking weekly digest{% endblock %}
+
+{% block section %}
+<p>
+    Here's your weekly error tracking summary for <strong>{{ team.name }}</strong>.
+</p>
+
+<div class="mb mt" style="border: 1px solid #e1e5e9; padding: 20px; border-radius: 8px; text-align: center;">
+    <p style="margin: 0 0 4px 0; font-size: 0.9em; color: #6b7280;">Exceptions caught in the last 7 days</p>
+    <p style="margin: 0; font-size: 2.5em; font-weight: bold; color: {% if exception_count > 0 %}#dc3545{% else %}#22c55e{% endif %};">
+        {{ exception_count|intcomma }}
+    </p>
+</div>
+
+{% if ingestion_failure_count > 0 %}
+<div class="mb mt" style="border: 1px solid #e1e5e9; padding: 20px; border-radius: 8px; border-left: 4px solid #fd7e14; text-align: center;">
+    <p style="margin: 0 0 4px 0; font-size: 0.9em; color: #6b7280;">Failed to ingest</p>
+    <p style="margin: 0 0 8px 0; font-size: 2.5em; font-weight: bold; color: #fd7e14;">
+        {{ ingestion_failure_count|intcomma }}
+    </p>
+    <p style="margin: 0;">
+        <a href="{{ ingestion_failures_url }}" target="_blank" style="color: #5375ff; text-decoration: none;">View failed exceptions &rarr;</a>
+    </p>
+</div>
+{% endif %}
+
+{% if top_issues %}
+<div class="mb mt">
+    <h3 style="margin: 0 0 12px 0;">Top issues by occurrences</h3>
+    {% for issue in top_issues %}
+    <div style="border: 1px solid #e1e5e9; padding: 12px 16px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+        <div style="flex: 1; min-width: 0;">
+            <a href="{{ issue.url }}" target="_blank" style="text-decoration: none; color: #5375ff; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block;">{{ issue.name }}</a>
+        </div>
+        <div style="margin-left: 16px; white-space: nowrap; font-weight: bold; color: #374151;">
+            {{ issue.occurrence_count|intcomma }}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="mb mt text-center">
+    <a class="button" href="{{ error_tracking_url }}">
+        View Error Tracking
+    </a>
+</div>
+{% endblock %}
+
+{% block footer %}
+You can <a href="{% absolute_uri '/settings/user-notifications' %}">manage these notifications in PostHog</a>.
+<br /><br />
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs?{{ utm_tags }}"
+    target="_blank"><b>read our documentation</b></a>.
+{% endblock %}

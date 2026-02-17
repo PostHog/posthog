@@ -16,7 +16,7 @@ from posthog.tasks.alerts.checks import (
     checks_cleanup_task,
     reset_stuck_alerts_task,
 )
-from posthog.tasks.email import send_hog_functions_daily_digest
+from posthog.tasks.email import send_error_tracking_weekly_digest, send_hog_functions_daily_digest
 from posthog.tasks.feature_flags import (
     cleanup_stale_flags_expiry_tracking_task,
     compute_feature_flag_metrics,
@@ -269,6 +269,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="9", minute="30"),
         send_hog_functions_daily_digest.s(),
         name="send HogFunctions daily digest",
+    )
+
+    # Send Error Tracking weekly digest every Monday at 9:00 AM UTC
+    sender.add_periodic_task(
+        crontab(day_of_week="mon", hour="9", minute="0"),
+        send_error_tracking_weekly_digest.s(),
+        name="send Error Tracking weekly digest",
     )
 
     # PostHog Cloud cron jobs

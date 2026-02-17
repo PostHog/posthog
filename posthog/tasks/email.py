@@ -48,6 +48,7 @@ class NotificationSetting(Enum):
     WEEKLY_PROJECT_DIGEST = "weekly_project_digest"
     PLUGIN_DISABLED = "plugin_disabled"
     ERROR_TRACKING_ISSUE_ASSIGNED = "error_tracking_issue_assigned"
+    ERROR_TRACKING_WEEKLY_DIGEST = "error_tracking_weekly_digest"
     DISCUSSIONS_MENTIONED = "discussions_mentioned"
     PROJECT_API_KEY_EXPOSED = "project_api_key_exposed"
     MATERIALIZED_VIEW_SYNC_FAILED = "materialized_view_sync_failed"
@@ -57,6 +58,7 @@ NotificationSettingType = Literal[
     "weekly_project_digest",
     "plugin_disabled",
     "error_tracking_issue_assigned",
+    "error_tracking_weekly_digest",
     "discussions_mentioned",
     "project_api_key_exposed",
     "materialized_view_sync_failed",
@@ -145,6 +147,10 @@ def should_send_notification(
 
     # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value:
+        return settings.get(notification_type, True)
+
+    # Default to True (enabled) if not set
+    elif notification_type == NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value:
         return settings.get(notification_type, True)
 
     # Default to True (enabled) if not set
@@ -1345,3 +1351,175 @@ def send_organization_deleted_email(
     message.add_user_recipient(user)
     message.send()
     logger.info(f"Sent organization deletion confirmation email to user {user_id} for organization {organization_name}")
+
+
+ERROR_TRACKING_WEEKLY_DIGEST_BATCH_SIZE = 1000
+
+
+@shared_task(ignore_result=True)
+def send_error_tracking_weekly_digest() -> None:
+    """
+    Send weekly digest email to teams with exception events.
+    Fans out to batched tasks that each query ClickHouse for a chunk of team IDs.
+    """
+    logger.info("Starting Error Tracking weekly digest task")
+
+    allowed_team_ids = settings.ERROR_TRACKING_WEEKLY_DIGEST_TEAM_IDS
+    if not allowed_team_ids:
+        logger.info(
+            "No teams configured for Error Tracking weekly digest (ERROR_TRACKING_WEEKLY_DIGEST_TEAM_IDS empty)"
+        )
+        return
+
+    if "*" in allowed_team_ids:
+        # All teams — get the full list from Postgres (cheap) and batch it
+        all_team_ids = list(Team.objects.values_list("id", flat=True))
+    else:
+        all_team_ids = [int(tid) for tid in allowed_team_ids]
+
+    logger.info(
+        f"Scheduling Error Tracking weekly digest for {len(all_team_ids)} teams in batches of {ERROR_TRACKING_WEEKLY_DIGEST_BATCH_SIZE}"
+    )
+
+    for i in range(0, len(all_team_ids), ERROR_TRACKING_WEEKLY_DIGEST_BATCH_SIZE):
+        batch = all_team_ids[i : i + ERROR_TRACKING_WEEKLY_DIGEST_BATCH_SIZE]
+        send_error_tracking_weekly_digest_batch.delay(batch)
+
+    logger.info("Completed Error Tracking weekly digest fan-out")
+
+
+@shared_task(ignore_result=True)
+def send_error_tracking_weekly_digest_batch(team_ids: list[int]) -> None:
+    """
+    Query ClickHouse for exception counts for a batch of team IDs,
+    then fan out per-team email tasks.
+    """
+    from posthog.clickhouse.client import sync_execute
+
+    exception_counts_query = """
+    SELECT
+        team_id,
+        count() as exception_count,
+        countIf(mat_$exception_issue_id IS NULL) as ingestion_failure_count
+    FROM events
+    WHERE event = '$exception'
+    AND timestamp >= now() - INTERVAL 7 DAY
+    AND timestamp < now()
+    AND team_id IN %(team_ids)s
+    GROUP BY team_id
+    HAVING exception_count > 0
+    """
+
+    results = sync_execute(exception_counts_query, {"team_ids": team_ids})
+
+    if not results:
+        return
+
+    for team_id, exception_count, ingestion_failure_count in results:
+        send_error_tracking_weekly_digest_for_team.delay(team_id, exception_count, ingestion_failure_count)
+
+
+def _get_top_issues_for_team(team: Team) -> list[dict]:
+    """Query top 5 issues by occurrence count in the last 7 days via HogQL."""
+    from posthog.hogql.query import execute_hogql_query
+
+    from products.error_tracking.backend.models import ErrorTrackingIssue
+
+    try:
+        response = execute_hogql_query(
+            query="""
+                SELECT issue_id, count(*) as occurrence_count
+                FROM events
+                WHERE event = '$exception'
+                AND timestamp >= now() - INTERVAL 7 DAY
+                AND timestamp < now()
+                GROUP BY issue_id
+                ORDER BY occurrence_count DESC
+                LIMIT 5
+            """,
+            team=team,
+        )
+    except Exception:
+        logger.exception(f"Failed to query top issues for team {team.pk}")
+        return []
+
+    if not response.results:
+        return []
+
+    issue_ids = [row[0] for row in response.results if row[0]]
+    issues_by_id = {str(issue.id): issue for issue in ErrorTrackingIssue.objects.filter(team=team, id__in=issue_ids)}
+
+    top_issues = []
+    for issue_id, occurrence_count in response.results:
+        if not issue_id:
+            continue
+        issue = issues_by_id.get(str(issue_id))
+        top_issues.append(
+            {
+                "id": issue_id,
+                "name": issue.name if issue else "Unknown issue",
+                "occurrence_count": occurrence_count,
+                "url": f"{settings.SITE_URL}/project/{team.pk}/error_tracking/{issue_id}",
+            }
+        )
+
+    return top_issues
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_error_tracking_weekly_digest_for_team(
+    team_id: int, exception_count: int, ingestion_failure_count: int
+) -> None:
+    """Send the weekly error tracking digest email to all members of a team."""
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.warning(f"Team {team_id} not found for Error Tracking weekly digest")
+        return
+
+    memberships_to_email = get_members_to_notify(team, NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value)
+    if not memberships_to_email:
+        return
+
+    top_issues = _get_top_issues_for_team(team)
+
+    date_suffix = timezone.now().strftime("%Y-%W")
+    error_tracking_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking"
+    ingestion_failures_url = (
+        f"{settings.SITE_URL}/project/{team_id}/activity/explore#q="
+        "%7B%22kind%22%3A%22DataTableNode%22%2C%22full%22%3Atrue%2C%22source%22%3A%7B%22kind%22%3A%22EventsQuery%22%2C"
+        "%22select%22%3A%5B%22*%22%2C%22event%22%2C%22person_display_name%20--%20Person%22%2C"
+        "%22coalesce(properties.%24current_url%2C%20properties.%24screen_name)%20--%20Url%20%2F%20Screen%22%2C"
+        "%22timestamp%22%2C%22properties.events_count%22%2C%22properties.analytics_version%22%5D%2C"
+        "%22after%22%3A%22-7d%22%2C%22orderBy%22%3A%5B%22timestamp%20DESC%22%5D%2C"
+        "%22event%22%3A%22%24exception%22%2C%22properties%22%3A%5B%7B%22key%22%3A%22%24cymbal_errors%22%2C"
+        "%22value%22%3A%22is_set%22%2C%22operator%22%3A%22is_set%22%2C%22type%22%3A%22event%22%7D%5D%7D%2C"
+        "%22propertiesViaUrl%22%3Atrue%2C%22showSavedQueries%22%3Atrue%2C"
+        "%22showPersistentColumnConfigurator%22%3Atrue%7D"
+    )
+
+    for membership in memberships_to_email:
+        campaign_key = f"error_tracking_weekly_digest_{team_id}_{membership.user.uuid}_{date_suffix}"
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=f"Error tracking weekly digest for {team.name}",
+            template_name="error_tracking_weekly_digest",
+            template_context={
+                "team": team,
+                "exception_count": exception_count,
+                "ingestion_failure_count": ingestion_failure_count,
+                "top_issues": top_issues,
+                "error_tracking_url": error_tracking_url,
+                "ingestion_failures_url": ingestion_failures_url,
+            },
+        )
+        message.add_user_recipient(membership.user)
+        message.send()
+
+    logger.info(
+        f"Sent Error Tracking weekly digest to {len(memberships_to_email)} members for team {team_id} "
+        f"({exception_count} exceptions, {ingestion_failure_count} ingestion failures)"
+    )
