@@ -38,6 +38,7 @@ from products.conversations.backend.api.serializers import (
 from products.conversations.backend.cache import (
     get_cached_messages,
     get_cached_tickets,
+    invalidate_tickets_cache,
     invalidate_unread_count_cache,
     set_cached_messages,
     set_cached_tickets,
@@ -154,8 +155,9 @@ class WidgetMessageView(APIView):
                 session_id=session_id,
                 session_context=session_context,
             )
-            # Invalidate unread count cache - new ticket with unread message
+            # Invalidate caches - new ticket with unread message
             invalidate_unread_count_cache(team.id)
+            invalidate_tickets_cache(team.id, widget_session_id)
             try:
                 capture_ticket_created(ticket)
             except Exception as e:
