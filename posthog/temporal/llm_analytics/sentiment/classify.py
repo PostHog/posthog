@@ -117,6 +117,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     from posthog.hogql.query import execute_hogql_query
 
     from posthog.models.team import Team
+    from posthog.sync import database_sync_to_async
     from posthog.temporal.llm_analytics.sentiment.constants import MAX_GENERATIONS, MAX_TOTAL_CLASSIFICATIONS
     from posthog.temporal.llm_analytics.sentiment.extraction import (
         extract_user_messages_individually,
@@ -124,22 +125,25 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     )
     from posthog.temporal.llm_analytics.sentiment.model import classify_batch
 
-    team = Team.objects.get(id=input.team_id)
     resolved_from, resolved_to = _resolve_date_bounds(input.date_from, input.date_to)
 
-    query = parse_select(_GENERATIONS_QUERY)
-    result = execute_hogql_query(
-        query_type="SentimentOnDemand",
-        query=query,
-        placeholders={
-            "date_from": ast.Constant(value=resolved_from),
-            "date_to": ast.Constant(value=resolved_to),
-            "trace_id": ast.Constant(value=input.trace_id),
-            "max_generations": ast.Constant(value=MAX_GENERATIONS),
-        },
-        team=team,
-        limit_context=LimitContext.QUERY_ASYNC,
-    )
+    def _fetch_generations():
+        team = Team.objects.get(id=input.team_id)
+        query = parse_select(_GENERATIONS_QUERY)
+        return execute_hogql_query(
+            query_type="SentimentOnDemand",
+            query=query,
+            placeholders={
+                "date_from": ast.Constant(value=resolved_from),
+                "date_to": ast.Constant(value=resolved_to),
+                "trace_id": ast.Constant(value=input.trace_id),
+                "max_generations": ast.Constant(value=MAX_GENERATIONS),
+            },
+            team=team,
+            limit_context=LimitContext.QUERY_ASYNC,
+        )
+
+    result = await database_sync_to_async(_fetch_generations, thread_sensitive=False)()
 
     if not result.results:
         return {
@@ -333,6 +337,7 @@ async def classify_sentiment_batch_activity(input: ClassifySentimentBatchInput) 
     from posthog.hogql.query import execute_hogql_query
 
     from posthog.models.team import Team
+    from posthog.sync import database_sync_to_async
     from posthog.temporal.llm_analytics.sentiment.constants import MAX_GENERATIONS, MAX_TOTAL_CLASSIFICATIONS
     from posthog.temporal.llm_analytics.sentiment.extraction import (
         extract_user_messages_individually,
@@ -340,22 +345,25 @@ async def classify_sentiment_batch_activity(input: ClassifySentimentBatchInput) 
     )
     from posthog.temporal.llm_analytics.sentiment.model import classify_batch
 
-    team = Team.objects.get(id=input.team_id)
     resolved_from, resolved_to = _resolve_date_bounds(input.date_from, input.date_to)
 
-    query = parse_select(_GENERATIONS_BATCH_QUERY)
-    result = execute_hogql_query(
-        query_type="SentimentOnDemandBatch",
-        query=query,
-        placeholders={
-            "date_from": ast.Constant(value=resolved_from),
-            "date_to": ast.Constant(value=resolved_to),
-            "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in input.trace_ids]),
-            "max_rows": ast.Constant(value=MAX_GENERATIONS * len(input.trace_ids)),
-        },
-        team=team,
-        limit_context=LimitContext.QUERY_ASYNC,
-    )
+    def _fetch_generations():
+        team = Team.objects.get(id=input.team_id)
+        query = parse_select(_GENERATIONS_BATCH_QUERY)
+        return execute_hogql_query(
+            query_type="SentimentOnDemandBatch",
+            query=query,
+            placeholders={
+                "date_from": ast.Constant(value=resolved_from),
+                "date_to": ast.Constant(value=resolved_to),
+                "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in input.trace_ids]),
+                "max_rows": ast.Constant(value=MAX_GENERATIONS * len(input.trace_ids)),
+            },
+            team=team,
+            limit_context=LimitContext.QUERY_ASYNC,
+        )
+
+    result = await database_sync_to_async(_fetch_generations, thread_sensitive=False)()
 
     # Group rows by trace_id, enforcing per-trace generation limit
     rows_by_trace: dict[str, list[tuple]] = {}
