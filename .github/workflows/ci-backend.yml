@@ -733,10 +733,13 @@ jobs:
         # Run legacy pytest if:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
+        # 3. OR turbo-discover itself failed (conservative: run Django on detection failure)
         if: |
             always() &&
             needs.changes.outputs.backend == 'true' &&
-            (needs.changes.outputs.legacy == 'true' || needs.turbo-discover.outputs.run_legacy == 'true')
+            (needs.changes.outputs.legacy == 'true' ||
+             needs.turbo-discover.outputs.run_legacy == 'true' ||
+             (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         # increase for tmate testing
         timeout-minutes: 30
 
@@ -1274,11 +1277,13 @@ jobs:
     clickhouse-compat:
         name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
         needs: [changes, turbo-discover, get_clickhouse_versions]
-        # Run if legacy code changed or product changes affect legacy
+        # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
         if: |
             always() &&
             needs.changes.outputs.backend == 'true' &&
-            (needs.changes.outputs.legacy == 'true' || needs.turbo-discover.outputs.run_legacy == 'true')
+            (needs.changes.outputs.legacy == 'true' ||
+             needs.turbo-discover.outputs.run_legacy == 'true' ||
+             (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         runs-on: depot-ubuntu-latest
         strategy:
             fail-fast: false
@@ -1458,11 +1463,13 @@ jobs:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
-        # Run if legacy code changed or product changes affect legacy
+        # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
         if: |
             always() &&
             needs.changes.outputs.backend == 'true' &&
-            (needs.changes.outputs.legacy == 'true' || needs.turbo-discover.outputs.run_legacy == 'true')
+            (needs.changes.outputs.legacy == 'true' ||
+             needs.turbo-discover.outputs.run_legacy == 'true' ||
+             (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         runs-on: depot-ubuntu-latest
         steps:
             - name: 'Checkout repo'
