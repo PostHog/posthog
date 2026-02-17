@@ -28,6 +28,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import {
+    BREAKDOWN_NULL_DISPLAY,
     GeographyTab,
     ProductTab,
     TileId,
@@ -796,6 +797,10 @@ export const WebStatsTableTile = ({
         breakdownBy === WebStatsBreakdown.Viewport ||
         breakdownBy === WebStatsBreakdown.Timezone
 
+    const utmSource = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMSource)!
+    const utmMedium = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMMedium)!
+    const utmCampaign = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMCampaign)!
+
     const onClick = useCallback(
         (breakdownValue: string | null) => {
             if (productTab === ProductTab.PAGE_REPORTS) {
@@ -805,14 +810,14 @@ export const WebStatsTableTile = ({
 
             if (breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign && breakdownValue) {
                 const values = breakdownValue.split(' / ')
-                if (values[0] && values[0] !== '(none)') {
-                    togglePropertyFilter(PropertyFilterType.Session, '$entry_utm_source', values[0])
+                if (values[0] && values[0] !== BREAKDOWN_NULL_DISPLAY) {
+                    togglePropertyFilter(utmSource.type, utmSource.key, values[0])
                 }
-                if (values[1] && values[1] !== '(none)') {
-                    togglePropertyFilter(PropertyFilterType.Session, '$entry_utm_medium', values[1])
+                if (values[1] && values[1] !== BREAKDOWN_NULL_DISPLAY) {
+                    togglePropertyFilter(utmMedium.type, utmMedium.key, values[1])
                 }
-                if (values[2] && values[2] !== '(none)') {
-                    togglePropertyFilter(PropertyFilterType.Session, '$entry_utm_campaign', values[2])
+                if (values[2] && values[2] !== BREAKDOWN_NULL_DISPLAY) {
+                    togglePropertyFilter(utmCampaign.type, utmCampaign.key, values[2])
                 }
                 return
             }
@@ -841,7 +846,7 @@ export const WebStatsTableTile = ({
 
             togglePropertyFilter(type, key, breakdownValue)
         },
-        [togglePropertyFilter, type, key, productTab, breakdownBy]
+        [togglePropertyFilter, type, key, productTab, breakdownBy, utmSource, utmMedium, utmCampaign]
     )
 
     const context = useMemo((): QueryContext => {
