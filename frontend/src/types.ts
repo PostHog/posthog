@@ -6340,6 +6340,17 @@ export interface CoreMemory {
     text: string
 }
 
+export interface McpToolDefinition {
+    name: string
+    scopes: string[]
+    input_schema: Record<string, any>
+}
+
+export interface McpToolResult {
+    success: boolean
+    content: string
+}
+
 export type FileSystemIconColor = [string] | [string, string]
 
 export interface FileSystemType {

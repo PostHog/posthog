@@ -94,5 +94,21 @@ class MCPToolRegistry:
         """Get list of registered MCP tool names."""
         return list(self._tools.keys())
 
+    def list_tools(self) -> list[dict[str, Any]]:
+        """Return metadata for all registered tools including JSON schema."""
+        import ee.hogai.tools  # noqa: F401 - ensure tools are registered
+
+        result: list[dict[str, Any]] = []
+        for name, registration in self._tools.items():
+            schema = registration.tool_cls.args_schema.model_json_schema()
+            result.append(
+                {
+                    "name": name,
+                    "scopes": registration.scopes,
+                    "input_schema": schema,
+                }
+            )
+        return result
+
 
 mcp_tool_registry = MCPToolRegistry()
