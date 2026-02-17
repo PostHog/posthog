@@ -88,7 +88,8 @@ def _make_paginated_request(
         variables["where"] = {incremental_field: {"_gt": incremental_field_last_value}}
 
     try:
-        while True:
+        has_more = True
+        while has_more:
             logger.debug(f"Querying BuildBetter endpoint {endpoint_name} with variables: {variables}")
             payload = execute(variables)
 
@@ -98,10 +99,9 @@ def _make_paginated_request(
 
             yield data
 
-            if len(data) < page_size:
-                break
-
-            variables["offset"] = variables["offset"] + len(data)
+            has_more = len(data) >= page_size
+            if has_more:
+                variables["offset"] = variables["offset"] + len(data)
     finally:
         sess.close()
 
