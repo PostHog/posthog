@@ -13,7 +13,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         pageUrl: urls.dataWarehouseManagedViewsets(),
-        featureFlags: [FEATURE_FLAGS.MANAGED_VIEWSETS],
+        featureFlags: [FEATURE_FLAGS.MANAGED_VIEWSETS, FEATURE_FLAGS.REVENUE_ANALYTICS],
     },
     decorators: [
         mswDecorator({

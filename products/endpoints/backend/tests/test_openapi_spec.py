@@ -53,7 +53,6 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_schema["properties"]["results"]["type"], "array")
 
     def test_openapi_spec_with_variables(self):
-        """Test that HogQL endpoints with variables include variables in the schema."""
         from posthog.models.insight_variable import InsightVariable
 
         variable = InsightVariable.objects.create(
@@ -83,15 +82,99 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         spec = response.json()
 
-        # Check that EndpointRunRequest schema has variables reference
         endpoint_schema = spec["components"]["schemas"]["EndpointRunRequest"]
         self.assertIn("variables", endpoint_schema["properties"])
 
-        # Check Variables schema is defined with the variable
         self.assertIn("Variables", spec["components"]["schemas"])
         variables_schema = spec["components"]["schemas"]["Variables"]
         self.assertEqual(variables_schema["type"], "object")
         self.assertIn("country", variables_schema["properties"])
+        self.assertEqual(variables_schema["properties"]["country"]["type"], "string")
+
+    def test_openapi_spec_variable_types(self):
+        from posthog.models.insight_variable import InsightVariable
+
+        test_cases = [
+            (InsightVariable.Type.NUMBER, "number", None),
+            (InsightVariable.Type.BOOLEAN, "boolean", None),
+            (InsightVariable.Type.DATE, "string", "date"),
+        ]
+
+        for var_type, expected_openapi_type, expected_format in test_cases:
+            with self.subTest(var_type=var_type):
+                variable = InsightVariable.objects.create(
+                    team=self.team,
+                    name=f"Test {var_type}",
+                    code_name=f"test_{var_type.lower()}",
+                    type=var_type,
+                    default_value="42" if var_type == InsightVariable.Type.NUMBER else None,
+                )
+
+                query = {
+                    "kind": "HogQLQuery",
+                    "query": f"SELECT * FROM events WHERE x = {{variables.test_{var_type.lower()}}}",
+                    "variables": {
+                        str(variable.id): {
+                            "variableId": str(variable.id),
+                            "code_name": f"test_{var_type.lower()}",
+                            "value": None,
+                        }
+                    },
+                }
+
+                ep_name = f"typed-var-{var_type.lower()}"
+                create_endpoint_with_version(
+                    name=ep_name,
+                    team=self.team,
+                    query=query,
+                    created_by=self.user,
+                    is_active=True,
+                )
+
+                response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{ep_name}/openapi.json/")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                spec = response.json()
+
+                var_schema = spec["components"]["schemas"]["Variables"]["properties"][f"test_{var_type.lower()}"]
+                self.assertEqual(var_schema["type"], expected_openapi_type)
+                if expected_format:
+                    self.assertEqual(var_schema["format"], expected_format)
+
+    def test_openapi_spec_refresh_enum(self):
+        create_endpoint_with_version(
+            name="refresh-test",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/refresh-test/openapi.json/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spec = response.json()
+
+        refresh_schema = spec["components"]["schemas"]["EndpointRunRequest"]["properties"]["refresh"]
+        self.assertEqual(refresh_schema["enum"], ["cache", "force", "direct"])
+        self.assertEqual(refresh_schema["default"], "cache")
+
+    def test_openapi_spec_includes_limit_and_debug(self):
+        create_endpoint_with_version(
+            name="fields-test",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/fields-test/openapi.json/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spec = response.json()
+
+        props = spec["components"]["schemas"]["EndpointRunRequest"]["properties"]
+        self.assertIn("limit", props)
+        self.assertEqual(props["limit"]["type"], "integer")
+        self.assertIn("debug", props)
+        self.assertEqual(props["debug"]["type"], "boolean")
 
     def test_openapi_spec_dashboard_filter_schema(self):
         """Test that DashboardFilter schema includes date_from and date_to."""

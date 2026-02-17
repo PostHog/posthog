@@ -52,7 +52,7 @@ pub async fn do_issue_processing(
             let m_props = fingerprinted.clone();
             let handle = tokio::spawn(async move {
                 resolve_issue(
-                    m_context,
+                    m_context.as_ref(),
                     team_id,
                     name,
                     description,

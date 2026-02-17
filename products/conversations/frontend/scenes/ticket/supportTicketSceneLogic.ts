@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -13,6 +13,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import type { TicketAssignee } from '../../components/Assignee'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import type { ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
+import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
@@ -87,10 +88,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'ticket', 'supportTicketSceneLogic']),
     props({ id: 'new' as string | number }),
     key((props) => props.id),
+    connect(() => ({
+        actions: [supportTicketsSceneLogic, ['loadTickets']],
+    })),
     actions({
         loadTicket: true,
         setTicket: (ticket: Ticket | null) => ({ ticket }),
         setTicketLoading: (loading: boolean) => ({ loading }),
+        incrementUnreadCustomerCount: true,
         updateTicket: true,
 
         loadMessages: true,
@@ -191,6 +196,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             null as Ticket | null,
             {
                 setTicket: (_, { ticket }) => ticket,
+                incrementUnreadCustomerCount: (state) =>
+                    state ? { ...state, unread_customer_count: state.unread_customer_count + 1 } : state,
             },
         ],
         ticketLoading: [
@@ -261,6 +268,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     selectors({
+        hasUnsavedChanges: [
+            (s) => [s.status, s.priority, s.assignee, s.ticket],
+            (status, priority, assignee, ticket): boolean => {
+                if (!ticket) {
+                    return false
+                }
+                return (
+                    status !== ticket.status ||
+                    priority !== ticket.priority ||
+                    JSON.stringify(assignee) !== JSON.stringify(ticket.assignee)
+                )
+            },
+        ],
         chatPanelWidth: [
             () => [],
             () =>
@@ -383,6 +403,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const ticket = await api.conversationsTickets.update(props.id.toString(), data)
                 actions.setTicket(ticket)
                 lemonToast.success('Ticket updated')
+                actions.loadTickets()
             } catch {
                 lemonToast.error('Failed to update ticket')
             }
@@ -453,9 +474,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 lemonToast.success(isPrivate ? 'Private message sent' : 'Message sent')
                 actions.setMessageSending(false)
                 onSuccess?.()
+                if (!isPrivate) {
+                    actions.incrementUnreadCustomerCount()
+                }
                 setTimeout(() => {
                     actions.loadMessages()
                 }, 300)
+                actions.loadTickets()
             } catch {
                 lemonToast.error('Failed to send message')
                 actions.setMessageSending(false)

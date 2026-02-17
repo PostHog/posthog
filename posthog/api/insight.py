@@ -35,7 +35,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
+from posthog.api.insight_suggestions import generate_insight_name, get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -1375,6 +1375,27 @@ When set, the specified dashboard's filters and date range override will be appl
         suggestions = get_insight_suggestions(query, self.team, result, context)
 
         return Response([s.model_dump() for s in suggestions])
+
+    @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
+    def generate_name(self, request: Request, **kwargs) -> Response:
+        """Generate an AI-suggested name for an insight based on its query configuration."""
+        query_data = request.data.get("query")
+        if not query_data:
+            return Response(
+                {"error": "Missing 'query' field in request body"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            query = schema.InsightVizNode.model_validate(query_data)
+        except Exception:
+            return Response(
+                {"error": "Invalid query format"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        name = generate_insight_name(query, self.team)
+        return Response({"name": name})
 
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])

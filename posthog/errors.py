@@ -15,7 +15,7 @@ from posthog.exceptions import (
 
 class InternalCHQueryError(ServerException):
     code_name: Optional[str]
-    """Can be null if re-raised from a thread (see `failhard_threadhook_context`)."""
+    """Can be null if re-raised from a thread."""
 
     def __init__(self, message, *, code=None, nested=None, code_name=None):
         self.code_name = code_name

@@ -188,6 +188,8 @@ export interface PersonApi {
     properties?: unknown
     readonly created_at: string
     readonly uuid: string
+    /** @nullable */
+    readonly last_seen_at: string | null
 }
 
 export interface PaginatedPersonListApi {
@@ -206,6 +208,8 @@ export interface PatchedPersonApi {
     properties?: unknown
     readonly created_at?: string
     readonly uuid?: string
+    /** @nullable */
+    readonly last_seen_at?: string | null
 }
 
 export type PersonsListParams = {

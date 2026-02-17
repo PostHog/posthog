@@ -24,7 +24,7 @@ use crate::{
     types::RawErrProps,
 };
 
-const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
+pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
 
 pub async fn do_exception_handling(
     mut events: Vec<PipelineResult>,

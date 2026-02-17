@@ -402,6 +402,28 @@ describe('createExperimentLogic', () => {
         })
     })
 
+    describe('unmount/remount resets stale state', () => {
+        it('starts fresh after unmount and remount with no draft', async () => {
+            logic.actions.setExperiment({
+                ...NEW_EXPERIMENT,
+                id: 123,
+                name: 'Saved Experiment',
+                description: 'Already saved',
+            })
+
+            logic.unmount()
+
+            const freshLogic = createExperimentLogic()
+            freshLogic.mount()
+
+            await expectLogic(freshLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: '', description: '' }),
+            })
+
+            freshLogic.unmount()
+        })
+    })
+
     describe('feature flag key auto-generation', () => {
         it('does not auto-generate a flag key when changing experiment name', async () => {
             await expectLogic(logic, () => {

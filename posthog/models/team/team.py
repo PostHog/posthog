@@ -46,6 +46,7 @@ from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
+from .extensions import get_or_create_team_extension
 from .team_caching import get_team_in_cache, set_team_in_cache
 
 if TYPE_CHECKING:
@@ -597,19 +598,24 @@ class Team(UUIDTClassicModel):
         help_text="Whether this project serves B2B or B2C customers, used to optimize the UI layout.",
     )
 
+    # Before adding new fields here, read posthog/models/team/README.md
+    # Domain-specific config should use a Team Extension model instead.
+
+    # TRANSITIONAL: These accessors exist for backward compat with existing
+    # `team.<product>_config` call sites. New products should NOT add accessors
+    # here — use get_or_create_team_extension() at call sites instead.
+
     @cached_property
     def revenue_analytics_config(self):
         from .team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 
-        config, _ = TeamRevenueAnalyticsConfig.objects.get_or_create(team=self)
-        return config
+        return get_or_create_team_extension(self, TeamRevenueAnalyticsConfig)
 
     @cached_property
     def marketing_analytics_config(self):
         from .team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
-        config, _ = TeamMarketingAnalyticsConfig.objects.get_or_create(team=self)
-        return config
+        return get_or_create_team_extension(self, TeamMarketingAnalyticsConfig)
 
     @cached_property
     def customer_analytics_config(self):
@@ -617,10 +623,9 @@ class Team(UUIDTClassicModel):
             TeamCustomerAnalyticsConfig,
         )
 
-        config, _ = TeamCustomerAnalyticsConfig.objects.get_or_create(
-            team=self, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
+        return get_or_create_team_extension(
+            self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
         )
-        return config
 
     @property
     def default_modifiers(self) -> dict:

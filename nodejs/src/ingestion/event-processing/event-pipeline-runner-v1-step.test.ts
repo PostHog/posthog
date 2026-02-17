@@ -1,9 +1,12 @@
 import { Message } from 'node-rdkafka'
-import { v4 } from 'uuid'
 
-import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
+import { createTestMessage } from '../../../tests/helpers/kafka-message'
+import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
+import { createTestTeam } from '../../../tests/helpers/team'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { PipelineEvent, ProjectId, Team, TimestampFormat } from '../../types'
+import { ProjectId, Team, TimestampFormat } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { castTimestampOrNow } from '../../utils/utils'
 import {
@@ -35,28 +38,6 @@ jest.mock('../../utils/posthog', () => ({
     captureException: jest.fn(),
 }))
 
-const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
-    id: 1,
-    project_id: 1 as ProjectId,
-    organization_id: 'test-org-id',
-    uuid: v4(),
-    name: 'Test Team',
-    anonymize_ips: false,
-    api_token: 'test-api-token',
-    slack_incoming_webhook: null,
-    session_recording_opt_in: true,
-    person_processing_opt_out: null,
-    heatmaps_opt_in: null,
-    ingested_event: true,
-    person_display_name_properties: null,
-    test_account_filters: null,
-    cookieless_server_hash_mode: null,
-    timezone: 'UTC',
-    available_features: [],
-    drop_events_older_than_seconds: null,
-    ...overrides,
-})
-
 const createTestEventPipelineResult = (): EventPipelineResult => ({
     lastStep: 'test-step',
     person: {
@@ -84,12 +65,11 @@ describe('event-pipeline-runner-v1-step', () => {
     let mockKafkaProducer: KafkaProducerWrapper
     let mockTeamManager: TeamManager
     let mockGroupTypeManager: GroupTypeManager
-    let mockHogTransformer: HogTransformerService
     let mockPersonsStore: PersonsStore
     let mockGroupStore: GroupStoreForBatch
     let mockEventPipelineRunner: jest.Mocked<EventPipelineRunner>
     let mockMessage: Message
-    let mockEvent: PipelineEvent
+    let mockEvent: PluginEvent
     let mockTeam: Team
     let mockHeaders: any
 
@@ -110,29 +90,27 @@ describe('event-pipeline-runner-v1-step', () => {
         mockKafkaProducer = {} as KafkaProducerWrapper
         mockTeamManager = {} as TeamManager
         mockGroupTypeManager = {} as GroupTypeManager
-        mockHogTransformer = {} as HogTransformerService
         mockPersonsStore = {} as PersonsStore
         mockGroupStore = {} as GroupStoreForBatch
 
-        mockMessage = {
+        mockMessage = createTestMessage({
             value: Buffer.from('test message'),
             key: Buffer.from('test key'),
-            headers: {},
             partition: 0,
             offset: 123,
-            timestamp: Date.now(),
-        } as Message
+        })
 
-        mockEvent = {
+        mockEvent = createTestPluginEvent({
             uuid: 'test-uuid',
             event: 'test-event',
             distinct_id: 'test-distinct-id',
+            team_id: 1,
             properties: { test: 'property' },
             timestamp: '2023-01-01T00:00:00.000Z',
             ip: '127.0.0.1',
             site_url: 'https://test.com',
             now: '2023-01-01T00:00:00.000Z',
-        } as PipelineEvent
+        })
 
         mockTeam = createTestTeam()
 
@@ -159,7 +137,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockHogTransformer,
                 mockPersonsStore
             )
             const input: EventPipelineRunnerInput = {
@@ -179,7 +156,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockTeamManager,
                 mockGroupTypeManager,
                 mockEvent,
-                mockHogTransformer,
                 mockPersonsStore,
                 mockGroupStore,
                 mockHeaders
@@ -203,7 +179,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockHogTransformer,
                 mockPersonsStore
             )
             const input: EventPipelineRunnerInput = {
@@ -229,7 +204,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockHogTransformer,
                 mockPersonsStore
             )
             const input: EventPipelineRunnerInput = {
@@ -254,7 +228,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockHogTransformer,
                 mockPersonsStore
             )
             const input: EventPipelineRunnerInput = {
@@ -284,7 +257,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockHogTransformer,
                 mockPersonsStore
             )
             const input: EventPipelineRunnerInput = {
@@ -316,7 +288,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockHogTransformer,
                 mockPersonsStore
             )
             const input: EventPipelineRunnerInput = {
@@ -348,7 +319,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockHogTransformer,
                 mockPersonsStore
             )
             const input: EventPipelineRunnerInput = {
@@ -369,7 +339,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockTeamManager,
                 mockGroupTypeManager,
                 mockEvent,
-                mockHogTransformer,
                 mockPersonsStore,
                 mockGroupStore,
                 mockHeaders
@@ -386,7 +355,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockHogTransformer,
                 mockPersonsStore
             )
             const input: EventPipelineRunnerInput = {
@@ -418,7 +386,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockHogTransformer,
                 mockPersonsStore
             )
             const input: EventPipelineRunnerInput = {
@@ -441,7 +408,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockHogTransformer,
                 mockPersonsStore
             )
             const input: EventPipelineRunnerInput = {
@@ -464,7 +430,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockHogTransformer,
                 mockPersonsStore
             )
             const input: EventPipelineRunnerInput = {
@@ -487,7 +452,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockKafkaProducer,
                 mockTeamManager,
                 mockGroupTypeManager,
-                mockHogTransformer,
                 mockPersonsStore
             )
             const input: EventPipelineRunnerInput = {

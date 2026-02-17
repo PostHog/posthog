@@ -260,7 +260,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             isRemovingSidePanelFlag && '[--input-ring-size:2px]',
                             // when streaming, we make the ring default color, and when done streaming pop back to very this purple to let users know it's their turn to type
                             // When we allow appending messages, this ux will likely not be useful
-                            isRemovingSidePanelFlag && !streamingActive && '[--input-ring-color:#b62ad9]'
+                            isRemovingSidePanelFlag && !streamingActive && '[--input-ring-color:var(--color-ai)]'
                         )}
                     >
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>

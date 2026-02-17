@@ -218,10 +218,17 @@ describe('normalizePropertyFilterValue()', () => {
         expect(normalizePropertyFilterValue(['a', 'b'], PropertyOperator.Exact)).toEqual(['a', 'b'])
     })
 
+    it('wraps values for multi-select contains operators', () => {
+        expect(normalizePropertyFilterValue('test', PropertyOperator.IContainsMulti)).toEqual(['test'])
+        expect(normalizePropertyFilterValue('test', PropertyOperator.NotIContainsMulti)).toEqual(['test'])
+    })
+
     it('does not wrap values for non-multi-select operators', () => {
-        expect(normalizePropertyFilterValue('test', PropertyOperator.IContains)).toEqual('test')
         expect(normalizePropertyFilterValue('test', PropertyOperator.Regex)).toEqual('test')
         expect(normalizePropertyFilterValue('test', PropertyOperator.IsSet)).toEqual('test')
+        expect(normalizePropertyFilterValue('test', PropertyOperator.GreaterThan)).toEqual('test')
+        expect(normalizePropertyFilterValue('test', PropertyOperator.IContains)).toEqual('test')
+        expect(normalizePropertyFilterValue('test', PropertyOperator.NotIContains)).toEqual('test')
     })
 
     it('handles null and undefined values', () => {
