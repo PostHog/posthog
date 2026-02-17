@@ -75,8 +75,12 @@ function getCookie(name) {
 
 function showMessage(text, isError) {
     const el = document.getElementById('messages');
-    el.innerHTML = '<div class="msg-' + (isError ? 'error' : 'success') + '">' + text + '</div>';
-    setTimeout(() => { el.innerHTML = ''; }, 4000);
+    el.textContent = '';
+    const div = document.createElement('div');
+    div.className = 'msg-' + (isError ? 'error' : 'success');
+    div.textContent = text;
+    el.appendChild(div);
+    setTimeout(() => { el.textContent = ''; }, 4000);
 }
 
 function updateCount() {
@@ -101,7 +105,17 @@ function addEmail(e) {
             const tbody = document.getElementById('email-list-body');
             const tr = document.createElement('tr');
             tr.dataset.email = email;
-            tr.innerHTML = '<td>' + email + '</td><td><button type="button" class="remove-btn" onclick="removeEmail(\'' + email + '\')">Remove</button></td>';
+            const td1 = document.createElement('td');
+            td1.textContent = email;
+            const td2 = document.createElement('td');
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'remove-btn';
+            btn.textContent = 'Remove';
+            btn.onclick = () => removeEmail(email);
+            td2.appendChild(btn);
+            tr.appendChild(td1);
+            tr.appendChild(td2);
             tbody.appendChild(tr);
             input.value = '';
             updateCount();
