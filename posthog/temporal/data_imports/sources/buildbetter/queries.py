@@ -73,6 +73,20 @@ query PaginatedExtractions($limit: Int!, $offset: Int!, $where: extraction_bool_
         created_at
         display_ts
         speaker
+        attendee {
+            id
+            person {
+                id
+                first_name
+                last_name
+                email
+            }
+        }
+        call {
+            id
+            name
+            external_id
+        }
         types {
             type {
                 id
