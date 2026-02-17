@@ -34,7 +34,6 @@ from posthog.temporal.data_imports.workflow_activities.check_billing_limits impo
 )
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
-    CreateExternalDataJobModelActivityOutputs,
     create_external_data_job_model_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
@@ -242,7 +241,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 billable=inputs.billable,
             )
 
-            create_job_result: CreateExternalDataJobModelActivityOutputs = await workflow.execute_activity(
+            create_job_result = await workflow.execute_activity(
                 create_external_data_job_model_activity,
                 create_external_data_job_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=1),
@@ -251,12 +250,16 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError"],
                 ),
             )
-
-            job_id = create_job_result.job_id
-            incremental_or_append = create_job_result.incremental_or_append
-            source_type = create_job_result.source_type
-            schema_name = create_job_result.schema_name
-            last_synced_at = create_job_result.last_synced_at
+            # Safety net, to avoid errors if old workers didn't pick up the dataclass yet and still return tuples
+            if isinstance(create_job_result, tuple):
+                job_id, incremental_or_append, source_type = create_job_result
+                schema_name, last_synced_at = None, None
+            else:
+                job_id = create_job_result.job_id
+                incremental_or_append = create_job_result.incremental_or_append
+                source_type = create_job_result.source_type
+                schema_name = create_job_result.schema_name
+                last_synced_at = create_job_result.last_synced_at
             update_inputs.job_id = job_id
 
             # Check billing limits
@@ -342,7 +345,11 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             # Emit signals for new records (if registered for this source type + schema).
             # Fire-and-forget: runs on its own task queue so it doesn't block the import pipeline.
-            if source_type is not None and is_signal_emission_registered(source_type, schema_name):
+            if (
+                source_type is not None
+                and schema_name is not None
+                and is_signal_emission_registered(source_type, schema_name)
+            ):
                 await workflow.start_child_workflow(
                     EmitDataImportSignalsWorkflow.run,
                     EmitSignalsActivityInputs(
