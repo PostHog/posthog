@@ -136,77 +136,83 @@ export function InsightsTable({
               )
         : undefined
 
-    columns.push({
-        title: (
-            <div className="flex items-center gap-4">
-                {hasCheckboxes && (
-                    <SeriesCheckColumnTitle
+    // Hide the first column only when there's a single series with no breakdown, no compare, and it's not a legend
+    const showFirstColumn =
+        !isSingleSeriesDefinition || isValidBreakdown(breakdownFilter) || isLegend || compareFilter?.compare
+
+    if (showFirstColumn) {
+        columns.push({
+            title: (
+                <div className="flex items-center gap-4">
+                    {hasCheckboxes && (
+                        <SeriesCheckColumnTitle
+                            indexedResults={indexedResults}
+                            canCheckUncheckSeries={canCheckUncheckSeries}
+                            getTrendsHidden={getTrendsHidden}
+                            toggleAllResultsHidden={toggleAllResultsHidden}
+                            disabledReason={editingDisabledReason}
+                        />
+                    )}
+                    {isSingleSeriesWithBreakdown ? (
+                        breakdownFilter?.breakdown ? (
+                            <BreakdownColumnTitle breakdownFilter={breakdownFilter} />
+                        ) : (
+                            <MultipleBreakdownColumnTitle>
+                                {extractDisplayLabel(breakdownFilter?.breakdowns?.[0]?.property?.toString() ?? '')}
+                            </MultipleBreakdownColumnTitle>
+                        )
+                    ) : (
+                        <span>Series</span>
+                    )}
+                </div>
+            ),
+            render: (_, item) => {
+                const label = isSingleSeriesWithBreakdown ? (
+                    <BreakdownColumnItem
+                        item={item}
+                        formatItemBreakdownLabel={formatItemBreakdownLabel!}
+                        breakdownFilter={breakdownFilter}
+                    />
+                ) : (
+                    <SeriesColumnItem
+                        item={item}
                         indexedResults={indexedResults}
+                        canEditSeriesNameInline={canEditSeriesNameInline}
+                        seriesNameTooltip={seriesNameTooltip}
+                        handleEditClick={handleSeriesEditClick}
+                        hasMultipleSeries={!isSingleSeriesDefinition}
+                        hasBreakdown={isValidBreakdown(breakdownFilter)}
+                    />
+                )
+
+                return hasCheckboxes ? (
+                    <SeriesCheckColumnItem
+                        item={item}
                         canCheckUncheckSeries={canCheckUncheckSeries}
-                        getTrendsHidden={getTrendsHidden}
-                        toggleAllResultsHidden={toggleAllResultsHidden}
+                        isHidden={getTrendsHidden(item)}
+                        toggleResultHidden={toggleResultHidden}
+                        label={<div className="ml-2 font-normal">{label}</div>}
                         disabledReason={editingDisabledReason}
                     />
-                )}
-                {isSingleSeriesWithBreakdown ? (
-                    breakdownFilter?.breakdown ? (
-                        <BreakdownColumnTitle breakdownFilter={breakdownFilter} />
-                    ) : (
-                        <MultipleBreakdownColumnTitle>
-                            {extractDisplayLabel(breakdownFilter?.breakdowns?.[0]?.property?.toString() ?? '')}
-                        </MultipleBreakdownColumnTitle>
-                    )
                 ) : (
-                    <span>Series</span>
-                )}
-            </div>
-        ),
-        render: (_, item) => {
-            const label = isSingleSeriesWithBreakdown ? (
-                <BreakdownColumnItem
-                    item={item}
-                    formatItemBreakdownLabel={formatItemBreakdownLabel!}
-                    breakdownFilter={breakdownFilter}
-                />
-            ) : (
-                <SeriesColumnItem
-                    item={item}
-                    indexedResults={indexedResults}
-                    canEditSeriesNameInline={canEditSeriesNameInline}
-                    seriesNameTooltip={seriesNameTooltip}
-                    handleEditClick={handleSeriesEditClick}
-                    hasMultipleSeries={!isSingleSeriesDefinition}
-                    hasBreakdown={isValidBreakdown(breakdownFilter)}
-                />
-            )
-
-            return hasCheckboxes ? (
-                <SeriesCheckColumnItem
-                    item={item}
-                    canCheckUncheckSeries={canCheckUncheckSeries}
-                    isHidden={getTrendsHidden(item)}
-                    toggleResultHidden={toggleResultHidden}
-                    label={<div className="ml-2 font-normal">{label}</div>}
-                    disabledReason={editingDisabledReason}
-                />
-            ) : (
-                label
-            )
-        },
-        key: 'label',
-        sorter: (a, b) => {
-            if (isSingleSeriesWithBreakdown) {
-                if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
-                    return a.breakdown_value - b.breakdown_value
+                    label
+                )
+            },
+            key: 'label',
+            sorter: (a, b) => {
+                if (isSingleSeriesWithBreakdown) {
+                    if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
+                        return a.breakdown_value - b.breakdown_value
+                    }
+                    return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
                 }
-                return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
-            }
 
-            const labelA = a.action?.name || a.label || ''
-            const labelB = b.action?.name || b.label || ''
-            return labelA.localeCompare(labelB)
-        },
-    })
+                const labelA = a.action?.name || a.label || ''
+                const labelB = b.action?.name || b.label || ''
+                return labelA.localeCompare(labelB)
+            },
+        })
+    }
 
     if (breakdownFilter?.breakdown) {
         if (!isSingleSeriesWithBreakdown) {
