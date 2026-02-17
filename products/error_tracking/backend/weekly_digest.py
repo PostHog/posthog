@@ -11,7 +11,7 @@ logger = structlog.get_logger(__name__)
 
 
 def get_exception_counts(team_ids: list[int] | None = None) -> list:
-    """Query ClickHouse for exception counts and ingestion failures, optionally filtered to specific team IDs."""
+    """Query ClickHouse for exception counts and ingestion failures, optionally filtered to specific team IDs"""
     from posthog.clickhouse.client import sync_execute
 
     team_filter = ""
@@ -39,7 +39,7 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
 
 
 def get_crash_free_sessions(team: Team) -> dict:
-    """Calculate crash free sessions rate for the last 7 days via HogQL."""
+    """Calculate crash free sessions rate for the last 7 days via HogQL"""
     from posthog.hogql.query import execute_hogql_query
 
     try:
@@ -75,7 +75,7 @@ def get_crash_free_sessions(team: Team) -> dict:
 
 
 def get_daily_exception_counts(team_id: int) -> list[dict]:
-    """Get exception counts per day for the last 7 days from ClickHouse."""
+    """Get exception counts per day for the last 7 days from ClickHouse"""
     from posthog.clickhouse.client import sync_execute
 
     try:
@@ -117,7 +117,7 @@ def get_daily_exception_counts(team_id: int) -> list[dict]:
 
 
 def get_top_issues_for_team(team: Team) -> list[dict]:
-    """Query top 5 issues by occurrence count in the last 7 days via HogQL."""
+    """Query top 5 issues by occurrence count in the last 7 days via HogQL"""
     from posthog.hogql.query import execute_hogql_query
 
     from products.error_tracking.backend.models import ErrorTrackingIssue
@@ -168,7 +168,7 @@ def get_top_issues_for_team(team: Team) -> list[dict]:
 
 
 def get_new_issues_for_team(team: Team) -> list[dict]:
-    """Query top 5 issues first seen in the last 7 days, ranked by occurrence count."""
+    """Query top 5 issues first seen in the last 7 days, ranked by occurrence count"""
     from posthog.hogql import ast
     from posthog.hogql.query import execute_hogql_query
 
@@ -224,7 +224,7 @@ def get_new_issues_for_team(team: Team) -> list[dict]:
 
 
 def _get_issue_sparklines(team: Team, issue_ids: list[str]) -> dict[str, list[dict]]:
-    """Get daily occurrence counts per issue for sparkline bars."""
+    """Get daily occurrence counts per issue for sparkline bars"""
     from posthog.hogql import ast
     from posthog.hogql.query import execute_hogql_query
 
