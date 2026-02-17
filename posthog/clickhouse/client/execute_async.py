@@ -277,6 +277,7 @@ def enqueue_process_query_task(
     force: bool = False,
     _test_only_bypass_celery: bool = False,
     is_query_service: bool = False,
+    is_posthog_ai: bool = False,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -325,8 +326,9 @@ def enqueue_process_query_task(
         except Exception as e:
             capture_exception(e, {"cache_key": cache_key})
 
+    limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
     task_signature = process_query_task.si(
-        team.id, user_id, query_id, query_json, query_tags, is_query_service, LimitContext.QUERY_ASYNC
+        team.id, user_id, query_id, query_json, query_tags, is_query_service, limit_context
     )
 
     if _test_only_bypass_celery:

@@ -34,9 +34,8 @@ export class DashboardPage {
     }
 
     async addInsightToNewDashboard(): Promise<void> {
-        const addButton = this.page.getByRole('button', { name: 'Add insight' }).first()
-        await addButton.click()
-        await this.page.getByTestId('dashboard-insight-action-button').first().click()
+        await this.page.getByRole('button', { name: 'Add insight' }).first().click()
+        await this.page.locator('.LemonModal .LemonTable tbody tr').first().click()
         await this.page.getByRole('button', { name: 'Close' }).click()
     }
 

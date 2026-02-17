@@ -510,7 +510,6 @@ export class CdpApi {
                 errors: result.error ? [result.error] : [],
                 logs: [...result.logs, ...logs],
                 variables: result.invocation.state.variables ?? {},
-                execResult: result.execResult ?? null,
             })
         } catch (e) {
             console.error(e)

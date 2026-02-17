@@ -1,0 +1,5 @@
+# Conversion trends (funnel, two steps, $pageview -> user signed up, aggregated by unique groups, 1-day conversion window)
+
+```sql
+{{ render_hogql_example({"kind": "FunnelsQuery", "filterTestAccounts": false, "series": [{"kind": "EventsNode", "event": "$pageview"}, {"kind": "EventsNode", "event": "user signed up"}], "dateRange": {"date_from": "-7d"}, "interval": "day", "funnelsFilter": {"funnelVizType": "trends", "funnelOrderType": "strict", "funnelWindowInterval": 1, "funnelWindowIntervalUnit": "day"}, "aggregation_group_type_index": 0}) }}
+```

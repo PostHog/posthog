@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
@@ -44,6 +44,7 @@ export function LLMPromptScene(): JSX.Element {
         isViewMode,
         prompt,
     } = useValues(llmPromptLogic)
+    const { searchParams } = useValues(router)
 
     const { submitPromptForm, deletePrompt, setMode } = useActions(llmPromptLogic)
 
@@ -124,7 +125,7 @@ export function LLMPromptScene(): JSX.Element {
                                 type="secondary"
                                 onClick={() => {
                                     if (isNewPrompt) {
-                                        router.actions.push(urls.llmAnalyticsPrompts())
+                                        router.actions.push(combineUrl(urls.llmAnalyticsPrompts(), searchParams).url)
                                     } else {
                                         setMode(PromptMode.View)
                                     }
