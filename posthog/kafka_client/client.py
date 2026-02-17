@@ -247,6 +247,9 @@ class _KafkaProducer:
 
             if enable_idempotence:
                 config["enable.idempotence"] = enable_idempotence
+                # Idempotence requires acks=all, override if necessary
+                if config["acks"] != "all":
+                    config["acks"] = "all"
 
             self.producer = ConfluentProducer(config)
 
