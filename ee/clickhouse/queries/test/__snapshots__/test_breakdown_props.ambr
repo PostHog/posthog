@@ -131,7 +131,7 @@
          (SELECT id
           FROM person
           WHERE team_id = 99999
-            AND ((replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '') ILIKE '%test%')) )
+            AND ((replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '') ILIKE '%test%')))
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '') ILIKE '%test%')) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id

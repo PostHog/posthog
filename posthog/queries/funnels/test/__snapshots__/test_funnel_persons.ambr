@@ -150,7 +150,7 @@
                                WHERE team_id = 99999
                                  AND event IN ['step one', 'step three', 'step two']
                                  AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') )
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC'))
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 99999
@@ -159,8 +159,8 @@
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 ))
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))
@@ -333,7 +333,7 @@
                                WHERE team_id = 99999
                                  AND event IN ['step one', 'step three', 'step two']
                                  AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') )
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC'))
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 99999
@@ -342,8 +342,8 @@
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 ))
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))
@@ -516,7 +516,7 @@
                                WHERE team_id = 99999
                                  AND event IN ['step one', 'step three', 'step two']
                                  AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') )
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC'))
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 99999
@@ -525,8 +525,8 @@
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 ))
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))

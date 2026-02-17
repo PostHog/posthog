@@ -18,7 +18,7 @@
        AND event = 'pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-21 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
-       AND "$group_0" != '' )
+       AND "$group_0" != '')
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -65,7 +65,7 @@
      WHERE team_id = 99999
        AND event = 'pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-21 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC') )
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC'))
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC

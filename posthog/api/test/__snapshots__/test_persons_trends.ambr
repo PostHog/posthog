@@ -35,7 +35,7 @@
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
+       AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -100,7 +100,7 @@
        AND ((replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%ben%'
              OR replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', '') ILIKE '%ben%'
              OR replaceRegexpAll(JSONExtractRaw(e.properties, 'distinct_id'), '^"|"$', '') ILIKE '%ben%')
-            AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))) )
+            AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))))
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -155,7 +155,7 @@
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
+       AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC

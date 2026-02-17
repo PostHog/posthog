@@ -36,7 +36,7 @@
          (SELECT id
           FROM person
           WHERE team_id = 99999
-            AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
+            AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))))
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
@@ -93,7 +93,7 @@
                 (SELECT id
                  FROM person
                  WHERE team_id = 99999
-                   AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
+                   AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))))
             GROUP BY id
             HAVING max(is_deleted) = 0
             AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))
@@ -171,7 +171,7 @@
                 (SELECT id
                  FROM person
                  WHERE team_id = 99999
-                   AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
+                   AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))))
             GROUP BY id
             HAVING max(is_deleted) = 0
             AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))
@@ -298,7 +298,7 @@
          (SELECT id
           FROM person
           WHERE team_id = 99999
-            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))) )
+            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))))
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
