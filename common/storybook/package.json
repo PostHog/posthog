@@ -42,7 +42,7 @@
         "storybook": "^7.6.4",
         "storybook-addon-pseudo-states": "2.1.2",
         "style-loader": "^2.0.0",
-        "webpack": "^5.88.2",
+        "webpack": "^5.104.1",
         "webpack-cli": "^5.1.4"
     },
     "name": "@posthog/storybook",
