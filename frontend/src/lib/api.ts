@@ -658,10 +658,6 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('mcp_servers')
     }
 
-    public mcpServer(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.mcpServers(teamId).addPathComponent(id)
-    }
-
     public mcpServerInstallations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('mcp_server_installations')
     }
@@ -3400,20 +3396,14 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<Record<string, any>>> {
             return await new ApiRequest().mcpServers().get()
         },
-        async create(data: Record<string, any>): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServers().create({ data })
-        },
-        async delete(id: string): Promise<void> {
-            await new ApiRequest().mcpServer(id).delete()
-        },
     },
 
     mcpServerInstallations: {
         async list(): Promise<CountedPaginatedResponse<Record<string, any>>> {
             return await new ApiRequest().mcpServerInstallations().get()
         },
-        async create(data: Record<string, any>): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallations().create({ data })
+        async update(id: string, data: Record<string, any>): Promise<Record<string, any>> {
+            return await new ApiRequest().mcpServerInstallation(id).update({ data })
         },
         async delete(id: string): Promise<void> {
             await new ApiRequest().mcpServerInstallation(id).delete()

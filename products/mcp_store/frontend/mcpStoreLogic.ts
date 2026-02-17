@@ -20,7 +20,7 @@ export interface RecommendedServer {
 
 export interface MCPServerInstallation {
     id: string
-    server: Record<string, any> | null
+    server_id: string | null
     name: string
     display_name: string
     url: string
@@ -68,19 +68,10 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     const response = await api.mcpServerInstallations.list()
                     return response.results as MCPServerInstallation[]
                 },
-                installServer: async ({
-                    serverId,
-                    configuration,
-                }: {
-                    serverId: string
-                    configuration?: Record<string, any>
-                }) => {
-                    const installation = (await api.mcpServerInstallations.create({
-                        server_id: serverId,
-                        ...(configuration ? { configuration } : {}),
-                    })) as MCPServerInstallation
-                    lemonToast.success('Server installed')
-                    return [...values.installations, installation]
+                updateInstallation: async ({ id, data }: { id: string; data: Record<string, any> }) => {
+                    const updated = (await api.mcpServerInstallations.update(id, data)) as MCPServerInstallation
+                    lemonToast.success('Server updated')
+                    return values.installations.map((i: MCPServerInstallation) => (i.id === updated.id ? updated : i))
                 },
                 uninstallServer: async (installationId: string) => {
                     await api.mcpServerInstallations.delete(installationId)
@@ -135,7 +126,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         installedServerIds: [
             (s) => [s.installations],
             (installations: MCPServerInstallation[]): Set<string> =>
-                new Set(installations.filter((i) => i.server).map((i) => i.server!.id)),
+                new Set(installations.filter((i) => i.server_id).map((i) => i.server_id!)),
         ],
         installedServerUrls: [
             (s) => [s.installations],

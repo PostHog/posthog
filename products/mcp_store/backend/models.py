@@ -41,7 +41,7 @@ RECOMMENDED_SERVERS = [
     },
     {
         "name": "Notion",
-        "url": "https://mcp.notion.so",
+        "url": "https://mcp.notion.com/mcp",
         "description": "Search and manage Notion pages, databases, and knowledge base content.",
         "icon_url": "",
         "auth_type": "oauth",
@@ -53,8 +53,6 @@ class MCPServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     name = models.CharField(max_length=200)
     url = models.URLField(max_length=2048, unique=True)  # OAuth issuer URL
     description = models.TextField(blank=True, default="")
-    icon_url = models.URLField(max_length=2048, blank=True, default="")
-    auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="none")
     oauth_provider_kind = models.CharField(max_length=50, blank=True, default="")
     oauth_metadata = models.JSONField(default=dict, blank=True)
     oauth_client_id = models.CharField(max_length=500, blank=True, default="")

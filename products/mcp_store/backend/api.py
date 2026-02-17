@@ -3,20 +3,18 @@ import secrets
 from typing import Any
 from urllib.parse import quote, urlencode
 
-from django.db.models import QuerySet
 from django.http import HttpResponse
 
 import requests
 import structlog
 from drf_spectacular.utils import extend_schema
-from rest_framework import serializers, status, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import OauthIntegration
 from posthog.rate_limit import MCPOAuthBurstThrottle, MCPOAuthSustainedThrottle
 from posthog.security.url_validation import is_url_allowed
@@ -27,67 +25,18 @@ from .oauth import discover_oauth_metadata, generate_pkce, register_dcr_client
 logger = structlog.get_logger(__name__)
 
 
-class MCPServerSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
-
-    class Meta:
-        model = MCPServer
-        fields = [
-            "id",
-            "name",
-            "url",
-            "description",
-            "icon_url",
-            "auth_type",
-            "created_at",
-            "updated_at",
-            "created_by",
-        ]
-        read_only_fields = ["id", "created_at", "updated_at"]
-
-    def validate_url(self, value: str) -> str:
-        allowed, error = is_url_allowed(value)
-        if not allowed:
-            raise serializers.ValidationError(f"URL not allowed: {error}")
-        return value
-
-    def create(self, validated_data: dict[str, Any]) -> MCPServer:
-        request = self.context["request"]
-        return MCPServer.objects.create(
-            created_by=request.user,
-            **validated_data,
-        )
-
-
 @extend_schema(tags=["mcp_store"])
-class MCPServerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     scope_object = "project"
-    queryset = MCPServer.objects.all()
-    serializer_class = MCPServerSerializer
-    lookup_field = "id"
+    serializer_class = serializers.Serializer
     permission_classes = [IsAuthenticated]
-
-    def _should_skip_parents_filter(self) -> bool:
-        return True
-
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.order_by("-created_at")
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response({"results": RECOMMENDED_SERVERS})
 
-    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        url = request.data.get("url", "")
-        existing = MCPServer.objects.filter(url=url).first()
-        if existing:
-            serializer = self.get_serializer(existing)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return super().create(request, *args, **kwargs)
-
 
 class MCPServerInstallationSerializer(serializers.ModelSerializer):
-    server = MCPServerSerializer(read_only=True)
-    server_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
+    server_id = serializers.UUIDField(source="server.id", read_only=True, allow_null=True, default=None)
     needs_reauth = serializers.SerializerMethodField()
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
@@ -96,7 +45,6 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         model = MCPServerInstallation
         fields = [
             "id",
-            "server",
             "server_id",
             "name",
             "display_name",
@@ -109,7 +57,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "server_id", "created_at", "updated_at"]
 
     def get_name(self, obj: MCPServerInstallation) -> str:
         if obj.display_name:
@@ -130,30 +78,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         sensitive = obj.sensitive_configuration or {}
         return not sensitive.get("access_token")
 
-    def validate_server_id(self, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if not MCPServer.objects.filter(id=value).exists():
-            raise serializers.ValidationError("Server not found.")
-        return value
 
-    def create(self, validated_data: dict[str, Any]) -> MCPServerInstallation:
-        request = self.context["request"]
-        team_id = self.context["team_id"]
-
-        config = validated_data.get("configuration") or {}
-        if api_key := config.pop("api_key", None):
-            validated_data["configuration"] = config
-            validated_data["sensitive_configuration"] = {"api_key": api_key}
-
-        return MCPServerInstallation.objects.create(
-            team_id=team_id,
-            user=request.user,
-            **validated_data,
-        )
-
-
-# Used for installing custom MCP servers
 class InstallCustomSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=200)
     url = serializers.URLField(max_length=2048)
@@ -177,8 +102,35 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     lookup_field = "id"
     permission_classes = [IsAuthenticated]
 
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(team_id=self.team_id, user=self.request.user).order_by("-created_at")
+    def safely_get_queryset(self, queryset: "MCPServerInstallation.objects") -> "MCPServerInstallation.objects":
+        return (
+            queryset.filter(team_id=self.team_id, user=self.request.user)
+            .select_related("server")
+            .order_by("-created_at")
+        )
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        installation = self.get_object()
+        allowed_fields = {"display_name", "description", "configuration"}
+        data = {k: v for k, v in request.data.items() if k in allowed_fields}
+
+        config = data.get("configuration")
+        if isinstance(config, dict) and "api_key" in config:
+            api_key = config.pop("api_key")
+            if api_key:
+                sensitive = dict(installation.sensitive_configuration or {})
+                sensitive["api_key"] = api_key
+                installation.sensitive_configuration = sensitive
+
+        for field, value in data.items():
+            setattr(installation, field, value)
+        installation.save()
+
+        serializer = self.get_serializer(installation)
+        return Response(serializer.data)
 
     @action(
         detail=False,
@@ -230,7 +182,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/mcp-servers"
 
-        # 1. Create installation first (user's intent to connect)
         installation, _ = MCPServerInstallation.objects.get_or_create(
             team_id=self.team_id,
             user=request.user,
@@ -242,7 +193,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             },
         )
 
-        # 2. Discover OAuth metadata
         try:
             metadata = discover_oauth_metadata(mcp_url)
         except Exception as e:
@@ -255,7 +205,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             installation.delete()
             return Response({"detail": "Could not determine OAuth issuer"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 3. Find or create MCPServer for shared DCR credentials
         server = self._get_or_register_dcr_server(
             metadata=metadata,
             issuer_url=issuer_url,
@@ -268,12 +217,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             installation.delete()
             return server
 
-        # 4. Link installation to server
         if installation.server_id != server.id:
             installation.server = server
             installation.save(update_fields=["server", "updated_at"])
 
-        # 5. Build OAuth redirect URL
         code_verifier, code_challenge = generate_pkce()
         token = secrets.token_urlsafe(32)
         state = urlencode(
@@ -348,7 +295,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         return MCPServer.objects.create(
             name=name,
             url=issuer_url,
-            auth_type="oauth",
             oauth_provider_kind=oauth_provider_kind,
             oauth_metadata=metadata,
             oauth_client_id=client_id,
@@ -377,7 +323,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             except NotImplementedError:
                 pass
 
-        return self._authorize_dcr(server, server_id)
+        # Look up the user's installation to get the MCP URL for RFC 9728 discovery
+        installation = MCPServerInstallation.objects.filter(
+            team_id=self.team_id, user=request.user, server=server
+        ).first()
+        mcp_url = installation.url if installation else server.url
+
+        return self._authorize_dcr(server, server_id, mcp_url=mcp_url)
 
     def _authorize_known_provider(self, kind: str, server_id: str) -> HttpResponse:
         oauth_config = OauthIntegration.oauth_config_for_kind(kind)
@@ -408,7 +360,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         response.set_cookie("ph_oauth_state", token, max_age=600, httponly=True, samesite="Lax")
         return response
 
-    def _authorize_dcr(self, server: MCPServer, server_id: str) -> HttpResponse:
+    def _authorize_dcr(self, server: MCPServer, server_id: str, *, mcp_url: str) -> HttpResponse:
         from django.conf import settings
 
         redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/mcp-servers"
@@ -420,7 +372,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         if needs_registration:
             try:
-                metadata = discover_oauth_metadata(server.url)
+                metadata = discover_oauth_metadata(mcp_url)
                 client_id = register_dcr_client(metadata, redirect_uri)
             except Exception as e:
                 logger.exception("DCR registration failed", server_url=server.url, error=str(e))

@@ -566,7 +566,6 @@ class TestRefreshTokenPersistence(TestCallMCPServerTool):
         server = MCPServer.objects.create(
             name="DCR Server",
             url=self.SERVER_URL,
-            auth_type="oauth",
             oauth_metadata=self.OAUTH_METADATA,
             oauth_client_id=self.OAUTH_CLIENT_ID,
         )

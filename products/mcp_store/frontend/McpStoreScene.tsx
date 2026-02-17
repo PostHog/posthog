@@ -101,11 +101,15 @@ export function McpStoreScene(): JSX.Element {
                     {
                         width: 0,
                         render: (_: any, installation: MCPServerInstallation) => {
-                            const iconSrc = SERVER_ICONS[installation.name] || installation.server?.icon_url
+                            const iconSrc = SERVER_ICONS[installation.name]
                             return iconSrc ? (
-                                <img src={iconSrc} alt="" className="w-6 h-6" />
+                                <div className="w-6 h-6 flex items-center justify-center">
+                                    <img src={iconSrc} alt="" className="w-6 h-6" />
+                                </div>
                             ) : (
-                                <IconServer className="text-muted text-xl" />
+                                <div className="w-6 h-6 flex items-center justify-center">
+                                    <IconServer className="text-muted text-xl" />
+                                </div>
                             )
                         },
                     },
@@ -130,12 +134,12 @@ export function McpStoreScene(): JSX.Element {
                                         url={installation.url}
                                         description={installation.description}
                                     />
-                                ) : installation.needs_reauth && installation.server ? (
+                                ) : installation.needs_reauth && installation.server_id ? (
                                     <LemonButton
                                         type="primary"
                                         size="small"
                                         onClick={() => {
-                                            window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${installation.server!.id}`
+                                            window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${installation.server_id}`
                                         }}
                                     >
                                         Reconnect
@@ -195,9 +199,13 @@ export function McpStoreScene(): JSX.Element {
                                 render: (_: any, server: RecommendedServer) => {
                                     const iconSrc = SERVER_ICONS[server.name] || server.icon_url
                                     return iconSrc ? (
-                                        <img src={iconSrc} alt="" className="w-6 h-6" />
+                                        <div className="w-6 h-6 flex items-center justify-center">
+                                            <img src={iconSrc} alt="" className="w-6 h-6" />
+                                        </div>
                                     ) : (
-                                        <IconServer className="text-muted text-xl" />
+                                        <div className="w-6 h-6 flex items-center justify-center">
+                                            <IconServer className="text-muted text-xl" />
+                                        </div>
                                     )
                                 },
                             },
