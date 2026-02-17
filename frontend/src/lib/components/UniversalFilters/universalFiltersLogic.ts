@@ -10,6 +10,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EntityTypes } from '~/types'
 import {
     ActionFilter,
+    EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
     PropertyFilterType,
@@ -154,6 +155,24 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         newValues.push(propertyFilter)
                     }
                 }
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.ScreenEvents) {
+                const screenNameFilter: EventPropertyFilter = {
+                    key: '$screen_name',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                }
+                const eventFilter: ActionFilter = {
+                    id: '$screen',
+                    name: '$screen',
+                    type: EntityTypes.EVENTS,
+                    properties: [screenNameFilter],
+                }
+                newValues.push(eventFilter)
                 actions.setGroupValues(newValues)
                 return
             }

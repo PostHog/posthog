@@ -62,6 +62,8 @@ export function getSingularType(type: TaxonomicFilterGroupType): string {
             return 'pageview url'
         case TaxonomicFilterGroupType.Screens:
             return 'screen'
+        case TaxonomicFilterGroupType.ScreenEvents:
+            return 'screen event'
         case TaxonomicFilterGroupType.Wildcards:
             return 'wildcard'
         default:

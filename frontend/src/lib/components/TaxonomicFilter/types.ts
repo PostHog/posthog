@@ -182,6 +182,7 @@ export enum TaxonomicFilterGroupType {
     PersonProperties = 'person_properties',
     PageviewUrls = 'pageview_urls',
     Screens = 'screens',
+    ScreenEvents = 'screen_events',
     CustomEvents = 'custom_events',
     Wildcards = 'wildcard',
     GroupsPrefix = 'groups',
