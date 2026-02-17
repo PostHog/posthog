@@ -9,7 +9,7 @@ from django.conf import settings
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
@@ -358,6 +358,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         last_synced_at=last_synced_at,
                     ),
                     id=f"emit-data-import-signals-{job_id}",
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     # TBD: Signals are currently using video export queue as the main one, comment to clarify
                     task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                     # Let the child workflow finish even if the parent completes or fails
