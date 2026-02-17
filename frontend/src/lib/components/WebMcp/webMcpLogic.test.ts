@@ -1,117 +1,126 @@
-import { expectLogic } from 'kea-test-utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { McpToolDefinition } from '~/types'
 
 import { webMcpLogic } from './webMcpLogic'
-
-const MOCK_TOOLS: McpToolDefinition[] = [
-    {
-        name: 'execute_sql',
-        scopes: ['query:read'],
-        input_schema: {
-            type: 'object',
-            properties: {
-                query: { type: 'string', description: 'The SQL query to execute' },
-            },
-            required: ['query'],
-        },
-    },
-    {
-        name: 'read_taxonomy',
-        scopes: ['event_definition:read'],
-        input_schema: {
-            type: 'object',
-            properties: {
-                entity_type: { type: 'string', description: 'Type of entity' },
-            },
-            required: ['entity_type'],
-        },
-    },
-]
+import { buildWebMcpTools } from './webMcpToolkit'
 
 describe('webMcpLogic', () => {
-    let logic: ReturnType<typeof webMcpLogic.build>
+    let mockRegisterTool: jest.Mock
+    let mockUnregister: jest.Mock
 
     beforeEach(() => {
-        useMocks({
-            get: {
-                '/api/environments/:team_id/mcp_tools/': MOCK_TOOLS,
-            },
-            post: {
-                '/api/environments/:team_id/mcp_tools/:tool_name/': {
-                    success: true,
-                    content: 'query result',
-                },
-            },
-        })
+        mockUnregister = jest.fn()
+        mockRegisterTool = jest.fn(() => ({ unregister: mockUnregister }))
         initKeaTests()
-        logic = webMcpLogic({ key: 'test' })
+    })
+
+    afterEach(() => {
+        delete (navigator as any).modelContext
+    })
+
+    function setupModelContext(): void {
+        Object.defineProperty(navigator, 'modelContext', {
+            value: { registerTool: mockRegisterTool },
+            configurable: true,
+        })
+    }
+
+    function mountWithFlag(enabled: boolean): ReturnType<typeof webMcpLogic.build> {
+        const logic = webMcpLogic()
+
+        // Patch featureFlags value before mount
+        const featureFlagLogic = require('lib/logic/featureFlagLogic').featureFlagLogic
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_MCP], { [FEATURE_FLAGS.WEB_MCP]: enabled })
+
         logic.mount()
+        return logic
+    }
+
+    it('registers tools when feature flag is enabled and navigator.modelContext exists', () => {
+        setupModelContext()
+        const logic = mountWithFlag(true)
+
+        const expectedToolCount = buildWebMcpTools().length
+        expect(mockRegisterTool).toHaveBeenCalledTimes(expectedToolCount)
+        expect(expectedToolCount).toBeGreaterThan(0)
+
+        // Each call should provide a tool with name, description, inputSchema, execute
+        const firstCall = mockRegisterTool.mock.calls[0][0]
+        expect(firstCall).toHaveProperty('name')
+        expect(firstCall).toHaveProperty('description')
+        expect(firstCall).toHaveProperty('inputSchema')
+        expect(firstCall).toHaveProperty('execute')
+
+        logic.unmount()
     })
 
-    it('loads tools on mount', async () => {
-        await expectLogic(logic).toFinishAllListeners()
+    it('does not register tools when feature flag is disabled', () => {
+        setupModelContext()
+        const logic = mountWithFlag(false)
 
-        await expectLogic(logic).toMatchValues({
-            tools: MOCK_TOOLS,
-            toolsLoading: false,
-        })
+        expect(mockRegisterTool).not.toHaveBeenCalled()
+
+        logic.unmount()
     })
 
-    it('builds toolsByName selector', async () => {
-        await expectLogic(logic).toFinishAllListeners()
+    it('does not register tools when navigator.modelContext is unavailable', () => {
+        const logic = mountWithFlag(true)
 
-        await expectLogic(logic).toMatchValues({
-            toolsByName: {
-                execute_sql: MOCK_TOOLS[0],
-                read_taxonomy: MOCK_TOOLS[1],
-            },
-        })
+        expect(mockRegisterTool).not.toHaveBeenCalled()
+
+        logic.unmount()
     })
 
-    it('invokes a tool and stores result', async () => {
-        await expectLogic(logic).toFinishAllListeners()
+    it('unregisters all tools on unmount', () => {
+        setupModelContext()
+        const logic = mountWithFlag(true)
 
-        await expectLogic(logic, () => {
-            logic.actions.invokeTool('execute_sql', { query: 'SELECT 1' })
-        }).toFinishAllListeners()
+        const registrationCount = mockRegisterTool.mock.calls.length
+        expect(registrationCount).toBeGreaterThan(0)
 
-        await expectLogic(logic).toMatchValues({
-            toolResults: {
-                execute_sql: { success: true, content: 'query result' },
-            },
-        })
+        logic.unmount()
+
+        expect(mockUnregister).toHaveBeenCalledTimes(registrationCount)
+    })
+})
+
+describe('buildWebMcpTools', () => {
+    it('returns tools with valid structure', () => {
+        const tools = buildWebMcpTools()
+
+        expect(tools.length).toBeGreaterThan(0)
+
+        for (const tool of tools) {
+            expect(tool.name).toMatch(/^posthog:/)
+            expect(tool.description).toBeTruthy()
+            expect(tool.inputSchema).toHaveProperty('type', 'object')
+            expect(typeof tool.execute).toBe('function')
+        }
     })
 
-    it('sets activeInvocations while a tool is running', async () => {
-        await expectLogic(logic).toFinishAllListeners()
+    it('includes expected core tools', () => {
+        const tools = buildWebMcpTools()
+        const names = tools.map((t) => t.name)
 
-        await expectLogic(logic, () => {
-            logic.actions.invokeTool('execute_sql', { query: 'SELECT 1' })
-        }).toDispatchActions(['invokeTool'])
-
-        expect(logic.values.activeInvocations['execute_sql']).toBe(true)
-
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.activeInvocations['execute_sql']).toBe(false)
+        expect(names).toContain('posthog:dashboards-get-all')
+        expect(names).toContain('posthog:dashboard-get')
+        expect(names).toContain('posthog:feature-flags-get-all')
+        expect(names).toContain('posthog:insights-get-all')
+        expect(names).toContain('posthog:entity-search')
     })
 
-    it('clears tool result', async () => {
-        await expectLogic(logic).toFinishAllListeners()
+    it('marks all tools as read-only', () => {
+        const tools = buildWebMcpTools()
+        for (const tool of tools) {
+            expect(tool.annotations?.readOnly).toBe(true)
+        }
+    })
 
-        await expectLogic(logic, () => {
-            logic.actions.invokeTool('execute_sql', { query: 'SELECT 1' })
-        }).toFinishAllListeners()
-
-        expect(logic.values.toolResults['execute_sql']).toBeTruthy()
-
-        await expectLogic(logic, () => {
-            logic.actions.clearToolResult('execute_sql')
-        })
-
-        expect(logic.values.toolResults['execute_sql']).toBeUndefined()
+    it('has unique tool names', () => {
+        const tools = buildWebMcpTools()
+        const names = tools.map((t) => t.name)
+        expect(new Set(names).size).toBe(names.length)
     })
 })

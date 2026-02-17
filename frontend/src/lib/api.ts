@@ -146,8 +146,6 @@ import {
     ListOrganizationMembersParams,
     LogEntry,
     LogEntryRequestParams,
-    McpToolDefinition,
-    McpToolResult,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     type OAuthApplicationPublicMetadata,
@@ -1731,14 +1729,6 @@ export class ApiRequest {
 
     public coreMemoryDetail(id: CoreMemory['id']): ApiRequest {
         return this.coreMemory().addPathComponent(id)
-    }
-
-    public mcpTools(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('mcp_tools')
-    }
-
-    public mcpTool(toolName: string, teamId?: TeamType['id']): ApiRequest {
-        return this.mcpTools(teamId).addPathComponent(toolName)
     }
 
     public authenticateWizard(): ApiRequest {
@@ -5148,15 +5138,6 @@ const api = {
         },
         async delete(shortId: string): Promise<void> {
             await new ApiRequest().webAnalyticsFilterPreset(shortId).update({ data: { deleted: true } })
-        },
-    },
-
-    mcpTools: {
-        async list(): Promise<McpToolDefinition[]> {
-            return await new ApiRequest().mcpTools().get()
-        },
-        async invoke(toolName: string, args: Record<string, any>): Promise<McpToolResult> {
-            return await new ApiRequest().mcpTool(toolName).create({ data: { args } })
         },
     },
 

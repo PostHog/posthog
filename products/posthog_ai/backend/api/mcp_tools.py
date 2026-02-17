@@ -34,11 +34,6 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return scopes or None
         return None
 
-    def list(self, request: Request, *args, **kwargs):
-        """List all available MCP tools with their metadata and input schemas."""
-        tools = mcp_tool_registry.list_tools()
-        return Response(tools)
-
     @action(
         detail=False,
         methods=["POST"],
