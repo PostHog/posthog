@@ -570,7 +570,7 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
     # Use synchronous mutations in tests for deterministic behavior
     if settings.TEST:
         ch_settings = {
-            "mutations_sync": "1",
+            "mutations_sync": "2",
             "lightweight_deletes_sync": "2",
         }
     else:
