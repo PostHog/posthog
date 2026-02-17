@@ -874,7 +874,7 @@ async def run_consumers(
 
             tasks.append(
                 tg.create_task(
-                    consumer.start(
+                    consumer.run(
                         queue=queue,
                         producer_task=producer_task,
                         transformer=transformer,
