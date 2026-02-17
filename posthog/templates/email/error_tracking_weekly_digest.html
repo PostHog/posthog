@@ -13,15 +13,15 @@
 
 <div class="mb mt" style="border: 1px solid #e1e5e9; padding: 20px; border-radius: 8px; text-align: center;">
     <p style="margin: 0 0 4px 0; font-size: 0.9em; color: #6b7280;">Exceptions caught in the last 7 days</p>
-    <p style="margin: 0; font-size: 2.5em; font-weight: bold; color: {% if exception_count > 0 %}#dc3545{% else %}#22c55e{% endif %};">
+    <p style="margin: 0; font-size: 2.5em; font-weight: bold;">
         {{ exception_count|intcomma }}
     </p>
 </div>
 
 {% if ingestion_failure_count > 0 %}
-<div class="mb mt" style="border: 1px solid #e1e5e9; padding: 20px; border-radius: 8px; border-left: 4px solid #fd7e14; text-align: center;">
+<div class="mb mt" style="border: 1px solid #e1e5e9; padding: 20px; border-radius: 8px; border-left: 4px solid #dc3545; text-align: center;">
     <p style="margin: 0 0 4px 0; font-size: 0.9em; color: #6b7280;">Failed to ingest</p>
-    <p style="margin: 0 0 8px 0; font-size: 2.5em; font-weight: bold; color: #fd7e14;">
+    <p style="margin: 0 0 8px 0; font-size: 2.5em; font-weight: bold; color: #dc3545;">
         {{ ingestion_failure_count|intcomma }}
     </p>
     <p style="margin: 0;">
