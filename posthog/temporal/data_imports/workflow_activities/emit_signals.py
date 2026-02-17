@@ -66,7 +66,7 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
             extra=inputs.properties_to_log,
         )
         return {"status": "skipped", "reason": "no_config_registered", "signals_emitted": 0}
-    # Fetch schema and team (raises if either doesn't exist)
+    # Fetch schema and team
     schema, team = await database_sync_to_async(_fetch_schema_and_team, thread_sensitive=False)(
         inputs.schema_id, inputs.team_id
     )
