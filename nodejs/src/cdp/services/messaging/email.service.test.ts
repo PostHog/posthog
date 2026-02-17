@@ -60,7 +60,7 @@ describe('EmailService', () => {
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
 
             const result = await serviceWithoutSES.executeSendEmail(invocation)
-            expect(result.error).toBe('SES is not configured - set SES_REGION and SES credentials')
+            expect(result.error).toBe('SES is not configured - set SES_REGION and AWS credentials')
         })
     })
 
