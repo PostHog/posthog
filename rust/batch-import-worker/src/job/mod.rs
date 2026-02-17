@@ -744,7 +744,7 @@ mod tests {
                 .expect("retry-after parsed");
         let rl = crate::error::RateLimitedError {
             retry_after: Some(retry_after),
-            source: http_err,
+            source: Box::new(http_err),
         };
         let err = anyhow::Error::from(rl);
 

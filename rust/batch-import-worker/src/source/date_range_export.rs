@@ -389,7 +389,7 @@ impl DateRangeExportSource {
             let retry_after = parse_retry_after_header(&headers_clone);
             let rl = RateLimitedError {
                 retry_after,
-                source: http_err,
+                source: Box::new(http_err),
             };
             let err = anyhow::Error::from(rl).context(crate::error::UserError::new(
                 "Rate limit exceeded -- pause the job and try again later",
