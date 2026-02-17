@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { Query } from '~/queries/Query/Query'
 import { HogQLQuery, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
+import { ChartDisplayType } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic } from '../endpointSceneLogic'
@@ -103,7 +104,7 @@ function EndpointHogQLQuery({
                 query: query.query,
                 variables: query.variables,
             },
-            display: 'ActionsLineGraph',
+            display: ChartDisplayType.ActionsLineGraph,
         })
         runQuery(query.query)
     }, [query.query, query.variables, runQuery, setQueryInput, setSourceQuery])
@@ -118,7 +119,7 @@ function EndpointHogQLQuery({
             kind: NodeKind.HogQLQuery,
             query: queryInput,
             variables: query.variables,
-        })
+        } as HogQLQuery)
     }, [query.query, query.variables, queryInput, setLocalQuery])
 
     return (

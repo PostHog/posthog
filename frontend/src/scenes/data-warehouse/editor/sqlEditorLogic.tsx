@@ -1082,7 +1082,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput) => !!queryInput],
-        isEmbeddedMode: [(_, p) => [p.mode], (mode) => isEmbeddedSQLEditorMode(mode ?? SQLEditorMode.FullScene)],
+        isEmbeddedMode: [
+            () => [(_, p: SqlEditorLogicProps) => p.mode],
+            (mode) => isEmbeddedSQLEditorMode(mode ?? SQLEditorMode.FullScene),
+        ],
         dataLogicKey: [(_, p) => [p.tabId], (tabId) => `data-warehouse-editor-data-node-${tabId}`],
         isDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? !!activeTab.draft?.id : false)],
         currentDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? activeTab.draft : null)],
