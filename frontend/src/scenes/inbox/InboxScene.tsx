@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronRight, IconExpand } from '@posthog/icons'
+import { IconCheckCircle, IconChevronRight } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -144,7 +144,7 @@ function ReportRow({ report }: { report: SignalReport }): JSX.Element {
 function EmptyInbox(): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-            <IconExpand className="size-12 text-tertiary mb-4" />
+            <IconCheckCircle className="size-12 text-tertiary mb-4" />
             <h3 className="text-lg font-semibold mb-1">Your inbox is empty</h3>
             <p className="text-sm text-secondary max-w-md">
                 PostHog automatically analyzes user sessions and surfaces actionable reports here. Reports will appear
