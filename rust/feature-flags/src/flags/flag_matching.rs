@@ -1009,20 +1009,12 @@ impl FeatureFlagMatcher {
             use crate::flags::flag_models::BucketingIdentifier;
 
             if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
-                if let Some(device_id) = &self.device_id {
-                    if !device_id.is_empty() {
-                        with_canonical_log(|log| log.flags_device_id_bucketing += 1);
-                    } else {
-                        with_canonical_log(|log| {
-                            tracing::warn!(
-                                flag_key = %flag.key,
-                                team_id = %flag.team_id,
-                                lib = log.lib,
-                                lib_version = log.lib_version.as_deref(),
-                                "Flag configured for device_id bucketing but no device_id provided, falling back to distinct_id"
-                            );
-                        });
-                    }
+                if self
+                    .device_id
+                    .as_ref()
+                    .is_some_and(|device_id| !device_id.is_empty())
+                {
+                    with_canonical_log(|log| log.flags_device_id_bucketing += 1);
                 } else {
                     with_canonical_log(|log| {
                         tracing::warn!(
@@ -1030,8 +1022,15 @@ impl FeatureFlagMatcher {
                             team_id = %flag.team_id,
                             lib = log.lib,
                             lib_version = log.lib_version.as_deref(),
-                            "Flag configured for device_id bucketing but no device_id provided, falling back to distinct_id"
+                            "Flag configured for device_id bucketing but no device_id provided, returning false"
                         );
+                    });
+                    return Ok(FeatureFlagMatch {
+                        matches: false,
+                        variant: None,
+                        reason: FeatureFlagMatchReason::OutOfRolloutBound,
+                        condition_index: None,
+                        payload: None,
                     });
                 }
             }
