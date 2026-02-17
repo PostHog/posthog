@@ -157,7 +157,6 @@ def _query_new_records(
         SELECT *
         FROM {table_name}
         WHERE {where_sql}
-        ORDER BY {config.partition_field} DESC
         LIMIT {config.max_records}
     """
     parsed = parse_select(query, placeholders=placeholders) if placeholders else parse_select(query)
