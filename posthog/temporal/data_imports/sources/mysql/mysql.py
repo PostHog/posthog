@@ -91,10 +91,10 @@ def _sanitize_identifier(identifier: str) -> str:
             return f"`{identifier}`"
 
         if identifier.startswith("$") or (len(identifier) > 0 and identifier[0].isdigit()):
-            if not identifier[1:].replace(".", "").replace("_", "").replace("-", "").isidentifier():
+            if not identifier[1:].replace(".", "").replace("_", "").replace("-", "").replace("@", "").isidentifier():
                 raise ValueError(f"Invalid SQL identifier: {identifier}")
 
-    if not identifier.replace(".", "").replace("_", "").replace("-", "").replace("$", "").isalnum():
+    if not identifier.replace(".", "").replace("_", "").replace("-", "").replace("$", "").replace("@", "").isalnum():
         raise ValueError(f"Invalid SQL identifier: {identifier}")
 
     return f"`{identifier}`"

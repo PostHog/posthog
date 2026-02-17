@@ -7,6 +7,7 @@ import { LemonBadge, LemonButton, LemonCheckbox, LemonDropdown, LemonTable, Lemo
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
+import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -249,7 +250,7 @@ export function SupportTicketsScene(): JSX.Element {
                                             'font-medium': ticket.unread_team_count > 0,
                                         })}
                                     >
-                                        {ticket.last_message_text}
+                                        {stripMarkdown(ticket.last_message_text)}
                                     </span>
                                 ) : (
                                     <span className="text-muted-alt text-xs">—</span>

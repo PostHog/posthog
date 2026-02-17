@@ -375,6 +375,8 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
     /** TTL in milliseconds for the in-memory session filter cache */
     SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
+    /** Rate (0.0–1.0) at which to verify encrypt→decrypt round-trip integrity during ingestion */
+    SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: number
 
     // Kafka consumer config (overrides hardcoded defaults when set)
     INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
