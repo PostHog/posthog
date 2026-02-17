@@ -147,7 +147,7 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
             }
         },
         updateSchemaEnforcementMode: async ({ mode }) => {
-            if (values.eventSchemas.length === 0) {
+            if (values.eventSchemas.length === 0 && mode === SchemaEnforcementMode.Reject) {
                 lemonToast.info('Add a property group first to enable schema enforcement')
                 return
             }
