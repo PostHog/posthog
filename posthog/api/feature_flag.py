@@ -2088,36 +2088,37 @@ class FeatureFlagViewSet(
             team_id = sample_flag.team_id
             project_id = sample_flag.team.project_id
 
-            if flags_to_delete_normal:
-                normal_ids = [f.id for f in flags_to_delete_normal]
-                FeatureFlag.objects.filter(id__in=normal_ids, team_id=team_id).update(
-                    deleted=True,
-                    last_modified_by=current_user,
-                    updated_at=now_timestamp,
-                )
-
-            # Flags with soft-deleted experiments need key rename - handled individually
-            # since each has a unique new key
-            if flags_to_delete_with_rename:
-                for flag in flags_to_delete_with_rename:
-                    FeatureFlag.objects.filter(id=flag.id, team_id=team_id).update(
+            with transaction.atomic():
+                if flags_to_delete_normal:
+                    normal_ids = [f.id for f in flags_to_delete_normal]
+                    FeatureFlag.objects.filter(id__in=normal_ids, team_id=team_id).update(
                         deleted=True,
                         last_modified_by=current_user,
                         updated_at=now_timestamp,
-                        key=f"{flag.key}:deleted:{flag.id}",
                     )
 
-            if activity_log_entries:
-                bulk_log_activity(activity_log_entries)
+                # Flags with soft-deleted experiments need key rename - handled individually
+                # since each has a unique new key
+                if flags_to_delete_with_rename:
+                    for flag in flags_to_delete_with_rename:
+                        FeatureFlag.objects.filter(id=flag.id, team_id=team_id).update(
+                            deleted=True,
+                            last_modified_by=current_user,
+                            updated_at=now_timestamp,
+                            key=f"{flag.key}:deleted:{flag.id}",
+                        )
 
-            # Cache invalidation - same work the signals would do, but once instead of N times
-            def invalidate_caches():
-                set_feature_flags_for_team_in_cache(project_id)
-                update_team_service_flags_cache.delay(team_id)
-                update_team_flags_cache.delay(team_id)
-                update_team_remote_config.delay(team_id)
+                if activity_log_entries:
+                    bulk_log_activity(activity_log_entries)
 
-            transaction.on_commit(invalidate_caches)
+                # Cache invalidation - same work the signals would do, but once instead of N times
+                def invalidate_caches():
+                    set_feature_flags_for_team_in_cache(project_id)
+                    update_team_service_flags_cache.delay(team_id)
+                    update_team_flags_cache.delay(team_id)
+                    update_team_remote_config.delay(team_id)
+
+                transaction.on_commit(invalidate_caches)
 
         return Response(
             {
