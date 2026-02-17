@@ -54,20 +54,17 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
         hogFlow,
         team,
         personId,
-        distinctId,
         defaultVariables,
     }: {
         parentRunId: string
         hogFlow: HogFlow
         team: Team
         personId: string
-        distinctId: string
         defaultVariables: Record<string, any>
     }): CyclotronJobInvocation {
         const invocationGlobals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
             team: team,
             personId: personId,
-            distinctId: distinctId,
             siteUrl: this.hub.SITE_URL,
         })
 
@@ -145,13 +142,12 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
             )
 
             // Create invocations for this batch of persons
-            const batchInvocations = blastRadiusPersons.users_affected.map(({ person_id, distinct_id }) =>
+            const batchInvocations = blastRadiusPersons.users_affected.map((personId) =>
                 this.createHogFlowInvocation({
                     parentRunId: batchHogFlowRequest.parentRunId,
                     hogFlow,
                     team,
-                    personId: person_id,
-                    distinctId: distinct_id,
+                    personId,
                     defaultVariables,
                 })
             )

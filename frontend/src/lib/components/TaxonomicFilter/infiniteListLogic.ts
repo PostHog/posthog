@@ -256,9 +256,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             null as string | null,
             {
                 setSearchQuery: (_, { searchQuery }) => {
-                    if (props.taxonomicGroupTypes?.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
-                        return null
-                    }
                     if (props.listGroupType === TaxonomicFilterGroupType.EventProperties && isURL(searchQuery)) {
                         return '$current_url'
                     }
@@ -404,25 +401,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return createEmptyListStorage()
             },
         ],
-        topMatchForQuery: [
-            (s) => [s.localItems, s.remoteItems, s.swappedInQuery, s.searchQuery, s.group],
-            (localItems, remoteItems, swappedInQuery, searchQuery, group): TaxonomicDefinitionTypes | undefined => {
+        topMatchesForQuery: [
+            (s) => [s.localItems, s.remoteItems, s.swappedInQuery, s.searchQuery, s.hasRemoteDataSource],
+            (localItems, remoteItems, swappedInQuery, searchQuery, hasRemoteDataSource): TaxonomicDefinitionTypes[] => {
                 if (!searchQuery) {
-                    return undefined
+                    return []
                 }
                 const remoteIsFresh = remoteItems.searchQuery === (swappedInQuery || searchQuery)
-                const results = remoteIsFresh ? [...localItems.results, ...remoteItems.results] : localItems.results
-
-                // Find the first non-disabled item that has a valid value
-                return results.find((item) => {
-                    // Skip disabled items
-                    if (group?.getIsDisabled?.(item)) {
-                        return false
-                    }
-                    // If getValue is not defined, return the first non-disabled item
-                    // If getValue is defined, return the first item with a non-null value
-                    return !group?.getValue ? true : group.getValue(item) != null
-                })
+                const results = hasRemoteDataSource ? (remoteIsFresh ? remoteItems.results : []) : localItems.results
+                return results.slice(0, 3)
             },
         ],
         items: [
@@ -484,10 +471,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
             } else {
-                // For local items, dispatch results received so parent logic can process them
-                actions.infiniteListResultsReceived(props.listGroupType, values.localItems)
                 if (props.autoSelectItem) {
                     actions.setIndex(0)
+                }
+                if (props.listGroupType !== TaxonomicFilterGroupType.SuggestedFilters) {
+                    actions.infiniteListResultsReceived(props.listGroupType, values.localItems)
                 }
             }
         },
@@ -498,12 +486,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
-            } else {
-                // For local items, dispatch results received so parent logic can process them
-                actions.infiniteListResultsReceived(props.listGroupType, values.localItems)
-                if (props.autoSelectItem) {
-                    actions.setIndex(0)
-                }
+            } else if (props.autoSelectItem) {
+                actions.setIndex(0)
             }
         },
         moveUp: () => {
@@ -524,12 +508,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                 if (!isDisabledItem) {
                     const itemValue = selectedItem ? itemGroup?.getValue?.(selectedItem) : null
-                    const isPromotedItem = itemGroup?.type !== props.listGroupType
+                    const isTopMatchItem =
+                        values.listGroupType === TaxonomicFilterGroupType.SuggestedFilters &&
+                        itemGroup.type !== values.listGroupType
                     actions.selectItem(
                         itemGroup,
                         itemValue ?? null,
                         selectedItem,
-                        isPromotedItem || values.swappedInQuery ? values.searchQuery : undefined
+                        isTopMatchItem ? undefined : values.swappedInQuery ? values.searchQuery : undefined
                     )
                 }
             }

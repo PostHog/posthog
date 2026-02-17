@@ -97,12 +97,10 @@ export function convertToHogFunctionInvocationGlobals(
 export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
     team,
     personId,
-    distinctId,
     siteUrl,
 }: {
     team: Team
     personId: string
-    distinctId: string
     siteUrl: string
 }): HogFunctionInvocationGlobals {
     const projectUrl = `${siteUrl}/project/${team.id}`
@@ -111,7 +109,7 @@ export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
         id: personId,
         properties: {},
         name: '',
-        url: `${projectUrl}/person/${encodeURIComponent(distinctId)}`,
+        url: `${projectUrl}/person/${encodeURIComponent(personId)}`,
     }
 
     const context: HogFunctionInvocationGlobals = {
@@ -124,7 +122,7 @@ export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
             event: '$batch_hog_flow_invocation',
             properties: {},
             uuid: new UUIDT().toString(),
-            distinct_id: distinctId,
+            distinct_id: '', // Not applicable for batch processing but left here for compatibility
             elements_chain: '',
             timestamp: DateTime.now().toISO(),
             url: '',

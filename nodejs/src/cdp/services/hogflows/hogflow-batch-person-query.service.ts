@@ -10,10 +10,7 @@ export interface BlastRadiusResponse {
 }
 
 export interface BlastRadiusPersonsResponse {
-    users_affected: Array<{
-        distinct_id: string
-        person_id: string
-    }>
+    users_affected: Array<string>
     cursor: string | null
     has_more: boolean
 }
