@@ -209,7 +209,8 @@ export const filterNotAuthorizedUrls = (
             const parsedUrl = sanitizePossibleWildCardedURL(url)
             urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
         } catch {
-            urlWithoutPath = url
+            // Skip invalid URLs (e.g., "/" or "/billing" paths without a domain)
+            return
         }
         // Have we already added this domain?
         if (suggestedDomains.some((sd) => sd.url === urlWithoutPath)) {

@@ -103,7 +103,7 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
 
             {/* Content area */}
             <Tabs.Panel
-                className="h-full grow flex flex-col gap-2 relative -outline-offset-1 outline-blue-800 focus-visible:rounded-md overflow-hidden"
+                className="h-full grow flex flex-col gap-2 relative -outline-offset-1 outline-blue-800 focus-visible:rounded-md overflow-hidden bg-surface-primary"
                 value={activeTab}
             >
                 {children}

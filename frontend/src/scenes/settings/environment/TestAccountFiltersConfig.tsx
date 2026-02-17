@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
@@ -148,27 +148,5 @@ function TestAccountFiltersConfig(): JSX.Element {
 }
 
 export function ProjectAccountFiltersSetting(): JSX.Element {
-    return (
-        <>
-            <p>
-                These filters apply only to queries when the toggle is enabled. Adding filters here does not prevent
-                events or recordings being ingested.{' '}
-                <Link to="https://posthog.com/tutorials/filter-internal-users">Learn more in our docs</Link>.
-            </p>
-            <div className="mt-4">
-                <strong>Example filters</strong>
-                <ul className="list-disc pl-4 mb-2">
-                    <li>
-                        Add a cohort where "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to
-                        exclude your team.
-                    </li>
-                    <li>
-                        Add "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude local
-                        environments.
-                    </li>
-                </ul>
-            </div>
-            <TestAccountFiltersConfig />
-        </>
-    )
+    return <TestAccountFiltersConfig />
 }

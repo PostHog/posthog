@@ -5,10 +5,12 @@ import { sanitizeEvent } from '~/utils/event'
 import { IncomingEvent, PipelineEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { drop, ok } from '../pipelines/results'
+import { dlq, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-function parseKafkaMessage(message: Message): IncomingEvent | null {
+type ParseResult = { event: IncomingEvent } | { error: Error }
+
+function parseKafkaMessage(message: Message): ParseResult {
     try {
         // Parse the message payload into the event object
         const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
@@ -17,10 +19,10 @@ function parseKafkaMessage(message: Message): IncomingEvent | null {
         // personInitialAndUTMProperties) happens after transformations in normalizeEventStep.
         const event: PipelineEvent = sanitizeEvent(combinedEvent)
 
-        return { event }
+        return { event: { event } }
     } catch (error) {
         logger.warn('Failed to parse Kafka message', { error })
-        return null
+        return { error: error instanceof Error ? error : new Error(String(error)) }
     }
 }
 
@@ -31,11 +33,11 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
     return async function parseKafkaMessageStep(input) {
         const { message } = input
 
-        const parsedEvent = parseKafkaMessage(message)
-        if (!parsedEvent) {
-            return Promise.resolve(drop('failed_parse_message'))
+        const result = parseKafkaMessage(message)
+        if ('error' in result) {
+            return Promise.resolve(dlq('failed_parse_message', result.error))
         }
 
-        return Promise.resolve(ok({ ...input, event: parsedEvent }))
+        return Promise.resolve(ok({ ...input, event: result.event }))
     }
 }

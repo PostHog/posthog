@@ -28,6 +28,7 @@ from .activities.get_task_processing_context import (
     get_task_processing_context,
 )
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
+from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .activities.start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
 from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .activities.update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
@@ -171,6 +172,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         finally:
             if sandbox_id:
+                await self._read_sandbox_logs(sandbox_id)
                 await self._cleanup_sandbox(sandbox_id)
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
@@ -197,6 +199,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+    async def _read_sandbox_logs(self, sandbox_id: str) -> None:
+        try:
+            logs = await workflow.execute_activity(
+                read_sandbox_logs,
+                ReadSandboxLogsInput(sandbox_id=sandbox_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            if logs:
+                workflow.logger.info(f"Agent-server logs from sandbox {sandbox_id}:\n{logs}")
+        except Exception as e:
+            workflow.logger.warning(f"Failed to read sandbox logs: {e}")
 
     async def _start_agent_server(self, sandbox_id: str) -> StartAgentServerOutput:
         return await workflow.execute_activity(

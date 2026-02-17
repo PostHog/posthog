@@ -258,7 +258,7 @@ const createJiraIssueForm = (
     integration: IntegrationType,
     onSubmit: onSubmitFormType
 ): void => {
-    const posthogUrl = urls.errorTrackingIssue(issue.id)
+    const posthogUrl = window.location.origin + window.location.pathname
     const description = issue.description + '\n\n' + `PostHog issue: ${posthogUrl}`
 
     LemonDialog.openForm({

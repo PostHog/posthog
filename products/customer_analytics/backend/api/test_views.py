@@ -225,7 +225,7 @@ class TestCustomerJourneyViewSet(APIBaseTest):
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
 
-        journey = CustomerJourney.objects.get(id=data["id"])
+        journey = CustomerJourney.objects.get(id=data["id"])  # nosemgrep: semgrep.rules.idor-lookup-without-team
         self.assertEqual(journey.created_by, self.user)
         self.assertEqual(journey.team, self.team)
 
@@ -279,7 +279,9 @@ class TestCustomerJourneyViewSet(APIBaseTest):
         response = self.client.delete(f"{self.endpoint_base}{journey.id}/")
 
         self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
-        self.assertFalse(CustomerJourney.objects.filter(id=journey_id).exists())
+        self.assertFalse(
+            CustomerJourney.objects.filter(id=journey_id).exists()  # nosemgrep: semgrep.rules.idor-lookup-without-team
+        )
 
     @parameterized.expand(
         [

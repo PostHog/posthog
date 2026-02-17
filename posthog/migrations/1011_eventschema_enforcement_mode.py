@@ -1,9 +1,12 @@
 # Generated migration for schema enforcement_mode field
 
+from django.contrib.postgres.operations import AddIndexConcurrently
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
         ("posthog", "1010_hogflowtemplate_org_scope"),
     ]
@@ -18,7 +21,7 @@ class Migration(migrations.Migration):
                 max_length=10,
             ),
         ),
-        migrations.AddIndex(
+        AddIndexConcurrently(
             model_name="eventdefinition",
             index=models.Index(
                 fields=["team_id"],

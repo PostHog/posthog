@@ -1,7 +1,7 @@
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
-import { matchAuthServerRedirect } from '@/lib/routing'
+import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
@@ -105,7 +105,7 @@ const handleRequest = async (
     const redirect = matchAuthServerRedirect(url.pathname)
     if (redirect) {
         const authServer = getAuthorizationServerUrl(effectiveRegion)
-        const redirectTo = `${authServer}${url.pathname}${url.search}`
+        const redirectTo = buildRedirectUrl(authServer, url.pathname, url.search, redirect)
 
         log.extend({ redirectTo })
         return Response.redirect(redirectTo, redirect.status)
@@ -178,14 +178,6 @@ const handleRequest = async (
                 status: 401,
                 headers: { 'WWW-Authenticate': `Bearer resource_metadata="${metadataUrl.toString()}"` },
             }
-        )
-    }
-
-    if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
-        log.extend({ authError: 'invalid_token_format' })
-        return new Response(
-            `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
-            { status: 401 }
         )
     }
 
