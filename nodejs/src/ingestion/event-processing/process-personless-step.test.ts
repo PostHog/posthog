@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { createTestPerson } from '../../../tests/helpers/person'
 import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
 import { createTestTeam } from '../../../tests/helpers/team'
 import { Person } from '../../types'
@@ -12,12 +13,7 @@ jest.mock('../../worker/ingestion/event-pipeline/processPersonlessStep')
 
 const mockProcessPersonlessStep = jest.mocked(processPersonlessStepModule.processPersonlessStep)
 
-const fakePerson: Person = {
-    team_id: 1,
-    properties: {},
-    uuid: 'fake-person-uuid',
-    created_at: DateTime.utc(1970, 1, 1, 0, 0, 5),
-}
+const fakePerson = createTestPerson()
 
 const createTestInput = (overrides: Record<string, unknown> = {}) => ({
     normalizedEvent: createTestPluginEvent(),

@@ -13,7 +13,6 @@ import {
 } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResult, isOkResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
@@ -25,7 +24,7 @@ export interface EventPipelineRunnerInput {
     headers: EventHeaders
     groupStoreForBatch: GroupStoreForBatch
     processPerson: boolean
-    personlessPerson?: Person
+    person: Person
 }
 
 export type EventPipelineRunnerStepResult = EventPipelineResult & {
@@ -37,8 +36,7 @@ export function createEventPipelineRunnerV1Step(
     config: EventPipelineRunnerOptions,
     kafkaProducer: KafkaProducerWrapper,
     teamManager: TeamManager,
-    groupTypeManager: GroupTypeManager,
-    personsStore: PersonsStore
+    groupTypeManager: GroupTypeManager
 ): ProcessingStep<EventPipelineRunnerInput, EventPipelineRunnerStepResult> {
     return async function eventPipelineRunnerV1Step(
         input: EventPipelineRunnerInput
@@ -51,7 +49,7 @@ export function createEventPipelineRunnerV1Step(
             message: inputMessage,
             groupStoreForBatch,
             processPerson,
-            personlessPerson,
+            person,
         } = input
 
         const runner = new EventPipelineRunner(
@@ -60,11 +58,10 @@ export function createEventPipelineRunnerV1Step(
             teamManager,
             groupTypeManager,
             normalizedEvent,
-            personsStore,
             groupStoreForBatch,
             inputHeaders
         )
-        const result = await runner.runEventPipeline(normalizedEvent, timestamp, team, processPerson, personlessPerson)
+        const result = await runner.runEventPipeline(normalizedEvent, timestamp, team, processPerson, person)
 
         if (isOkResult(result)) {
             const stepResult: EventPipelineRunnerStepResult = {

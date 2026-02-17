@@ -8,7 +8,6 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
 
-import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { KAFKA_GROUPS } from '~/config/kafka-topics'
@@ -22,7 +21,7 @@ import { PersonsStore } from '~/worker/ingestion/persons/persons-store'
 import { createCreateEventStep } from '../../src/ingestion/event-processing/create-event-step'
 import { createEmitEventStep } from '../../src/ingestion/event-processing/emit-event-step'
 import { isOkResult } from '../../src/ingestion/pipelines/results'
-import { ClickHouseEvent, Hub, Person, PluginsServerConfig, Team } from '../../src/types'
+import { Hub, Person, PluginsServerConfig, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
@@ -32,6 +31,7 @@ import { fetchDistinctIdValues, fetchPersons } from '../../src/worker/ingestion/
 import { createTestEventHeaders } from '../helpers/event-headers'
 import { resetKafka } from '../helpers/kafka'
 import { createTestMessage } from '../helpers/kafka-message'
+import { createTestPerson } from '../helpers/person'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/logger')
@@ -83,7 +83,6 @@ const TEST_CONFIG: Partial<PluginsServerConfig> = {
 describe('processEvent', () => {
     let team: Team
     let hub: Hub
-    let personRepository: PostgresPersonRepository
     let now = DateTime.utc()
 
     async function processEvent(
@@ -118,6 +117,8 @@ describe('processEvent', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
+        const person = createTestPerson({ team_id: teamId })
+
         const runner = new EventPipelineRunner(
             {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -134,12 +135,10 @@ describe('processEvent', () => {
             hub.teamManager,
             hub.groupTypeManager,
             normalizedEvent,
-            personsStoreForBatch,
             groupStoreForBatch
         )
-        const res = await runner.runEventPipeline(normalizedEvent, eventTimestamp, team)
+        const res = await runner.runEventPipeline(normalizedEvent, eventTimestamp, team, true, person)
         if (isOkResult(res)) {
-            // Create the event
             const createEventStep = createCreateEventStep()
             const { person, preparedEvent, processPerson, historicalMigration } = res.value
             const createResult = await createEventStep({
@@ -152,7 +151,6 @@ describe('processEvent', () => {
             })
 
             if (isOkResult(createResult)) {
-                // Use emit event step to emit the event
                 const emitEventStep = createEmitEventStep({
                     kafkaProducer: hub.kafkaProducer,
                     clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
@@ -160,7 +158,6 @@ describe('processEvent', () => {
                 })
                 const emitResult = await emitEventStep(createResult.value)
 
-                // Handle side effects using side effect handling pipeline
                 if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
                     await Promise.allSettled(emitResult.sideEffects)
                 }
@@ -170,12 +167,6 @@ describe('processEvent', () => {
         }
         await groupStoreForBatch.flush()
     }
-
-    // Simple client used to simulate sending events
-    // Use state object to simulate stateful clients that keep track of old
-    // distinct id, starting with an anonymous one. I've taken posthog-js as
-    // the reference implementation.
-    let state = { currentDistinctId: 'anonymous_id' }
 
     let mockProducerObserver: KafkaProducerObserver
 
@@ -189,8 +180,6 @@ describe('processEvent', () => {
         hub = await createHub({ ...TEST_CONFIG })
         mockProducerObserver = new KafkaProducerObserver(hub.kafkaProducer)
         mockProducerObserver.resetKafkaProducer()
-
-        personRepository = new PostgresPersonRepository(hub.postgres)
 
         team = await getFirstTeam(hub)
         now = DateTime.utc()
@@ -208,9 +197,6 @@ describe('processEvent', () => {
         const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
         await redis.del(hooksCacheKey)
         await redis.quit()
-
-        // Always start with an anonymous state
-        state = { currentDistinctId: 'anonymous_id' }
     })
 
     afterEach(async () => {
@@ -223,133 +209,6 @@ describe('processEvent', () => {
             .map((x) => parseRawClickHouseEvent(x.value as any))
 
         return events
-    }
-
-    type EventsByPerson = [string[], string[]]
-
-    const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => {
-        // Helper function to retrieve events paired with their associated distinct
-        // ids
-        const persons = await fetchPersons(hub.postgres)
-        const events = getEventsFromKafka()
-
-        return await Promise.all(
-            persons
-                .sort((p1, p2) => p1.created_at.diff(p2.created_at).toMillis())
-                .map(async (person) => {
-                    const distinctIds = await fetchDistinctIdValues(hub.postgres, person)
-
-                    return [
-                        distinctIds,
-                        (events as ClickHouseEvent[])
-                            .filter((event) => distinctIds.includes(event.distinct_id))
-                            .sort((e1, e2) => e1.timestamp.diff(e2.timestamp).toMillis())
-                            .map((event) => event.event),
-                    ] as EventsByPerson
-                })
-        )
-    }
-
-    const capture = async (
-        hub: Hub,
-        eventName: string,
-        properties: any = {},
-        personRepository?: PostgresPersonRepository
-    ) => {
-        const normalizedEvent = {
-            event: eventName,
-            distinct_id: properties.distinct_id ?? state.currentDistinctId,
-            properties: { ...properties, $ip: '127.0.0.1' },
-            now: new Date().toISOString(),
-            sent_at: new Date().toISOString(),
-            ip: null,
-            site_url: 'https://posthog.com',
-            team_id: team.id,
-            uuid: new UUIDT().toString(),
-        }
-        const eventTimestamp = DateTime.fromISO(normalizedEvent.now, { zone: 'utc' })
-        const personsStoreForBatch = new BatchWritingPersonsStore(
-            personRepository || new PostgresPersonRepository(hub.postgres),
-            hub.kafkaProducer
-        )
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
-            hub.kafkaProducer,
-            hub.groupRepository,
-            hub.clickhouseGroupRepository
-        )
-        const runner = new EventPipelineRunner(
-            {
-                SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
-                TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
-                PIPELINE_STEP_STALLED_LOG_TIMEOUT: hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
-                PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
-                PERSON_MERGE_ASYNC_ENABLED: hub.PERSON_MERGE_ASYNC_ENABLED,
-                PERSON_MERGE_ASYNC_TOPIC: hub.PERSON_MERGE_ASYNC_TOPIC,
-                PERSON_MERGE_SYNC_BATCH_SIZE: hub.PERSON_MERGE_SYNC_BATCH_SIZE,
-                PERSON_JSONB_SIZE_ESTIMATE_ENABLE: hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
-                PERSON_PROPERTIES_UPDATE_ALL: hub.PERSON_PROPERTIES_UPDATE_ALL,
-            },
-            hub.kafkaProducer,
-            hub.teamManager,
-            hub.groupTypeManager,
-            normalizedEvent,
-            personsStoreForBatch,
-            groupStoreForBatch
-        )
-        const res = await runner.runEventPipeline(normalizedEvent, eventTimestamp, team)
-        if (isOkResult(res)) {
-            // Create the event
-            const createEventStep = createCreateEventStep()
-            const { person, preparedEvent, processPerson, historicalMigration } = res.value
-            const createResult = await createEventStep({
-                person,
-                preparedEvent,
-                processPerson,
-                historicalMigration,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: createTestMessage(),
-            })
-
-            if (isOkResult(createResult)) {
-                // Use emit event step to emit the event
-                const emitEventStep = createEmitEventStep({
-                    kafkaProducer: hub.kafkaProducer,
-                    clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                    groupId: 'test-group-id',
-                })
-                const emitResult = await emitEventStep(createResult.value)
-
-                // Handle side effects using side effect handling pipeline
-                if (isOkResult(emitResult) && emitResult.sideEffects.length > 0) {
-                    await Promise.allSettled(emitResult.sideEffects)
-                }
-            }
-
-            await flushPersonStoreToKafka(hub, personsStoreForBatch, res.sideEffects ?? [])
-        }
-        await groupStoreForBatch.flush()
-    }
-
-    const identify = async (hub: Hub, distinctId: string, personRepository?: PostgresPersonRepository) => {
-        // Update currentDistinctId state immediately, as the event will be
-        // dispatch asynchronously
-        const currentDistinctId = state.currentDistinctId
-        state.currentDistinctId = distinctId
-        await capture(
-            hub,
-            '$identify',
-            {
-                // posthog-js will send the previous distinct id as
-                // $anon_distinct_id
-                $anon_distinct_id: currentDistinctId,
-                distinct_id: distinctId,
-            },
-            personRepository
-        )
-    }
-
-    const alias = async (hub: Hub, alias: string, distinctId: string) => {
-        await capture(hub, '$create_alias', { alias, disinct_id: distinctId })
     }
 
     test('ip none', async () => {
@@ -396,196 +255,6 @@ describe('processEvent', () => {
 
         const [event] = getEventsFromKafka()
         expect(event.properties['$ip']).not.toBeTruthy()
-    })
-
-    test('merge_dangerously', async () => {
-        await createPerson(hub, team, ['old_distinct_id'])
-
-        await processEvent(
-            'new_distinct_id',
-            '',
-            '',
-            {
-                event: '$merge_dangerously',
-                properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-
-        expect(await fetchDistinctIdValues(hub.postgres, (await fetchPersons(hub.postgres))[0])).toEqual([
-            'old_distinct_id',
-            'new_distinct_id',
-        ])
-    })
-
-    test('alias', async () => {
-        await createPerson(hub, team, ['old_distinct_id'])
-
-        await processEvent(
-            'new_distinct_id',
-            '',
-            '',
-            {
-                event: '$create_alias',
-                properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-
-        expect(await fetchDistinctIdValues(hub.postgres, (await fetchPersons(hub.postgres))[0])).toEqual([
-            'old_distinct_id',
-            'new_distinct_id',
-        ])
-    })
-
-    test('alias reverse', async () => {
-        await createPerson(hub, team, ['old_distinct_id'])
-
-        await processEvent(
-            'old_distinct_id',
-            '',
-            '',
-            {
-                event: '$create_alias',
-                properties: { distinct_id: 'old_distinct_id', token: team.api_token, alias: 'new_distinct_id' },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-
-        expect(await fetchDistinctIdValues(hub.postgres, (await fetchPersons(hub.postgres))[0])).toEqual([
-            'old_distinct_id',
-            'new_distinct_id',
-        ])
-    })
-
-    test('alias twice', async () => {
-        await createPerson(hub, team, ['old_distinct_id'])
-
-        await processEvent(
-            'new_distinct_id',
-            '',
-            '',
-            {
-                event: '$create_alias',
-                properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-
-        expect((await fetchPersons(hub.postgres)).length).toBe(1)
-        expect(await fetchDistinctIdValues(hub.postgres, (await fetchPersons(hub.postgres))[0])).toEqual([
-            'old_distinct_id',
-            'new_distinct_id',
-        ])
-
-        await createPerson(hub, team, ['old_distinct_id_2'])
-        expect((await fetchPersons(hub.postgres)).length).toBe(2)
-
-        await processEvent(
-            'new_distinct_id',
-            '',
-            '',
-            {
-                event: '$create_alias',
-                properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id_2' },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-        expect((await fetchPersons(hub.postgres)).length).toBe(1)
-        expect(await fetchDistinctIdValues(hub.postgres, (await fetchPersons(hub.postgres))[0])).toEqual([
-            'old_distinct_id',
-            'new_distinct_id',
-            'old_distinct_id_2',
-        ])
-    })
-
-    test('alias before person', async () => {
-        await processEvent(
-            'new_distinct_id',
-            '',
-            '',
-            {
-                event: '$create_alias',
-                properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-
-        expect((await fetchPersons(hub.postgres)).length).toBe(1)
-        const distinctIds = await fetchDistinctIdValues(hub.postgres, (await fetchPersons(hub.postgres))[0])
-        expect(distinctIds).toEqual(expect.arrayContaining(['new_distinct_id', 'old_distinct_id']))
-        expect(distinctIds).toHaveLength(2)
-    })
-
-    test('alias both existing', async () => {
-        await createPerson(hub, team, ['old_distinct_id'])
-        await createPerson(hub, team, ['new_distinct_id'])
-
-        await processEvent(
-            'new_distinct_id',
-            '',
-            '',
-            {
-                event: '$create_alias',
-                properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-
-        expect(await fetchDistinctIdValues(hub.postgres, (await fetchPersons(hub.postgres))[0])).toEqual([
-            'old_distinct_id',
-            'new_distinct_id',
-        ])
-    })
-
-    test('alias merge properties', async () => {
-        await createPerson(hub, team, ['new_distinct_id'], {
-            key_on_both: 'new value both',
-            key_on_new: 'new value',
-        })
-        await createPerson(hub, team, ['old_distinct_id'], {
-            key_on_both: 'old value both',
-            key_on_old: 'old value',
-        })
-
-        await processEvent(
-            'new_distinct_id',
-            '',
-            '',
-            {
-                event: '$create_alias',
-                properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-
-        expect((await fetchPersons(hub.postgres)).length).toBe(1)
-        const [person] = await fetchPersons(hub.postgres)
-        expect((await fetchDistinctIdValues(hub.postgres, person)).sort()).toEqual([
-            'new_distinct_id',
-            'old_distinct_id',
-        ])
-        expect(person.properties).toEqual({
-            key_on_both: 'new value both',
-            key_on_new: 'new value',
-            key_on_old: 'old value',
-        })
     })
 
     test('long htext', async () => {
@@ -665,114 +334,6 @@ describe('processEvent', () => {
         expect(elements.length).toEqual(1)
     })
 
-    test('identify with illegal (generic) id', async () => {
-        await createPerson(hub, team, ['im an anonymous id'])
-        expect((await fetchPersons(hub.postgres)).length).toBe(1)
-
-        const createPersonAndSendIdentify = async (distinctId: string): Promise<void> => {
-            await createPerson(hub, team, [distinctId])
-
-            await processEvent(
-                distinctId,
-                '',
-                '',
-                {
-                    event: '$identify',
-                    properties: {
-                        token: team.api_token,
-                        distinct_id: distinctId,
-                        $anon_distinct_id: 'im an anonymous id',
-                    },
-                } as any as PluginEvent,
-                team.id,
-                now,
-                new UUIDT().toString()
-            )
-        }
-
-        // try to merge, the merge should fail
-        await createPersonAndSendIdentify('distinctId')
-        expect((await fetchPersons(hub.postgres)).length).toBe(2)
-
-        await createPersonAndSendIdentify('  ')
-        expect((await fetchPersons(hub.postgres)).length).toBe(3)
-
-        await createPersonAndSendIdentify('NaN')
-        expect((await fetchPersons(hub.postgres)).length).toBe(4)
-
-        await createPersonAndSendIdentify('undefined')
-        expect((await fetchPersons(hub.postgres)).length).toBe(5)
-
-        await createPersonAndSendIdentify('None')
-        expect((await fetchPersons(hub.postgres)).length).toBe(6)
-
-        await createPersonAndSendIdentify('0')
-        expect((await fetchPersons(hub.postgres)).length).toBe(7)
-
-        // 'Nan' is an allowed id, so the merge should work
-        // as such, no extra person is created
-        await createPersonAndSendIdentify('Nan')
-        expect((await fetchPersons(hub.postgres)).length).toBe(7)
-    })
-
-    test('Alias with illegal (generic) id', async () => {
-        const legal_id = 'user123'
-        const illegal_id = 'null'
-        await createPerson(hub, team, [legal_id])
-        expect((await fetchPersons(hub.postgres)).length).toBe(1)
-
-        await processEvent(
-            illegal_id,
-            '',
-            '',
-            {
-                event: '$create_alias',
-                properties: {
-                    token: team.api_token,
-                    distinct_id: legal_id,
-                    alias: illegal_id,
-                },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-        // person with illegal id got created but not merged
-        expect((await fetchPersons(hub.postgres)).length).toBe(2)
-    })
-
-    // This case is likely to happen after signup, for example:
-    // 1. User browses website with anonymous_id
-    // 2. User signs up, triggers event with their new_distinct_id (creating a new Person)
-    // 3. In the frontend, try to alias anonymous_id with new_distinct_id
-    // Result should be that we end up with one Person with both ID's
-    test('distinct with anonymous_id which was already created', async () => {
-        await createPerson(hub, team, ['anonymous_id'])
-        await createPerson(hub, team, ['new_distinct_id'], { email: 'someone@gmail.com' })
-
-        await processEvent(
-            'new_distinct_id',
-            '',
-            '',
-            {
-                event: '$identify',
-                properties: {
-                    $anon_distinct_id: 'anonymous_id',
-                    token: team.api_token,
-                    distinct_id: 'new_distinct_id',
-                },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-
-        const [person] = await fetchPersons(hub.postgres)
-        expect(await fetchDistinctIdValues(hub.postgres, person)).toEqual(['anonymous_id', 'new_distinct_id'])
-        expect(person.properties['email']).toEqual('someone@gmail.com')
-        expect(person.is_identified).toEqual(true)
-    })
-
     test('identify with the same distinct_id as anon_distinct_id', async () => {
         await createPerson(hub, team, ['anonymous_id'])
 
@@ -796,63 +357,6 @@ describe('processEvent', () => {
         const [person] = await fetchPersons(hub.postgres)
         expect(await fetchDistinctIdValues(hub.postgres, person)).toEqual(['anonymous_id'])
         expect(person.is_identified).toEqual(false)
-    })
-
-    test('distinct with multiple anonymous_ids which were already created', async () => {
-        await createPerson(hub, team, ['anonymous_id'])
-        await createPerson(hub, team, ['new_distinct_id'], { email: 'someone@gmail.com' })
-
-        await processEvent(
-            'new_distinct_id',
-            '',
-            '',
-            {
-                event: '$identify',
-                properties: {
-                    $anon_distinct_id: 'anonymous_id',
-                    token: team.api_token,
-                    distinct_id: 'new_distinct_id',
-                },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-
-        const persons1 = await fetchPersons(hub.postgres)
-        expect(persons1.length).toBe(1)
-        expect(await fetchDistinctIdValues(hub.postgres, persons1[0])).toEqual(['anonymous_id', 'new_distinct_id'])
-        expect(persons1[0].properties['email']).toEqual('someone@gmail.com')
-        expect(persons1[0].is_identified).toEqual(true)
-
-        await createPerson(hub, team, ['anonymous_id_2'])
-
-        await processEvent(
-            'new_distinct_id',
-            '',
-            '',
-            {
-                event: '$identify',
-                properties: {
-                    $anon_distinct_id: 'anonymous_id_2',
-                    token: team.api_token,
-                    distinct_id: 'new_distinct_id',
-                },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-
-        const persons2 = await fetchPersons(hub.postgres)
-        expect(persons2.length).toBe(1)
-        expect(await fetchDistinctIdValues(hub.postgres, persons2[0])).toEqual([
-            'anonymous_id',
-            'new_distinct_id',
-            'anonymous_id_2',
-        ])
-        expect(persons2[0].properties['email']).toEqual('someone@gmail.com')
-        expect(persons2[0].is_identified).toEqual(true)
     })
 
     test('distinct team leakage', async () => {
@@ -894,301 +398,6 @@ describe('processEvent', () => {
         expect(distinctIdsForPerson1).toHaveLength(2)
         expect(people[0].team_id).toEqual(team2.id)
         expect(await fetchDistinctIdValues(hub.postgres, people[0])).toEqual(['2'])
-    })
-
-    describe('when handling $identify', () => {
-        test('we do not alias users if distinct id changes but we are already identified', async () => {
-            // This test is in reference to
-            // https://github.com/PostHog/posthog/issues/5527 , where we were
-            // correctly identifying that an anonymous user before login should be
-            // aliased to the user they subsequently login as, but incorrectly
-            // aliasing on subsequent $identify events. The anonymous case is
-            // special as we want to alias to a known user, but otherwise we
-            // shouldn't be doing so.
-
-            const anonymousId = 'anonymous_id'
-            const initialDistinctId = 'initial_distinct_id'
-
-            const p2DistinctId = 'p2_distinct_id'
-            const p2NewDistinctId = 'new_distinct_id'
-
-            // Play out a sequence of events that should result in two users being
-            // identified, with the first to events associated with one user, and
-            // the third with another.
-            await capture(hub, 'event 1')
-            await identify(hub, initialDistinctId)
-            await capture(hub, 'event 2')
-
-            state.currentDistinctId = p2DistinctId
-            await capture(hub, 'event 3')
-            await identify(hub, p2NewDistinctId)
-            await capture(hub, 'event 4')
-
-            // Let's also make sure that we do not alias when switching back to
-            // initialDistictId
-            await identify(hub, initialDistinctId)
-
-            // Get pairins of person distinctIds and the events associated with them
-            const eventsByPerson = await getEventsByPerson(hub)
-
-            expect(eventsByPerson).toEqual([
-                [
-                    [anonymousId, initialDistinctId],
-                    ['event 1', '$identify', 'event 2', '$identify'],
-                ],
-                [
-                    [p2DistinctId, p2NewDistinctId],
-                    ['event 3', '$identify', 'event 4'],
-                ],
-            ])
-
-            // Make sure the persons are identified
-            const persons = await fetchPersons(hub.postgres)
-            expect(persons.map((person) => person.is_identified)).toEqual([true, true])
-        })
-
-        test('we do not alias users if distinct id changes but we are already identified, with no anonymous event', async () => {
-            // This test is in reference to
-            // https://github.com/PostHog/posthog/issues/5527 , where we were
-            // correctly identifying that an anonymous user before login should be
-            // aliased to the user they subsequently login as, but incorrectly
-            // aliasing on subsequent $identify events. The anonymous case is
-            // special as we want to alias to a known user, but otherwise we
-            // shouldn't be doing so. This test is similar to the previous one,
-            // except it does not include an initial anonymous event.
-
-            const anonymousId = 'anonymous_id'
-            const initialDistinctId = 'initial_distinct_id'
-
-            const p2DistinctId = 'p2_distinct_id'
-            const p2NewDistinctId = 'new_distinct_id'
-
-            // Play out a sequence of events that should result in two users being
-            // identified, with the first to events associated with one user, and
-            // the third with another.
-            await identify(hub, initialDistinctId)
-            await capture(hub, 'event 2')
-
-            state.currentDistinctId = p2DistinctId
-            await capture(hub, 'event 3')
-            await identify(hub, p2NewDistinctId)
-            await capture(hub, 'event 4')
-
-            // Let's also make sure that we do not alias when switching back to
-            // initialDistictId
-            await identify(hub, initialDistinctId)
-
-            // Get pairins of person distinctIds and the events associated with them
-            const eventsByPerson = await getEventsByPerson(hub)
-
-            expect(eventsByPerson).toHaveLength(2)
-            expect(eventsByPerson[0][0]).toEqual(expect.arrayContaining([initialDistinctId, anonymousId]))
-            expect(eventsByPerson[0][0]).toHaveLength(2)
-            expect(eventsByPerson[0][1]).toEqual(['$identify', 'event 2', '$identify'])
-            expect(eventsByPerson[1][0]).toEqual(expect.arrayContaining([p2DistinctId, p2NewDistinctId]))
-            expect(eventsByPerson[1][0]).toHaveLength(2)
-            expect(eventsByPerson[1][1]).toEqual(['event 3', '$identify', 'event 4'])
-
-            // Make sure the persons are identified
-            const persons = await fetchPersons(hub.postgres)
-            expect(persons.map((person) => person.is_identified)).toEqual([true, true])
-        })
-
-        test('we do not leave things in inconsistent state if $identify is run concurrently', async () => {
-            // There are a few places where we have the pattern of:
-            //
-            //  1. fetch from postgres
-            //  2. check rows match condition
-            //  3. perform update
-            //
-            // This test is designed to check the specific case where, in
-            // handling we are creating an unidentified user, then updating this
-            // user to have is_identified = true. Since we are using the
-            // is_identified to decide on if we will merge persons, we want to
-            // make sure we guard against this race condition. The scenario is:
-            //
-            //  1. initiate identify for 'distinct-id'
-            //  2. once person for distinct-id has been created, initiate
-            //     identify for 'new-distinct-id'
-            //  3. check that the persons remain distinct
-
-            // Check the db is empty to start with
-            expect(await fetchPersons(hub.postgres)).toEqual([])
-
-            const anonymousId = 'anonymous_id'
-            const initialDistinctId = 'initial-distinct-id'
-            const newDistinctId = 'new-distinct-id'
-
-            state.currentDistinctId = newDistinctId
-            await capture(hub, 'some event')
-            state.currentDistinctId = anonymousId
-
-            // Hook into createPerson, which is as of writing called from
-            // alias. Here we simply call identify again and wait on it
-            // completing before continuing with the first identify.
-            const originalCreatePerson = personRepository.createPerson.bind(personRepository)
-            const createPersonMock = jest.fn(async (...args) => {
-                // We need to slice off the txn arg, or else we conflict with the `identify` below.
-                // @ts-expect-error because TS is crazy, this is valid
-                const result = await originalCreatePerson(...args.slice(0, -1))
-
-                if (createPersonMock.mock.calls.length === 1) {
-                    // On second invocation, make another identify call
-                    await identify(hub, newDistinctId, personRepository)
-                }
-
-                return result
-            })
-            personRepository.createPerson = createPersonMock
-
-            // set the first identify going
-            await identify(hub, initialDistinctId, personRepository)
-
-            // Let's first just make sure `updatePerson` was called, as a way of
-            // checking that our mocking was actually invoked
-            expect(personRepository.createPerson).toHaveBeenCalled()
-
-            // Now make sure that we have one person in the db that has been
-            // identified
-            const persons = await fetchPersons(hub.postgres)
-            expect(persons.length).toEqual(2)
-            expect(persons.map((person) => person.is_identified)).toEqual([true, true])
-        })
-    })
-
-    describe('when handling $create_alias', () => {
-        test('we can alias an identified person to an identified person', async () => {
-            const anonymousId = 'anonymous_id'
-            const identifiedId1 = 'identified_id1'
-            const identifiedId2 = 'identified_id2'
-
-            // anonymous_id -> identified_id1
-            await identify(hub, identifiedId1)
-
-            state.currentDistinctId = identifiedId1
-            await capture(hub, 'some event')
-
-            await identify(hub, identifiedId2)
-
-            await alias(hub, identifiedId1, identifiedId2)
-
-            // Get pairings of person distinctIds and the events associated with them
-            const eventsByPerson = await getEventsByPerson(hub)
-
-            // There should just be one person, to which all events are associated
-            expect(eventsByPerson).toEqual([
-                [
-                    expect.arrayContaining([anonymousId, identifiedId1, identifiedId2]),
-                    ['$identify', 'some event', '$identify', '$create_alias'],
-                ],
-            ])
-
-            // Make sure there is one identified person
-            const persons = await fetchPersons(hub.postgres)
-            expect(persons.map((person) => person.is_identified)).toEqual([true])
-        })
-
-        test('we can alias an anonymous person to an identified person', async () => {
-            const anonymousId = 'anonymous_id'
-            const initialDistinctId = 'initial_distinct_id'
-
-            // Identify one person, then become anonymous
-            await identify(hub, initialDistinctId)
-            state.currentDistinctId = anonymousId
-            await capture(hub, 'anonymous event')
-
-            // Then try to alias them
-            await alias(hub, anonymousId, initialDistinctId)
-
-            // Get pairings of person distinctIds and the events associated with them
-            const eventsByPerson = await getEventsByPerson(hub)
-
-            // There should just be one person, to which all events are associated
-            expect(eventsByPerson).toHaveLength(1)
-            expect(eventsByPerson[0][0]).toEqual(expect.arrayContaining([initialDistinctId, anonymousId]))
-            expect(eventsByPerson[0][0]).toHaveLength(2)
-            expect(eventsByPerson[0][1]).toEqual(['$identify', 'anonymous event', '$create_alias'])
-
-            // Make sure there is one identified person
-            const persons = await fetchPersons(hub.postgres)
-            expect(persons.map((person) => person.is_identified)).toEqual([true])
-        })
-
-        test('we can alias an identified person to an anonymous person', async () => {
-            const anonymousId = 'anonymous_id'
-            const initialDistinctId = 'initial_distinct_id'
-
-            // Identify one person, then become anonymous
-            await identify(hub, initialDistinctId)
-            state.currentDistinctId = anonymousId
-            await capture(hub, 'anonymous event')
-
-            // Then try to alias them
-            await alias(hub, initialDistinctId, anonymousId)
-
-            // Get pairings of person distinctIds and the events associated with them
-            const eventsByPerson = await getEventsByPerson(hub)
-
-            // There should just be one person, to which all events are associated
-            expect(eventsByPerson).toHaveLength(1)
-            expect(eventsByPerson[0][0]).toEqual(expect.arrayContaining([initialDistinctId, anonymousId]))
-            expect(eventsByPerson[0][0]).toHaveLength(2)
-            expect(eventsByPerson[0][1]).toEqual(['$identify', 'anonymous event', '$create_alias'])
-
-            // Make sure there is one identified person
-            const persons = await fetchPersons(hub.postgres)
-            expect(persons.map((person) => person.is_identified)).toEqual([true])
-        })
-
-        test('we can alias an anonymous person to an anonymous person', async () => {
-            const anonymous1 = 'anonymous-1'
-            const anonymous2 = 'anonymous-2'
-
-            // Identify one person, then become anonymous
-            state.currentDistinctId = anonymous1
-            await capture(hub, 'anonymous event 1')
-            state.currentDistinctId = anonymous2
-            await capture(hub, 'anonymous event 2')
-
-            // Then try to alias them
-            await alias(hub, anonymous1, anonymous2)
-
-            // Get pairings of person distinctIds and the events associated with them
-            const eventsByPerson = await getEventsByPerson(hub)
-
-            // There should just be one person, to which all events are associated
-            expect(eventsByPerson).toEqual([
-                [
-                    [anonymous1, anonymous2],
-                    ['anonymous event 1', 'anonymous event 2', '$create_alias'],
-                ],
-            ])
-
-            // Make sure there is one identified person
-            const persons = await fetchPersons(hub.postgres)
-            expect(persons.map((person) => person.is_identified)).toEqual([true])
-        })
-
-        test('we can alias two non-existent persons', async () => {
-            const anonymous1 = 'anonymous-1'
-            const anonymous2 = 'anonymous-2'
-
-            // Then try to alias them
-            state.currentDistinctId = anonymous1
-            await alias(hub, anonymous2, anonymous1)
-
-            // Get pairings of person distinctIds and the events associated with them
-            const eventsByPerson = await getEventsByPerson(hub)
-
-            // There should just be one person, to which all events are associated
-            expect(eventsByPerson).toHaveLength(1)
-            expect(eventsByPerson[0][0]).toEqual(expect.arrayContaining([anonymous1, anonymous2]))
-            expect(eventsByPerson[0][0]).toHaveLength(2)
-            expect(eventsByPerson[0][1]).toEqual(['$create_alias'])
-
-            const persons = await fetchPersons(hub.postgres)
-            expect(persons.map((person) => person.is_identified)).toEqual([true])
-        })
     })
 
     test('event name object json', async () => {
@@ -1309,135 +518,6 @@ describe('processEvent', () => {
         })
     })
 
-    test('person and group properties on events', async () => {
-        await createPerson(hub, team, ['distinct_id1'], { pineapple: 'on', pizza: 1 })
-
-        await processEvent(
-            'distinct_id1',
-            '',
-            '',
-            {
-                event: '$groupidentify',
-                properties: {
-                    token: team.api_token,
-                    distinct_id: 'distinct_id1',
-                    $group_type: 'organization',
-                    $group_key: 'org:5',
-                    $group_set: {
-                        foo: 'bar',
-                    },
-                },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-        await processEvent(
-            'distinct_id1',
-            '',
-            '',
-            {
-                event: '$groupidentify',
-                properties: {
-                    token: team.api_token,
-                    distinct_id: 'distinct_id1',
-                    $group_type: 'second',
-                    $group_key: 'second_key',
-                    $group_set: {
-                        pineapple: 'yummy',
-                    },
-                },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-        await processEvent(
-            'distinct_id1',
-            '',
-            '',
-            {
-                event: 'test event',
-                properties: {
-                    token: team.api_token,
-                    distinct_id: 'distinct_id1',
-                    $set: { new: 5 },
-                    $group_0: 'org:5',
-                    $group_1: 'second_key',
-                },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-
-        const events = getEventsFromKafka()
-        const event = [...events].find((e: any) => e['event'] === 'test event')
-        expect(event?.person_properties).toEqual({ pineapple: 'on', pizza: 1, new: 5 })
-        expect(event?.properties.$group_0).toEqual('org:5')
-        expect(event?.properties.$group_1).toEqual('second_key')
-        expect(event?.group0_properties).toEqual({}) // We stopped writing these to the event as queries don't use them
-        expect(event?.group1_properties).toEqual({}) // We stopped writing these to the event as queries don't use them
-    })
-
-    test('set and set_once on the same key', async () => {
-        await createPerson(hub, team, ['distinct_id1'])
-
-        await processEvent(
-            'distinct_id1',
-            '',
-            '',
-            {
-                event: 'some_event',
-                properties: {
-                    token: team.api_token,
-                    distinct_id: 'distinct_id1',
-                    $set: { a_prop: 'test-set' },
-                    $set_once: { a_prop: 'test-set_once' },
-                },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-
-        const [event] = getEventsFromKafka()
-        expect(event.properties['$set']).toEqual({ a_prop: 'test-set' })
-        expect(event.properties['$set_once']).toEqual({ a_prop: 'test-set_once' })
-
-        const [person] = await fetchPersons(hub.postgres)
-        expect(await fetchDistinctIdValues(hub.postgres, person)).toEqual(['distinct_id1'])
-        expect(person.properties).toEqual({ a_prop: 'test-set' })
-    })
-
-    test('$unset person property', async () => {
-        await createPerson(hub, team, ['distinct_id1'], { a: 1, b: 2, c: 3 })
-
-        await processEvent(
-            'distinct_id1',
-            '',
-            '',
-            {
-                event: 'some_event',
-                properties: {
-                    token: team.api_token,
-                    distinct_id: 'distinct_id1',
-                    $unset: ['a', 'c'],
-                },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-
-        const [event] = getEventsFromKafka()
-        expect(event.properties['$unset']).toEqual(['a', 'c'])
-
-        const [person] = await fetchPersons(hub.postgres)
-        expect(await fetchDistinctIdValues(hub.postgres, person)).toEqual(['distinct_id1'])
-        expect(person.properties).toEqual({ b: 2 })
-    })
-
     test('$unset person empty set ignored', async () => {
         await createPerson(hub, team, ['distinct_id1'], { a: 1, b: 2, c: 3 })
 
@@ -1464,85 +544,5 @@ describe('processEvent', () => {
         const [person] = await fetchPersons(hub.postgres)
         expect(await fetchDistinctIdValues(hub.postgres, person)).toEqual(['distinct_id1'])
         expect(person.properties).toEqual({ a: 1, b: 2, c: 3 })
-    })
-
-    describe('ingestion in any order', () => {
-        const ts0: DateTime = now
-        const ts1: DateTime = now.plus({ minutes: 1 })
-        const ts2: DateTime = now.plus({ minutes: 2 })
-        const ts3: DateTime = now.plus({ minutes: 3 })
-        // key encodes when the value is updated, e.g. s0 means only set call for the 0th event
-        // s03o23 means via a set in events number 0 and 3 plus via set_once on 2nd and 3rd event
-        // the value corresponds to which call updated it + random letter (same letter for the same key)
-        // the letter is for verifying we update the right key only
-        const set0: Properties = { s0123o0123: 's0a', s02o13: 's0b', s013: 's0e' }
-        const setOnce0: Properties = { s0123o0123: 'o0a', s13o02: 'o0g', o023: 'o0f' }
-        const set1: Properties = { s0123o0123: 's1a', s13o02: 's1g', s1: 's1c', s013: 's1e' }
-        const setOnce1: Properties = { s0123o0123: 'o1a', s02o13: 'o1b', o1: 'o1d' }
-        const set2: Properties = { s0123o0123: 's2a', s02o13: 's2b' }
-        const setOnce2: Properties = { s0123o0123: 'o2a', s13o02: 'o2g', o023: 'o2f' }
-        const set3: Properties = { s0123o0123: 's3a', s13o02: 's3g', s013: 's3e' }
-        const setOnce3: Properties = { s0123o0123: 'o3a', s02o13: 'o3b', o023: 'o3f' }
-
-        beforeEach(async () => {
-            await createPerson(hub, team, ['distinct_id1'])
-        })
-
-        async function verifyPersonPropertiesSetCorrectly() {
-            const [person] = await fetchPersons(hub.postgres)
-            expect(await fetchDistinctIdValues(hub.postgres, person)).toEqual(['distinct_id1'])
-            expect(person.properties).toEqual({
-                s0123o0123: 's3a',
-                s02o13: 's2b',
-                s1: 's1c',
-                o1: 'o1d',
-                s013: 's3e',
-                o023: 'o0f',
-                s13o02: 's3g',
-            })
-            expect(person.version).toEqual(4)
-        }
-
-        async function runProcessEvent(set: Properties, setOnce: Properties, ts: DateTime) {
-            await processEvent(
-                'distinct_id1',
-                '',
-                '',
-                {
-                    event: 'some_event',
-                    properties: {
-                        $set: set,
-                        $set_once: setOnce,
-                    },
-                } as any as PluginEvent,
-                team.id,
-                ts,
-                new UUIDT().toString()
-            )
-        }
-
-        async function ingest0() {
-            await runProcessEvent(set0, setOnce0, ts0)
-        }
-
-        async function ingest1() {
-            await runProcessEvent(set1, setOnce1, ts1)
-        }
-
-        async function ingest2() {
-            await runProcessEvent(set2, setOnce2, ts2)
-        }
-
-        async function ingest3() {
-            await runProcessEvent(set3, setOnce3, ts3)
-        }
-
-        test('ingestion in order', async () => {
-            await ingest0()
-            await ingest1()
-            await ingest2()
-            await ingest3()
-            await verifyPersonPropertiesSetCorrectly()
-        })
     })
 })

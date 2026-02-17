@@ -3,19 +3,9 @@ import { v4 } from 'uuid'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import {
-    PipelineResult,
-    PipelineResultType,
-    dlq,
-    isDlqResult,
-    isOkResult,
-    isRedirectResult,
-    ok,
-    redirect,
-} from '~/ingestion/pipelines/results'
+import { PipelineResult, isOkResult } from '~/ingestion/pipelines/results'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
-import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
 import { ISOTimestamp, Person, PipelineEvent, PreIngestionEvent, ProjectId, Team } from '../../../../src/types'
@@ -23,12 +13,8 @@ import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { parseJSON } from '../../../../src/utils/json-parse'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
-import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner, EventPipelineRunnerOptions } from '../../../../src/worker/ingestion/event-pipeline/runner'
-import { PersonMergeLimitExceededError } from '../../../../src/worker/ingestion/persons/person-merge-types'
-import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 
-jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
 
 class TestEventPipelineRunner extends EventPipelineRunner {
@@ -156,7 +142,6 @@ const person: Person = {
 describe('EventPipelineRunner', () => {
     let runner: TestEventPipelineRunner
     let hub: any
-    let personsStoreForBatch: BatchWritingPersonsStore
     let groupStoreForBatch: BatchWritingGroupStoreForBatch
 
     const mockProducer: jest.Mocked<KafkaProducerWrapper> = {
@@ -191,10 +176,6 @@ describe('EventPipelineRunner', () => {
             PERSON_PROPERTIES_UPDATE_ALL: false,
         }
 
-        personsStoreForBatch = new BatchWritingPersonsStore(
-            new PostgresPersonRepository(hub.postgres),
-            hub.kafkaProducer
-        )
         groupStoreForBatch = new BatchWritingGroupStoreForBatch(
             hub.kafkaProducer,
             hub.groupRepository,
@@ -217,38 +198,30 @@ describe('EventPipelineRunner', () => {
             hub.teamManager,
             hub.groupTypeManager,
             pluginEvent,
-            personsStoreForBatch,
             groupStoreForBatch,
             undefined // headers
         )
 
-        jest.mocked(processPersonsStep).mockResolvedValue(
-            ok([
-                pluginEvent,
-                { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
-                Promise.resolve(),
-            ])
-        )
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
     })
 
     describe('runEventPipeline()', () => {
         it('runs steps', async () => {
-            await runner.runEventPipeline(pluginEvent, eventTimestamp, team)
+            await runner.runEventPipeline(pluginEvent, eventTimestamp, team, true, person)
 
-            expect(runner.steps).toEqual(['processPersonsStep', 'prepareEventStep'])
+            expect(runner.steps).toEqual(['prepareEventStep'])
             expect(forSnapshot(runner.stepsWithArgs)).toMatchSnapshot()
         })
 
         it('emits metrics for every step', async () => {
             const pipelineStepMsSummarySpy = jest.spyOn(metrics.pipelineStepMsSummary, 'labels')
             const pipelineStepErrorCounterSpy = jest.spyOn(metrics.pipelineStepErrorCounter, 'labels')
-            const result = await runner.runEventPipeline(pluginEvent, eventTimestamp, team)
+            const result = await runner.runEventPipeline(pluginEvent, eventTimestamp, team, true, person)
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 expect(result.value.error).toBeUndefined()
             }
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(2)
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(1)
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
@@ -262,43 +235,11 @@ describe('EventPipelineRunner', () => {
 
                 jest.mocked(prepareEventStep).mockRejectedValue(error)
 
-                await runner.runEventPipeline(pluginEvent, eventTimestamp, team)
+                await runner.runEventPipeline(pluginEvent, eventTimestamp, team, true, person)
 
                 expect(pipelineStepMsSummarySpy).not.toHaveBeenCalledWith('prepareEventStep')
                 expect(pipelineLastStepCounterSpy).not.toHaveBeenCalled()
                 expect(pipelineStepErrorCounterSpy).toHaveBeenCalledWith('prepareEventStep')
-            })
-
-            it('emits DLQ when merge limit is exceeded during processPersonsStep', async () => {
-                // Make processPersonsStep return a DLQ result instead of throwing
-                jest.mocked(processPersonsStep).mockResolvedValueOnce(
-                    dlq('Merge limit exceeded', new PersonMergeLimitExceededError('person_merge_move_limit_hit'))
-                )
-
-                const result = await runner.runEventPipeline(pluginEvent, eventTimestamp, team)
-
-                // Verify that the pipeline returned a DLQ result
-                expect(result.type).toBe(PipelineResultType.DLQ)
-                if (isDlqResult(result)) {
-                    expect(result.reason).toBe('Merge limit exceeded')
-                    expect(result.error).toBeInstanceOf(PersonMergeLimitExceededError)
-                }
-            })
-
-            it('redirects event when merge limit is exceeded in async mode during processPersonsStep', async () => {
-                // Make processPersonsStep return a redirect result
-                jest.mocked(processPersonsStep).mockResolvedValueOnce(
-                    redirect('Event redirected to async merge topic', 'async-merge-topic')
-                )
-
-                const result = await runner.runEventPipeline(pluginEvent, eventTimestamp, team)
-
-                // Verify that the pipeline returned a redirect result
-                expect(result.type).toBe(PipelineResultType.REDIRECT)
-                if (isRedirectResult(result)) {
-                    expect(result.reason).toBe('Event redirected to async merge topic')
-                    expect(result.topic).toBe('async-merge-topic')
-                }
             })
         })
 
@@ -320,10 +261,6 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new BatchWritingPersonsStore(
-                    new PostgresPersonRepository(hub.postgres),
-                    hub.kafkaProducer
-                )
                 const heatmapGroupStoreForBatch = new BatchWritingGroupStoreForBatch(
                     hub.kafkaProducer,
                     hub.groupRepository,
@@ -346,7 +283,6 @@ describe('EventPipelineRunner', () => {
                     hub.teamManager,
                     hub.groupTypeManager,
                     heatmapEvent,
-                    personsStore,
                     heatmapGroupStoreForBatch,
                     undefined // headers
                 )
@@ -370,36 +306,18 @@ describe('EventPipelineRunner', () => {
         })
     })
 
-    describe('EventPipelineRunner with personlessPerson', () => {
+    describe('EventPipelineRunner with person from pipeline', () => {
         beforeEach(() => {
-            jest.mocked(processPersonsStep).mockResolvedValue(
-                ok([
-                    pluginEvent,
-                    { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
-                    Promise.resolve(),
-                ])
-            )
             jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
         })
 
-        it('skips processPersonsStep when personlessPerson is provided without force_upgrade', async () => {
-            await runner.runEventPipeline(pluginEvent, eventTimestamp, team, false, person)
+        it('passes person through to the result', async () => {
+            const result = await runner.runEventPipeline(pluginEvent, eventTimestamp, team, true, person)
 
-            expect(processPersonsStep).not.toHaveBeenCalled()
-        })
-
-        it('calls processPersonsStep when personlessPerson has force_upgrade', async () => {
-            const personWithForceUpgrade = { ...person, force_upgrade: true }
-
-            await runner.runEventPipeline(pluginEvent, eventTimestamp, team, false, personWithForceUpgrade)
-
-            expect(processPersonsStep).toHaveBeenCalledTimes(1)
-        })
-
-        it('calls processPersonsStep when no personlessPerson is provided', async () => {
-            await runner.runEventPipeline(pluginEvent, eventTimestamp, team)
-
-            expect(processPersonsStep).toHaveBeenCalledTimes(1)
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                expect(result.value.person).toBe(person)
+            }
         })
     })
 })
