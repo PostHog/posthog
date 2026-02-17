@@ -1,5 +1,6 @@
+import { IconTrash } from '@posthog/icons'
+
 import { dayjs } from 'lib/dayjs'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
 interface RecordingDeletedProps {
@@ -7,18 +8,17 @@ interface RecordingDeletedProps {
 }
 
 export function RecordingDeleted({ deletedAt }: RecordingDeletedProps): JSX.Element {
-    const deletedAtFormatted = deletedAt ? humanFriendlyDetailedTime(dayjs.unix(deletedAt)) : null
-
     return (
-        <div className="flex flex-col items-center justify-center p-8 text-center">
-            <h1 className="text-2xl font-bold mb-4">Recording permanently deleted</h1>
-            <p className="text-muted mb-6 max-w-md">
-                This recording has been permanently deleted and cannot be recovered.
-            </p>
-            {deletedAtFormatted && (
-                <LemonBanner type="info" className="max-w-md">
-                    <p>Deleted {deletedAtFormatted}</p>
-                </LemonBanner>
+        <div className="flex flex-col items-center justify-center p-8 text-center text-wrap-balance max-w-lg mx-auto">
+            <div className="w-16 h-16 rounded-full bg-border-bold/10 flex items-center justify-center mb-4">
+                <IconTrash className="text-muted-3000 w-8 h-8" />
+            </div>
+            <h2 className="text-xl font-bold mb-2">Recording permanently deleted</h2>
+            <p className="text-muted mb-0">This recording has been permanently deleted and cannot be recovered.</p>
+            {deletedAt && (
+                <p className="text-muted-3000 text-xs mt-2 mb-0">
+                    Deleted {humanFriendlyDetailedTime(dayjs.unix(deletedAt))}
+                </p>
             )}
         </div>
     )
