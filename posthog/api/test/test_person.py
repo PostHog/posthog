@@ -1371,7 +1371,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Verify: PG distinct_id version was bumped
         pg_distinct_id = PersonDistinctId.objects.get(team_id=self.team.pk, distinct_id="distinct_id")
-        assert pg_distinct_id.version > 107
+        assert (pg_distinct_id.version or 0) > 107
 
         # Verify: CH distinct_id is reset
         ch_pdi = sync_execute(

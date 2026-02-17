@@ -117,7 +117,7 @@ def _get_person_version_if_deleted(team_id: int, person_uuid: str) -> Optional[i
         """,
         {"team_id": team_id, "person_id": person_uuid},
     )
-    if len(rows) == 0 or rows[0][0] is None:
+    if len(rows) == 0:
         return None
     max_version, is_deleted = rows[0]
     if not is_deleted:
@@ -136,7 +136,7 @@ def _reset_person_in_clickhouse(team_id: int, person: Person, db_alias: str) -> 
 
     # Update Postgres version so future updates from the plugin-server
     # (which reads version from Postgres) won't be ignored by ClickHouse
-    Person.objects.using(db_alias).filter(pk=person.pk).update(version=new_version)
+    Person.objects.using(db_alias).filter(pk=person.pk, version__lt=new_version).update(version=new_version)
 
     create_person(
         uuid=person_uuid,
