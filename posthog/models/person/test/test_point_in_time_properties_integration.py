@@ -114,6 +114,7 @@ class TestPointInTimePropertiesIntegration(TestCase):
         """
         Demonstrate how $set_once operations work compared to regular $set operations.
         """
+
         # Scenario: A user has both $set and $set_once events
         # $set_once should only set properties that haven't been set before
         # ClickHouse toJSONString() returns double-encoded JSON
@@ -175,7 +176,7 @@ class TestPointInTimePropertiesIntegration(TestCase):
 
         # Test the final state
         final_timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties = build_person_properties_at_time(1, final_timestamp, distinct_id="bob123", include_set_once=True)
+        properties = build_person_properties_at_time(1, final_timestamp, ["bob123"], include_set_once=True)
 
         expected = {
             "first_seen": "2023-01-01",

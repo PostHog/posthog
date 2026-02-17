@@ -12,44 +12,29 @@ from typing import Any, Optional, Union
 from posthog.clickhouse.client import sync_execute
 
 
-def build_person_properties_at_time(
+def get_distinct_ids_for_person_identifier(
     team_id: int,
-    timestamp: datetime,
     distinct_id: Optional[str] = None,
     person_id: Optional[Union[str, int]] = None,
-    include_set_once: bool = False,
-    timeout: Optional[int] = 30,
-) -> dict[str, Any]:
+) -> list[str]:
     """
-    Build person properties as they existed at a specific point in time.
-
-    This method queries ClickHouse events to find all person property updates
-    up to the given timestamp and reconstructs the final person properties state.
-    When person_id is provided, it considers events from ALL distinct_ids associated
-    with that person.
+    Helper function to get all distinct_ids for a person based on either distinct_id or person_id.
 
     Args:
-        team_id: The team ID to filter events by
-        timestamp: The point in time to build properties at (events after this are ignored)
-        distinct_id: The distinct_id to build properties for (mutually exclusive with person_id)
-        person_id: The person_id to build properties for, considers all distinct_ids (mutually exclusive with distinct_id)
-        include_set_once: If True, also handles $set_once operations (default: False)
-        timeout: Query timeout in seconds (default: 30)
+        team_id: The team ID
+        distinct_id: A distinct_id belonging to the person (mutually exclusive with person_id)
+        person_id: The person_id (UUID) to get distinct_ids for (mutually exclusive with distinct_id)
 
     Returns:
-        Dictionary of person properties as they existed at the specified time
+        List of distinct_ids associated with the person
 
     Raises:
         ValueError: If parameters are invalid or both distinct_id and person_id are provided
-        Exception: If ClickHouse query fails
+        Exception: If person lookup fails
     """
+    from posthog.models.person import Person, PersonDistinctId
+
     # Validation
-    if not isinstance(team_id, int) or team_id <= 0:
-        raise ValueError("team_id must be a positive integer")
-
-    if not isinstance(timestamp, datetime):
-        raise ValueError("timestamp must be a datetime object")
-
     if distinct_id is not None and person_id is not None:
         raise ValueError("Cannot provide both distinct_id and person_id - choose one")
 
@@ -62,41 +47,66 @@ def build_person_properties_at_time(
     if person_id is not None and not person_id:
         raise ValueError("person_id must be a non-empty value")
 
-    # Get distinct_ids to query
-    distinct_ids_to_query = []
+    try:
+        if distinct_id is not None:
+            # Get the person that this distinct_id belongs to
+            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=distinct_id)
+        else:
+            # Get the person by UUID
+            person = Person.objects.get(team_id=team_id, uuid=str(person_id))
 
-    if distinct_id is not None:
-        # Simple case - query for single distinct_id
-        distinct_ids_to_query = [distinct_id]
-    else:
-        # Complex case - get all distinct_ids for this person
-        from posthog.models.person import Person, PersonDistinctId
+        # Now get ALL distinct_ids for this person
+        distinct_id_objects = PersonDistinctId.objects.filter(team_id=team_id, person=person).values_list(
+            "distinct_id", flat=True
+        )
+        return list(distinct_id_objects)
 
-        try:
-            # First get the Person object (handle both integer ID and UUID)
-            try:
-                # Try as integer first (primary key)
-                person_id_int = int(person_id)
-                person = Person.objects.get(team_id=team_id, id=person_id_int)
-            except (ValueError, TypeError):
-                # If not integer, try as UUID
-                person = Person.objects.get(team_id=team_id, uuid=person_id)
+    except Person.DoesNotExist:
+        # Person not found - return empty list
+        return []
+    except Exception as e:
+        raise Exception(f"Failed to query person distinct_ids: {str(e)}") from e
 
-            # Now get all distinct_ids for this person
-            distinct_id_objects = PersonDistinctId.objects.filter(team_id=team_id, person=person).values_list(
-                "distinct_id", flat=True
-            )
-            distinct_ids_to_query = list(distinct_id_objects)
 
-            if not distinct_ids_to_query:
-                # No distinct_ids found for this person - return empty properties
-                return {}
+def build_person_properties_at_time(
+    team_id: int,
+    timestamp: datetime,
+    distinct_ids: list[str],
+    include_set_once: bool = False,
+    timeout: Optional[int] = 30,
+) -> dict[str, Any]:
+    """
+    Build person properties as they existed at a specific point in time.
 
-        except Person.DoesNotExist:
-            # Person not found - return empty properties
-            return {}
-        except Exception as e:
-            raise Exception(f"Failed to query person distinct_ids: {str(e)}") from e
+    This method queries ClickHouse events to find all person property updates
+    up to the given timestamp and reconstructs the final person properties state.
+
+    Args:
+        team_id: The team ID to filter events by
+        timestamp: The point in time to build properties at (events after this are ignored)
+        distinct_ids: List of distinct_ids to query for person properties
+        include_set_once: If True, also handles $set_once operations (default: False)
+        timeout: Query timeout in seconds (default: 30)
+
+    Returns:
+        Dictionary of person properties as they existed at the specified time
+
+    Raises:
+        ValueError: If parameters are invalid
+        Exception: If ClickHouse query fails
+    """
+    # Validation
+    if not isinstance(team_id, int) or team_id <= 0:
+        raise ValueError("team_id must be a positive integer")
+
+    if not isinstance(timestamp, datetime):
+        raise ValueError("timestamp must be a datetime object")
+
+    if not isinstance(distinct_ids, list) or not distinct_ids:
+        raise ValueError("distinct_ids must be a non-empty list")
+
+    if not all(isinstance(did, str) and did for did in distinct_ids):
+        raise ValueError("All distinct_ids must be non-empty strings")
 
     # Build the ClickHouse query for all distinct_ids
     if include_set_once:
@@ -134,7 +144,7 @@ def build_person_properties_at_time(
 
     params = {
         "team_id": team_id,
-        "distinct_ids": distinct_ids_to_query,
+        "distinct_ids": distinct_ids,
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
     }
 

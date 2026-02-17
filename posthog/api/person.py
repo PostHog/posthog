@@ -1107,7 +1107,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         - include_set_once: Whether to handle $set_once operations (default: false)
         - debug: Whether to include debug information with raw events (default: false)
         """
-        from posthog.models.person.point_in_time_properties import build_person_properties_at_time
+        from posthog.models.person.point_in_time_properties import (
+            build_person_properties_at_time,
+            get_distinct_ids_for_person_identifier,
+        )
 
         distinct_id = request.GET.get("distinct_id")
         person_id = request.GET.get("person_id")
@@ -1153,20 +1156,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            # Get the current person object
-            try:
-                if distinct_id:
-                    person = Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
-                else:
-                    # Handle both integer person_id and UUID person_id
-                    try:
-                        # Try as integer first (primary key)
-                        person_id_int = int(person_id)
-                        person = Person.objects.get(team_id=self.team_id, id=person_id_int)
-                    except (ValueError, TypeError):
-                        # If not integer, try as UUID
-                        person = Person.objects.get(team_id=self.team_id, uuid=person_id)
-            except Person.DoesNotExist:
+            # Get all distinct_ids for the person
+            distinct_ids_queried = get_distinct_ids_for_person_identifier(
+                team_id=self.team_id,
+                distinct_id=distinct_id,
+                person_id=person_id,
+            )
+
+            if not distinct_ids_queried:
                 identifier = distinct_id or person_id
                 identifier_type = "distinct_id" if distinct_id else "person_id"
                 return response.Response(
@@ -1174,12 +1171,17 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=404,
                 )
 
-            # Build point-in-time properties
+            # Get the person object for serialization
+            if distinct_id:
+                person = Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
+            else:
+                person = Person.objects.get(team_id=self.team_id, uuid=str(person_id))
+
+            # Build point-in-time properties using the pre-fetched distinct_ids
             point_in_time_properties = build_person_properties_at_time(
                 team_id=self.team_id,
                 timestamp=timestamp,
-                distinct_id=distinct_id,
-                person_id=person_id,
+                distinct_ids=distinct_ids_queried,
                 include_set_once=include_set_once,
             )
 
@@ -1196,25 +1198,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "distinct_id_used": distinct_id,
                 "person_id_used": person_id,
                 "query_mode": "distinct_id" if distinct_id else "person_id",
+                "distinct_ids_queried": distinct_ids_queried,
+                "distinct_ids_count": len(distinct_ids_queried),
             }
 
             # Add debug information if requested
             if debug:
                 from posthog.clickhouse.client import sync_execute
-
-                # Get distinct_ids for debug query (same logic as main function)
-                debug_distinct_ids = []
-                if distinct_id:
-                    debug_distinct_ids = [distinct_id]
-                else:
-                    # Get all distinct_ids for this person (use the person object we already have)
-                    from posthog.models.person import PersonDistinctId
-
-                    debug_distinct_ids = list(
-                        PersonDistinctId.objects.filter(team_id=self.team_id, person=person).values_list(
-                            "distinct_id", flat=True
-                        )
-                    )
 
                 # Run the same query that the point-in-time function uses
                 if include_set_once:
@@ -1249,7 +1239,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 params = {
                     "team_id": self.team_id,
-                    "distinct_ids": debug_distinct_ids,
+                    "distinct_ids": distinct_ids_queried,
                     "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
                 }
 
@@ -1258,7 +1248,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     person_data["debug"] = {
                         "query": query,
                         "params": params,
-                        "distinct_ids_queried": debug_distinct_ids,
+                        "distinct_ids_queried": distinct_ids_queried,
                         "events_found": len(debug_rows),
                         "events": [
                             {"properties_json": row[0], "timestamp": str(row[1]), "event": row[2]} for row in debug_rows
@@ -1270,13 +1260,18 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(person_data)
 
         except Exception:
+            identifier = distinct_id or person_id
+            identifier_type = "distinct_id" if distinct_id else "person_id"
             logger.exception(
-                "Failed to build person properties at time",
+                "Failed to build person properties at time for %s %s",
+                identifier_type,
+                identifier,
                 distinct_id=distinct_id,
+                person_id=person_id,
                 timestamp=timestamp_str,
             )
             return response.Response(
-                {"error": "Failed to build person properties."},
+                {"error": f"Failed to retrieve person properties for {identifier_type} '{identifier}'"},
                 status=500,
             )
 
