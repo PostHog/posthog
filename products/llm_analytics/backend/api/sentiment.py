@@ -5,6 +5,7 @@ and returns the result synchronously (blocks until Temporal completes).
 """
 
 import time
+import uuid
 import asyncio
 from datetime import timedelta
 
@@ -12,6 +13,8 @@ from django.conf import settings
 from django.core.cache import cache
 
 import structlog
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -29,7 +32,10 @@ from posthog.rate_limit import (
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.sentiment.constants import (
+    BATCH_MAX_TRACE_IDS,
+    CACHE_TTL,
     MAX_RETRY_ATTEMPTS,
+    WORKFLOW_NAME,
     WORKFLOW_TIMEOUT_BATCH_SECONDS,
     WORKFLOW_TIMEOUT_SINGLE_SECONDS,
 )
@@ -38,10 +44,6 @@ from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentInp
 from products.llm_analytics.backend.api.metrics import llma_track_latency
 
 logger = structlog.get_logger(__name__)
-
-CACHE_TTL = 60 * 60 * 24  # 24 hours — events are immutable once ingested
-BATCH_MAX_TRACE_IDS = 25
-WORKFLOW_NAME = "llma-sentiment-classify"
 
 
 class SentimentRequestSerializer(serializers.Serializer):
@@ -61,6 +63,33 @@ class SentimentBatchRequestSerializer(serializers.Serializer):
     force_refresh = serializers.BooleanField(default=False, required=False)
     date_from = serializers.CharField(required=False, default=None, allow_null=True)
     date_to = serializers.CharField(required=False, default=None, allow_null=True)
+
+
+class MessageSentimentSerializer(serializers.Serializer):
+    label = serializers.CharField()
+    score = serializers.FloatField()
+    scores = serializers.DictField(child=serializers.FloatField())
+
+
+class GenerationSentimentSerializer(serializers.Serializer):
+    label = serializers.CharField()
+    score = serializers.FloatField()
+    scores = serializers.DictField(child=serializers.FloatField())
+    messages = serializers.DictField(child=MessageSentimentSerializer())
+
+
+class SentimentResponseSerializer(serializers.Serializer):
+    trace_id = serializers.CharField()
+    label = serializers.CharField()
+    score = serializers.FloatField()
+    scores = serializers.DictField(child=serializers.FloatField())
+    generations = serializers.DictField(child=GenerationSentimentSerializer())
+    generation_count = serializers.IntegerField()
+    message_count = serializers.IntegerField()
+
+
+class SentimentBatchResponseSerializer(serializers.Serializer):
+    results = serializers.DictField(child=SentimentResponseSerializer())
 
 
 class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -95,8 +124,6 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             date_from=date_from,
             date_to=date_to,
         )
-        import uuid
-
         workflow_id = f"llma-sentiment-{self.team_id}-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
 
         return asyncio.run(
@@ -111,6 +138,15 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             )
         )
 
+    @extend_schema(
+        request=SentimentRequestSerializer,
+        responses={
+            200: SentimentResponseSerializer,
+            400: OpenApiTypes.OBJECT,
+            500: OpenApiTypes.OBJECT,
+        },
+        tags=["LLM Analytics"],
+    )
     @llma_track_latency("llma_sentiment")
     @monitor(feature=None, endpoint="llma_sentiment", method="POST")
     def create(self, request: Request, **kwargs) -> Response:
@@ -159,6 +195,15 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        request=SentimentBatchRequestSerializer,
+        responses={
+            200: SentimentBatchResponseSerializer,
+            400: OpenApiTypes.OBJECT,
+            500: OpenApiTypes.OBJECT,
+        },
+        tags=["LLM Analytics"],
+    )
     @action(methods=["POST"], detail=False, url_path="batch")
     @llma_track_latency("llma_sentiment_batch")
     @monitor(feature=None, endpoint="llma_sentiment_batch", method="POST")

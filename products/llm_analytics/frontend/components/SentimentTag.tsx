@@ -2,6 +2,7 @@ import { LemonTag, LemonTagProps, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
+import type { MessageSentiment } from '../llmSentimentLazyLoaderLogic'
 import type { SentimentLabel } from '../sentimentUtils'
 
 export interface SentimentScores {
@@ -57,11 +58,6 @@ export function SentimentTag({ label, score, scores, loading }: SentimentTagProp
             </LemonTag>
         </Tooltip>
     )
-}
-
-export interface MessageSentiment {
-    label: string
-    score: number
 }
 
 interface MessageScore {

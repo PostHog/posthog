@@ -13,7 +13,7 @@ export interface SentimentDateRange {
 export interface MessageSentiment {
     label: string
     score: number
-    scores: Record<string, number>
+    scores?: Record<string, number>
 }
 
 export interface GenerationSentiment {

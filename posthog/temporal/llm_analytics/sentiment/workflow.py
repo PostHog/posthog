@@ -12,6 +12,7 @@ from posthog.temporal.llm_analytics.sentiment.constants import ACTIVITY_TIMEOUT_
 from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentInput
 
 
+# Must match constants.WORKFLOW_NAME
 @temporalio.workflow.defn(name="llma-sentiment-classify")
 class ClassifySentimentWorkflow(PostHogWorkflow):
     @staticmethod
