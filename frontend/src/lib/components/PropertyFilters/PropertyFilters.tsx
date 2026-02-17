@@ -19,6 +19,7 @@ import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 import { FilterRow } from './components/FilterRow'
 import { OperatorValueSelectProps } from './components/OperatorValueSelect'
 import { propertyFilterLogic } from './propertyFilterLogic'
+import { parseProperties } from './utils'
 
 export interface PropertyFiltersProps {
     endpoint?: string | null
@@ -98,7 +99,7 @@ export function PropertyFilters({
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
     useEffect(() => {
-        setFilters(propertyFilters ?? [])
+        setFilters(parseProperties(propertyFilters ?? []))
     }, [propertyFilters, setFilters])
 
     const displayedFilters = allowNew && editable ? filtersWithNew : filters

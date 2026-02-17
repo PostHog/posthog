@@ -237,9 +237,7 @@ export const personsLogic = kea<personsLogicType>([
                         delete newFilters['properties']
                     }
                     if (newFilters.properties) {
-                        newFilters.properties = convertPropertyGroupToProperties(
-                            newFilters.properties.filter(isValidPropertyFilter)
-                        )
+                        newFilters.properties = convertPropertyGroupToProperties(newFilters.properties)
                     }
                     return newFilters
                 },
