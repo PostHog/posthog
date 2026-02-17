@@ -16,10 +16,10 @@ const getToday = (): { month: number; day: number } => {
 
 // Always wrap the exported functions with this to prevent them
 // from returning true on Storybook which would cause a bunch of flakey snapshots
-const wrapWithStorybookCheck = <T extends (...args: any[]) => boolean>(
-    fn: T
-): ((...args: Parameters<T>) => boolean) => {
-    return (...args: Parameters<T>): boolean => {
+const wrapWithStorybookCheck = <F extends (...args: any[]) => boolean>(
+    fn: F
+): ((...args: Parameters<F>) => boolean) => {
+    return (...args: Parameters<F>): boolean => {
         if (inStorybook() || inStorybookTestRunner()) {
             return false
         }
@@ -53,7 +53,12 @@ type HolidayMatcher<T> = {
     [key in Holiday]: T
 }
 
-export const holidaysMatcher = wrapWithStorybookCheck(<T,>(matcher: HolidayMatcher<T>, orElse: T) => {
+export const holidaysMatcher = <T,>(matcher: HolidayMatcher<T>, orElse: T): T => {
+    // Return the default value in Storybook to prevent flakey snapshots
+    if (inStorybook() || inStorybookTestRunner()) {
+        return orElse
+    }
+
     if (matcher.christmas && isChristmas()) {
         return matcher.christmas
     }
@@ -62,4 +67,4 @@ export const holidaysMatcher = wrapWithStorybookCheck(<T,>(matcher: HolidayMatch
     }
 
     return orElse
-})
+}
