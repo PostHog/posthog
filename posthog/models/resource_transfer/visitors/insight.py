@@ -4,8 +4,14 @@ from typing import Any
 
 from django.db import models
 
-from posthog.models.resource_transfer.types import ResourceMap, ResourcePayload, ResourceTransferEdge, RewriteRelationFn
+from posthog.models.resource_transfer.types import ResourcePayload, ResourceTransferEdge
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
+from posthog.models.resource_transfer.visitors.common import (
+    build_edges_for_ids,
+    collect_cohort_ids_from_properties,
+    rewrite_cohort_breakdown,
+    rewrite_cohort_id_in_properties,
+)
 
 
 class InsightVisitor(
@@ -33,33 +39,31 @@ class InsightVisitor(
     def get_dynamic_edges(cls, resource: Any) -> list[ResourceTransferEdge]:
         from posthog.models import Action, Cohort
 
-        edges: list[ResourceTransferEdge] = []
         action_ids = cls._extract_action_ids(resource.filters, resource.query)
         cohort_ids = cls._extract_cohort_ids(resource.filters, resource.query)
 
-        for action_id in action_ids:
-            edges.append(
-                ResourceTransferEdge(
-                    name=f"action:{action_id}",
-                    target_model=Action,
-                    target_primary_key=action_id,
-                    rewrite_relation=cls._make_json_id_rewriter(Action, action_id),
-                )
-            )
-
-        for cohort_id in cohort_ids:
-            edges.append(
-                ResourceTransferEdge(
-                    name=f"cohort:{cohort_id}",
-                    target_model=Cohort,
-                    target_primary_key=cohort_id,
-                    rewrite_relation=cls._make_json_id_rewriter(Cohort, cohort_id),
-                )
-            )
-
+        edges: list[ResourceTransferEdge] = []
+        edges.extend(build_edges_for_ids(action_ids, Action, "action", cls._rewrite_action_in_payload))
+        edges.extend(build_edges_for_ids(cohort_ids, Cohort, "cohort", cls._rewrite_cohort_in_payload))
         return edges
 
-    # --- extracting JSON-embedded references ---
+    @classmethod
+    def _rewrite_action_in_payload(cls, payload: ResourcePayload, old_pk: Any, new_pk: Any) -> ResourcePayload:
+        result = {**payload}
+        if result.get("filters"):
+            result["filters"] = cls._rewrite_action_id_in_filters(result["filters"], old_pk, new_pk)
+        if result.get("query"):
+            result["query"] = cls._rewrite_action_id_in_query(result["query"], old_pk, new_pk)
+        return result
+
+    @classmethod
+    def _rewrite_cohort_in_payload(cls, payload: ResourcePayload, old_pk: Any, new_pk: Any) -> ResourcePayload:
+        result = {**payload}
+        if result.get("filters"):
+            result["filters"] = cls._rewrite_cohort_id_in_filters(result["filters"], old_pk, new_pk)
+        if result.get("query"):
+            result["query"] = cls._rewrite_cohort_id_in_query(result["query"], old_pk, new_pk)
+        return result
 
     @classmethod
     def _extract_action_ids(cls, filters: dict | None, query: dict | None) -> set[int]:
@@ -148,39 +152,23 @@ class InsightVisitor(
         return ids
 
     @classmethod
-    def _collect_cohort_ids_from_properties(cls, properties: Any) -> set[int]:
-        ids: set[int] = set()
-        if isinstance(properties, list):
-            for prop in properties:
-                if isinstance(prop, dict) and prop.get("type") == "cohort" and prop.get("value") is not None:
-                    ids.add(int(prop["value"]))
-        elif isinstance(properties, dict):
-            if properties.get("type") == "cohort" and properties.get("value") is not None:
-                ids.add(int(properties["value"]))
-            # grouped property format: {"type": "AND"/"OR", "values": [...]}
-            for group in properties.get("values", []):
-                if isinstance(group, dict):
-                    ids.update(cls._collect_cohort_ids_from_properties(group.get("values", [])))
-        return ids
-
-    @classmethod
     def _extract_cohort_ids_from_filters(cls, filters: dict) -> set[int]:
         ids: set[int] = set()
 
         # top-level properties
-        ids.update(cls._collect_cohort_ids_from_properties(filters.get("properties")))
+        ids.update(collect_cohort_ids_from_properties(filters.get("properties")))
 
         # entity-level properties (actions[].properties and events[].properties)
         for entity_list_key in ("actions", "events", "exclusions"):
             for entity in filters.get(entity_list_key, []):
                 if isinstance(entity, dict):
-                    ids.update(cls._collect_cohort_ids_from_properties(entity.get("properties")))
+                    ids.update(collect_cohort_ids_from_properties(entity.get("properties")))
 
         # retention entity properties
         for key in ("target_entity", "returning_entity"):
             entity = filters.get(key)
             if isinstance(entity, dict):
-                ids.update(cls._collect_cohort_ids_from_properties(entity.get("properties")))
+                ids.update(collect_cohort_ids_from_properties(entity.get("properties")))
 
         # breakdown cohorts: breakdown_type == "cohort" means breakdown is cohort ID(s)
         if filters.get("breakdown_type") == "cohort":
@@ -202,13 +190,13 @@ class InsightVisitor(
             return ids
 
         # top-level properties
-        ids.update(cls._collect_cohort_ids_from_properties(source.get("properties")))
+        ids.update(collect_cohort_ids_from_properties(source.get("properties")))
 
         # series[].properties and series[].fixedProperties
         for series_item in source.get("series", []):
             if isinstance(series_item, dict):
-                ids.update(cls._collect_cohort_ids_from_properties(series_item.get("properties")))
-                ids.update(cls._collect_cohort_ids_from_properties(series_item.get("fixedProperties")))
+                ids.update(collect_cohort_ids_from_properties(series_item.get("properties")))
+                ids.update(collect_cohort_ids_from_properties(series_item.get("fixedProperties")))
 
         # retention entity properties
         retention_filter = source.get("retentionFilter", {})
@@ -216,7 +204,7 @@ class InsightVisitor(
             for key in ("targetEntity", "returningEntity"):
                 entity = retention_filter.get(key)
                 if isinstance(entity, dict):
-                    ids.update(cls._collect_cohort_ids_from_properties(entity.get("properties")))
+                    ids.update(collect_cohort_ids_from_properties(entity.get("properties")))
 
         # breakdown cohorts
         breakdown_filter = source.get("breakdownFilter", {})
@@ -232,49 +220,6 @@ class InsightVisitor(
         return ids
 
     # --- rewriting JSON-embedded references ---
-
-    @classmethod
-    def _make_json_id_rewriter(cls, target_model: type[models.Model], old_pk: Any) -> RewriteRelationFn:
-        def _rewrite(
-            payload: ResourcePayload,
-            resource_map: ResourceMap,
-        ) -> ResourcePayload:
-            target_visitor = ResourceTransferVisitor.get_visitor(target_model)
-
-            if target_visitor is None:
-                raise TypeError(f"Could not rewrite {target_model.__name__} because it has no configured visitor")
-
-            vertex = resource_map.get((target_visitor.kind, old_pk))
-            if vertex is None:
-                raise ValueError(
-                    f"Could not rewrite JSON reference to {target_model.__name__}(pk={old_pk}): "
-                    "resource not found in map"
-                )
-
-            if vertex.duplicated_resource is None:
-                raise ValueError(
-                    f"Could not rewrite JSON reference to {target_model.__name__}(pk={old_pk}): resource not duplicated yet"
-                )
-
-            new_pk = vertex.duplicated_resource.pk
-
-            from posthog.models import Action, Cohort
-
-            result = {**payload}
-            if target_model is Action:
-                if result.get("filters"):
-                    result["filters"] = cls._rewrite_action_id_in_filters(result["filters"], old_pk, new_pk)
-                if result.get("query"):
-                    result["query"] = cls._rewrite_action_id_in_query(result["query"], old_pk, new_pk)
-            elif target_model is Cohort:
-                if result.get("filters"):
-                    result["filters"] = cls._rewrite_cohort_id_in_filters(result["filters"], old_pk, new_pk)
-                if result.get("query"):
-                    result["query"] = cls._rewrite_cohort_id_in_query(result["query"], old_pk, new_pk)
-
-            return result
-
-        return _rewrite
 
     @classmethod
     def _replace_id_in_entity_list(
@@ -387,58 +332,11 @@ class InsightVisitor(
         return result
 
     @classmethod
-    def _rewrite_cohort_id_in_properties(cls, properties: Any, old_pk: int, new_pk: int) -> Any:
-        if isinstance(properties, list):
-            result = []
-            for prop in properties:
-                if (
-                    isinstance(prop, dict)
-                    and prop.get("type") == "cohort"
-                    and prop.get("value") is not None
-                    and int(prop["value"]) == old_pk
-                ):
-                    result.append({**prop, "value": new_pk})
-                else:
-                    result.append(prop)
-            return result
-        elif isinstance(properties, dict):
-            result_dict = {**properties}
-            if (
-                result_dict.get("type") == "cohort"
-                and result_dict.get("value") is not None
-                and int(result_dict["value"]) == old_pk
-            ):
-                result_dict["value"] = new_pk
-            if "values" in result_dict:
-                new_values = []
-                for group in result_dict["values"]:
-                    if isinstance(group, dict):
-                        new_group = {**group}
-                        if "values" in new_group:
-                            new_group["values"] = cls._rewrite_cohort_id_in_properties(
-                                new_group["values"], old_pk, new_pk
-                            )
-                        new_values.append(new_group)
-                    else:
-                        new_values.append(group)
-                result_dict["values"] = new_values
-            return result_dict
-        return properties
-
-    @classmethod
-    def _rewrite_cohort_breakdown(cls, breakdown: Any, old_pk: int, new_pk: int) -> Any:
-        if isinstance(breakdown, list):
-            return [new_pk if isinstance(item, int) and item == old_pk else item for item in breakdown]
-        elif isinstance(breakdown, int) and breakdown == old_pk:
-            return new_pk
-        return breakdown
-
-    @classmethod
     def _rewrite_cohort_id_in_filters(cls, filters: dict, old_pk: int, new_pk: int) -> dict:
         result = {**filters}
 
         if "properties" in result:
-            result["properties"] = cls._rewrite_cohort_id_in_properties(result["properties"], old_pk, new_pk)
+            result["properties"] = rewrite_cohort_id_in_properties(result["properties"], old_pk, new_pk)
 
         for entity_list_key in ("actions", "events", "exclusions"):
             if entity_list_key in result and isinstance(result[entity_list_key], list):
@@ -447,7 +345,7 @@ class InsightVisitor(
                     if isinstance(entity, dict) and "properties" in entity:
                         entity = {
                             **entity,
-                            "properties": cls._rewrite_cohort_id_in_properties(entity["properties"], old_pk, new_pk),
+                            "properties": rewrite_cohort_id_in_properties(entity["properties"], old_pk, new_pk),
                         }
                     new_entities.append(entity)
                 result[entity_list_key] = new_entities
@@ -457,11 +355,11 @@ class InsightVisitor(
             if isinstance(entity, dict) and "properties" in entity:
                 result[key] = {
                     **entity,
-                    "properties": cls._rewrite_cohort_id_in_properties(entity["properties"], old_pk, new_pk),
+                    "properties": rewrite_cohort_id_in_properties(entity["properties"], old_pk, new_pk),
                 }
 
         if result.get("breakdown_type") == "cohort" and "breakdown" in result:
-            result["breakdown"] = cls._rewrite_cohort_breakdown(result["breakdown"], old_pk, new_pk)
+            result["breakdown"] = rewrite_cohort_breakdown(result["breakdown"], old_pk, new_pk)
 
         return result
 
@@ -476,7 +374,7 @@ class InsightVisitor(
         result["source"] = source
 
         if "properties" in source:
-            source["properties"] = cls._rewrite_cohort_id_in_properties(source["properties"], old_pk, new_pk)
+            source["properties"] = rewrite_cohort_id_in_properties(source["properties"], old_pk, new_pk)
 
         if "series" in source:
             new_series = []
@@ -484,9 +382,9 @@ class InsightVisitor(
                 if isinstance(item, dict):
                     item = {**item}
                     if "properties" in item:
-                        item["properties"] = cls._rewrite_cohort_id_in_properties(item["properties"], old_pk, new_pk)
+                        item["properties"] = rewrite_cohort_id_in_properties(item["properties"], old_pk, new_pk)
                     if "fixedProperties" in item:
-                        item["fixedProperties"] = cls._rewrite_cohort_id_in_properties(
+                        item["fixedProperties"] = rewrite_cohort_id_in_properties(
                             item["fixedProperties"], old_pk, new_pk
                         )
                 new_series.append(item)
@@ -499,14 +397,14 @@ class InsightVisitor(
                 if isinstance(entity, dict) and "properties" in entity:
                     rf[key] = {
                         **entity,
-                        "properties": cls._rewrite_cohort_id_in_properties(entity["properties"], old_pk, new_pk),
+                        "properties": rewrite_cohort_id_in_properties(entity["properties"], old_pk, new_pk),
                     }
             source["retentionFilter"] = rf
 
         if "breakdownFilter" in source and isinstance(source["breakdownFilter"], dict):
             bf = {**source["breakdownFilter"]}
             if bf.get("breakdown_type") == "cohort" and "breakdown" in bf:
-                bf["breakdown"] = cls._rewrite_cohort_breakdown(bf["breakdown"], old_pk, new_pk)
+                bf["breakdown"] = rewrite_cohort_breakdown(bf["breakdown"], old_pk, new_pk)
             source["breakdownFilter"] = bf
 
         return result
