@@ -17,6 +17,40 @@ use crate::{
     },
 };
 
+/// Known Apple system framework prefixes - frames from these modules are marked as not in_app
+const APPLE_SYSTEM_MODULES: &[&str] = &[
+    "Foundation",
+    "UIKit",
+    "CoreFoundation",
+    "SwiftUI",
+    "Combine",
+    "CoreGraphics",
+    "QuartzCore",
+    "Security",
+    "CFNetwork",
+    "CoreData",
+    "CoreLocation",
+    "AVFoundation",
+    "Metal",
+    "MetalKit",
+    "AppKit",
+    "WebKit",
+    "IOKit",
+    "GraphicsServices",
+    "libsystem_",
+    "libdispatch",
+    "libswift",
+    "libobjc",
+    "libxpc",
+    "libdyld",
+];
+
+fn is_system_module(module: &Option<String>) -> bool {
+    module
+        .as_ref()
+        .map_or(false, |m| APPLE_SYSTEM_MODULES.iter().any(|prefix| m.starts_with(prefix)))
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AppleDebugImage {
     pub debug_id: String,
@@ -153,6 +187,17 @@ impl RawAppleFrame {
         symbol_info: &crate::symbol_store::apple::SymbolInfo,
         _debug_image: &AppleDebugImage,
     ) -> Frame {
+        // Override in_app to false for system frameworks or compiler-generated code
+        let is_compiler_generated = symbol_info
+            .filename
+            .as_ref()
+            .map_or(false, |f| f == "<compiler-generated>");
+        let in_app = if is_system_module(&self.module) || is_compiler_generated {
+            false
+        } else {
+            self.meta.in_app
+        };
+
         let mut f = Frame {
             frame_id: FrameId::placeholder(),
             mangled_name: symbol_info.symbol.clone(),
@@ -162,12 +207,8 @@ impl RawAppleFrame {
                 None
             },
             column: None,
-            source: if symbol_info.filename.is_empty() {
-                None
-            } else {
-                Some(symbol_info.filename.clone())
-            },
-            in_app: self.meta.in_app,
+            source: symbol_info.filename.clone(),
+            in_app,
             resolved_name: Some(symbol_info.symbol.clone()),
             lang: "apple".to_string(),
             resolved: true,
@@ -198,13 +239,24 @@ impl RawAppleFrame {
             None
         };
 
+        // Override in_app to false for system frameworks or compiler-generated code
+        let is_compiler_generated = self
+            .filename
+            .as_ref()
+            .map_or(false, |f| f == "<compiler-generated>");
+        let in_app = if is_system_module(&self.module) || is_compiler_generated {
+            false
+        } else {
+            self.meta.in_app
+        };
+
         let mut f = Frame {
             frame_id: FrameId::placeholder(),
             mangled_name: mangled,
             line: self.lineno,
             column: self.colno,
             source: self.filename.clone(),
-            in_app: self.meta.in_app,
+            in_app,
             resolved_name,
             lang: "apple".to_string(),
             resolved: false,

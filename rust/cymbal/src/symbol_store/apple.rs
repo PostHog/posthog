@@ -113,12 +113,14 @@ impl ParsedAppleSymbols {
                     .demangle(DemangleOptions::complete())
                     .unwrap_or_else(|| raw_name.to_string());
 
+                let filename = result
+                    .file()
+                    .map(|f| f.full_path())
+                    .and_then(|path| extract_filename(&path));
+
                 Ok(Some(SymbolInfo {
                     symbol,
-                    filename: result
-                        .file()
-                        .map(|f| f.full_path().to_string())
-                        .unwrap_or_default(),
+                    filename,
                     line: result.line(),
                 }))
             }
@@ -127,10 +129,18 @@ impl ParsedAppleSymbols {
     }
 }
 
+fn extract_filename(full_path: &str) -> Option<String> {
+    use std::path::Path;
+    Path::new(full_path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string())
+}
+
 #[derive(Debug, Clone)]
 pub struct SymbolInfo {
     pub symbol: String,
-    pub filename: String,
+    pub filename: Option<String>,
     pub line: u32,
 }
 
