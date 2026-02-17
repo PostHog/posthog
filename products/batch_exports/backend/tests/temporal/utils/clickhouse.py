@@ -71,7 +71,7 @@ async def create_clickhouse_tables_and_views(clickhouse_client):
 
 async def truncate_events(clickhouse_client):
     await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS sharded_events")
-    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS events_recent")
+    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS sharded_events_recent")
 
 
 async def truncate_persons(clickhouse_client):
