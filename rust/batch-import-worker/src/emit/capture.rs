@@ -85,14 +85,17 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
 
         self.events
             .lock()
-            .expect("events lock poisoned")
+            .map_err(|e| Error::msg(format!("events lock poisoned: {e}")))?
             .extend(converted);
 
         Ok(())
     }
 
     async fn commit_write(self: Box<Self>) -> Result<Duration, Error> {
-        let events = self.events.into_inner().expect("events lock poisoned");
+        let events = self
+            .events
+            .into_inner()
+            .map_err(|e| Error::msg(format!("events lock poisoned: {e}")))?;
         let count = events.len();
 
         let min_duration = get_min_txn_duration(self.send_rate, count);
