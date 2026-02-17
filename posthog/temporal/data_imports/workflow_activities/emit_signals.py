@@ -19,7 +19,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.data_imports.signals import SignalSourceTableConfig, get_signal_config
+from posthog.temporal.data_imports.signals import SignalEmitter, SignalSourceTableConfig, get_signal_config
 from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput
 
 from products.data_warehouse.backend.models import ExternalDataSchema
@@ -163,7 +163,7 @@ def _query_new_records(
 def _build_emitter_outputs(
     team_id: int,
     records: list[dict[str, Any]],
-    emitter,
+    emitter: SignalEmitter,
 ) -> list[SignalEmitterOutput]:
     outputs = []
     for record in records:
