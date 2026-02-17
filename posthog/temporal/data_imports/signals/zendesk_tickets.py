@@ -25,7 +25,9 @@ A ticket is NOT_ACTIONABLE if it is:
 - An auto-generated or bot message
 
 Ticket:
+```
 {description}
+```
 
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 
