@@ -10,7 +10,7 @@ import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { multitabEditorLogic } from './multitabEditorLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
 // tests without the full React component tree — disable auto-mounting
@@ -83,8 +83,8 @@ function createMockEditor(): any {
     }
 }
 
-describe('multitabEditorLogic', () => {
-    let logic: ReturnType<typeof multitabEditorLogic.build>
+describe('sqlEditorLogic', () => {
+    let logic: ReturnType<typeof sqlEditorLogic.build>
     const TAB_ID = '1'
 
     beforeEach(async () => {
@@ -123,7 +123,7 @@ describe('multitabEditorLogic', () => {
 
     describe('open_insight URL parameter', () => {
         it('sets editingInsight when opening an insight via open_insight search param', async () => {
-            logic = multitabEditorLogic({
+            logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
                 editor: createMockEditor(),
@@ -142,7 +142,7 @@ describe('multitabEditorLogic', () => {
         })
 
         it('sets insightLoading to false after insight finishes loading', async () => {
-            logic = multitabEditorLogic({
+            logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
                 editor: createMockEditor(),
@@ -157,7 +157,7 @@ describe('multitabEditorLogic', () => {
         })
 
         it('does not dispatch syncUrlWithQuery before the API responds', async () => {
-            logic = multitabEditorLogic({
+            logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
                 editor: createMockEditor(),
