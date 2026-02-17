@@ -117,9 +117,8 @@ export function DashboardHeader(): JSX.Element | null {
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
 
     const [terraformModalOpen, setTerraformModalOpen] = useState(false)
-    const terraformFeatureEnabled = useFeatureFlag('MANAGE_INSIGHTS_THROUGH_TERRAFORM')
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
-    
+
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
             return false
