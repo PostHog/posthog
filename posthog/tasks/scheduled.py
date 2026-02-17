@@ -9,6 +9,7 @@ from celery.schedules import crontab
 
 from posthog.approvals.tasks import expire_old_change_requests, validate_pending_change_requests
 from posthog.caching.warming import schedule_warming_for_teams_task
+from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.tasks.alerts.checks import (
     alerts_backlog_task,
     check_alerts_task,
@@ -158,7 +159,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sender.add_periodic_task(10, redis_celery_queue_depth.s(), name="10 sec queue probe")
 
     sender.add_periodic_task(10, redis_heartbeat.s(), name="10 sec heartbeat")
-    sender.add_periodic_task(20, start_poll_query_performance.s(), name="20 sec query performance heartbeat")
+    sender.add_periodic_task(
+        QueryStatusManager.POLL_INTERVAL_SECONDS,
+        start_poll_query_performance.s(),
+        name="query performance heartbeat",
+    )
 
     sender.add_periodic_task(
         crontab(hour="*", minute="0"),
