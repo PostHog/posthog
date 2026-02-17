@@ -1,12 +1,10 @@
 """Extract user messages from $ai_input for sentiment classification."""
 
-from typing import Union
-
 from posthog.temporal.llm_analytics.message_utils import _extract_content_text
 from posthog.temporal.llm_analytics.sentiment.constants import MAX_MESSAGE_CHARS, MAX_USER_MESSAGES
 
 
-def _is_tool_result_message(content: Union[str, list, dict, None]) -> bool:
+def _is_tool_result_message(content: object) -> bool:
     """Check if message content consists entirely of tool_result blocks.
 
     In Anthropic format, tool results are sent as user-role messages with
@@ -19,7 +17,7 @@ def _is_tool_result_message(content: Union[str, list, dict, None]) -> bool:
     return all(isinstance(block, dict) and block.get("type") == "tool_result" for block in content)
 
 
-def extract_user_messages(ai_input: Union[str, list, dict, None]) -> str:
+def extract_user_messages(ai_input: object) -> str:
     """Extract and concatenate all user messages from $ai_input.
 
     Filters for role === "user" messages, extracts text content,
@@ -40,21 +38,21 @@ def extract_user_messages(ai_input: Union[str, list, dict, None]) -> str:
             return _extract_content_text(ai_input.get("content", ""))
         return ""
 
-    if isinstance(ai_input, list):
-        user_texts = []
-        for msg in ai_input:
-            if isinstance(msg, dict) and msg.get("role") == "user":
-                if _is_tool_result_message(msg.get("content")):
-                    continue
-                text = _extract_content_text(msg.get("content", ""))
-                if text:
-                    user_texts.append(text)
-        return "\n\n---\n\n".join(user_texts)
+    if not isinstance(ai_input, list):
+        return ""
 
-    return ""
+    user_texts = []
+    for msg in ai_input:
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            if _is_tool_result_message(msg.get("content")):
+                continue
+            text = _extract_content_text(msg.get("content", ""))
+            if text:
+                user_texts.append(text)
+    return "\n\n---\n\n".join(user_texts)
 
 
-def extract_user_messages_individually(ai_input: Union[str, list, dict, None]) -> list[tuple[int, str]]:
+def extract_user_messages_individually(ai_input: object) -> list[tuple[int, str]]:
     """Extract the last N individual user messages from $ai_input.
 
     Returns (original_index, text) tuples where original_index is the
@@ -76,18 +74,18 @@ def extract_user_messages_individually(ai_input: Union[str, list, dict, None]) -
             return [(0, text)] if text else []
         return []
 
-    if isinstance(ai_input, list):
-        result: list[tuple[int, str]] = []
-        for i, msg in enumerate(ai_input):
-            if isinstance(msg, dict) and msg.get("role") == "user":
-                if _is_tool_result_message(msg.get("content")):
-                    continue
-                text = _extract_content_text(msg.get("content", ""))
-                if text:
-                    result.append((i, text))
-        return result[-MAX_USER_MESSAGES:]
+    if not isinstance(ai_input, list):
+        return []
 
-    return []
+    result: list[tuple[int, str]] = []
+    for i, msg in enumerate(ai_input):
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            if _is_tool_result_message(msg.get("content")):
+                continue
+            text = _extract_content_text(msg.get("content", ""))
+            if text:
+                result.append((i, text))
+    return result[-MAX_USER_MESSAGES:]
 
 
 def truncate_to_token_limit(text: str, max_chars: int = MAX_MESSAGE_CHARS) -> str:

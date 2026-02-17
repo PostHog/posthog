@@ -5,7 +5,7 @@ from parameterized import parameterized
 from posthog.temporal.llm_analytics.sentiment.model import SentimentResult, classify, classify_batch
 
 
-def _make_pipeline_output(label: str, score: float) -> list[dict[str, float]]:
+def _make_pipeline_output(label: str, score: float) -> list[dict[str, object]]:
     """Build a single pipeline result (list of label/score dicts)."""
     labels_scores = {
         "positive": 0.05,

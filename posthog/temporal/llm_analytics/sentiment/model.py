@@ -19,7 +19,7 @@ from posthog.temporal.llm_analytics.sentiment.constants import CLASSIFY_BATCH_SI
 logger = structlog.get_logger(__name__)
 
 _model_lock = threading.Lock()
-_pipeline = None
+_pipeline_cache: dict[str, Any] = {}
 
 
 @dataclass
@@ -36,14 +36,12 @@ def _load_pipeline():
     The torch ONNX exporter is not thread-safe, so concurrent threads
     must wait rather than export in parallel.
     """
-    global _pipeline
-    if _pipeline is not None:
-        return _pipeline
+    if "pipe" in _pipeline_cache:
+        return _pipeline_cache["pipe"]
 
     with _model_lock:
-        # Double-check after acquiring lock
-        if _pipeline is not None:
-            return _pipeline
+        if "pipe" in _pipeline_cache:
+            return _pipeline_cache["pipe"]
 
         from optimum.onnxruntime import ORTModelForSequenceClassification
         from transformers import AutoTokenizer, pipeline
@@ -81,7 +79,7 @@ def _load_pipeline():
                 tokenizer.save_pretrained(cache_dir)
                 logger.info("ONNX model cached to disk", cache_dir=cache_dir)
 
-            _pipeline = pipeline(
+            _pipeline_cache["pipe"] = pipeline(
                 "sentiment-analysis",
                 model=model,
                 tokenizer=tokenizer,
@@ -94,7 +92,7 @@ def _load_pipeline():
             raise
 
         logger.info("Sentiment model loaded", model=MODEL_NAME)
-        return _pipeline
+        return _pipeline_cache["pipe"]
 
 
 def _parse_single_result(scores_list: list[dict[str, Any]]) -> SentimentResult:

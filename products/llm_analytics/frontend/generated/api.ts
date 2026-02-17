@@ -624,6 +624,28 @@ export const llmAnalyticsProviderKeysValidateCreate = async (
     })
 }
 
+export const getLlmAnalyticsSentimentCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/sentiment/`
+}
+
+export const llmAnalyticsSentimentCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsSentimentCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getLlmAnalyticsSentimentBatchCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/sentiment/batch/`
+}
+
+export const llmAnalyticsSentimentBatchCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsSentimentBatchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 /**
  * 
 Generate an AI-powered summary of an LLM trace or event.
