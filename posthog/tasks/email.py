@@ -1419,6 +1419,49 @@ def send_error_tracking_weekly_digest_batch(team_ids: list[int]) -> None:
         send_error_tracking_weekly_digest_for_team.delay(team_id, exception_count, ingestion_failure_count)
 
 
+def _get_daily_exception_counts(team_id: int) -> list[dict]:
+    """Get exception counts per day for the last 7 days from ClickHouse."""
+    from posthog.clickhouse.client import sync_execute
+
+    try:
+        results = sync_execute(
+            """
+            SELECT
+                toDate(timestamp) as day,
+                count() as day_count
+            FROM events
+            WHERE event = '$exception'
+            AND team_id = %(team_id)s
+            AND timestamp >= toStartOfDay(now() - INTERVAL 7 DAY)
+            AND timestamp < now()
+            GROUP BY day
+            ORDER BY day ASC
+            """,
+            {"team_id": team_id},
+        )
+    except Exception:
+        logger.exception(f"Failed to query daily exception counts for team {team_id}")
+        return []
+
+    counts_by_day = {row[0].isoformat(): row[1] for row in results}
+
+    today = timezone.now().date()
+    daily_counts = []
+    for i in range(7, 0, -1):
+        day = today - datetime.timedelta(days=i)
+        count = counts_by_day.get(day.isoformat(), 0)
+        daily_counts.append({"day": day.strftime("%a"), "count": count})
+
+    max_count = max((d["count"] for d in daily_counts), default=0)
+    for d in daily_counts:
+        d["height_pct"] = int((d["count"] / max_count) * 100) if max_count > 0 else 0
+        # Minimum height so zero-days still show a sliver
+        if d["count"] > 0 and d["height_pct"] < 5:
+            d["height_pct"] = 5
+
+    return daily_counts
+
+
 def _get_top_issues_for_team(team: Team) -> list[dict]:
     """Query top 5 issues by occurrence count in the last 7 days via HogQL."""
     from posthog.hogql.query import execute_hogql_query
@@ -1449,6 +1492,8 @@ def _get_top_issues_for_team(team: Team) -> list[dict]:
     issue_ids = [row[0] for row in response.results if row[0]]
     issues_by_id = {str(issue.id): issue for issue in ErrorTrackingIssue.objects.filter(team=team, id__in=issue_ids)}
 
+    sparklines = _get_issue_sparklines(team, issue_ids)
+
     top_issues = []
     for issue_id, occurrence_count in response.results:
         if not issue_id:
@@ -1458,12 +1503,57 @@ def _get_top_issues_for_team(team: Team) -> list[dict]:
             {
                 "id": issue_id,
                 "name": issue.name if issue else "Unknown issue",
+                "description": issue.description if issue else None,
                 "occurrence_count": occurrence_count,
+                "sparkline": sparklines.get(str(issue_id), []),
                 "url": f"{settings.SITE_URL}/project/{team.pk}/error_tracking/{issue_id}",
             }
         )
 
     return top_issues
+
+
+def _get_issue_sparklines(team: Team, issue_ids: list[str]) -> dict[str, list[dict]]:
+    """Get daily occurrence counts per issue for sparkline bars."""
+    from posthog.hogql import ast
+    from posthog.hogql.query import execute_hogql_query
+
+    if not issue_ids:
+        return {}
+
+    try:
+        response = execute_hogql_query(
+            query="SELECT issue_id, toDate(timestamp) as day, count(*) as day_count FROM events WHERE event = '$exception' AND timestamp >= toStartOfDay(now() - INTERVAL 7 DAY) AND timestamp < now() AND issue_id IN {issue_ids} GROUP BY issue_id, day ORDER BY issue_id, day ASC",
+            team=team,
+            placeholders={"issue_ids": ast.Constant(value=issue_ids)},
+        )
+    except Exception:
+        logger.exception(f"Failed to query issue sparklines for team {team.pk}")
+        return {}
+
+    if not response.results:
+        return {}
+
+    counts_by_issue: dict[str, dict[str, int]] = {}
+    for issue_id, day, count in response.results:
+        issue_str = str(issue_id)
+        if issue_str not in counts_by_issue:
+            counts_by_issue[issue_str] = {}
+        day_str = day.isoformat() if hasattr(day, "isoformat") else str(day)
+        counts_by_issue[issue_str][day_str] = count
+
+    today = timezone.now().date()
+    sparklines: dict[str, list[dict]] = {}
+
+    for issue_id, daily_map in counts_by_issue.items():
+        bars = []
+        for i in range(7, 0, -1):
+            day = today - datetime.timedelta(days=i)
+            bars.append(daily_map.get(day.isoformat(), 0))
+        max_val = max(bars) if bars else 0
+        sparklines[issue_id] = [{"height_pct": int((v / max_val) * 100) if max_val > 0 else 0} for v in bars]
+
+    return sparklines
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -1485,6 +1575,7 @@ def send_error_tracking_weekly_digest_for_team(
         return
 
     top_issues = _get_top_issues_for_team(team)
+    daily_counts = _get_daily_exception_counts(team_id)
 
     date_suffix = timezone.now().strftime("%Y-%W")
     error_tracking_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking"
@@ -1512,8 +1603,10 @@ def send_error_tracking_weekly_digest_for_team(
                 "exception_count": exception_count,
                 "ingestion_failure_count": ingestion_failure_count,
                 "top_issues": top_issues,
+                "daily_counts": daily_counts,
                 "error_tracking_url": error_tracking_url,
                 "ingestion_failures_url": ingestion_failures_url,
+                "contact_support_url": "https://posthog.com/support",
             },
         )
         message.add_user_recipient(membership.user)

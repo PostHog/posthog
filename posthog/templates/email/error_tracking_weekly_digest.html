@@ -13,36 +13,66 @@
 
 <div class="mb mt" style="border: 1px solid #e1e5e9; padding: 20px; border-radius: 8px; text-align: center;">
     <p style="margin: 0 0 4px 0; font-size: 0.9em; color: #6b7280;">Exceptions caught in the last 7 days</p>
-    <p style="margin: 0; font-size: 2.5em; font-weight: bold;">
+    <p style="margin: 0 0 16px 0; font-size: 2.5em; font-weight: bold;">
         {{ exception_count|intcomma }}
     </p>
+    {% if daily_counts %}
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
+        <tr>
+            {% for day in daily_counts %}
+            <td align="center" valign="bottom" style="padding: 0 3px; height: 60px;">
+                <div style="width: 100%; min-width: 20px; height: {{ day.height_pct }}%; {% if day.height_pct > 0 %}min-height: 3px;{% endif %} background-color: #9f9fa9; border-radius: 3px 3px 0 0;"></div>
+            </td>
+            {% endfor %}
+        </tr>
+        <tr>
+            {% for day in daily_counts %}
+            <td align="center" style="padding: 4px 3px 0; font-size: 0.75em; color: #9ca3af;">{{ day.day }}</td>
+            {% endfor %}
+        </tr>
+    </table>
+    {% endif %}
 </div>
-
-{% if ingestion_failure_count > 0 %}
-<div class="mb mt" style="border: 1px solid #e1e5e9; padding: 20px; border-radius: 8px; border-left: 4px solid #dc3545; text-align: center;">
-    <p style="margin: 0 0 4px 0; font-size: 0.9em; color: #6b7280;">Failed to ingest</p>
-    <p style="margin: 0 0 8px 0; font-size: 2.5em; font-weight: bold; color: #dc3545;">
-        {{ ingestion_failure_count|intcomma }}
-    </p>
-    <p style="margin: 0;">
-        <a href="{{ ingestion_failures_url }}" target="_blank" style="color: #5375ff; text-decoration: none;">View failed exceptions &rarr;</a>
-    </p>
-</div>
-{% endif %}
 
 {% if top_issues %}
 <div class="mb mt">
-    <h3 style="margin: 0 0 12px 0;">Top issues by occurrences</h3>
-    {% for issue in top_issues %}
-    <div style="border: 1px solid #e1e5e9; padding: 12px 16px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
-        <div style="flex: 1; min-width: 0;">
-            <a href="{{ issue.url }}" target="_blank" style="text-decoration: none; color: #5375ff; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block;">{{ issue.name }}</a>
-        </div>
-        <div style="margin-left: 16px; white-space: nowrap; font-weight: bold; color: #374151;">
-            {{ issue.occurrence_count|intcomma }}
-        </div>
-    </div>
-    {% endfor %}
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
+        <thead>
+            <tr style="border-bottom: 1px solid #e1e5e9;">
+                <th align="left" style="padding: 8px 8px 8px 0; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">Issue</th>
+                <th align="center" style="padding: 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">Volume</th>
+                <th align="right" style="padding: 8px 0 8px 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">Occurrences</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for issue in top_issues %}
+            <tr style="border-bottom: 1px solid #f3f4f6;">
+                <td align="left" style="padding: 10px 8px 10px 0; vertical-align: top;">
+                    <a href="{{ issue.url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em;">{{ issue.name }}</a>
+                    {% if issue.description %}
+                    <div style="color: #6b7280; font-size: 0.8em; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px;">{{ issue.description }}</div>
+                    {% endif %}
+                </td>
+                <td align="center" style="padding: 10px 8px; vertical-align: middle; width: 90px;">
+                    {% if issue.sparkline %}
+                    <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto; height: 24px;">
+                        <tr>
+                            {% for bar in issue.sparkline %}
+                            <td valign="bottom" style="padding: 0 1px; height: 24px;">
+                                <div style="width: 8px; height: {{ bar.height_pct }}%; {% if bar.height_pct > 0 %}min-height: 2px;{% endif %} background-color: #9f9fa9; border-radius: 1px;"></div>
+                            </td>
+                            {% endfor %}
+                        </tr>
+                    </table>
+                    {% endif %}
+                </td>
+                <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; font-weight: 600; color: #111827; white-space: nowrap; width: 90px;">
+                    {{ issue.occurrence_count|intcomma }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 {% endif %}
 
@@ -51,6 +81,27 @@
         View Error Tracking
     </a>
 </div>
+
+{% if ingestion_failure_count > 0 %}
+<div class="mb mt" style="background-color: #fef3cd; border: 1px solid #ffc107; padding: 20px; border-radius: 8px;">
+    <p style="margin: 0 0 8px 0; font-weight: 700; color: #856404; font-size: 1em;">
+        &#9888; {{ ingestion_failure_count|intcomma }} exceptions failed to ingest
+    </p>
+    <p style="margin: 0 0 16px 0; color: #664d03; font-size: 0.9em;">
+        Sometimes our ingestion pipeline fails to process exceptions. This is usually caused by malformed events being sent. You can inspect each failed exception to see what went wrong by expanding it.
+    </p>
+    <table cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td style="padding-right: 8px;">
+                <a href="{{ ingestion_failures_url }}" target="_blank" style="display: inline-block; padding: 8px 16px; background-color: #856404; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 0.9em; font-weight: 500;">View these exceptions</a>
+            </td>
+            <td>
+                <a href="{{ contact_support_url }}" target="_blank" style="display: inline-block; padding: 8px 16px; background-color: transparent; color: #856404; text-decoration: none; border: 1px solid #856404; border-radius: 6px; font-size: 0.9em; font-weight: 500;">Contact support</a>
+            </td>
+        </tr>
+    </table>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block footer %}
