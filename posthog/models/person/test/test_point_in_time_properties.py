@@ -39,7 +39,7 @@ class TestPointInTimeProperties(TestCase):
 
         # Test invalid distinct_ids (not a list)
         with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time(1, timestamp, "not_a_list")
+            build_person_properties_at_time(1, timestamp, "not_a_list")  # type: ignore[arg-type]
         self.assertIn("distinct_ids must be a non-empty list", str(cm.exception))
 
         # Test invalid distinct_ids (contains empty string)
