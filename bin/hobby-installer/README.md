@@ -46,7 +46,7 @@ CI mode is automatically enabled when common CI environment variables are detect
 
 ### Prerequisites
 
-- Go 1.26+
+- Go 1.25+
 
 ### Build commands
 
