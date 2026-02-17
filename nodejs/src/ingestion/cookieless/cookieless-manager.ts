@@ -29,7 +29,7 @@ import { TeamManager } from '../../utils/team-manager'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
 import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
-import { PipelineResult, dlq, drop, ok } from '../pipelines/results'
+import { PipelineResult, dlq, drop, isOkResult, ok } from '../pipelines/results'
 import { RedisHelpers } from './redis-helpers'
 
 /* ---------------------------------------------------------------------
@@ -679,8 +679,12 @@ export class CookielessManager {
             )
         }
 
-        // Update results with successfully processed events
+        // Update results with successfully processed events, but don't overwrite
+        // DLQ/drop results that were set by earlier passes (e.g. pass 3 date validation failure)
         for (const { event, team, message, headers, originalIndex } of eventsWithStatus) {
+            if (!isOkResult(results[originalIndex])) {
+                continue
+            }
             results[originalIndex] = ok({ event, team, message, headers })
         }
 

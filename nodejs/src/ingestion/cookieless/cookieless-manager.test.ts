@@ -698,6 +698,39 @@ describe('CookielessManager', () => {
                     expect(nonCookielessResult.value.event).toBe(nonCookielessEvent)
                 }
             })
+
+            it('should DLQ event when pass 3 re-hash fails due to day boundary race, not leak sentinel distinct_id', async () => {
+                let callCount = 0
+                const originalDoHashForDay = hub.cookielessManager.doHashForDay.bind(hub.cookielessManager)
+                jest.spyOn(hub.cookielessManager, 'doHashForDay').mockImplementation(async (args) => {
+                    callCount++
+                    if (callCount === 2) {
+                        // Simulate day-boundary race: pass 1 succeeded but pass 3 re-hash fails
+                        return { success: false, reason: 'date_out_of_range' }
+                    }
+                    return originalDoHashForDay(args)
+                })
+
+                const response = await hub.cookielessManager.doBatch([
+                    { event, team, message, headers: createTestEventHeaders() },
+                    { event: nonCookielessEvent, team, message, headers: createTestEventHeaders() },
+                ])
+                expect(response.length).toBe(2)
+
+                // Cookieless event should be DLQ'd, NOT ok with sentinel distinct_id
+                const cookielessResult = response[0]
+                expect(cookielessResult.type).toBe(PipelineResultType.DLQ)
+                if (cookielessResult.type === PipelineResultType.DLQ) {
+                    expect(cookielessResult.reason).toBe('cookieless_unexpected_date_validation_failure')
+                }
+
+                // Non-cookieless event should pass through unaffected
+                const nonCookielessResult = response[1]
+                expect(nonCookielessResult.type).toBe(PipelineResultType.OK)
+                if (nonCookielessResult.type === PipelineResultType.OK) {
+                    expect(nonCookielessResult.value.event).toBe(nonCookielessEvent)
+                }
+            })
         })
         describe('timestamp out of range', () => {
             beforeEach(async () => {
