@@ -201,6 +201,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({ sourceQuery }),
         setMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
         setMetadataLoading: (loading: boolean) => ({ loading }),
+        setInsightLoading: (loading: boolean) => ({ loading }),
         editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
         editInsight: (query: string, insight: QueryBasedInsightModel) => ({ query, insight }),
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
@@ -287,6 +288,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             null as QueryBasedInsightModel | null,
             {
                 updateTab: (_, { tab }) => tab.insight ?? null,
+            },
+        ],
+        insightLoading: [
+            false,
+            {
+                setInsightLoading: (_, { loading }) => loading,
             },
         ],
         activeTab: [
@@ -1231,7 +1238,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         actions.updateTab({ ...values.activeTab, insight: undefined })
                     }
                     actions._setSuggestionPayload(null)
-                    actions.setQueryInput(null)
 
                     const shortId = searchParams.open_insight || hashParams.insight
                     if (shortId === 'new') {
@@ -1243,7 +1249,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
 
                     // Open Insight
-                    const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
+                    actions.setInsightLoading(true)
+                    let insight: QueryBasedInsightModel | null
+                    try {
+                        insight = await insightsApi.getByShortId(shortId, undefined, 'async')
+                    } catch {
+                        actions.setInsightLoading(false)
+                        lemonToast.error('Insight not found')
+                        return
+                    }
+                    actions.setInsightLoading(false)
                     if (!insight) {
                         lemonToast.error('Insight not found')
                         return
