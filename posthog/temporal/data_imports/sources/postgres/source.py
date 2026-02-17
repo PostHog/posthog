@@ -145,9 +145,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
         }
 
-    def get_schemas(
-        self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False, require_ssl: bool = False
-    ) -> list[SourceSchema]:
+    def get_schemas(self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
 
         with self.with_ssh_tunnel(config) as (host, port):
@@ -158,7 +156,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 password=config.password,
                 database=config.database,
                 schema=config.schema,
-                require_ssl=require_ssl,
             )
 
             if with_counts:
@@ -169,7 +166,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     password=config.password,
                     database=config.database,
                     schema=config.schema,
-                    require_ssl=require_ssl,
                 )
             else:
                 row_counts = {}
@@ -214,7 +210,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id, require_ssl=True)
+            self.get_schemas(config, team_id)
         except SSLRequiredError as e:
             return False, str(e)
         except OperationalError as e:

@@ -8,6 +8,8 @@ from contextlib import _GeneratorContextManager
 from datetime import UTC, date, datetime
 from typing import Any, Literal, LiteralString, Optional, cast
 
+from django.conf import settings
+
 import psycopg
 import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -33,7 +35,7 @@ from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 # Sources created after this date must use SSL/TLS connections
-SSL_REQUIRED_AFTER_DATE = datetime(2025, 2, 16, tzinfo=UTC)
+SSL_REQUIRED_AFTER_DATE = datetime(2025, 2, 17, tzinfo=UTC)
 
 
 class SSLRequiredError(Exception):
@@ -50,6 +52,10 @@ def _get_sslmode(require_ssl: bool) -> str:
             the server doesn't support it. If False, returns "prefer" which
             tries SSL but falls back to unencrypted if not available.
     """
+
+    if settings.TEST or settings.DEBUG:
+        return "prefer"
+
     return "require" if require_ssl else "prefer"
 
 
