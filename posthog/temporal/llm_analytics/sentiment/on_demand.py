@@ -69,6 +69,7 @@ _GENERATIONS_BATCH_QUERY = """
       AND timestamp <= toDateTime({date_to}, 'UTC')
       AND properties.$ai_trace_id IN {trace_ids}
     ORDER BY trace_id, timestamp DESC
+    LIMIT {max_rows}
 """
 
 
@@ -332,6 +333,7 @@ async def classify_sentiment_batch_activity(input: OnDemandSentimentBatchInput) 
             "date_from": ast.Constant(value=resolved_from),
             "date_to": ast.Constant(value=resolved_to),
             "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in input.trace_ids]),
+            "max_rows": ast.Constant(value=MAX_GENERATIONS * len(input.trace_ids)),
         },
         team=team,
         limit_context=LimitContext.QUERY_ASYNC,
@@ -348,7 +350,6 @@ async def classify_sentiment_batch_activity(input: OnDemandSentimentBatchInput) 
     # Collect all texts to classify across all traces
     pending: list[_PendingClassification] = []
     gen_uuids_seen: list[str] = []
-    per_trace_cap: dict[str, int] = {}
 
     for trace_id in input.trace_ids:
         trace_rows = rows_by_trace.get(trace_id, [])
@@ -377,8 +378,6 @@ async def classify_sentiment_batch_activity(input: OnDemandSentimentBatchInput) 
                     )
                 )
                 trace_count += 1
-
-        per_trace_cap[trace_id] = trace_count
 
     # Batch classify all texts across all traces in one call
     all_results = classify_batch([p.text for p in pending]) if pending else []

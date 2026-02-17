@@ -62,7 +62,7 @@ import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
-import { SENTIMENT_BAR_COLOR, SentimentBar } from './components/SentimentTag'
+import { SentimentBar, TraceSentimentChip } from './components/SentimentTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
@@ -71,7 +71,6 @@ import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalytic
 import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
-import type { SentimentLabel } from './sentimentUtils'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
@@ -416,79 +415,11 @@ function TraceMetadata({
             {feedbackEvents.map((feedback) => (
                 <FeedbackTag key={feedback.id} properties={feedback.properties} />
             ))}
-            {(() => {
-                if (sentimentResult === undefined || sentimentResult === null) {
-                    return null
-                }
-                if (sentimentLoading) {
-                    return null
-                }
-                const sentiment = sentimentResult
-                const label = (sentiment?.label ?? 'neutral') as SentimentLabel
-                const score = sentiment?.score ?? 0
-                const widthPercent = Math.round(score * 100)
-                const barColor = SENTIMENT_BAR_COLOR[label] ?? 'bg-border'
-
-                // Compute max positive/negative from messages classified as that label
-                let maxPositive = 0
-                let maxNegative = 0
-                if (sentiment?.generations) {
-                    for (const gen of Object.values(sentiment.generations)) {
-                        const g = gen as { messages?: { label?: string; scores?: Record<string, number> }[] }
-                        for (const msg of g.messages ?? []) {
-                            if (msg.label === 'positive' && msg.scores && msg.scores.positive > maxPositive) {
-                                maxPositive = msg.scores.positive
-                            }
-                            if (msg.label === 'negative' && msg.scores && msg.scores.negative > maxNegative) {
-                                maxNegative = msg.scores.negative
-                            }
-                        }
-                    }
-                }
-
-                const showMaxPositive = maxPositive > 0.05
-                const showMaxNegative = maxNegative > 0.05
-
-                const capitalize = (s: string): string => s[0].toUpperCase() + s.slice(1)
-                const tooltipParts = [`${capitalize(label)}: ${Math.round(score * 100)}%`]
-                if (showMaxPositive) {
-                    tooltipParts.push(`max positive: ${Math.round(maxPositive * 100)}%`)
-                }
-                if (showMaxNegative) {
-                    tooltipParts.push(`max negative: ${Math.round(maxNegative * 100)}%`)
-                }
-                const tooltipText =
-                    tooltipParts.length > 1
-                        ? `${tooltipParts[0]} (${tooltipParts.slice(1).join(', ')})`
-                        : tooltipParts[0]
-                return (
-                    <Chip title={tooltipText}>
-                        <span className="relative w-10 my-0.5 inline-block">
-                            <span className="block h-1.5 bg-border-light rounded-full overflow-hidden">
-                                <span
-                                    className={`block h-full rounded-full ${barColor}`}
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width: `${widthPercent}%` }}
-                                />
-                            </span>
-                            {showMaxPositive && (
-                                <span
-                                    className="absolute w-0.5 bg-success rounded-full"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ left: `${Math.round(maxPositive * 100)}%`, top: '-2px', bottom: 0 }}
-                                />
-                            )}
-                            {showMaxNegative && (
-                                <span
-                                    className="absolute w-0.5 bg-danger rounded-full"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ left: `${Math.round(maxNegative * 100)}%`, top: 0, bottom: '-2px' }}
-                                />
-                            )}
-                        </span>
-                    </Chip>
-                )
-            })()}
+            {sentimentResult && !sentimentLoading && (
+                <Chip title="Sentiment">
+                    <TraceSentimentChip sentiment={sentimentResult} />
+                </Chip>
+            )}
         </header>
     )
 }
