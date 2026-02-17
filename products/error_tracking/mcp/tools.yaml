@@ -113,8 +113,8 @@ tools:
         list: true
         title: List error tracking issues
         description: >
-            List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and
-            assignee info.
+            List all error tracking issues in the project. Returns issues with status, volume, first/last seen
+            timestamps, and assignee info.
     error-tracking-issues-create:
         operation: error_tracking_issues_create
         enabled: false
@@ -129,8 +129,8 @@ tools:
             idempotent: true
         title: Get error tracking issue
         description: >
-            Get a specific error tracking issue by ID. Returns full issue details including status, description, volume, and
-            metadata.
+            Get a specific error tracking issue by ID. Returns full issue details including status, description, volume,
+            and metadata.
     error-tracking-issues-update:
         operation: error_tracking_issues_update
         enabled: false
@@ -145,8 +145,8 @@ tools:
             idempotent: true
         title: Update error tracking issue
         description: >
-            Update an error tracking issue. Can change status (active, resolved, suppressed), assign to a user, or update
-            description.
+            Update an error tracking issue. Can change status (active, resolved, suppressed), assign to a user, or
+            update description.
     error-tracking-issues-destroy:
         operation: error_tracking_issues_destroy
         enabled: false

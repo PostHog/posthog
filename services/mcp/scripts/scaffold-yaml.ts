@@ -175,7 +175,7 @@ function generateFreshYaml(ops: DiscoveredOperation[], tag: string): string {
         tools,
     }
 
-    return YAML_HEADER + stringifyYaml(yaml, { lineWidth: 120 })
+    return YAML_HEADER + stringifyYaml(yaml, { indent: 4, lineWidth: 120 })
 }
 
 /**
@@ -239,7 +239,7 @@ function mergeWithExisting(
         tools: mergedTools,
     }
 
-    return { content: YAML_HEADER + stringifyYaml(merged, { lineWidth: 120 }), added, removed }
+    return { content: YAML_HEADER + stringifyYaml(merged, { indent: 4, lineWidth: 120 }), added, removed }
 }
 
 // ------------------------------------------------------------------
