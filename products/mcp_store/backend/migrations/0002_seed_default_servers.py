@@ -48,7 +48,7 @@ def remove_defaults(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("mcp_store", "0010_remove_mcpserver_is_signal_source_and_more"),
+        ("mcp_store", "0001_initial"),
     ]
 
     operations = [
