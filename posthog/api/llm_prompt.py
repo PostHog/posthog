@@ -17,6 +17,8 @@ from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermi
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
+from products.llm_analytics.backend.api.metrics import llma_track_latency
+
 RESERVED_PROMPT_NAMES = {"new"}
 
 
@@ -166,6 +168,7 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
         url_path=r"name/(?P<prompt_name>[^/]+)",
         required_scopes=["llm_prompt:read"],
     )
+    @llma_track_latency("llma_prompts_get_by_name")
     @monitor(feature=None, endpoint="llma_prompts_get_by_name", method="GET")
     def get_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
         try:
@@ -192,22 +195,27 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
         serializer = self.get_serializer(prompt)
         return Response(serializer.data)
 
+    @llma_track_latency("llma_prompts_list")
     @monitor(feature=None, endpoint="llma_prompts_list", method="GET")
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
+    @llma_track_latency("llma_prompts_retrieve")
     @monitor(feature=None, endpoint="llma_prompts_retrieve", method="GET")
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
 
+    @llma_track_latency("llma_prompts_create")
     @monitor(feature=None, endpoint="llma_prompts_create", method="POST")
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
 
+    @llma_track_latency("llma_prompts_update")
     @monitor(feature=None, endpoint="llma_prompts_update", method="PUT")
     def update(self, request, *args, **kwargs):
         return super().update(request, *args, **kwargs)
 
+    @llma_track_latency("llma_prompts_partial_update")
     @monitor(feature=None, endpoint="llma_prompts_partial_update", method="PATCH")
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
