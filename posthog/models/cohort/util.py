@@ -571,7 +571,7 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
     if settings.TEST:
         ch_settings = {
             "mutations_sync": "1",
-            "lightweight_deletes_sync": "1",
+            "lightweight_deletes_sync": "2",
         }
     else:
         # Use async mutations in production to avoid replica sync issues
