@@ -18,6 +18,8 @@ import { InsightLogicProps, PropertyFilterType, PropertyMathType } from '~/types
 
 /** Matches BREAKDOWN_NULL_DISPLAY in posthog/hogql_queries/web_analytics/stats_table.py */
 export const BREAKDOWN_NULL_DISPLAY = '(none)'
+/** Matches BREAKDOWN_REFERRER_PREFIX in posthog/hogql_queries/web_analytics/stats_table.py */
+export const BREAKDOWN_REFERRER_PREFIX = 'referrer:'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */

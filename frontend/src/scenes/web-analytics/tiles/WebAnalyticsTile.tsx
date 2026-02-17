@@ -29,6 +29,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import {
     BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_REFERRER_PREFIX,
     GeographyTab,
     ProductTab,
     TileId,
@@ -425,6 +426,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 }
             }
             break
+        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+            if (typeof value === 'string') {
+                return <>{value.replace(BREAKDOWN_REFERRER_PREFIX, '')}</>
+            }
+            break
     }
 
     if (typeof value === 'string') {
@@ -800,6 +806,7 @@ export const WebStatsTableTile = ({
     const utmSource = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMSource)!
     const utmMedium = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMMedium)!
     const utmCampaign = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMCampaign)!
+    const referringDomain = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialReferringDomain)!
 
     const onClick = useCallback(
         (breakdownValue: string | null) => {
@@ -810,8 +817,17 @@ export const WebStatsTableTile = ({
 
             if (breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign && breakdownValue) {
                 const values = breakdownValue.split(' / ')
-                if (values[0] && values[0] !== BREAKDOWN_NULL_DISPLAY) {
-                    togglePropertyFilter(utmSource.type, utmSource.key, values[0])
+                const sourceValue = values[0]
+                if (sourceValue && sourceValue !== BREAKDOWN_NULL_DISPLAY) {
+                    if (sourceValue.startsWith(BREAKDOWN_REFERRER_PREFIX)) {
+                        togglePropertyFilter(
+                            referringDomain.type,
+                            referringDomain.key,
+                            sourceValue.slice(BREAKDOWN_REFERRER_PREFIX.length)
+                        )
+                    } else {
+                        togglePropertyFilter(utmSource.type, utmSource.key, sourceValue)
+                    }
                 }
                 if (values[1] && values[1] !== BREAKDOWN_NULL_DISPLAY) {
                     togglePropertyFilter(utmMedium.type, utmMedium.key, values[1])
@@ -846,7 +862,7 @@ export const WebStatsTableTile = ({
 
             togglePropertyFilter(type, key, breakdownValue)
         },
-        [togglePropertyFilter, type, key, productTab, breakdownBy, utmSource, utmMedium, utmCampaign]
+        [togglePropertyFilter, type, key, productTab, breakdownBy, utmSource, utmMedium, utmCampaign, referringDomain]
     )
 
     const context = useMemo((): QueryContext => {
