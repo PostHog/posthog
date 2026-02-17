@@ -258,6 +258,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_TEST_SEEK_LATENCY: false,
         CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: 0.01,
         CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 50_000_000,
+        CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: '',
 
         // New IngestionConsumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',

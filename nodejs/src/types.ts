@@ -195,6 +195,7 @@ export type CdpConfig = {
     CDP_CYCLOTRON_TEST_SEEK_LATENCY: boolean // When true, samples consumed messages and seeks back to verify read latency
     CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: number // Fraction of messages to test (0.0-1.0, e.g. 0.01 = 1%)
     CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: number // Max offsets to seek back (e.g. 50000000 ≈ 14 days at current throughput)
+    CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: string // Base URL for WarpStream HTTP fetch endpoint (e.g. 'https://warpstream.example.com')
 
     // SES (Workflows email sending)
     SES_ENDPOINT: string
