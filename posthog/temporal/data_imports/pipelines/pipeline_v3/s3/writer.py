@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+from typing import Literal
 
 import s3fs
 import pyarrow as pa
@@ -19,6 +20,8 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.common import (
 from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.s3 import get_s3_client
 
+ParquetCompression = Literal["gzip", "bz2", "brotli", "lz4", "zstd", "snappy", "none"]
+
 
 class S3BatchWriter:
     _job: ExternalDataJob
@@ -29,6 +32,7 @@ class S3BatchWriter:
     _data_folder: str
     _s3: s3fs.S3FileSystem
     _schema: pa.Schema | None
+    _compression: ParquetCompression
 
     def __init__(
         self,
@@ -36,7 +40,7 @@ class S3BatchWriter:
         job: ExternalDataJob,
         schema_id: str,
         run_uuid: str | None = None,
-        compression: str = "zstd",
+        compression: ParquetCompression = "zstd",
     ) -> None:
         self._compression = compression
         self._job = job

@@ -25,7 +25,7 @@ def _make_producer(**kwargs) -> KafkaBatchProducer:
         "posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.producer.get_warpstream_kafka_producer"
     ) as mock_get:
         mock_get.return_value = MagicMock()
-        return KafkaBatchProducer(**defaults)
+        return KafkaBatchProducer(**defaults)  # type: ignore[arg-type]
 
 
 def _make_batch_result(batch_index: int = 0) -> BatchWriteResult:
@@ -46,7 +46,7 @@ def _successful_future() -> MagicMock:
 
 def _failed_future(error_msg: str = "delivery failed") -> MagicMock:
     future = MagicMock(spec=ProduceResult)
-    future.get.side_effect = KafkaException(KafkaError._MSG_TIMED_OUT, error_msg)
+    future.get.side_effect = KafkaException(KafkaError._MSG_TIMED_OUT, error_msg)  # type: ignore[attr-defined]
     return future
 
 
