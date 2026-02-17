@@ -1369,6 +1369,15 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Logs'],
     },
     {
+        path: 'MCP servers',
+        category: 'Tools',
+        intents: [ProductKey.MCP_STORE],
+        href: urls.mcpStore(),
+        flag: FEATURE_FLAGS.MCP_SERVERS,
+        sceneKey: 'McpStore',
+        sceneKeys: ['McpStore'],
+    },
+    {
         path: 'Marketing analytics',
         intents: [ProductKey.MARKETING_ANALYTICS],
         category: 'Analytics',

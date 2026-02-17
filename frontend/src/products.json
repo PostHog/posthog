@@ -135,6 +135,7 @@
             "type": null,
             "intents": ["marketing_analytics"]
         },
+        { "path": "MCP servers", "category": "Tools", "iconType": null, "type": null, "intents": ["mcp_store"] },
         {
             "path": "Product analytics",
             "category": "Analytics",

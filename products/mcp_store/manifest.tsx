@@ -1,3 +1,7 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
+
+import { ProductKey } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -18,5 +22,15 @@ export const manifest: ProductManifest = {
         mcpStore: (): string => '/mcp-servers',
     },
     treeItemsNew: [],
-    treeItemsProducts: [],
+    treeItemsProducts: [
+        {
+            path: 'MCP servers',
+            category: 'Tools',
+            intents: [ProductKey.MCP_STORE],
+            href: urls.mcpStore(),
+            flag: FEATURE_FLAGS.MCP_SERVERS,
+            sceneKey: 'McpStore',
+            sceneKeys: ['McpStore'],
+        },
+    ],
 }

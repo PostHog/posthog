@@ -28,9 +28,11 @@ from ee.hogai.tools import (
     TaskTool,
     TodoWriteTool,
 )
+from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.tools.finalize_plan.tool import FinalizePlanTool
 from ee.hogai.utils.feature_flags import (
     has_create_form_tool_feature_flag,
+    has_mcp_servers_feature_flag,
     has_memory_tool_feature_flag,
     has_phai_tasks_feature_flag,
     has_task_tool_feature_flag,
@@ -126,18 +128,17 @@ class ChatAgentToolkitManager(AgentToolkitManager):
             if tool.get_name() not in initialized_tool_names:
                 available_tools.append(tool)
 
-        # Add MCP server tool if user has installations
-        from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
-
-        mcp_tool = await CallMCPServerTool.create_tool_class(
-            team=self._team,
-            user=self._user,
-            state=state,
-            config=config,
-            context_manager=self._context_manager,
-        )
-        if mcp_tool._installations:
-            available_tools.append(mcp_tool)
+        # Add MCP server tool if user has installations and flag is enabled
+        if has_mcp_servers_feature_flag(self._team, self._user):
+            mcp_tool = await CallMCPServerTool.create_tool_class(
+                team=self._team,
+                user=self._user,
+                state=state,
+                config=config,
+                context_manager=self._context_manager,
+            )
+            if mcp_tool._installations:
+                available_tools.append(mcp_tool)
 
         # Final tools = available contextual tools + LLM provider server tools
         if has_web_search_feature_flag(self._team, self._user):
