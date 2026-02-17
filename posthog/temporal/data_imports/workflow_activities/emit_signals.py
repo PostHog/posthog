@@ -16,7 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_imports.signals import SignalSourceConfig, get_signal_config
+from posthog.temporal.data_imports.signals import SignalSourceTableConfig, get_signal_config
 from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput
 
 from products.data_warehouse.backend.models import ExternalDataSchema
@@ -38,7 +38,7 @@ class EmitSignalsActivityInputs:
     source_type: str
     schema_name: str
     # ISO timestamp of when the previous sync completed
-    # Used to filter records with created_at > last_synced_at
+    # Used to filter records with partition_field > last_synced_at
     last_synced_at: str | None
 
     @property
@@ -136,19 +136,19 @@ def _query_new_records(
     team: Team,
     table_name: str,
     last_synced_at: str | None,
-    config: SignalSourceConfig,
+    config: SignalSourceTableConfig,
     extra: dict[str, Any],
 ) -> list[dict[str, Any]]:
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
     # Continuous sync - need to analyze all that happened since the last one
     if last_synced_at is not None:
-        where_parts.append("created_at > {last_synced_at}")
+        where_parts.append(f"{config.partition_field} > {{last_synced_at}}")
         placeholders["last_synced_at"] = last_synced_at
         limit = MAX_SIGNALS_PER_SYNC
     # First ever sync - look back a limited window
     else:
-        where_parts.append(f"created_at > now() - interval {config.first_sync_lookback_days} day")
+        where_parts.append(f"{config.partition_field} > now() - interval {config.first_sync_lookback_days} day")
         limit = config.first_sync_limit
     if config.where_clause:
         where_parts.append(config.where_clause)
@@ -157,7 +157,7 @@ def _query_new_records(
         SELECT *
         FROM {table_name}
         WHERE {where_sql}
-        ORDER BY created_at DESC
+        ORDER BY {config.partition_field} DESC
         LIMIT {limit}
     """
     parsed = parse_select(query, placeholders=placeholders) if placeholders else parse_select(query)

@@ -1,7 +1,7 @@
 from posthog.temporal.data_imports.signals.registry import (
     SignalEmitter,
     SignalEmitterOutput,
-    SignalSourceConfig,
+    SignalSourceTableConfig,
     get_signal_config,
     is_signal_emission_registered,
 )
@@ -9,7 +9,7 @@ from posthog.temporal.data_imports.signals.registry import (
 __all__ = [
     "SignalEmitter",
     "SignalEmitterOutput",
-    "SignalSourceConfig",
+    "SignalSourceTableConfig",
     "get_signal_config",
     "is_signal_emission_registered",
 ]

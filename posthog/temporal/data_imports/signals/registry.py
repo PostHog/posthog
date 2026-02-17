@@ -19,8 +19,10 @@ SignalEmitter = Callable[[int, dict[str, Any]], SignalEmitterOutput | None]
 
 
 @dataclasses.dataclass(frozen=True)
-class SignalSourceConfig:
+class SignalSourceTableConfig:
     emitter: SignalEmitter
+    # Column used to filter new records. Should match the source table's partition field for efficient ClickHouse queries.
+    partition_field: str
     # Optional HogQL WHERE clause to append to every query
     # e.g., "status NOT IN ('closed', 'solved')" for Zendesk
     where_clause: str | None = None
@@ -35,25 +37,27 @@ class SignalSourceConfig:
 
 
 # Registry mapping (source_type, schema_name) -> config
-_SIGNAL_CONFIGS: dict[tuple[str, str], SignalSourceConfig] = {}
+_SIGNAL_TABLE_CONFIGS: dict[tuple[str, str], SignalSourceTableConfig] = {}
 
 
-def register_signal_source(source_type: ExternalDataSourceType, schema_name: str, config: SignalSourceConfig) -> None:
-    _SIGNAL_CONFIGS[(source_type.value, schema_name)] = config
+def register_signal_source_table(
+    source_type: ExternalDataSourceType, schema_name: str, config: SignalSourceTableConfig
+) -> None:
+    _SIGNAL_TABLE_CONFIGS[(source_type.value, schema_name)] = config
 
 
-def get_signal_config(source_type: str, schema_name: str) -> SignalSourceConfig | None:
-    return _SIGNAL_CONFIGS.get((source_type, schema_name))
+def get_signal_config(source_type: str, schema_name: str) -> SignalSourceTableConfig | None:
+    return _SIGNAL_TABLE_CONFIGS.get((source_type, schema_name))
 
 
 def is_signal_emission_registered(source_type: str, schema_name: str) -> bool:
-    return (source_type, schema_name) in _SIGNAL_CONFIGS
+    return (source_type, schema_name) in _SIGNAL_TABLE_CONFIGS
 
 
 def _register_all_emitters() -> None:
-    from posthog.temporal.data_imports.signals.zendesk import ZENDESK_TICKETS_CONFIG
+    from posthog.temporal.data_imports.signals.zendesk_tickets import ZENDESK_TICKETS_CONFIG
 
-    register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
+    register_signal_source_table(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
 
 
 _register_all_emitters()
