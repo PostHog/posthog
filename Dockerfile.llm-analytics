@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 #
 # Docker image for the LLM Analytics Temporal worker.
 #
@@ -66,7 +67,8 @@ ENV PATH=/python-runtime/bin:$PATH \
 #   2. Run the export locally to compute new SHA256 hashes for config.json and tokenizer.json
 #   3. Update EXPECTED_HASHES below
 #   4. Rebuild the image
-RUN python -c "
+RUN <<'BAKE_MODEL'
+python -c "
 import hashlib, os, sys, torch
 from transformers import AutoTokenizer, pipeline
 from optimum.onnxruntime import ORTModelForSequenceClassification
@@ -82,7 +84,6 @@ EXPECTED_HASHES = {
 cache_dir = os.environ['POSTHOG_SENTIMENT_MODEL_CACHE']
 os.makedirs(cache_dir, exist_ok=True)
 
-# Download from pinned revision
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, revision=MODEL_REVISION)
 
 # PyTorch 2.9+ defaults torch.onnx.export to dynamo=True which breaks optimum
@@ -98,7 +99,6 @@ torch.onnx.export = original_export
 model.save_pretrained(cache_dir)
 tokenizer.save_pretrained(cache_dir)
 
-# Verify file integrity
 for filename, expected_sha in EXPECTED_HASHES.items():
     filepath = os.path.join(cache_dir, filename)
     actual_sha = hashlib.sha256(open(filepath, 'rb').read()).hexdigest()
@@ -109,7 +109,6 @@ for filename, expected_sha in EXPECTED_HASHES.items():
         sys.exit(1)
     print(f'  verified {filename}: {actual_sha}')
 
-# Smoke test: verify inference output on known input
 pipe = pipeline('sentiment-analysis', model=model, tokenizer=tokenizer, top_k=None, truncation=True, max_length=512)
 result = pipe('I love this product')[0]
 labels = {r['label']: r['score'] for r in result}
@@ -117,6 +116,7 @@ assert labels.get('positive', 0) > 0.5, f'Smoke test failed: expected positive >
 print(f'  smoke test passed: positive={labels[\"positive\"]:.4f}')
 print(f'Model baked into {cache_dir}')
 "
+BAKE_MODEL
 
 RUN chmod +x bin/temporal-django-worker
 
