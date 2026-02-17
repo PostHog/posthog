@@ -80,7 +80,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
 
 
 class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "uploaded_media"
+    scope_object = "INTERNAL"
     queryset = UploadedMedia.objects.all()
     parser_classes = (MultiPartParser, FormParser)
     authentication_classes = [TemporaryTokenAuthentication]

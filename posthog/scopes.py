@@ -27,7 +27,6 @@ APIScopeObject = Literal[
     "endpoint",
     "error_tracking",
     "evaluation",
-    "element",
     "event_definition",
     "experiment",
     "experiment_saved_metric",
@@ -39,7 +38,6 @@ APIScopeObject = Literal[
     "file_system_shortcut",
     "group",
     "health_issue",
-    "heatmap",
     "hog_function",
     "insight",
     "insight_variable",
@@ -70,7 +68,6 @@ APIScopeObject = Literal[
     "survey",
     "ticket",
     "task",
-    "uploaded_media",
     "user",
     "user_interview_DO_NOT_USE",  # This is a super alpha product, so only exposing here for internal personal API key access
     "warehouse_table",
