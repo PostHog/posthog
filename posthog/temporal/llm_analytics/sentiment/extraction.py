@@ -9,8 +9,8 @@ def _is_tool_result_message(content: object) -> bool:
 
     In Anthropic format, tool results are sent as user-role messages with
     content like [{"type": "tool_result", "tool_use_id": "...", "content": "..."}].
-    These aren't real user messages and should be excluded from sentiment
-    classification so that backend message indices match the frontend.
+    These carry tool output, not user sentiment, so we exclude them to
+    avoid noise in classification scores.
     """
     if not isinstance(content, list) or not content:
         return False

@@ -17,3 +17,15 @@ CLASSIFY_BATCH_SIZE = 32  # texts per ONNX forward pass
 MAX_TOTAL_CLASSIFICATIONS = 200  # hard cap on classify() calls per trace
 MAX_GENERATIONS = 50  # ClickHouse LIMIT for generation events per trace
 QUERY_LOOKBACK_DAYS = 30  # timestamp filter to enable partition pruning
+
+# HogQL query template for fetching $ai_generation events
+GENERATIONS_QUERY = """
+    SELECT uuid, properties, properties.$ai_trace_id AS trace_id
+    FROM events
+    WHERE event = '$ai_generation'
+      AND timestamp >= toDateTime({date_from}, 'UTC')
+      AND timestamp <= toDateTime({date_to}, 'UTC')
+      AND properties.$ai_trace_id IN {trace_ids}
+    ORDER BY trace_id, timestamp DESC
+    LIMIT {max_rows}
+"""
