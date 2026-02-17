@@ -54,6 +54,7 @@ const MOCK_INSIGHT: QueryBasedInsightModel = {
     last_modified_by: null,
     layouts: {},
     color: null,
+    user_access_level: 'none',
 } as QueryBasedInsightModel
 
 function createMockMonaco(): any {
