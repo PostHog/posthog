@@ -4,6 +4,8 @@ import { IconBadge } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonLabel, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -18,6 +20,11 @@ export function DataColorThemes(): JSX.Element {
 
     const { currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const themes = _themes || []
 
@@ -55,7 +62,7 @@ export function DataColorThemes(): JSX.Element {
                         },
                     ]}
                 />
-                <LemonButton type="secondary" onClick={() => selectTheme('new')}>
+                <LemonButton type="secondary" onClick={() => selectTheme('new')} disabledReason={restrictedReason}>
                     Add theme
                 </LemonButton>
 
@@ -78,6 +85,7 @@ export function DataColorThemes(): JSX.Element {
                     }}
                     loading={themesLoading || currentTeamLoading}
                     options={themes.map((theme) => ({ value: theme.id, label: theme.name }))}
+                    disabledReason={restrictedReason}
                 />
 
                 <DataColorThemeModal />

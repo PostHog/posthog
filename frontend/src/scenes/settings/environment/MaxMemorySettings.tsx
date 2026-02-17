@@ -3,6 +3,8 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonSkeleton, LemonTextArea } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -11,6 +13,10 @@ import { maxSettingsLogic } from './maxSettingsLogic'
 export function MaxMemorySettings(): JSX.Element {
     const { currentProject, currentProjectLoading } = useValues(projectLogic)
     const { isLoading, isUpdating } = useValues(maxSettingsLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <Form
@@ -33,13 +39,14 @@ export function MaxMemorySettings(): JSX.Element {
                         }?`}
                         maxLength={10000}
                         maxRows={5}
+                        disabled={!!restrictedReason}
                     />
                 </LemonField>
             )}
             <LemonButton
                 type="primary"
                 htmlType="submit"
-                disabledReason={!currentProject || isLoading ? 'Loading project and memory...' : undefined}
+                disabledReason={!currentProject || isLoading ? 'Loading project and memory...' : restrictedReason}
                 loading={isUpdating}
             >
                 Save memory

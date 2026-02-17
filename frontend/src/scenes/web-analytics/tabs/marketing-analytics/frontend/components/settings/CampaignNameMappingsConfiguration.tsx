@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconInfo, IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonInputSelect, LemonSelect, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
+
 import { MatchField, VALID_NATIVE_MARKETING_SOURCES, externalDataSources } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
@@ -35,6 +38,10 @@ export function CampaignNameMappingsConfiguration({
     const [selectedSource, setSelectedSource] = useState<string>(sourceFilter || '')
     const [newCleanName, setNewCleanName] = useState('')
     const [newRawValues, setNewRawValues] = useState(initialUtmValue || '')
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     useEffect(() => {
         if (initialUtmValue) {
@@ -199,6 +206,7 @@ export function CampaignNameMappingsConfiguration({
                                                   icon={<IconTrash />}
                                                   onClick={() => removeMapping(source, cleanName)}
                                                   tooltip="Remove mapping"
+                                                  disabledReason={restrictedReason}
                                               />
                                           </td>
                                       </tr>
@@ -217,6 +225,7 @@ export function CampaignNameMappingsConfiguration({
                                         ]}
                                         size="small"
                                         fullWidth
+                                        disabledReason={restrictedReason}
                                     />
                                 </td>
                             )}
@@ -235,6 +244,7 @@ export function CampaignNameMappingsConfiguration({
                                         allowCustomValues
                                         size="small"
                                         loading={integrationCampaignsLoading[currentIntegration]}
+                                        disabledReason={restrictedReason}
                                     />
                                     {newCleanName && (
                                         <div className="text-xs text-muted break-all">
@@ -288,6 +298,7 @@ export function CampaignNameMappingsConfiguration({
                                                                 ? `${suggestion.name} (${Math.round(suggestion.score * 100)}% match)`
                                                                 : `ID: ${suggestion.id} (${Math.round(suggestion.score * 100)}% match)`
                                                         }
+                                                        disabledReason={restrictedReason}
                                                     >
                                                         {matchField === MatchField.CAMPAIGN_ID
                                                             ? `${suggestion.id} (${suggestion.name})`
@@ -308,6 +319,7 @@ export function CampaignNameMappingsConfiguration({
                                         minRows={1}
                                         maxRows={4}
                                         className="text-sm"
+                                        disabled={!!restrictedReason}
                                     />
                                     {hasAlreadyMappedValues && (
                                         <div className="flex items-start gap-1 text-warning text-xs">
@@ -340,6 +352,7 @@ export function CampaignNameMappingsConfiguration({
                                             !newRawValues.trim() ||
                                             hasAlreadyMappedValues
                                         }
+                                        disabledReason={restrictedReason}
                                     />
                                 </Tooltip>
                             </td>
