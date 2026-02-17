@@ -436,7 +436,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
 
             // Mark workflow creation task as completed everytime it's saved for completeness
-            tasksToMarkAsCompleted.push(SetupTaskId.CreateFirstWorkflow)
+            tasksToMarkAsCompleted.push(SetupTaskId.create_first_workflow)
 
             // Check trigger configuration
             const trigger = originalWorkflow.actions.find((a) => a.type === 'trigger')
@@ -448,19 +448,19 @@ export const workflowLogic = kea<workflowLogicType>([
                     (config.type === 'schedule' && config.scheduled_at) ||
                     (config.type === 'batch' && config.filters?.properties?.length > 0)
                 if (hasValidTrigger) {
-                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureWorkflowTrigger)
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.configure_workflow_trigger)
                 }
             }
 
             // Check if workflow has actions beyond trigger and exit
             const actionNodes = originalWorkflow.actions.filter((a) => a.type !== 'trigger' && a.type !== 'exit')
             if (actionNodes.length > 0) {
-                tasksToMarkAsCompleted.push(SetupTaskId.AddWorkflowAction)
+                tasksToMarkAsCompleted.push(SetupTaskId.add_workflow_action)
             }
 
             // Check if workflow is active (launched)
             if (originalWorkflow.status === 'active') {
-                tasksToMarkAsCompleted.push(SetupTaskId.LaunchWorkflow)
+                tasksToMarkAsCompleted.push(SetupTaskId.launch_workflow)
             }
 
             // Make sure we submit all the tasks for completion at once in the end

@@ -123,7 +123,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 refreshTreeItem('action', String(action.id))
                 if (!props.id) {
                     // Mark task complete when creating a new action
-                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.DefineActions)
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.define_actions)
                     router.actions.push(urls.action(action.id))
                 } else {
                     const id = parseInt(props.id.toString()) // props.id can be a string

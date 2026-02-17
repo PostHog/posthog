@@ -32,7 +32,7 @@ export function MessageChannels(): JSX.Element {
                 integration={selectedIntegration || undefined}
                 onClose={closeSetupModal}
                 onComplete={() => {
-                    markTaskAsCompleted(SetupTaskId.SetUpFirstWorkflowChannel)
+                    markTaskAsCompleted(SetupTaskId.set_up_first_workflow_channel)
                     closeSetupModal()
                 }}
             />

@@ -712,7 +712,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }).actions.loadData(!switchTab ? 'force_async' : 'async')
 
             // Mark the first query task as complete when the query is run
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.run_first_query)
         },
         saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
             LemonDialog.openForm({

@@ -383,7 +383,7 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         loadResponsesCountSuccess: () => {
             if (Object.values(values.surveysResponsesCount).some((count) => count > 0)) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CollectSurveyResponses)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.collect_survey_responses)
             }
         },
         setTab: ({ tab }) => {

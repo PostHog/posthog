@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
 
-// SetupTaskId lives in schema-general.ts so it flows through the schema pipeline
-// into posthog/schema.py, giving the backend a generated StrEnum to use directly.
-import type { ProductKey, SetupTaskId } from '~/queries/schema/schema-general'
+import type { AvailableSetupTaskIdsEnumApi } from '~/generated/core/api.schemas'
+import type { ProductKey } from '~/queries/schema/schema-general'
+
+export type SetupTaskId = AvailableSetupTaskIdsEnumApi
 
 /**
  * Type of task - determines when/where it appears:
