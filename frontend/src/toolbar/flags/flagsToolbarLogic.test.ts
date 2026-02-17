@@ -36,7 +36,7 @@ describe('toolbar featureFlagsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        toolbarConfigLogic.build({ apiURL: 'http://localhost', temporaryToken: 'test-token' }).mount()
+        toolbarConfigLogic.build({ apiURL: 'http://localhost' }).mount()
         logic = flagsToolbarLogic()
         logic.mount()
         logic.actions.getUserFlags()
