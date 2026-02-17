@@ -1448,12 +1448,10 @@ function FeatureFlagRollout({
                                                 <span className="font-mono font-bold">
                                                     {featureFlag.has_encrypted_payloads
                                                         ? 'getRemoteConfigPayload'
-                                                        : 'getFeatureFlagPayload'}
+                                                        : 'getFeatureFlagResult'}
                                                 </span>
-                                                . Using standard SDK methods such as{' '}
-                                                <span className="font-mono font-bold">getFeatureFlag</span> or{' '}
-                                                <span className="font-mono font-bold">isFeatureEnabled</span> will
-                                                always return <span className="font-mono font-bold">true</span>
+                                                . The <span className="font-mono font-bold">enabled</span> property will
+                                                always be <span className="font-mono font-bold">true</span>
                                             </div>
                                         )}
                                     </div>
@@ -1643,12 +1641,10 @@ function FeatureFlagRollout({
                                         <span className="font-mono font-bold">
                                             {featureFlag.has_encrypted_payloads
                                                 ? 'getRemoteConfigPayload'
-                                                : 'getFeatureFlagPayload'}
+                                                : 'getFeatureFlagResult'}
                                         </span>
-                                        . Using standard SDK methods such as{' '}
-                                        <span className="font-mono font-bold">getFeatureFlag</span> or{' '}
-                                        <span className="font-mono font-bold">isFeatureEnabled</span> will always return{' '}
-                                        <span className="font-mono font-bold">true</span>
+                                        . The <span className="font-mono font-bold">enabled</span> property will always
+                                        be <span className="font-mono font-bold">true</span>
                                     </div>
                                 )}
                             </div>

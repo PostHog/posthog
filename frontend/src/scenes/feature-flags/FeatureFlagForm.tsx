@@ -510,15 +510,14 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         {featureFlag.is_remote_configuration ? (
                                             <>
                                                 Returns a JSON payload directly, without feature flag evaluation logic.
-                                                Access it via <code className="text-xs">getFeatureFlagPayload</code>.
+                                                Access it via <code className="text-xs">getRemoteConfigPayload</code>.
                                             </>
                                         ) : multivariateEnabled ? (
                                             <>
                                                 When release conditions match, returns one of the variant keys (string)
                                                 based on rollout percentages. Each variant can optionally include a JSON
-                                                payload. Access the variant via{' '}
-                                                <code className="text-xs">getFeatureFlag</code> and its payload via{' '}
-                                                <code className="text-xs">getFeatureFlagPayload</code>.
+                                                payload. Access the result via{' '}
+                                                <code className="text-xs">getFeatureFlagResult</code>.
                                             </>
                                         ) : (
                                             <>
@@ -672,7 +671,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         </LemonLabel>
                                         <div className="text-secondary text-xs mb-1">
                                             Remote config flags always return the payload. Access it via{' '}
-                                            <code className="text-xs">getFeatureFlagPayload</code>.
+                                            <code className="text-xs">getRemoteConfigPayload</code>.
                                         </div>
                                         <Group name={['filters', 'payloads']}>
                                             <LemonField name="true">
@@ -695,7 +694,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             When the flag evaluates to{' '}
                                                             <code className="text-xs">true</code>, this payload will be
                                                             available via{' '}
-                                                            <code className="text-xs">getFeatureFlagPayload</code>.
+                                                            <code className="text-xs">getFeatureFlagResult</code>.
                                                         </div>
                                                         <Group name={['filters', 'payloads']}>
                                                             <LemonField name="true">

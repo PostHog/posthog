@@ -305,11 +305,12 @@ export function CodeInstructions({
                     multivariant={multivariantFlag}
                     groupType={groupType}
                     localEvaluation={showLocalEvalCode}
+                    payload={showPayloadCode}
                     instantlyAvailableProperties={!firstNonInstantProperty}
                     samplePropertyName={firstNonInstantProperty || randomProperty}
                 />
             )}
-            {showPayloadCode && (
+            {showPayloadCode && remoteConfiguration && (
                 <>
                     <h4 className="l4">Payload</h4>
                     <selectedOption.Snippet

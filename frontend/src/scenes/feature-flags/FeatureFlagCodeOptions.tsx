@@ -184,6 +184,7 @@ export const PAYLOAD_LIBRARIES: string[] = [
     SDKKey.NODE_JS,
     SDKKey.PYTHON,
     SDKKey.RUBY,
+    SDKKey.PHP,
     SDKKey.REACT,
     SDKKey.ANDROID,
     SDKKey.REACT_NATIVE,
