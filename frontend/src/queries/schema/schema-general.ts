@@ -1838,6 +1838,10 @@ export interface QueryRequest {
      * Up to 128 characters for a name.
      */
     name?: string
+    /**
+     * Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value.
+     */
+    limit_context?: 'posthog_ai' | null
 }
 
 export interface QueryUpgradeRequest {
