@@ -63,3 +63,4 @@ KAFKA_WAREHOUSE_SOURCE_WEBHOOKS = f"{KAFKA_PREFIX}warehouse_source_webhooks{SUFF
 
 # Distinct ID usage - pre-processed by WarpStream pipeline from clickhouse_events_json
 KAFKA_DISTINCT_ID_USAGE_EVENTS_JSON = f"{KAFKA_PREFIX}distinct_id_usage_events_json{SUFFIX}"
+KAFKA_WAREHOUSE_PIPELINES_EXPORT_SIGNALS = f"{KAFKA_PREFIX}data_warehouse_pipelines_export_signals{SUFFIX}"

@@ -51,7 +51,10 @@ export class GeoIPService {
             this._initialMmdbPromise = this.loadMmdb('initial')
                 .then((mmdb) => {
                     this._mmdb = mmdb
-                    return this.loadMmdbMetadata()
+                    if (mmdb) {
+                        return this.loadMmdbMetadata()
+                    }
+                    return undefined
                 })
                 .then((metadata) => {
                     this._mmdbMetadata = metadata
@@ -61,7 +64,7 @@ export class GeoIPService {
         return this._initialMmdbPromise
     }
 
-    private async loadMmdb(reason: string): Promise<ReaderModel> {
+    private async loadMmdb(reason: string): Promise<ReaderModel | undefined> {
         logger.info('🌎', 'Loading MMDB from disk...', {
             location: this.config.MMDB_FILE_LOCATION,
         })
@@ -76,11 +79,11 @@ export class GeoIPService {
                 async () => await Reader.open(this.config.MMDB_FILE_LOCATION)
             )
         } catch (e) {
-            logger.warn('🌎', 'Loading MMDB from disk failed!', {
+            logger.warn('🌎', 'Loading MMDB from disk failed, GeoIP lookups will be disabled', {
                 error: e.message,
                 location: this.config.MMDB_FILE_LOCATION,
             })
-            throw e
+            return undefined
         }
     }
 
@@ -124,8 +127,12 @@ export class GeoIPService {
 
         geoipBackgroundRefreshCounter.inc({ result: 'refreshing' })
         const mmdb = await this.loadMmdb('background refresh')
-        this._mmdb = mmdb
-        this._mmdbMetadata = metadata
+        if (mmdb) {
+            this._mmdb = mmdb
+            this._mmdbMetadata = metadata ?? this._mmdbMetadata
+        } else {
+            logger.warn('🌎', 'Background MMDB refresh failed, keeping existing MMDB')
+        }
     }
 
     async get(): Promise<GeoIp> {

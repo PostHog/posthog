@@ -1633,6 +1633,7 @@ class ExternalDataSourceType(StrEnum):
     SHOPIFY = "Shopify"
     ATTIO = "Attio"
     SNAPCHAT_ADS = "SnapchatAds"
+    LINEAR = "Linear"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1704,6 +1705,7 @@ class FileSystemIconType(StrEnum):
     ERROR_TRACKING = "error_tracking"
     HEATMAP = "heatmap"
     SESSION_REPLAY = "session_replay"
+    SESSION_PROFILE = "session_profile"
     SURVEY = "survey"
     PRODUCT_TOUR = "product_tour"
     USER_INTERVIEW = "user_interview"
@@ -1932,17 +1934,44 @@ class HeatmapSettings(BaseModel):
     yAxisLabel: str | None = None
 
 
-class HedgehogColorOptions(StrEnum):
+class HedgehogActorAccessoryOption(StrEnum):
+    BERET = "beret"
+    CAP = "cap"
+    CHEF = "chef"
+    COWBOY = "cowboy"
+    EYEPATCH = "eyepatch"
+    FLAG = "flag"
+    GLASSES = "glasses"
+    GRADUATION = "graduation"
+    PARROT = "parrot"
+    PARTY = "party"
+    PINEAPPLE = "pineapple"
+    SUNGLASSES = "sunglasses"
+    TOPHAT = "tophat"
+    XMAS_HAT = "xmas-hat"
+    XMAS_ANTLERS = "xmas-antlers"
+    XMAS_SCARF = "xmas-scarf"
+
+
+class HedgehogActorColorOption(StrEnum):
     GREEN = "green"
     RED = "red"
     BLUE = "blue"
     PURPLE = "purple"
     DARK = "dark"
     LIGHT = "light"
+    GREYSCALE = "greyscale"
     SEPIA = "sepia"
     INVERT = "invert"
-    INVERT_HUE = "invert-hue"
-    GREYSCALE = "greyscale"
+    RAINBOW = "rainbow"
+
+
+class HedgehogActorSkinOption(StrEnum):
+    DEFAULT = "default"
+    SPIDERHOG = "spiderhog"
+    ROBOHOG = "robohog"
+    HOGZILLA = "hogzilla"
+    GHOST = "ghost"
 
 
 class HogCompileResponse(BaseModel):
@@ -2301,11 +2330,20 @@ class MarketingIntegrationConfig2(BaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
+class ConversionActionTypes(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fallback: list[str] = Field(..., max_length=14, min_length=14)
+    omni: list[str] = Field(..., max_length=5, min_length=5)
+
+
 class MarketingIntegrationConfig3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     campaignTableName: Literal["campaigns"] = "campaigns"
+    conversionActionTypes: ConversionActionTypes
     defaultSources: list[str] = Field(..., max_length=9, min_length=9)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
@@ -2571,6 +2609,31 @@ class MaxProductInfo(BaseModel):
     usage_limit: float | None = None
 
 
+class MetaAdsConversionFallbackActionTypes(StrEnum):
+    PURCHASE = "purchase"
+    OFFSITE_CONVERSION_FB_PIXEL_PURCHASE = "offsite_conversion.fb_pixel_purchase"
+    APP_CUSTOM_EVENT_FB_MOBILE_PURCHASE = "app_custom_event.fb_mobile_purchase"
+    LEAD = "lead"
+    OFFSITE_CONVERSION_FB_PIXEL_LEAD = "offsite_conversion.fb_pixel_lead"
+    ONSITE_CONVERSION_LEAD_GROUPED = "onsite_conversion.lead_grouped"
+    COMPLETE_REGISTRATION = "complete_registration"
+    OFFSITE_CONVERSION_FB_PIXEL_COMPLETE_REGISTRATION = "offsite_conversion.fb_pixel_complete_registration"
+    APP_CUSTOM_EVENT_FB_MOBILE_COMPLETE_REGISTRATION = "app_custom_event.fb_mobile_complete_registration"
+    OFFSITE_COMPLETE_REGISTRATION_ADD_META_LEADS = "offsite_complete_registration_add_meta_leads"
+    APP_INSTALL = "app_install"
+    MOBILE_APP_INSTALL = "mobile_app_install"
+    SUBSCRIBE = "subscribe"
+    OFFSITE_CONVERSION_FB_PIXEL_SUBSCRIBE = "offsite_conversion.fb_pixel_subscribe"
+
+
+class MetaAdsConversionOmniActionTypes(StrEnum):
+    OMNI_PURCHASE = "omni_purchase"
+    OMNI_LEAD = "omni_lead"
+    OMNI_COMPLETE_REGISTRATION = "omni_complete_registration"
+    OMNI_APP_INSTALL = "omni_app_install"
+    OMNI_SUBSCRIBE = "omni_subscribe"
+
+
 class MetaAdsDefaultSources(StrEnum):
     META = "meta"
     FACEBOOK = "facebook"
@@ -2595,8 +2658,9 @@ class MinimalHedgehogConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accessories: list[str]
-    color: HedgehogColorOptions | None = None
+    accessories: list[HedgehogActorAccessoryOption] | None = None
+    color: HedgehogActorColorOption | None = None
+    skin: HedgehogActorSkinOption | None = None
     use_as_profile: bool
 
 
@@ -3049,6 +3113,8 @@ class PropertyOperator(StrEnum):
     SEMVER_TILDE = "semver_tilde"
     SEMVER_CARET = "semver_caret"
     SEMVER_WILDCARD = "semver_wildcard"
+    ICONTAINS_MULTI = "icontains_multi"
+    NOT_ICONTAINS_MULTI = "not_icontains_multi"
 
 
 class Mark(BaseModel):
@@ -3093,6 +3159,11 @@ class QueryLogTags(BaseModel):
             " churn the Schema when we add a new Scene *"
         ),
     )
+
+
+class LimitContext(Enum):
+    POSTHOG_AI = "posthog_ai"
+    NONE_TYPE_NONE = None
 
 
 class QueryResponseAlternative7(BaseModel):
@@ -18810,6 +18881,10 @@ class QueryRequest(BaseModel):
         description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
     )
     filters_override: DashboardFilter | None = None
+    limit_context: LimitContext | None = Field(
+        default=None,
+        description=("Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value."),
+    )
     name: str | None = Field(
         default=None,
         description=(

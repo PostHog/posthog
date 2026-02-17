@@ -136,11 +136,17 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
                         ast.Constant(value=0),
                     ],
                 )
+
+                converted = self._apply_currency_conversion(
+                    self.config.stats_table, stats_table_name, "currency", field_as_float
+                )
+                if converted:
+                    return ast.Call(name="SUM", args=[converted])
+
                 sum = ast.Call(name="SUM", args=[field_as_float])
                 return ast.Call(name="toFloat", args=[sum])
         except (TypeError, AttributeError, KeyError):
             pass
-        # Column doesn't exist or can't be checked, return 0
         return ast.Constant(value=0)
 
     def _get_from(self) -> ast.JoinExpr:

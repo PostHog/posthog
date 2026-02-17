@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { SupportedWebVitalsMetrics } from 'posthog-js'
 
-import { LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -59,24 +59,6 @@ export function AutocaptureSettings(): JSX.Element {
 
     return (
         <>
-            <p>
-                Automagically capture frontend events, such as any <code>click</code>, <code>change of input</code>, or
-                submission associated with a <code>button</code>, <code>form</code>, <code>input</code>,{' '}
-                <code>select</code>, or <code>textarea</code>, when using our web JavaScript SDK.
-            </p>
-
-            <p>
-                Autocapture is also available for{' '}
-                <Link to="https://posthog.com/docs/libraries/react-native#autocapture" target="_blank">
-                    React Native
-                </Link>{' '}
-                and{' '}
-                <Link to="https://posthog.com/docs/libraries/ios#autocapture" target="_blank">
-                    iOS
-                </Link>
-                , where they can be configured directly in code.
-            </p>
-
             <div className="deprecated-space-y-2">
                 <LemonSwitch
                     id="posthog-autocapture-switch"
@@ -103,14 +85,6 @@ export function WebVitalsAutocaptureSettings(): JSX.Element {
 
     return (
         <>
-            <p>
-                Since posthog-js version 1.141.2 you can enable{' '}
-                <Link to="https://github.com/GoogleChrome/web-vitals" target="_blank">
-                    Google Chrome's web vitals
-                </Link>{' '}
-                collection. Web vitals events can be used in insights, and when web vitals capture is enabled it is used
-                to enhance other parts of PostHog like web analytics and session replay.
-            </p>
             <LemonSwitch
                 id="posthog-autocapture-web-vitals-switch"
                 onChange={(checked) => {
@@ -124,7 +98,6 @@ export function WebVitalsAutocaptureSettings(): JSX.Element {
                 bordered
             />
             <LemonDivider />
-            <p>You can choose which metrics to capture. By default, we capture all metrics.</p>
             <div className="inline-grid grid-cols-2 gap-2 xs:grid xs:w-full">
                 <WebVitalsAllowedMetricSwitch metric="CLS" />
                 <WebVitalsAllowedMetricSwitch metric="FCP" />
