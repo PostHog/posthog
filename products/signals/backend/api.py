@@ -2,15 +2,13 @@ from datetime import timedelta
 
 from django.conf import settings
 
-import temporalio.exceptions
 from asgiref.sync import sync_to_async
-from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.models import Team
 from posthog.temporal.common.client import async_connect
 
-from products.signals.backend.temporal.grouping import EmitSignalWorkflow
-from products.signals.backend.temporal.types import EmitSignalInputs
+from products.signals.backend.temporal.grouping import TeamSignalGroupingWorkflow
+from products.signals.backend.temporal.types import EmitSignalInputs, TeamSignalGroupingInput
 
 
 async def emit_signal(
@@ -24,6 +22,10 @@ async def emit_signal(
 ) -> None:
     """
     Emit a signal for clustering and potential summarization. Fire-and-forget.
+
+    Uses signal-with-start to atomically create the per-team entity workflow
+    if it doesn't exist, or send a signal to the running instance. This serializes
+    all signal grouping for a team, eliminating race conditions.
 
     Args:
         team: The team object
@@ -51,7 +53,7 @@ async def emit_signal(
 
     client = await async_connect()
 
-    inputs = EmitSignalInputs(
+    signal_input = EmitSignalInputs(
         team_id=team.id,
         source_product=source_product,
         source_type=source_type,
@@ -61,16 +63,14 @@ async def emit_signal(
         extra=extra or {},
     )
 
-    workflow_id = EmitSignalWorkflow.workflow_id_for(team.id, source_product, source_type, source_id)
+    workflow_id = TeamSignalGroupingWorkflow.workflow_id_for(team.id)
 
-    try:
-        await client.start_workflow(
-            EmitSignalWorkflow.run,
-            inputs,
-            id=workflow_id,
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-            execution_timeout=timedelta(minutes=30),
-        )
-    except temporalio.exceptions.WorkflowAlreadyStartedError:
-        pass
+    await client.start_workflow(
+        TeamSignalGroupingWorkflow.run,
+        TeamSignalGroupingInput(team_id=team.id),
+        id=workflow_id,
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        execution_timeout=timedelta(hours=24),
+        start_signal="submit_signal",
+        start_signal_args=[signal_input],
+    )

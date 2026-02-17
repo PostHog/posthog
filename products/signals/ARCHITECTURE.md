@@ -29,7 +29,7 @@ Processes a single incoming signal and assigns it to a report group.
 
 Step 1 runs two activities in parallel. Step 2 depends on step 1 (needs the type examples). Steps 3+4 fan out in parallel for each query/embedding.
 
-> **TODO:** Currently, multiple `EmitSignalWorkflow` instances can race for the same team. We should refactor to a single long-running "entity workflow" per team that receives signals via `@workflow.signal`, processes them sequentially, and uses `continue_as_new` to keep history bounded. `emit_signal()` would use `signal_with_start` to lazily create the workflow on first signal. This serializes grouping per team and gives a natural place to batch/debounce in the future.
+> **Done:** Refactored to `TeamSignalGroupingWorkflow` — a single long-running entity workflow per team that receives signals via `@workflow.signal`, processes them sequentially, and uses `continue_as_new` to keep history bounded. `emit_signal()` uses `signal_with_start` to lazily create the workflow on first signal. The legacy `EmitSignalWorkflow` is kept temporarily for in-flight workflows.
 
 #### Entity Workflow Migration Plan
 

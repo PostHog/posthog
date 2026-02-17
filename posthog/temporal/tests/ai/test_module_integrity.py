@@ -16,6 +16,7 @@ class TestAITemporalModuleIntegrity:
             "SlackConversationRunnerWorkflow",
             "VideoSegmentClusteringWorkflow",
             "VideoSegmentClusteringCoordinatorWorkflow",
+            "TeamSignalGroupingWorkflow",
             "EmitSignalWorkflow",
             "SignalReportSummaryWorkflow",
         ]

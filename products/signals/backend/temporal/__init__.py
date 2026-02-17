@@ -1,6 +1,7 @@
 from products.signals.backend.temporal.actionability_judge import actionability_judge_activity
 from products.signals.backend.temporal.grouping import (
     EmitSignalWorkflow,
+    TeamSignalGroupingWorkflow,
     assign_signal_to_report_activity,
     emit_to_clickhouse_activity,
     fetch_signal_type_examples_activity,
@@ -22,7 +23,8 @@ from products.signals.backend.temporal.summary import (
 )
 
 WORKFLOWS = [
-    EmitSignalWorkflow,
+    TeamSignalGroupingWorkflow,
+    EmitSignalWorkflow,  # kept for in-flight workflows during migration
     SignalReportSummaryWorkflow,
 ]
 

@@ -35,6 +35,7 @@ from products.signals.backend.temporal.types import (
     NewReportMatch,
     SignalCandidate,
     SignalTypeExample,
+    TeamSignalGroupingInput,
 )
 
 logger = structlog.get_logger(__name__)
@@ -796,3 +797,191 @@ async def emit_to_clickhouse_activity(input: EmitToClickHouseInput) -> None:
             team_id=input.team_id,
         )
         raise
+
+
+CONTINUE_AS_NEW_THRESHOLD = 200
+
+
+async def _process_one_signal(inputs: EmitSignalInputs) -> str:
+    """Shared signal processing logic used by both EmitSignalWorkflow and TeamSignalGroupingWorkflow."""
+    from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
+    from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
+
+    with workflow.unsafe.imports_passed_through():
+        from django.conf import settings
+
+    signal_id = str(uuid.uuid4())
+
+    embedding_result, type_examples_result = await asyncio.gather(
+        workflow.execute_activity(
+            get_embedding_activity,
+            GenerateEmbeddingInput(team_id=inputs.team_id, content=inputs.description),
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        ),
+        workflow.execute_activity(
+            fetch_signal_type_examples_activity,
+            FetchSignalTypeExamplesInput(team_id=inputs.team_id),
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        ),
+    )
+
+    search_queries_result = await workflow.execute_activity(
+        generate_search_queries_activity,
+        GenerateSearchQueriesInput(
+            description=inputs.description,
+            source_product=inputs.source_product,
+            source_type=inputs.source_type,
+            signal_type_examples=type_examples_result.examples,
+        ),
+        start_to_close_timeout=timedelta(minutes=5),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+
+    queries = search_queries_result.queries
+
+    query_embedding_results: list[GenerateEmbeddingOutput] = await asyncio.gather(
+        *[
+            workflow.execute_activity(
+                get_embedding_activity,
+                GenerateEmbeddingInput(team_id=inputs.team_id, content=query),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            for query in queries
+        ]
+    )
+
+    query_results: list[RunSignalSemanticSearchOutput] = await asyncio.gather(
+        *[
+            workflow.execute_activity(
+                run_signal_semantic_search_activity,
+                RunSignalSemanticSearchInput(
+                    team_id=inputs.team_id,
+                    embedding=emb_result.embedding,
+                    limit=10,
+                ),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            for emb_result in query_embedding_results
+        ]
+    )
+
+    match_result = await workflow.execute_activity(
+        llm_match_signal_activity,
+        LLMMatchSignalInput(
+            description=inputs.description,
+            source_product=inputs.source_product,
+            source_type=inputs.source_type,
+            queries=queries,
+            query_results=[r.candidates for r in query_results],
+        ),
+        start_to_close_timeout=timedelta(minutes=5),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+
+    assign_result: AssignSignalOutput = await workflow.execute_activity(
+        assign_signal_to_report_activity,
+        AssignSignalInput(
+            team_id=inputs.team_id,
+            signal_id=signal_id,
+            description=inputs.description,
+            weight=inputs.weight,
+            source_product=inputs.source_product,
+            source_type=inputs.source_type,
+            source_id=inputs.source_id,
+            extra=inputs.extra,
+            embedding=embedding_result.embedding,
+            match_result=match_result,
+        ),
+        start_to_close_timeout=timedelta(minutes=2),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+
+    await workflow.execute_activity(
+        emit_to_clickhouse_activity,
+        EmitToClickHouseInput(
+            team_id=inputs.team_id,
+            signal_id=signal_id,
+            description=inputs.description,
+            source_product=inputs.source_product,
+            source_type=inputs.source_type,
+            source_id=inputs.source_id,
+            weight=inputs.weight,
+            extra=inputs.extra,
+            report_id=assign_result.report_id,
+        ),
+        start_to_close_timeout=timedelta(minutes=1),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+
+    if assign_result.promoted:
+        try:
+            await workflow.start_child_workflow(
+                SignalReportSummaryWorkflow.run,
+                SignalReportSummaryWorkflowInputs(team_id=inputs.team_id, report_id=assign_result.report_id),
+                id=SignalReportSummaryWorkflow.workflow_id_for(inputs.team_id, assign_result.report_id),
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                execution_timeout=timedelta(minutes=30),
+            )
+        except temporalio.exceptions.WorkflowAlreadyStartedError:
+            pass
+
+    return signal_id
+
+
+@temporalio.workflow.defn(name="team-signal-grouping")
+class TeamSignalGroupingWorkflow:
+    """
+    Long-running entity workflow that serializes signal grouping per team.
+
+    One instance per team (workflow ID: team-signal-grouping-{team_id}). Signals arrive
+    via @workflow.signal and are processed sequentially, eliminating race conditions
+    where concurrent workflows could assign related signals to different reports.
+
+    Uses continue_as_new after CONTINUE_AS_NEW_THRESHOLD signals to keep history bounded.
+    """
+
+    def __init__(self) -> None:
+        self._signal_buffer: list[EmitSignalInputs] = []
+        self._signals_processed: int = 0
+
+    @staticmethod
+    def workflow_id_for(team_id: int) -> str:
+        return f"team-signal-grouping-{team_id}"
+
+    @temporalio.workflow.signal
+    async def submit_signal(self, signal: EmitSignalInputs) -> None:
+        self._signal_buffer.append(signal)
+
+    @temporalio.workflow.run
+    async def run(self, input: TeamSignalGroupingInput) -> None:
+        self._signal_buffer.extend(input.pending_signals)
+
+        while True:
+            await workflow.wait_condition(lambda: len(self._signal_buffer) > 0)
+            signal = self._signal_buffer.pop(0)
+
+            try:
+                await _process_one_signal(signal)
+            except Exception:
+                logger.exception(
+                    "Failed to process signal",
+                    team_id=input.team_id,
+                    source_product=signal.source_product,
+                    source_type=signal.source_type,
+                    source_id=signal.source_id,
+                )
+
+            self._signals_processed += 1
+            if self._signals_processed >= CONTINUE_AS_NEW_THRESHOLD:
+                workflow.continue_as_new(
+                    TeamSignalGroupingInput(
+                        team_id=input.team_id,
+                        pending_signals=list(self._signal_buffer),
+                    )
+                )
