@@ -3,7 +3,7 @@ import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
@@ -462,12 +462,6 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     }, [response])
 
     const hasColumns = columns.length > 1
-
-    useEffect(() => {
-        if (isEmbeddedMode && activeTab !== OutputTab.Results) {
-            setActiveTab(OutputTab.Results)
-        }
-    }, [isEmbeddedMode, activeTab, setActiveTab])
 
     return (
         <div className="OutputPane flex flex-col w-full flex-1 bg-white dark:bg-black">
