@@ -76,17 +76,35 @@ _GENERATIONS_BATCH_QUERY = """
 def _resolve_date_bounds(date_from: str | None, date_to: str | None) -> tuple[str, str]:
     """Resolve caller-provided date strings to concrete timestamps for the query.
 
-    Falls back to a lookback window when no bounds are provided.
+    Handles relative date strings (e.g. "-1h", "-7d") by converting them to
+    absolute timestamps via `relative_date_parse`. Falls back to a lookback
+    window when no bounds are provided.
     """
     from datetime import datetime
+    from zoneinfo import ZoneInfo
 
     from posthog.temporal.llm_analytics.sentiment.constants import QUERY_LOOKBACK_DAYS
+    from posthog.utils import relative_date_parse
 
     now = datetime.now(tz=UTC)
-    resolved_from = (
-        date_from if date_from else (now - timedelta(days=QUERY_LOOKBACK_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
-    )
-    resolved_to = date_to if date_to else now.strftime("%Y-%m-%d %H:%M:%S")
+    fmt = "%Y-%m-%d %H:%M:%S"
+
+    if date_from:
+        try:
+            resolved_from = relative_date_parse(date_from, ZoneInfo("UTC"), now=now).strftime(fmt)
+        except Exception:
+            resolved_from = (now - timedelta(days=QUERY_LOOKBACK_DAYS)).strftime(fmt)
+    else:
+        resolved_from = (now - timedelta(days=QUERY_LOOKBACK_DAYS)).strftime(fmt)
+
+    if date_to:
+        try:
+            resolved_to = relative_date_parse(date_to, ZoneInfo("UTC"), now=now).strftime(fmt)
+        except Exception:
+            resolved_to = now.strftime(fmt)
+    else:
+        resolved_to = now.strftime(fmt)
+
     return resolved_from, resolved_to
 
 

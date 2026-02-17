@@ -157,7 +157,7 @@ class TestClassifySentimentOnDemandActivity:
     @pytest.mark.asyncio
     @patch(_PATCH_CLASSIFY)
     @patch(_PATCH_HOGQL)
-    async def test_passes_date_range_to_query(self, mock_hogql: MagicMock, mock_classify: MagicMock):
+    async def test_passes_absolute_date_range_to_query(self, mock_hogql: MagicMock, mock_classify: MagicMock):
         mock_hogql.return_value = _mock_hogql_result(
             [
                 _make_generation_row("gen-1", [{"role": "user", "content": "hello"}]),
@@ -176,8 +176,35 @@ class TestClassifySentimentOnDemandActivity:
 
         call_kwargs = mock_hogql.call_args.kwargs
         placeholders = call_kwargs["placeholders"]
-        assert placeholders["date_from"].value == "2025-01-01"
-        assert placeholders["date_to"].value == "2025-01-31"
+        assert placeholders["date_from"].value == "2025-01-01 00:00:00"
+        assert placeholders["date_to"].value == "2025-01-31 00:00:00"
+
+    @pytest.mark.asyncio
+    @patch(_PATCH_CLASSIFY)
+    @patch(_PATCH_HOGQL)
+    async def test_resolves_relative_date_range(self, mock_hogql: MagicMock, mock_classify: MagicMock):
+        mock_hogql.return_value = _mock_hogql_result(
+            [
+                _make_generation_row("gen-1", [{"role": "user", "content": "hello"}]),
+            ]
+        )
+        mock_classify.return_value = [_make_sentiment_result("positive", 0.9)]
+
+        await classify_sentiment_on_demand_activity(
+            OnDemandSentimentInput(
+                team_id=1,
+                trace_id="trace-1",
+                date_from="-1h",
+                date_to=None,
+            )
+        )
+
+        call_kwargs = mock_hogql.call_args.kwargs
+        placeholders = call_kwargs["placeholders"]
+        # relative date should be resolved to an absolute timestamp
+        assert "20" in placeholders["date_from"].value  # starts with year
+        assert ":" in placeholders["date_from"].value  # has time component
+        assert placeholders["date_from"].value != "-1h"  # not the raw relative string
 
 
 class TestClassifySentimentBatchActivity:
