@@ -189,6 +189,8 @@ class _KafkaProducer:
         kafka_security_protocol=None,
         max_request_size=None,
         compression_type=None,
+        acks=1,
+        enable_idempotence=False,
     ):
         hostname = os.environ.get("HOSTNAME", "")
         if "temporal-worker-data-warehouse" in hostname:
@@ -216,7 +218,7 @@ class _KafkaProducer:
                 "bootstrap.servers": ",".join(kafka_hosts) if isinstance(kafka_hosts, list) else kafka_hosts,
                 "security.protocol": kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
                 # Wait for leader to acknowledge (matches kafka-python default)
-                "acks": 1,
+                "acks": acks,
                 # Retry configuration
                 "message.send.max.retries": KAFKA_PRODUCER_RETRIES,
                 "retry.backoff.ms": 100,
@@ -244,6 +246,12 @@ class _KafkaProducer:
 
             if max_request_size:
                 config["message.max.bytes"] = max_request_size
+
+            if enable_idempotence:
+                config["enable.idempotence"] = enable_idempotence
+                # Idempotence requires acks=all, override if necessary
+                if config["acks"] != "all":
+                    config["acks"] = "all"
 
             self.producer = ConfluentProducer(config)
 
