@@ -36,6 +36,7 @@ def deactivate_stale_materializations() -> None:
         saved_query__deleted=False,
         saved_query__created_at__lte=stale_threshold,
         endpoint__last_executed_at__lt=stale_threshold,
+        endpoint__deleted=False,
     ).select_related("saved_query", "endpoint")
 
     if not stale_versions.exists():
