@@ -34,13 +34,14 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka import KafkaBatchProducer, SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult, S3BatchWriter
+from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import ParquetCompression
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
-PARQUET_COMPRESSION = "zstd"
+PARQUET_COMPRESSION: ParquetCompression = "zstd"
 
 
 class PipelineV3(Generic[ResumableData]):
