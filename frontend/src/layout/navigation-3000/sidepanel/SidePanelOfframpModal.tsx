@@ -78,7 +78,7 @@ export function SidePanelOfframpModal(): JSX.Element {
             open={shouldShowOfframpModal}
             onOpenChange={(open, details) => {
                 if (details?.reason) {
-                    posthog.capture('sidepanel offramp modal dismissed', { step: activeIndex, method: details.reason })
+                    posthog.capture('sidepanel offramp modal dismissed', { step: activeIndex, reason: details.reason })
                 }
                 if (!open) {
                     dismissOfframpModal(activeIndex)

@@ -10,7 +10,7 @@ export const sidePanelOfframpLogic = kea<sidePanelOfframpLogicType>([
     path(['layout', 'navigation-3000', 'sidepanel', 'sidePanelOfframpLogic']),
     actions({
         showOfframpModal: true,
-        dismissOfframpModal: (step?: number) => ({ step }),
+        dismissOfframpModal: (step?: number, reason?: string) => ({ step, reason }),
     }),
     reducers({
         isOfframpModalDismissed: [
@@ -33,8 +33,8 @@ export const sidePanelOfframpLogic = kea<sidePanelOfframpLogicType>([
         showOfframpModal: () => {
             posthog.capture('sidepanel offramp modal shown')
         },
-        dismissOfframpModal: ({ step }) => {
-            posthog.capture('sidepanel offramp modal dismissed', { step })
+        dismissOfframpModal: ({ step, reason }) => {
+            posthog.capture('sidepanel offramp modal dismissed', { step, reason })
         },
     }),
 ])
