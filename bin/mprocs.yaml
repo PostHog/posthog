@@ -109,6 +109,7 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service embedding-worker
+        autostart: false
         capability: embedding_service
 
     feature-flags:
@@ -218,6 +219,14 @@ procs:
 
     hedgebox-dummy:
         shell: 'bin/wait-for-docker && cd hedgebox-dummy && pnpm install && pnpm run dev'
+        autostart: false
+        # no capability - manual start
+
+    warehouse-pipeline-load:
+        shell: |-
+            bin/check_postgres_up && \
+            bin/check_kafka_clickhouse_up && \
+            python manage.py run_warehouse_pipeline_load --health-port 8090 --batch-size 100 --consumer-group warehouse-pipeline-load-dev
         autostart: false
         # no capability - manual start
 
