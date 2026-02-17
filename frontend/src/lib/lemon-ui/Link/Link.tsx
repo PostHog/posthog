@@ -244,7 +244,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 {...(resource ? { 'data-resource-type': resource.type, 'data-resource-ref': resource.ref } : undefined)}
             >
                 {children}
-                {targetBlankIcon && <>&nbsp;</>}
                 {targetBlankIcon &&
                     (shouldOpenInDocsPanel && sidePanelStateLogic.isMounted() ? (
                         <IconOpenSidebar />
