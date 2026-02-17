@@ -1,5 +1,6 @@
 import gzip
 import json
+import asyncio
 from typing import Any
 
 from posthog.exceptions_capture import capture_exception
@@ -16,15 +17,15 @@ def _decompress_redis_data(raw_redis_data: bytes) -> str:
     return gzip.decompress(raw_redis_data).decode("utf-8")
 
 
-async def _get_cached_list(cache_key: str) -> list[dict[str, Any]] | None:
+async def _get_cached_list(cache_key: str, timeout: float = 30.0) -> list[dict[str, Any]] | None:
     """Retrieve and decompress a cached list from Redis.
 
     Returns:
-        Parsed list, or None if cache miss/error
+        Parsed list, or None if cache miss/error/timeout
     """
     try:
         redis_client = get_async_client()
-        raw_redis_data = await redis_client.get(cache_key)
+        raw_redis_data = await asyncio.wait_for(redis_client.get(cache_key), timeout=timeout)
 
         if not raw_redis_data:
             return None
@@ -32,6 +33,9 @@ async def _get_cached_list(cache_key: str) -> list[dict[str, Any]] | None:
         data_json = _decompress_redis_data(raw_redis_data)
         return json.loads(data_json)
 
+    except TimeoutError:
+        capture_exception(TimeoutError(f"Redis operation timed out after {timeout}s for key {cache_key}"))
+        return None
     except Exception as e:
         capture_exception(e)
         return None
