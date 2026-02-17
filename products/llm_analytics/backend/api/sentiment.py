@@ -90,7 +90,9 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             date_from=date_from,
             date_to=date_to,
         )
-        workflow_id = f"llma-sentiment-{self.team_id}-{int(time.time() * 1000)}"
+        import uuid
+
+        workflow_id = f"llma-sentiment-{self.team_id}-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
 
         return asyncio.run(
             client.execute_workflow(
