@@ -70,10 +70,20 @@ def build_person_properties_at_time(
         distinct_ids_to_query = [distinct_id]
     else:
         # Complex case - get all distinct_ids for this person
-        from posthog.models.person import PersonDistinctId
+        from posthog.models.person import Person, PersonDistinctId
 
         try:
-            distinct_id_objects = PersonDistinctId.objects.filter(team_id=team_id, person_id=person_id).values_list(
+            # First get the Person object (handle both integer ID and UUID)
+            try:
+                # Try as integer first (primary key)
+                person_id_int = int(person_id)
+                person = Person.objects.get(team_id=team_id, id=person_id_int)
+            except (ValueError, TypeError):
+                # If not integer, try as UUID
+                person = Person.objects.get(team_id=team_id, uuid=person_id)
+
+            # Now get all distinct_ids for this person
+            distinct_id_objects = PersonDistinctId.objects.filter(team_id=team_id, person=person).values_list(
                 "distinct_id", flat=True
             )
             distinct_ids_to_query = list(distinct_id_objects)
@@ -82,6 +92,9 @@ def build_person_properties_at_time(
                 # No distinct_ids found for this person - return empty properties
                 return {}
 
+        except Person.DoesNotExist:
+            # Person not found - return empty properties
+            return {}
         except Exception as e:
             raise Exception(f"Failed to query person distinct_ids: {str(e)}") from e
 

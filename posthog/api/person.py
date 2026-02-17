@@ -1158,7 +1158,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 if distinct_id:
                     person = Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
                 else:
-                    person = Person.objects.get(team_id=self.team_id, id=person_id)
+                    # Handle both integer person_id and UUID person_id
+                    try:
+                        # Try as integer first (primary key)
+                        person_id_int = int(person_id)
+                        person = Person.objects.get(team_id=self.team_id, id=person_id_int)
+                    except (ValueError, TypeError):
+                        # If not integer, try as UUID
+                        person = Person.objects.get(team_id=self.team_id, uuid=person_id)
             except Person.DoesNotExist:
                 identifier = distinct_id or person_id
                 identifier_type = "distinct_id" if distinct_id else "person_id"
@@ -1200,11 +1207,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 if distinct_id:
                     debug_distinct_ids = [distinct_id]
                 else:
-                    # Get all distinct_ids for this person
+                    # Get all distinct_ids for this person (use the person object we already have)
                     from posthog.models.person import PersonDistinctId
 
                     debug_distinct_ids = list(
-                        PersonDistinctId.objects.filter(team_id=self.team_id, person_id=person_id).values_list(
+                        PersonDistinctId.objects.filter(team_id=self.team_id, person=person).values_list(
                             "distinct_id", flat=True
                         )
                     )
