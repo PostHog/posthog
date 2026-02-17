@@ -11,7 +11,7 @@ import structlog
 import temporalio
 
 from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentBatchInput, PendingClassification
-from posthog.temporal.llm_analytics.sentiment.utils import build_trace_result, resolve_date_bounds
+from posthog.temporal.llm_analytics.sentiment.utils import build_trace_result, collect_pending, resolve_date_bounds
 
 logger = structlog.get_logger(__name__)
 
@@ -26,45 +26,6 @@ _GENERATIONS_QUERY = """
     ORDER BY trace_id, timestamp DESC
     LIMIT {max_rows}
 """
-
-
-def _collect_pending(
-    generations: list[tuple[str, dict]],
-    trace_id: str,
-    cap: int,
-) -> tuple[list[PendingClassification], list[str]]:
-    """Parse generation rows and collect user messages for classification."""
-    from posthog.temporal.llm_analytics.sentiment.extraction import (
-        extract_user_messages_individually,
-        truncate_to_token_limit,
-    )
-
-    pending: list[PendingClassification] = []
-    gen_uuids_seen: list[str] = []
-
-    for event_uuid, props in generations:
-        user_messages = extract_user_messages_individually(props.get("$ai_input"))
-        if not user_messages:
-            continue
-
-        gen_uuids_seen.append(event_uuid)
-
-        for original_index, msg_text in user_messages:
-            if len(pending) >= cap:
-                break
-            pending.append(
-                PendingClassification(
-                    trace_id=trace_id,
-                    gen_uuid=event_uuid,
-                    msg_index=original_index,
-                    text=truncate_to_token_limit(msg_text),
-                )
-            )
-
-        if len(pending) >= cap:
-            break
-
-    return pending, gen_uuids_seen
 
 
 @temporalio.activity.defn
@@ -115,7 +76,7 @@ async def classify_sentiment_batch_activity(input: ClassifySentimentBatchInput) 
     gen_uuids_seen: list[str] = []
 
     for trace_id in input.trace_ids:
-        trace_pending, trace_gen_uuids = _collect_pending(
+        trace_pending, trace_gen_uuids = collect_pending(
             rows_by_trace.get(trace_id, []), trace_id, MAX_TOTAL_CLASSIFICATIONS
         )
         pending.extend(trace_pending)

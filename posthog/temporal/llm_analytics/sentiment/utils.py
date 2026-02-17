@@ -79,6 +79,45 @@ def build_trace_result(
     }, len(trace_pending)
 
 
+def collect_pending(
+    generations: list[tuple[str, dict]],
+    trace_id: str,
+    cap: int,
+) -> tuple[list[PendingClassification], list[str]]:
+    """Parse generation rows and collect user messages for classification."""
+    from posthog.temporal.llm_analytics.sentiment.extraction import (
+        extract_user_messages_individually,
+        truncate_to_token_limit,
+    )
+
+    pending: list[PendingClassification] = []
+    gen_uuids_seen: list[str] = []
+
+    for event_uuid, props in generations:
+        user_messages = extract_user_messages_individually(props.get("$ai_input"))
+        if not user_messages:
+            continue
+
+        gen_uuids_seen.append(event_uuid)
+
+        for original_index, msg_text in user_messages:
+            if len(pending) >= cap:
+                break
+            pending.append(
+                PendingClassification(
+                    trace_id=trace_id,
+                    gen_uuid=event_uuid,
+                    msg_index=original_index,
+                    text=truncate_to_token_limit(msg_text),
+                )
+            )
+
+        if len(pending) >= cap:
+            break
+
+    return pending, gen_uuids_seen
+
+
 def resolve_date_bounds(date_from: str | None, date_to: str | None) -> tuple[str, str]:
     """Resolve caller-provided date strings to concrete timestamps for the query.
 
