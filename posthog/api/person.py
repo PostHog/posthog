@@ -209,6 +209,22 @@ class MinimalPersonSerializer(PersonSerializer):
         return person.distinct_ids[:10]
 
 
+class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
+    """Serializer for the point-in-time person properties response."""
+
+    properties = serializers.DictField(
+        child=serializers.CharField(allow_blank=True, allow_null=True),
+        help_text="Person properties as they existed at the specified time",
+    )
+    distinct_id_used = serializers.CharField(allow_null=True, help_text="The distinct_id parameter used in the request")
+    person_id_used = serializers.CharField(allow_null=True, help_text="The person_id parameter used in the request")
+    query_mode = serializers.CharField(help_text="Whether the query used 'distinct_id' or 'person_id' mode")
+    distinct_ids_queried = serializers.ListField(
+        child=serializers.CharField(), help_text="All distinct_ids that were queried for this person"
+    )
+    distinct_ids_count = serializers.IntegerField(help_text="Number of distinct_ids associated with this person")
+
+
 def get_funnel_actor_class(filter: Filter) -> Callable:
     funnel_actor_class: type[ActorBaseQuery]
 
@@ -1132,25 +1148,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         ],
         responses={
-            200: {
-                "description": "Person properties at the specified time",
-                "content": {
-                    "application/json": {
-                        "example": {
-                            "properties": {
-                                "name": "John Doe",
-                                "email": "john@example.com",
-                                "signup_date": "2023-06-01",
-                            },
-                            "distinct_id_used": "user123",
-                            "person_id_used": None,
-                            "query_mode": "distinct_id",
-                            "distinct_ids_queried": ["user123", "user456"],
-                            "distinct_ids_count": 2,
-                        }
-                    }
-                },
-            },
+            200: PersonPropertiesAtTimeResponseSerializer,
             400: {"description": "Bad request - invalid parameters"},
             404: {"description": "Person not found"},
             500: {"description": "Internal server error"},

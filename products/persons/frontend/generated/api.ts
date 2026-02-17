@@ -12,6 +12,7 @@ import type {
     PaginatedPersonListApi,
     PatchedPersonApi,
     PersonApi,
+    PersonPropertiesAtTimeResponseApi,
     PersonsActivityRetrieve2Params,
     PersonsActivityRetrieve3Params,
     PersonsActivityRetrieve4Params,
@@ -693,7 +694,7 @@ Query parameters:
  */
 export const getPersonsPropertiesAtTimeRetrieveUrl = (
     projectId: string,
-    params?: PersonsPropertiesAtTimeRetrieveParams
+    params: PersonsPropertiesAtTimeRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -712,10 +713,10 @@ export const getPersonsPropertiesAtTimeRetrieveUrl = (
 
 export const personsPropertiesAtTimeRetrieve = async (
     projectId: string,
-    params?: PersonsPropertiesAtTimeRetrieveParams,
+    params: PersonsPropertiesAtTimeRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsPropertiesAtTimeRetrieveUrl(projectId, params), {
+): Promise<PersonPropertiesAtTimeResponseApi> => {
+    return apiMutator<PersonPropertiesAtTimeResponseApi>(getPersonsPropertiesAtTimeRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1463,7 +1464,7 @@ Query parameters:
  */
 export const getPersonsPropertiesAtTimeRetrieve2Url = (
     projectId: string,
-    params?: PersonsPropertiesAtTimeRetrieve2Params
+    params: PersonsPropertiesAtTimeRetrieve2Params
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1482,10 +1483,10 @@ export const getPersonsPropertiesAtTimeRetrieve2Url = (
 
 export const personsPropertiesAtTimeRetrieve2 = async (
     projectId: string,
-    params?: PersonsPropertiesAtTimeRetrieve2Params,
+    params: PersonsPropertiesAtTimeRetrieve2Params,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsPropertiesAtTimeRetrieve2Url(projectId, params), {
+): Promise<PersonPropertiesAtTimeResponseApi> => {
+    return apiMutator<PersonPropertiesAtTimeResponseApi>(getPersonsPropertiesAtTimeRetrieve2Url(projectId, params), {
         ...options,
         method: 'GET',
     })
