@@ -503,6 +503,11 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                   label: 'Results',
                                   icon: <IconTableChart />,
                               },
+                              {
+                                  key: OutputTab.Visualization,
+                                  label: 'Visualization',
+                                  icon: <IconGraph />,
+                              },
                           ]
                     )
                         .filter((tab) => !tab.flag || featureFlags[tab.flag])
