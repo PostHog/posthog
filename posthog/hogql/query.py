@@ -132,7 +132,7 @@ class HogQLQueryExecutor:
         if self.query_modifiers.usePreaggregatedIntermediateResults:
             with self.timings.measure("daily_unique_persons_pageviews_transform"):
                 assert self.hogql_context is not None
-                from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_transformer import (
+                from products.analytics_platform.backend.lazy_computation.lazy_computation_transformer import (
                     Transformer as DailyUniquePersonsPageviewsTransformer,
                 )
 
