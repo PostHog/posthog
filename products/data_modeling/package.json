@@ -2,10 +2,5 @@
     "name": "@posthog/products-data-modeling",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
-    },
-    "turbo": {
-        "extends": [
-            "//"
-        ]
     }
 }

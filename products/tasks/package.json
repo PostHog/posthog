@@ -26,10 +26,5 @@
     "dependencies": {
         "fast-deep-equal": "catalog:",
         "kea-subscriptions": "catalog:"
-    },
-    "turbo": {
-        "extends": [
-            "//"
-        ]
     }
 }

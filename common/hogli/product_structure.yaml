@@ -54,9 +54,21 @@ root_files:
                 "name": "@posthog/products-{product}",
                 "scripts": {{
                     "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
-                }},
-                "turbo": {{
-                    "extends": ["//"]
+                }}
+            }}
+
+    turbo.json:
+        required: false
+        required_lenient: false
+        template: |
+            {{
+                "extends": ["//"],
+                "tasks": {{
+                    "backend:contract-check": {{
+                        "inputs": ["backend/facade/**"],
+                        "outputs": [],
+                        "cache": true
+                    }}
                 }}
             }}
 
