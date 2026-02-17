@@ -200,8 +200,11 @@ class KafkaConsumerService:
                             error_type=type(e).__name__,
                         )
                         capture_exception(e)
-                        self._send_to_dlq(message, e)
-                        dlq_indices.add(i)
+                        try:
+                            self._send_to_dlq(message, e)
+                            dlq_indices.add(i)
+                        except Exception:
+                            raise e
 
                 self._consumer.commit()
                 processed = len(messages) - len(dlq_indices)
