@@ -577,7 +577,6 @@ export function DashboardHeader(): JSX.Element | null {
                                             </AppShortcut>
                                         </AccessControlAction>
                                         <MaxTool
-                                            disabled={isRemovingSidePanelFlag}
                                             identifier="upsert_dashboard"
                                             context={{
                                                 current_dashboard: dashboard
@@ -597,7 +596,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                       }
                                                     : undefined
                                             }
-                                            active={!!dashboard && canEditDashboard}
+                                            active={!isRemovingSidePanelFlag && !!dashboard && canEditDashboard}
                                             callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
                                             position="top-right"
                                         >
