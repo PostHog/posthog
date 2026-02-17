@@ -11,6 +11,7 @@ import { eventWithTime } from '@posthog/rrweb-types'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { PaginatedResponse } from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
+import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
@@ -358,7 +359,7 @@ export interface UserType extends UserBaseType {
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
-    hedgehog_config?: Partial<HedgehogConfig>
+    hedgehog_config?: HedgehogConfig
     allow_sidebar_suggestions?: boolean
     role_at_organization?: UserRole | null
     passkeys_enabled_for_2fa?: boolean
@@ -376,24 +377,19 @@ export type HedgehogColorOptions =
     | 'invert-hue'
     | 'greyscale'
 
-export interface MinimalHedgehogConfig {
+export type MinimalHedgehogConfig = {
     use_as_profile: boolean
-    color: HedgehogColorOptions | null
-    accessories: string[]
+    color: HedgehogActorOptions['color']
+    skin: HedgehogActorOptions['skin']
+    accessories: HedgehogActorOptions['accessories']
 }
 
-export type HedgehogSkin = 'default' | 'spiderhog' | 'robohog'
-
-export interface HedgehogConfig extends MinimalHedgehogConfig {
-    enabled: boolean
-    color: HedgehogColorOptions | null
-    skin?: HedgehogSkin
-    accessories: string[]
-    walking_enabled: boolean
-    interactions_enabled: boolean
-    controls_enabled: boolean
+export type HedgehogConfig = {
+    version: 2
+    use_as_profile: boolean
     party_mode_enabled: boolean
-    fixed_direction?: 'left' | 'right'
+    enabled: boolean
+    actor_options: HedgehogActorOptions
 }
 
 export interface NotificationSettings {
