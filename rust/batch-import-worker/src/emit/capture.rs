@@ -107,7 +107,7 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
             count, txn_elapsed, min_duration, to_sleep
         );
 
-        let result = self.client.capture_batch_historical(events).await;
+        let result = self.client.capture_batch(events, true).await;
 
         match result {
             Ok(()) => {
