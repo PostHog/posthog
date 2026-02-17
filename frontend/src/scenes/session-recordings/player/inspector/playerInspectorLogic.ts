@@ -106,6 +106,7 @@ export type InspectorListItemBase = {
 export type InspectorListItemEvent = InspectorListItemBase & {
     type: 'events'
     data: RecordingEventType
+    groupedEvents?: InspectorListItemEvent[]
 }
 
 export type InspectorListItemInactivity = InspectorListItemBase & {
@@ -187,6 +188,44 @@ export type InspectorListItem =
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
+}
+
+/** Merges runs of identical adjacent events/inactivity into grouped items. Groups of <= 3 are kept ungrouped. */
+export function collapseAdjacentItems(items: InspectorListItem[]): InspectorListItem[] {
+    const collapsed = items.reduce((acc, item) => {
+        const previousItem = acc[acc.length - 1]
+
+        if (item.type === 'inactivity' && previousItem?.type === 'inactivity') {
+            previousItem.durationMs += item.durationMs
+            return acc
+        }
+
+        if (
+            item.type === 'events' &&
+            previousItem?.type === 'events' &&
+            item.data.event === previousItem.data.event &&
+            item.search === previousItem.search &&
+            !item.highlightColor &&
+            !previousItem.highlightColor
+        ) {
+            if (!previousItem.groupedEvents) {
+                previousItem.groupedEvents = [{ ...previousItem }]
+            }
+            previousItem.groupedEvents.push(item)
+            return acc
+        }
+
+        acc.push(item)
+        return acc
+    }, [] as InspectorListItem[])
+
+    // Only keep event groups with > 3 items; un-group smaller runs
+    return collapsed.flatMap((item) => {
+        if (item.type === 'events' && item.groupedEvents && item.groupedEvents.length <= 3) {
+            return item.groupedEvents.map((e) => ({ ...e, groupedEvents: undefined }))
+        }
+        return item
+    })
 }
 
 function _isCustomSnapshot(x: unknown): x is customEvent {
@@ -595,11 +634,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                                 const lastLogLine = consoleLogs[consoleLogs.length - 1]
                                 if (lastLogLine?.content === content) {
-                                    if (lastLogLine.count === undefined) {
-                                        lastLogLine.count = 1
-                                    } else {
-                                        lastLogLine.count += 1
+                                    lastLogLine.count = (lastLogLine.count ?? 1) + 1
+                                    if (!lastLogLine.occurrences) {
+                                        lastLogLine.occurrences = [lastLogLine.timestamp]
                                     }
+                                    lastLogLine.occurrences.push(snapshot.timestamp)
                                 } else {
                                     const consoleLog = {
                                         timestamp: snapshot.timestamp,
@@ -610,6 +649,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                         level,
                                         trace,
                                         count: 1,
+                                        occurrences: [snapshot.timestamp],
                                     }
                                     consoleLogs.push(consoleLog)
 
@@ -630,6 +670,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                         windowNumber: windowNumberForID(windowId),
                                         key: `${itemTimestamp.valueOf()}-console-${level}-${consoleLogs.length - 1}`,
                                     })
+                                }
+                            } else {
+                                // Cache hit: same timestamp+content seen before (recording duplicate),
+                                // but still count it as an occurrence in the current group
+                                const lastLogLine = consoleLogs[consoleLogs.length - 1]
+                                if (lastLogLine?.content === content) {
+                                    lastLogLine.count = (lastLogLine.count ?? 1) + 1
+                                    if (!lastLogLine.occurrences) {
+                                        lastLogLine.occurrences = [lastLogLine.timestamp]
+                                    }
+                                    lastLogLine.occurrences.push(snapshot.timestamp)
                                 }
                             }
                         }
@@ -1026,19 +1077,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     hasEventsToDisplay,
                 })
 
-                // need to collapse adjacent inactivity items
-                // they look wrong next to each other
-                return filteredItems.reduce((acc, item, index) => {
-                    if (item.type === 'inactivity') {
-                        const previousItem = filteredItems[index - 1]
-                        if (previousItem?.type === 'inactivity') {
-                            previousItem.durationMs += item.durationMs
-                            return acc
-                        }
-                    }
-                    acc.push(item)
-                    return acc
-                }, [] as InspectorListItem[])
+                return collapseAdjacentItems(filteredItems)
             },
             { resultEqualityCheck: equal },
         ],
@@ -1277,7 +1316,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 actions.reportRecordingInspectorItemExpanded(item.type, index)
 
                 if (item.type === 'events') {
-                    actions.loadFullEventData(item.data)
+                    const eventsToLoad = [item.data]
+                    if (item.groupedEvents) {
+                        eventsToLoad.push(...item.groupedEvents.map((e) => e.data))
+                    }
+                    actions.loadFullEventData(eventsToLoad)
                 }
             }
         },
