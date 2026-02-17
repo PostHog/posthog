@@ -73,6 +73,8 @@ export interface SentimentBarProps {
     label: string
     score: number
     loading?: boolean
+    /** "sm" (default) for inline contexts, "full" to fill available width. */
+    size?: 'sm' | 'full'
     // Individual message scores for computing max positive/negative tick marks.
     // Pass generation messages directly, or flatten from multiple generations.
     messages?: Record<string | number, MessageScore>
@@ -97,9 +99,9 @@ function computeExtremes(messages?: Record<string | number, MessageScore>): {
     return { maxPositive, maxNegative }
 }
 
-export function SentimentBar({ label, score, loading, messages }: SentimentBarProps): JSX.Element | null {
+export function SentimentBar({ label, score, loading, size = 'sm', messages }: SentimentBarProps): JSX.Element | null {
     if (loading) {
-        return <LemonSkeleton className="h-1.5 w-10" />
+        return <LemonSkeleton className={`h-1.5 ${size === 'full' ? 'w-full' : 'w-10'}`} />
     }
 
     const sentimentLabel = (label as SentimentLabel) ?? 'neutral'
@@ -122,7 +124,7 @@ export function SentimentBar({ label, score, loading, messages }: SentimentBarPr
 
     return (
         <Tooltip title={tooltipText}>
-            <span className="relative w-10 my-0.5 inline-block shrink-0">
+            <span className={`relative my-0.5 inline-block shrink-0 ${size === 'full' ? 'w-full' : 'w-10'}`}>
                 <span className="block h-1.5 bg-border-light rounded-full overflow-hidden">
                     <span
                         className={`block h-full rounded-full ${barColor}`}

@@ -213,6 +213,7 @@ function LazySentimentColumnCell({ traceId }: { traceId: string }): JSX.Element 
         <SentimentBar
             label={cached.label}
             score={cached.score}
+            size="full"
             messages={flattenGenerationMessages(cached.generations)}
         />
     )
