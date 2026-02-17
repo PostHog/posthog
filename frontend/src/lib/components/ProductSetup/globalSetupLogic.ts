@@ -2,10 +2,10 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { SetupTaskId } from 'lib/components/ProductSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic as globalTeamLogic } from 'scenes/teamLogic'
 
-import { AvailableSetupTaskIdsEnumApi as SetupTaskId } from '~/generated/core/api.schemas'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivationTaskStatus } from '~/types'
 
