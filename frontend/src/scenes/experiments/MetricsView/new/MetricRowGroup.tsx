@@ -37,7 +37,6 @@ import {
     getDelta,
     getMetricSubtitleValues,
     getNiceTickValues,
-    hasValidationFailures,
     isBayesianResult,
     isDeltaPositive,
     isSignificant,
@@ -506,7 +505,6 @@ interface MetricRowGroupProps {
     onRemoveBreakdown: (index: number) => void
     error?: any
     isLoading?: boolean
-    hasMinimumExposureForResults?: boolean
     exposuresLoading?: boolean
     showDetailsModal: boolean
 }
@@ -527,7 +525,6 @@ export function MetricRowGroup({
     onRemoveBreakdown,
     error,
     isLoading,
-    hasMinimumExposureForResults = true,
     exposuresLoading = false,
     showDetailsModal,
 }: MetricRowGroupProps): JSX.Element {
@@ -669,11 +666,7 @@ export function MetricRowGroup({
         })
     }
 
-    // Handle loading, API errors, or missing result
-    // Note: If result has validation_failures but no API error, we'll show the data with inline warnings
-    const hasResultWithValidationFailures = result && hasValidationFailures(result)
-
-    if (isLoading || error || !result || (!hasMinimumExposureForResults && !hasResultWithValidationFailures)) {
+    if (isLoading || error || !result) {
         const hasError = !!error
 
         return (
