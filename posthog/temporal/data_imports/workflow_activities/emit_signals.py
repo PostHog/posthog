@@ -235,8 +235,6 @@ async def _filter_actionable(
         result = tasks[i].result()
         if result:
             actionable.append(output)
-        elif isinstance(result, Exception):
-            actionable.append(output)
         else:
             filtered_count += 1
     if filtered_count > 0:
