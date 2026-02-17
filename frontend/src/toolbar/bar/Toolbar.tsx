@@ -201,8 +201,15 @@ function piiMaskingMenuItem(
 }
 
 function MoreMenu(): JSX.Element {
-    const { hedgehogModeEnabled, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } =
-        useValues(toolbarLogic)
+    const {
+        hedgehogModeEnabled,
+        hedgehogModeAvailable,
+        theme,
+        posthog,
+        piiMaskingEnabled,
+        piiMaskingColor,
+        piiWarning,
+    } = useValues(toolbarLogic)
     const {
         setHedgehogModeEnabled,
         toggleTheme,
@@ -240,11 +247,14 @@ function MoreMenu(): JSX.Element {
                         {
                             icon: <>🦔</>,
                             label: hedgehogModeEnabled ? 'Disable hedgehog mode' : 'Hedgehog mode',
+                            disabledReason: !hedgehogModeAvailable
+                                ? "Hedgehog mode is disabled. Hedgehog mode uses `new Function` directives to render WebGL, and that requires 'unsafe-eval' in your Content Security Policy's script-src directive"
+                                : undefined,
                             onClick: () => {
                                 setHedgehogModeEnabled(!hedgehogModeEnabled)
                             },
                         },
-                        hedgehogModeEnabled
+                        hedgehogModeEnabled && hedgehogModeAvailable
                             ? {
                                   icon: <IconFlare />,
                                   label: 'Hedgehog options',
