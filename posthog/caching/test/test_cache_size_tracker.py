@@ -228,7 +228,7 @@ class TestTeamCacheSizeTracker(BaseTest):
         from django.core.cache.backends.locmem import LocMemCache
 
         cluster_cache = LocMemCache("query-cache-test", {})
-        tracker = TeamCacheSizeTracker(self.team.pk, cache_backend=cluster_cache)
+        tracker = TeamCacheSizeTracker(self.team.pk, cache_backend=cluster_cache, is_cluster=True)
         tracker.purge()
 
         data = b"test_data_content"

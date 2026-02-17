@@ -820,7 +820,7 @@ class InsightSerializer(InsightBasicSerializer):
         export_cache_keys: dict[int, str] | None = self.context.get("export_cache_keys")
         if export_cache_keys and insight.id in export_cache_keys:
             expected_cache_key = export_cache_keys[insight.id]
-            cached_response = fetch_cached_response_by_key(expected_cache_key)
+            cached_response = fetch_cached_response_by_key(expected_cache_key, team_id=insight.team_id)
             if cached_response:
                 return InsightResult(
                     result=cached_response.get("results"),

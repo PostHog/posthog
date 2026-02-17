@@ -13,7 +13,6 @@ from posthog.caching.cache_size_tracker import TeamCacheSizeTracker
 from posthog.caching.query_cache_routing import (
     BACKEND_CLUSTER,
     BACKEND_DEFAULT,
-    get_query_cache,
     get_query_cache_selection,
     use_cluster_cache,
 )
@@ -159,9 +158,8 @@ def count_query_cache_hit(team_id: int, hit: str, trigger: str = "") -> None:
         metrics.hit_counter.labels(team_id=team_id, cache_hit=hit, trigger=trigger, backend=backend).inc()
 
 
-def count_cache_write_data(team_id: int, data_size: int) -> None:
+def count_cache_write_data(team_id: int, data_size: int, backend: str = BACKEND_DEFAULT) -> None:
     """Count cache write operations and data size metrics."""
-    backend = _cache_backend_label(team_id)
     with get_cache_metrics_context("query_cache_writes") as metrics:
         metrics.write_counter.labels(team_id=team_id, backend=backend).inc()
         metrics.bytes_counter.labels(team_id=team_id, backend=backend).inc(data_size)
@@ -187,6 +185,7 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
             self.team_id,
             cache_backend=selection.cache_backend,
             redis_client=selection.redis_client,
+            is_cluster=selection.is_cluster,
         )
         tracker.set(self.cache_key, fresh_response_serialized, data_size, settings.CACHED_RESULTS_TTL)
 
@@ -196,21 +195,10 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
             self.remove_last_refresh()
 
         # Track cache write metrics
-        count_cache_write_data(self.team_id, data_size)
+        backend = BACKEND_CLUSTER if selection.is_cluster else BACKEND_DEFAULT
+        count_cache_write_data(self.team_id, data_size, backend=backend)
 
     def get_cache_data(self) -> Optional[dict]:
-        query_cache = get_query_cache(self.team_id)
-        try:
-            cached_response_bytes = query_cache.get(self.cache_key)
-        except Exception:
-            logger.warning("query_cache_read_error", team_id=self.team_id, cache_key=self.cache_key, exc_info=True)
-            try:
-                query_cache.delete(self.cache_key)
-            except Exception:
-                pass
-            return None
+        from posthog.caching.fetch_from_cache import fetch_cached_response_by_key
 
-        if not cached_response_bytes:
-            return None
-
-        return OrjsonJsonSerializer({}).loads(cached_response_bytes)
+        return fetch_cached_response_by_key(self.cache_key, self.team_id)

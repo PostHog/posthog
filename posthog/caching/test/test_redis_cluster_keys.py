@@ -20,7 +20,7 @@ class TestRedisClusterKeySlots(BaseTest):
         mock_redis = MagicMock()
         mock_redis.register_script = MagicMock(return_value=MagicMock())
 
-        tracker = TeamCacheSizeTracker(team_id, cache_backend=mock_cache, redis_client=mock_redis)
+        tracker = TeamCacheSizeTracker(team_id, cache_backend=mock_cache, redis_client=mock_redis, is_cluster=True)
 
         slots = {
             key_slot(tracker.entries_key.encode()),
@@ -53,7 +53,7 @@ class TestRedisClusterKeySlots(BaseTest):
         mock_redis = MagicMock()
         mock_redis.register_script = MagicMock(return_value=MagicMock())
 
-        tracker = TeamCacheSizeTracker(team_id, cache_backend=mock_cache, redis_client=mock_redis)
+        tracker = TeamCacheSizeTracker(team_id, cache_backend=mock_cache, redis_client=mock_redis, is_cluster=True)
 
         self.assertEqual(tracker.entries_key, f"posthog:cache_sizes:{{{team_id}}}")
         self.assertEqual(tracker.sizes_key, f"posthog:cache_entry_sizes:{{{team_id}}}")

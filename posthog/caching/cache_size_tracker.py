@@ -123,12 +123,11 @@ class TeamCacheSizeTracker:
     - posthog:cache_total:{team_id} - String counter: total bytes (for O(1) total size lookup)
     """
 
-    def __init__(self, team_id: int, cache_backend=None, redis_client=None):
+    def __init__(self, team_id: int, cache_backend=None, redis_client=None, is_cluster: bool = False):
         self.team_id = team_id
         self._cache = cache_backend or cache
         self.redis_client = redis_client or redis.get_client()
-
-        self._is_cluster = cache_backend is not None and cache_backend is not cache
+        self._is_cluster = is_cluster
         if self._is_cluster:
             # Redis Cluster requires all keys in a multi-key Lua script to be on the same shard
             # Wrap in braces to only hash on team_id

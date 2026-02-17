@@ -1,9 +1,10 @@
-from typing import Any, NamedTuple, cast
+from typing import NamedTuple
 
 from django.conf import settings
 from django.core.cache import cache, caches
 
 import posthoganalytics
+from django_redis import get_redis_connection
 
 from posthog import redis
 
@@ -16,6 +17,7 @@ BACKEND_DEFAULT = "default"
 class QueryCacheSelection(NamedTuple):
     cache_backend: object
     redis_client: object
+    is_cluster: bool
 
 
 def use_cluster_cache(team_id: int) -> bool:
@@ -37,13 +39,14 @@ def get_query_cache(team_id: int):
 
 def get_query_cache_selection(team_id: int) -> QueryCacheSelection:
     if use_cluster_cache(team_id):
-        query_cache = caches[QUERY_CACHE_ALIAS]
         return QueryCacheSelection(
-            cache_backend=query_cache,
-            redis_client=cast(Any, query_cache).client.get_client(write=True),
+            cache_backend=caches[QUERY_CACHE_ALIAS],
+            redis_client=get_redis_connection(QUERY_CACHE_ALIAS),
+            is_cluster=True,
         )
 
     return QueryCacheSelection(
         cache_backend=cache,
         redis_client=redis.get_client(),
+        is_cluster=False,
     )
