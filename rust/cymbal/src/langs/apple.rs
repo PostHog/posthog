@@ -56,18 +56,29 @@ impl RawAppleFrame {
     where
         C: SymbolCatalog<OrChunkId<AppleRef>, ParsedAppleSymbols>,
     {
+        tracing::info!("[apple-debug] resolve() called: instruction_addr={:?}, image_addr={:?}, image_uuid={:?}, module={:?}, debug_images_count={}",
+            self.instruction_addr, self.image_addr, self.image_uuid, self.module, debug_images.len());
         match self.resolve_impl(team_id, catalog, debug_images).await {
-            Ok(frame) => Ok(frame),
+            Ok(frame) => {
+                tracing::info!("[apple-debug] resolve() SUCCESS: resolved_name={:?}, source={:?}, line={:?}",
+                    frame.resolved_name, frame.source, frame.line);
+                Ok(frame)
+            }
             Err(ResolveError::ResolutionError(FrameError::Apple(e))) => {
+                tracing::warn!("[apple-debug] resolve() Apple error: {:?}", e);
                 Ok(self.handle_resolution_error(e))
             }
             Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
+                tracing::warn!("[apple-debug] resolve() MissingChunkIdData: {}", chunk_id);
                 Ok(self.handle_resolution_error(AppleError::MissingDsym(chunk_id)))
             }
             Err(ResolveError::ResolutionError(e)) => {
                 unreachable!("Should not have received error {:?}", e)
             }
-            Err(ResolveError::UnhandledError(e)) => Err(e),
+            Err(ResolveError::UnhandledError(e)) => {
+                tracing::error!("[apple-debug] resolve() unhandled error: {:?}", e);
+                Err(e)
+            }
         }
     }
 
@@ -86,21 +97,27 @@ impl RawAppleFrame {
             .ok_or(AppleError::InvalidAddress("missing instruction_addr".into()))?;
 
         let instruction_addr = parse_hex_address(instruction_addr)?;
+        tracing::info!("[apple-debug] resolve_impl: parsed instruction_addr=0x{:x}", instruction_addr);
 
         let debug_image = self.find_debug_image(instruction_addr, debug_images)?;
+        tracing::info!("[apple-debug] resolve_impl: matched debug_image debug_id={}, image_addr={}", debug_image.debug_id, debug_image.image_addr);
 
         let relative_addr = self.calculate_relative_addr(instruction_addr, debug_image)?;
+        tracing::info!("[apple-debug] resolve_impl: relative_addr=0x{:x}", relative_addr);
 
+        tracing::info!("[apple-debug] resolve_impl: looking up symbols for chunk_id={}", debug_image.debug_id);
         let symbols: Arc<ParsedAppleSymbols> = catalog
             .lookup(
                 team_id,
                 OrChunkId::chunk_id(debug_image.debug_id.clone()),
             )
             .await?;
+        tracing::info!("[apple-debug] resolve_impl: symbols loaded successfully");
 
         let symbol_info = symbols
             .lookup(relative_addr)?
             .ok_or(AppleError::SymbolNotFound(relative_addr))?;
+        tracing::info!("[apple-debug] resolve_impl: found symbol={}, file={:?}, line={}", symbol_info.symbol, symbol_info.filename, symbol_info.line);
 
         Ok(self.build_resolved_frame(&symbol_info, debug_image))
     }

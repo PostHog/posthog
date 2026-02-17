@@ -2,8 +2,9 @@ use std::fmt::Display;
 use std::io::{Cursor, Read};
 
 use axum::async_trait;
-use posthog_symbol_data::{read_symbol_data, AppleDsym};
+use symbolic::common::Name;
 use symbolic::debuginfo::Archive;
+use symbolic::demangle::{Demangle, DemangleOptions};
 use symbolic::symcache::{SymCache, SymCacheConverter};
 use zip::ZipArchive;
 
@@ -39,8 +40,8 @@ impl Parser for AppleProvider {
     type Err = ResolveError;
 
     async fn parse(&self, source: Self::Source) -> Result<ParsedAppleSymbols, ResolveError> {
-        let dsym: AppleDsym = read_symbol_data(source).map_err(AppleError::DataError)?;
-        ParsedAppleSymbols::from_dsym_zip(dsym.data)
+        // CLI uploads raw zip data directly
+        ParsedAppleSymbols::from_dsym_zip(source)
     }
 }
 
@@ -106,14 +107,22 @@ impl ParsedAppleSymbols {
         let lookup_result = symcache.lookup(addr).next();
 
         match lookup_result {
-            Some(result) => Ok(Some(SymbolInfo {
-                symbol: result.function().name().to_string(),
-                filename: result
-                    .file()
-                    .map(|f| f.full_path().to_string())
-                    .unwrap_or_default(),
-                line: result.line(),
-            })),
+            Some(result) => {
+                // Demangle Swift/C++ symbols for readability
+                let raw_name = result.function().name_for_demangling();
+                let symbol = raw_name
+                    .demangle(DemangleOptions::complete())
+                    .unwrap_or_else(|| raw_name.to_string());
+
+                Ok(Some(SymbolInfo {
+                    symbol,
+                    filename: result
+                        .file()
+                        .map(|f| f.full_path().to_string())
+                        .unwrap_or_default(),
+                    line: result.line(),
+                }))
+            }
             None => Ok(None),
         }
     }

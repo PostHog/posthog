@@ -4847,7 +4847,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -5279,6 +5279,15 @@ dependencies = [
  "smallvec",
  "tagptr",
  "uuid",
+]
+
+[[package]]
+name = "msvc-demangler"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4c25a3bb7d880e8eceab4822f3141ad0700d20f025991c1f03bd3d00219a5fc"
+dependencies = [
+ "bitflags 2.9.1",
 ]
 
 [[package]]
@@ -8699,6 +8708,7 @@ checksum = "857285fb5f446824e6bc78dc41267d8e544a3ed802ed58aee3445e71968a57c2"
 dependencies = [
  "symbolic-common",
  "symbolic-debuginfo",
+ "symbolic-demangle",
  "symbolic-sourcemapcache",
  "symbolic-symcache",
 ]
@@ -8750,11 +8760,13 @@ dependencies = [
 
 [[package]]
 name = "symbolic-demangle"
-version = "12.12.1"
+version = "12.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a767859f6549c665011970874c3f541838b4835d5aaaa493d3ee383918be9f10"
+checksum = "1accb6e5c4b0f682de907623912e616b44be1c9e725775155546669dbff720ec"
 dependencies = [
+ "cc",
  "cpp_demangle",
+ "msvc-demangler",
  "rustc-demangle",
  "symbolic-common",
 ]

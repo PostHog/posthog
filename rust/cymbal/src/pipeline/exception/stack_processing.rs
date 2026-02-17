@@ -60,6 +60,13 @@ pub async fn do_stack_processing(
                 let frame = frame.clone();
                 let context = context.clone();
                 let debug_images = props.debug_images.clone();
+                // DEBUG: trace Apple symbolication pipeline
+                tracing::info!("[apple-debug] Resolving frame: {:?}, debug_images count: {}", std::mem::discriminant(&frame), debug_images.len());
+                if !debug_images.is_empty() {
+                    for (i, img) in debug_images.iter().enumerate() {
+                        tracing::info!("[apple-debug]   debug_image[{}]: debug_id={}, image_addr={}, image_vmaddr={:?}", i, img.debug_id, img.image_addr, img.image_vmaddr);
+                    }
+                }
                 // Spawn a concurrent task for resolving every frame
                 let handle = tokio::spawn(async move {
                     context.worker_liveness.report_healthy().await;

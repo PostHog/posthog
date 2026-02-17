@@ -73,9 +73,6 @@ impl Resolver {
         catalog: &Catalog,
         debug_images: &[AppleDebugImage],
     ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
-        return Ok(Frame::from(self));
-
-
         let loaded = ErrorTrackingStackFrame::load_all(pool, &raw_id, self.result_ttl).await?;
         if !loaded.is_empty() {
             metrics::counter!(FRAME_DB_HITS).increment(1);
