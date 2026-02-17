@@ -322,7 +322,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
             }
         },
         addDashboardSuccess: ({ dashboard }) => {
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstDashboard)
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.create_first_dashboard)
 
             if (router.values.location.pathname.includes('onboarding')) {
                 // don't send a toast if we're in onboarding

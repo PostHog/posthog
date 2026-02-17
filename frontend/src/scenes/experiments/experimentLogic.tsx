@@ -1197,7 +1197,7 @@ export const experimentLogic = kea<experimentLogicType>([
             const startDate = dayjs()
             actions.updateExperiment({ start_date: startDate.toISOString() })
             values.experiment && eventUsageLogic.actions.reportExperimentLaunched(values.experiment, startDate)
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.launch_experiment)
         },
         changeExperimentStartDate: async ({ startDate }) => {
             actions.updateExperiment({ start_date: startDate })
@@ -1597,7 +1597,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             // Mark the review results task as complete when results are loaded for a running experiment
             if (values.experiment?.start_date) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewExperimentResults)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.review_experiment_results)
             }
         },
         loadSecondaryMetricsResults: async ({ refresh }: { refresh?: boolean }) => {

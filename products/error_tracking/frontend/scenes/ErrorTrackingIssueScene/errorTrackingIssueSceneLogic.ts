@@ -417,7 +417,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             actions.setInitialEventTimestamp(props.timestamp ?? null)
             actions.loadSummary()
             actions.loadIssueFingerprints()
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstError)
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.view_first_error)
         },
     })),
 

@@ -465,7 +465,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                             intent_context: ProductIntentContext.EXPERIMENT_CREATED,
                         })
                         actions.createExperimentSuccess()
-                        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateExperiment)
+                        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.create_experiment)
                         lemonToast.success('Experiment created successfully!')
                         // Don't reset - we just set the fresh data above
                     }

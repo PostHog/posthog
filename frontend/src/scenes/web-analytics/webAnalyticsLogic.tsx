@@ -2430,7 +2430,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     date_to: dateTo,
                     interval: values.dateFilter.interval,
                 })
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.filter_web_analytics)
             },
             setDatesAndInterval: ({ dateFrom, dateTo, interval }) => {
                 eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
@@ -2438,10 +2438,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     date_to: dateTo,
                     interval,
                 })
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.filter_web_analytics)
             },
             setWebAnalyticsFilters: () => {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.filter_web_analytics)
             },
             setIsPathCleaningEnabled: ({ isPathCleaningEnabled }) => {
                 eventUsageLogic.actions.reportWebAnalyticsPathCleaningToggled({
@@ -2517,7 +2517,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     if (conversionGoal) {
                         globalSetupLogic
                             .findMounted()
-                            ?.actions.markTaskAsCompleted(SetupTaskId.SetUpWebAnalyticsConversionGoals)
+                            ?.actions.markTaskAsCompleted(SetupTaskId.set_up_web_analytics_conversion_goals)
                     }
                 },
             ],

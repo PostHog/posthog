@@ -12,9 +12,9 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 
+import type { AvailableSetupTaskIdsEnumApi as SetupTaskId } from '~/generated/core/api.schemas'
 import { getTreeItemsProducts } from '~/products'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import type { SetupTaskId } from '~/queries/schema/schema-general'
 import { ActivationTaskStatus } from '~/types'
 
 import { globalSetupLogic } from './globalSetupLogic'

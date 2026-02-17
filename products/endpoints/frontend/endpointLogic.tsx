@@ -212,7 +212,7 @@ export const endpointLogic = kea<endpointLogicType>([
                 })
 
                 // Mark endpoint creation task as completed
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.create_first_endpoint)
 
                 // Track product intent for sidebar visibility
                 const intentContext = response.derived_from_insight
@@ -263,7 +263,7 @@ export const endpointLogic = kea<endpointLogicType>([
 
                 // Mark activation task as completed when endpoint is activated
                 if (response.is_active) {
-                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureEndpoint)
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.configure_endpoint)
                 }
             },
             updateEndpointFailure: ({ queryError }) => {

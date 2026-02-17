@@ -1070,7 +1070,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.maybeLoadSessionRecordings('older')
             }
 
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.WatchSessionRecording)
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.watch_session_recording)
         },
 
         setHideViewedRecordings: () => {

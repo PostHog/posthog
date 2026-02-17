@@ -433,7 +433,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 posthog.capture('logs no results returned')
             } else {
                 posthog.capture('logs results returned', { count: logs.length })
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstLogs)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.view_first_logs)
             }
         },
         fetchNextLogsPage: () => {

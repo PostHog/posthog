@@ -345,7 +345,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         },
         loadEndpointResultSuccess: () => {
             // Mark test endpoint task as completed when user runs an endpoint in the playground
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TestEndpoint)
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.test_endpoint)
         },
         updateEndpointSuccess: async ({ endpointName, options }) => {
             // Reload the viewed version after update to get fresh data

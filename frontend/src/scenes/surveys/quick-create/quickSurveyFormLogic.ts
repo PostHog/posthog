@@ -184,8 +184,8 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
 
                 // Keep track of the tasks that were completed for our onboarding depending on the create mode
                 const completedTasks = [
-                    SetupTaskId.CreateSurvey,
-                    shouldLaunch ? SetupTaskId.LaunchSurvey : undefined,
+                    SetupTaskId.create_survey,
+                    shouldLaunch ? SetupTaskId.launch_survey : undefined,
                 ].filter(Boolean) as SetupTaskId[]
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(completedTasks)
             },

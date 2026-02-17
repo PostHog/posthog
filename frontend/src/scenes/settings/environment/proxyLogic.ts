@@ -11,7 +11,7 @@ import { isDomain } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { SetupTaskId } from '~/queries/schema/schema-general'
+import { AvailableSetupTaskIdsEnumApi as SetupTaskId } from '~/generated/core/api.schemas'
 
 import type { proxyLogicType } from './proxyLogicType'
 
@@ -117,7 +117,7 @@ export const proxyLogic = kea<proxyLogicType>([
             // Mark the reverse proxy setup task as completed if any proxy is valid
             const hasValidProxy = proxyRecords.some((r) => r.status === 'valid')
             if (hasValidProxy) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpReverseProxy)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.set_up_reverse_proxy)
             }
         },
         maybeRefreshRecords: () => {

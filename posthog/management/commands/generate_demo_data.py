@@ -11,8 +11,6 @@ from urllib.parse import quote
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
-from posthog.schema import SetupTaskId
-
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
@@ -21,6 +19,7 @@ from posthog.management.commands.sync_feature_flags_from_api import sync_feature
 from posthog.models import User
 from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import Team
 from posthog.products import Products
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
