@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { afterMount, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
@@ -30,10 +30,6 @@ export const spikeDetectionConfigLogic = kea<spikeDetectionConfigLogicType>([
         'spike_detection',
         'spikeDetectionConfigLogic',
     ]),
-
-    actions({
-        setConfigValues: (config: SpikeDetectionConfigForm) => ({ config }),
-    }),
 
     reducers({
         hasLoadedConfig: [
