@@ -11,11 +11,20 @@ const _commonActionFields = {
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
     output_variable: z // The Hogflow-level variable to store the output of this action into
-        .object({
-            key: z.string(),
-            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
-            spread: z.boolean().optional().nullable(), // When true, spread object result into multiple variables as {key}_{property}
-        })
+        .union([
+            z.object({
+                key: z.string(),
+                result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
+                spread: z.boolean().optional().nullable(), // When true, spread object result into multiple variables as {key}_{property}
+            }),
+            z.array(
+                z.object({
+                    key: z.string(),
+                    result_path: z.string().optional().nullable(),
+                    spread: z.boolean().optional().nullable(),
+                })
+            ),
+        ])
         .optional()
         .nullable(),
 }
