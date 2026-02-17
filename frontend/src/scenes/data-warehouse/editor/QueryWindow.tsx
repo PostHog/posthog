@@ -46,6 +46,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         queryInput,
         editingView,
         editingInsight,
+        insightLoading,
         sourceQuery,
         originalQueryInput,
         suggestedQueryInput,
@@ -97,21 +98,22 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
 
     return (
         <div className="flex grow flex-col overflow-hidden">
-            {(editingView || editingInsight) && (
+            {(editingView || editingInsight || insightLoading) && (
                 <div className="h-5 bg-warning-highlight">
                     <span className="pl-2 text-xs">
-                        {editingView && (
+                        {editingView ? (
                             <>
                                 Editing {isDraft ? 'draft of ' : ''} {isMaterializedView ? 'materialized view' : 'view'}{' '}
                                 "{editingView.name}"
                             </>
-                        )}
-                        {editingInsight && (
+                        ) : editingInsight ? (
                             <>
                                 Editing insight "
                                 <Link to={urls.insightView(editingInsight.short_id)}>{editingInsight.name}</Link>"
                             </>
-                        )}
+                        ) : insightLoading ? (
+                            'Loading insight...'
+                        ) : null}
                     </span>
                 </div>
             )}
@@ -236,7 +238,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                         </LemonButton>
                     </>
                 )}
-                {!editingInsight && !editingView && (
+                {!editingInsight && !editingView && !insightLoading && (
                     <>
                         <AppShortcut
                             name="SQLEditorSaveAsView"
