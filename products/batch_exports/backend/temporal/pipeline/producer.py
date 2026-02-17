@@ -27,7 +27,7 @@ class Producer:
 
     def __init__(self):
         self.logger = LOGGER.bind()
-        self._task: asyncio.Task | None = None
+        self._task: asyncio.Task[None] | None = None
 
     @property
     def task(self) -> asyncio.Task:
@@ -45,7 +45,7 @@ class Producer:
         min_records_per_batch: int = 100,
         # TODO: after deployment, make this required
         stage_folder: str | None = None,
-    ) -> asyncio.Task:
+    ) -> asyncio.Task[None]:
         self._task = asyncio.create_task(
             self.produce_batch_export_record_batches_from_range(
                 queue=queue,
@@ -69,7 +69,7 @@ class Producer:
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
         stage_folder: str | None = None,
-    ):
+    ) -> None:
         # TODO: after deployment, remove the fallback behaviour.
         if stage_folder is None:
             stage_folder = get_base_s3_staging_folder(
