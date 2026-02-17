@@ -28,7 +28,7 @@ from products.signals.backend.api import emit_signal
 
 EMIT_SIGNALS_FEATURE_FLAG = "emit-data-import-signals"
 # Concurrent LLM calls limit for actionability checks
-LLM_CONCURRENCY_LIMIT = 10
+LLM_CONCURRENCY_LIMIT = 20
 # Concurrent workflow spawns for signal emission
 EMIT_CONCURRENCY_LIMIT = 50
 
@@ -225,10 +225,17 @@ async def _filter_actionable(
     """Keep only actionable signals"""
     client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
+    activity.heartbeat(f"filtering {len(outputs)} records for actionability")
+    checked_count = 0
 
     async def _bounded_check(output: SignalEmitterOutput) -> bool:
+        nonlocal checked_count
         async with semaphore:
-            return await _check_actionability(client, output, actionability_prompt)
+            result = await _check_actionability(client, output, actionability_prompt)
+            checked_count += 1
+            if checked_count % LLM_CONCURRENCY_LIMIT == 0:
+                activity.heartbeat(f"filtered {checked_count}/{len(outputs)} records")
+            return result
 
     tasks: dict[int, asyncio.Task[bool]] = {}
     async with asyncio.TaskGroup() as tg:
@@ -256,9 +263,11 @@ async def _emit_signals(
     extra: dict[str, Any],
 ) -> int:
     semaphore = asyncio.Semaphore(EMIT_CONCURRENCY_LIMIT)
-    succeeded = 0
+    activity.heartbeat(f"emitting {len(outputs)} signals")
+    emitted_count = 0
 
     async def _bounded_emit(output: SignalEmitterOutput) -> bool:
+        nonlocal emitted_count
         async with semaphore:
             try:
                 await emit_signal(
@@ -270,6 +279,9 @@ async def _emit_signals(
                     weight=output.weight,
                     extra=output.extra,
                 )
+                emitted_count += 1
+                if emitted_count % EMIT_CONCURRENCY_LIMIT == 0:
+                    activity.heartbeat(f"emitted {emitted_count}/{len(outputs)} signals")
                 return True
             except Exception as e:
                 activity.logger.exception(f"Error emitting signal for record: {e}", extra=extra)
@@ -279,9 +291,7 @@ async def _emit_signals(
     async with asyncio.TaskGroup() as tg:
         for i, output in enumerate(outputs):
             results[i] = tg.create_task(_bounded_emit(output))
-    for task in results.values():
-        if task.result():
-            succeeded += 1
+    succeeded = sum(1 for task in results.values() if task.result())
     return succeeded
 
 
@@ -298,5 +308,6 @@ class EmitDataImportSignalsWorkflow(PostHogWorkflow):
             emit_data_import_signals_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=30),
+            heartbeat_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )

@@ -365,7 +365,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                     # Let the child workflow finish even if the parent completes or fails
                     parent_close_policy=ParentClosePolicy.ABANDON,
-                    execution_timeout=dt.timedelta(hours=1),
+                    execution_timeout=dt.timedelta(hours=2),
                 )
 
             # Create source templates
