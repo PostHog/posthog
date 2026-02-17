@@ -1,12 +1,14 @@
-import { orderedAccessLevels } from 'lib/utils/accessControlUtils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-const PROJECT_ACCESS_LEVEL_ORDER = orderedAccessLevels(AccessControlResourceType.Project)
-
-function getProjectAccessLevelIndex(level: AccessControlLevel): number {
-    const index = PROJECT_ACCESS_LEVEL_ORDER.indexOf(level)
-    return index === -1 ? 0 : index
+function getHigherProjectAccessLevel(
+    currentLevel: AccessControlLevel,
+    candidateLevel: AccessControlLevel
+): AccessControlLevel {
+    return accessLevelSatisfied(AccessControlResourceType.Project, candidateLevel, currentLevel)
+        ? candidateLevel
+        : currentLevel
 }
 
 export function getEffectiveProjectAccessForMember(params: {
@@ -33,14 +35,12 @@ export function getEffectiveProjectAccessForMember(params: {
         ...params.roleOverrideLevels,
     ]
 
-    const effectiveProjectLevel = candidateLevels.reduce((currentHighest, candidateLevel) => {
-        return getProjectAccessLevelIndex(candidateLevel) > getProjectAccessLevelIndex(currentHighest)
-            ? candidateLevel
-            : currentHighest
-    }, params.projectDefaultLevel)
+    const effectiveProjectLevel = candidateLevels.reduce(getHigherProjectAccessLevel, params.projectDefaultLevel)
 
     return {
         effectiveProjectLevel,
-        hasAdminAccessViaRoles: params.roleOverrideLevels.includes(AccessControlLevel.Admin),
+        hasAdminAccessViaRoles: params.roleOverrideLevels.some((level) =>
+            accessLevelSatisfied(AccessControlResourceType.Project, level, AccessControlLevel.Admin)
+        ),
     }
 }

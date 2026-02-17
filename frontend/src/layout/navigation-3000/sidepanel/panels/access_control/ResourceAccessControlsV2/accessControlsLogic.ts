@@ -514,41 +514,31 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ],
 
         ruleModalMemberHasAdminAccess: [
-            (s) => [s.ruleModalState, s.ruleModalMemberIsOrgAdmin, s.effectiveProjectAccessByMemberId],
-            (ruleModalState, ruleModalMemberIsOrgAdmin, effectiveProjectAccessByMemberId): boolean => {
-                if (!ruleModalState) {
-                    return false
-                }
-
+            (s) => [s.ruleModalMemberIsOrgAdmin, s.ruleModalMemberEffectiveProjectAccess],
+            (ruleModalMemberIsOrgAdmin, ruleModalMemberEffectiveProjectAccess): boolean => {
                 if (ruleModalMemberIsOrgAdmin) {
                     return true
                 }
 
-                const row = ruleModalState.row
-                if (!row.member) {
-                    return false
+                return ruleModalMemberEffectiveProjectAccess?.effectiveProjectLevel === AccessControlLevel.Admin
+            },
+        ],
+
+        ruleModalMemberEffectiveProjectAccess: [
+            (s) => [s.ruleModalState, s.effectiveProjectAccessByMemberId],
+            (ruleModalState, effectiveProjectAccessByMemberId) => {
+                if (!ruleModalState || !ruleModalState.row.member) {
+                    return null
                 }
 
-                return (
-                    effectiveProjectAccessByMemberId[row.member.id]?.effectiveProjectLevel === AccessControlLevel.Admin
-                )
+                return effectiveProjectAccessByMemberId[ruleModalState.row.member.id] ?? null
             },
         ],
 
         ruleModalMemberHasAdminAccessViaRoles: [
-            (s) => [s.ruleModalState, s.effectiveProjectAccessByMemberId],
-            (ruleModalState, effectiveProjectAccessByMemberId): boolean => {
-                if (!ruleModalState) {
-                    return false
-                }
-
-                const row = ruleModalState.row
-                if (!row.member) {
-                    return false
-                }
-
-                return !!effectiveProjectAccessByMemberId[row.member.id]?.hasAdminAccessViaRoles
-            },
+            (s) => [s.ruleModalMemberEffectiveProjectAccess],
+            (ruleModalMemberEffectiveProjectAccess): boolean =>
+                !!ruleModalMemberEffectiveProjectAccess?.hasAdminAccessViaRoles,
         ],
 
         ruleModalRoleHasAdminAccess: [
