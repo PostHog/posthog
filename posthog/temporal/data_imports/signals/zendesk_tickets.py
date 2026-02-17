@@ -25,6 +25,21 @@ Ticket:
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 
 
+# Zendesk ticket metadata to include as an extra data for a signal
+EXTRA_FIELDS = (
+    "id",
+    "url",
+    "type",
+    "tags",
+    "priority",
+    "status",
+    "created_at",
+    "requester_id",
+    "organization_id",
+    "brand_id",
+)
+
+
 def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
     # Required fields based on `zendesk_tickets` table definition
     ticket_id = record.get("id")
@@ -46,8 +61,10 @@ def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitte
         source_type="zendesk_ticket",
         source_id=str(ticket_id),
         description=signal_description,
-        weight=1.0,  # Sticking to 1 by default for user-generated issues
-        extra=record,  # Attach all available fields as additional context, just in case
+        # Sticking to 1 by default for user-generated issues
+        weight=1.0,
+        # Attach only the fields that would make sense for a signal
+        extra={k: v for k, v in record.items() if k in EXTRA_FIELDS},
     )
 
 
