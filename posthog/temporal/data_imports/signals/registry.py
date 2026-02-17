@@ -25,6 +25,8 @@ class SignalSourceTableConfig:
     emitter: SignalEmitter
     # Column used to filter new records. Should match the source table's partition field for efficient ClickHouse queries.
     partition_field: str
+    # Columns to SELECT — only what the emitter and extra metadata need
+    fields: tuple[str, ...]
     # Optional HogQL WHERE clause to append to every query
     # e.g., "status NOT IN ('closed', 'solved')" for Zendesk
     where_clause: str | None = None

@@ -29,22 +29,14 @@ Ticket:
 
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 
-# Zendesk ticket metadata to include as an extra data for a signal
-EXTRA_FIELDS = (
-    "id",
-    "url",
-    "type",
-    "tags",
-    "priority",
-    "status",
-    "created_at",
-    "requester_id",
-    "organization_id",
-    "brand_id",
-)
+# Fields the emitter needs to build the signal description
+REQUIRED_FIELDS = ("id", "subject", "description", "priority", "status")
+
+# Additional metadata to attach to the signal
+EXTRA_FIELDS = ("url", "type", "tags", "created_at", "requester_id", "organization_id", "brand_id")
 
 
-def _keep_meaningful_data(record: dict[str, Any]) -> dict[str, Any]:
+def _extract_extra(record: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in record.items() if k in EXTRA_FIELDS}
 
 
@@ -57,7 +49,8 @@ def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitte
     if not ticket_id or not subject or not description:
         logger.warning(
             f"Not enough meaningful data to emit a signal for ticket {ticket_id}",
-            record=_keep_meaningful_data(record),
+            # Including full record for proper context
+            record=record,
             signals_type="zendesk_ticket",
         )
         return None
@@ -76,14 +69,15 @@ def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitte
         description=signal_description,
         # Sticking to 1 by default for user-generated issues
         weight=1.0,
-        # Attach only the fields that would make sense for a signal
-        extra=_keep_meaningful_data(record),
+        # Attach only the fields that would make sense for a signal, without duplicating already included data
+        extra=_extract_extra(record),
     )
 
 
 ZENDESK_TICKETS_CONFIG = SignalSourceTableConfig(
     emitter=zendesk_ticket_emitter,
     partition_field="created_at",
+    fields=REQUIRED_FIELDS + EXTRA_FIELDS,
     where_clause=f"status NOT IN {ZENDESK_IGNORED_STATUSES!r}",
     max_records=100,
     first_sync_lookback_days=7,
