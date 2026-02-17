@@ -151,7 +151,7 @@ describe('findSegmentForTimestamp', () => {
         expect(result?.windowId).toBe(1)
     })
 
-    it('returns synthetic buffer as last resort when no segment has windowId', () => {
+    it('returns synthetic buffer as last resort when no segment has windowId and timestamp is before', () => {
         const segmentsWithoutWindowId: RecordingSegment[] = [
             makeSegment({ startTimestamp: 1000, endTimestamp: 2000, windowId: undefined }),
         ]
@@ -159,6 +159,20 @@ describe('findSegmentForTimestamp', () => {
         const result = findSegmentForTimestamp(segmentsWithoutWindowId, 500)
         expect(result?.kind).toBe('buffer')
         expect(result?.windowId).toBe(undefined)
+        expect(result?.startTimestamp).toBe(500)
+        expect(result?.endTimestamp).toBe(999)
+    })
+
+    it('returns synthetic buffer as last resort when no segment has windowId and timestamp is after', () => {
+        const segmentsWithoutWindowId: RecordingSegment[] = [
+            makeSegment({ startTimestamp: 1000, endTimestamp: 2000, windowId: undefined }),
+        ]
+
+        const result = findSegmentForTimestamp(segmentsWithoutWindowId, 3000)
+        expect(result?.kind).toBe('buffer')
+        expect(result?.windowId).toBe(undefined)
+        expect(result?.startTimestamp).toBe(3000)
+        expect(result?.endTimestamp).toBe(2001)
     })
 })
 

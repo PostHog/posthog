@@ -237,7 +237,10 @@ export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?
         return {
             kind: 'buffer',
             startTimestamp: timestamp,
-            endTimestamp: segments[0].startTimestamp - 1,
+            endTimestamp:
+                timestamp < segments[0].startTimestamp
+                    ? segments[0].startTimestamp - 1
+                    : segments[segments.length - 1].endTimestamp + 1,
             isActive: false,
         } as RecordingSegment
     }
