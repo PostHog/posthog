@@ -153,6 +153,7 @@ class Migration(migrations.Migration):
                     ("Brevo", "Brevo"),
                     ("Postmark", "Postmark"),
                     ("Granola", "Granola"),
+                    ("BuildBetter", "BuildBetter"),
                 ],
                 max_length=128,
             ),

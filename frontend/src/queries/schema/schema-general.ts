@@ -4954,6 +4954,7 @@ export const externalDataSources = [
     'Brevo',
     'Postmark',
     'Granola',
+    'BuildBetter',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

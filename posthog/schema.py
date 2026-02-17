@@ -1736,6 +1736,7 @@ class ExternalDataSourceType(StrEnum):
     BREVO = "Brevo"
     POSTMARK = "Postmark"
     GRANOLA = "Granola"
+    BUILD_BETTER = "BuildBetter"
 
 
 class ExternalQueryErrorCode(StrEnum):

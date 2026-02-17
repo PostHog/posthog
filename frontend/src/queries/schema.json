@@ -15523,7 +15523,8 @@
                 "Omnisend",
                 "Brevo",
                 "Postmark",
-                "Granola"
+                "Granola",
+                "BuildBetter"
             ],
             "type": "string"
         },
