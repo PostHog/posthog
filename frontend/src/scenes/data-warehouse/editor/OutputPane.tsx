@@ -465,8 +465,8 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
 
     return (
         <div className="OutputPane flex flex-col w-full flex-1 bg-white dark:bg-black">
-            <div className="flex flex-row justify-between align-center w-full min-h-[50px] overflow-y-auto">
-                <div className="flex min-h-[50px] gap-2 ml-4">
+            <div className="flex flex-row justify-between align-center w-full min-h-[49px] overflow-y-auto">
+                <div className="flex min-h-[49px] gap-2 ml-4">
                     {(!isEmbeddedMode
                         ? [
                               {
@@ -550,6 +550,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                             disabledReason={!hasColumns ? 'No results to visualize' : undefined}
                                             type="secondary"
                                             icon={<IconGear />}
+                                            size="small"
                                             onClick={() => toggleChartSettingsPanel()}
                                             tooltip="Visualization settings"
                                         />
@@ -581,6 +582,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                                         ),
                                                     },
                                                 }}
+                                                size="small"
                                             >
                                                 Save insight
                                             </LemonButton>
@@ -590,6 +592,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                                 type="primary"
                                                 onClick={() => saveAsInsight()}
                                                 id="sql-editor-save-insight"
+                                                size="small"
                                             >
                                                 Save insight
                                             </LemonButton>
@@ -609,6 +612,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                       : undefined
                             }
                             type="secondary"
+                            size="small"
                             onClick={() => setActiveTab(OutputTab.Visualization)}
                             id={`sql-editor-${editingInsight || insightLoading ? 'view' : 'create'}-insight`}
                             icon={<IconGraph />}
@@ -634,6 +638,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 id="sql-editor-copy-dropdown"
                                 disabledReason={!response?.columns || !rows.length ? 'No results to copy' : undefined}
                                 type="secondary"
+                                size="small"
                                 icon={<IconCopy />}
                             />
                         </LemonMenu>
@@ -647,6 +652,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 icon={<IconDownload />}
                                 sideIcon={null}
                                 buttonCopy=""
+                                size="small"
                                 items={[
                                     {
                                         export_format: ExporterFormat.CSV,
@@ -666,6 +672,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 id="sql-editor-share"
                                 disabledReason={!hasQueryInput && 'No query to share'}
                                 type="secondary"
+                                size="small"
                                 icon={<IconShare />}
                                 onClick={() => shareTab()}
                             />
