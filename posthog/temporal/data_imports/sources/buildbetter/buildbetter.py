@@ -22,7 +22,8 @@ def _make_paginated_request(
     api_key: str,
     endpoint_name: str,
     logger: FilteringBoundLogger,
-    updated_at_gt: str | None = None,
+    incremental_field: str | None = None,
+    incremental_field_last_value: str | None = None,
 ):
     endpoint_config = BUILDBETTER_ENDPOINTS.get(endpoint_name)
     if not endpoint_config:
@@ -86,8 +87,8 @@ def _make_paginated_request(
         "offset": 0,
     }
 
-    if updated_at_gt:
-        variables["where"] = {"updated_at": {"_gt": updated_at_gt}}
+    if incremental_field and incremental_field_last_value:
+        variables["where"] = {incremental_field: {"_gt": incremental_field_last_value}}
 
     try:
         while True:
@@ -120,16 +121,21 @@ def buildbetter_source(
         raise ValueError(f"Unknown BuildBetter endpoint: {endpoint_name}")
 
     def get_rows():
-        updated_at_gt = None
+        incremental_field = None
+        incremental_field_last_value = None
         if should_use_incremental_field and db_incremental_field_last_value is not None:
-            updated_at_gt = str(db_incremental_field_last_value)
-            logger.debug(f"BuildBetter: incremental sync for {endpoint_name} since {updated_at_gt}")
+            incremental_field = endpoint_config.incremental_filter_field
+            incremental_field_last_value = str(db_incremental_field_last_value)
+            logger.debug(
+                f"BuildBetter: incremental sync for {endpoint_name} on {incremental_field} since {incremental_field_last_value}"
+            )
 
         yield from _make_paginated_request(
             api_key=api_key,
             endpoint_name=endpoint_name,
             logger=logger,
-            updated_at_gt=updated_at_gt,
+            incremental_field=incremental_field,
+            incremental_field_last_value=incremental_field_last_value,
         )
 
     return SourceResponse(

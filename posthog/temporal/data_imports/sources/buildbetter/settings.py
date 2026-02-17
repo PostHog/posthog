@@ -11,7 +11,7 @@ ID = "id"
 BUILDBETTER_API_URL = "https://api.buildbetter.app/v1/graphql"
 BUILDBETTER_DEFAULT_PAGE_SIZE = 100
 
-INCREMENTAL_DATETIME_FIELDS: list[IncrementalField] = [
+INCREMENTAL_UPDATED_AT: list[IncrementalField] = [
     {
         "label": UPDATED_AT,
         "type": IncrementalFieldType.DateTime,
@@ -20,10 +20,20 @@ INCREMENTAL_DATETIME_FIELDS: list[IncrementalField] = [
     },
 ]
 
+INCREMENTAL_CREATED_AT: list[IncrementalField] = [
+    {
+        "label": CREATED_AT,
+        "type": IncrementalFieldType.DateTime,
+        "field": CREATED_AT,
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
 
 @dataclass
 class BuildBetterEndpointConfig:
     incremental_fields: list[IncrementalField]
+    incremental_filter_field: str | None = None
     graphql_query_name: str | None = None
     primary_key: str = ID
     partition_count: int = 1
@@ -36,20 +46,15 @@ class BuildBetterEndpointConfig:
 BUILDBETTER_ENDPOINTS: dict[str, BuildBetterEndpointConfig] = {
     "interviews": BuildBetterEndpointConfig(
         graphql_query_name="interview",
-        incremental_fields=INCREMENTAL_DATETIME_FIELDS,
+        incremental_fields=INCREMENTAL_UPDATED_AT,
+        incremental_filter_field=UPDATED_AT,
         partition_keys=[CREATED_AT],
     ),
     "extractions": BuildBetterEndpointConfig(
         graphql_query_name="extraction",
-        incremental_fields=INCREMENTAL_DATETIME_FIELDS,
+        incremental_fields=INCREMENTAL_CREATED_AT,
+        incremental_filter_field=CREATED_AT,
         partition_keys=[CREATED_AT],
-    ),
-    "documents": BuildBetterEndpointConfig(
-        graphql_query_name="document",
-        incremental_fields=INCREMENTAL_DATETIME_FIELDS,
-        partition_mode=None,
-        partition_format=None,
-        partition_keys=None,
     ),
 }
 
