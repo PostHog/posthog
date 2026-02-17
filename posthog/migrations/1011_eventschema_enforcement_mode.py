@@ -18,12 +18,4 @@ class Migration(migrations.Migration):
                 max_length=10,
             ),
         ),
-        migrations.AddIndex(
-            model_name="eventdefinition",
-            index=models.Index(
-                fields=["team_id"],
-                name="posthog_eventdef_enforce_idx",
-                condition=models.Q(enforcement_mode="reject"),
-            ),
-        ),
     ]
