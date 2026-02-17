@@ -34,6 +34,7 @@ def _make_config(**overrides: Any) -> SignalSourceTableConfig:
             extra=record,
         ),
         "partition_field": "created_at",
+        "fields": ("id", "description"),
     }
     return SignalSourceTableConfig(**(defaults | overrides))
 

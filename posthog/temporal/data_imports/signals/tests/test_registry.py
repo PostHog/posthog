@@ -26,14 +26,14 @@ def _clean_registry():
 
 class TestRegisterSignalSourceTable:
     def test_registers_and_retrieves_config(self):
-        config = SignalSourceTableConfig(emitter=_noop_emitter, partition_field="created_at")
+        config = SignalSourceTableConfig(emitter=_noop_emitter, partition_field="created_at", fields=("id",))
         register_signal_source_table(ExternalDataSourceType.ZENDESK, "tickets", config)
 
         assert get_signal_config("Zendesk", "tickets") is config
 
     def test_overwrites_existing_registration(self):
-        config_a = SignalSourceTableConfig(emitter=_noop_emitter, partition_field="created_at")
-        config_b = SignalSourceTableConfig(emitter=_noop_emitter, partition_field="updated_at")
+        config_a = SignalSourceTableConfig(emitter=_noop_emitter, partition_field="created_at", fields=("id",))
+        config_b = SignalSourceTableConfig(emitter=_noop_emitter, partition_field="updated_at", fields=("id",))
         register_signal_source_table(ExternalDataSourceType.ZENDESK, "tickets", config_a)
         register_signal_source_table(ExternalDataSourceType.ZENDESK, "tickets", config_b)
 
@@ -55,7 +55,7 @@ class TestGetSignalConfig:
 
 class TestIsSignalEmissionRegistered:
     def test_true_when_registered(self):
-        config = SignalSourceTableConfig(emitter=_noop_emitter, partition_field="time")
+        config = SignalSourceTableConfig(emitter=_noop_emitter, partition_field="time", fields=("id",))
         register_signal_source_table(ExternalDataSourceType.ZENDESK, "ticket_metric_events", config)
 
         assert is_signal_emission_registered("Zendesk", "ticket_metric_events") is True
