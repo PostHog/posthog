@@ -2,7 +2,6 @@ use std::fmt::Display;
 use std::io::{Cursor, Read};
 
 use axum::async_trait;
-use symbolic::common::Name;
 use symbolic::debuginfo::Archive;
 use symbolic::demangle::{Demangle, DemangleOptions};
 use symbolic::symcache::{SymCache, SymCacheConverter};
