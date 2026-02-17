@@ -28,6 +28,11 @@ from posthog.rate_limit import (
     LLMAnalyticsSentimentSustainedThrottle,
 )
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.llm_analytics.sentiment.constants import (
+    MAX_RETRY_ATTEMPTS,
+    WORKFLOW_TIMEOUT_BATCH_SECONDS,
+    WORKFLOW_TIMEOUT_SINGLE_SECONDS,
+)
 from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentInput
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
@@ -82,7 +87,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         trace_ids: list[str],
         date_from: str | None = None,
         date_to: str | None = None,
-        task_timeout: timedelta = timedelta(seconds=30),
+        task_timeout: timedelta = timedelta(seconds=WORKFLOW_TIMEOUT_SINGLE_SECONDS),
     ) -> dict[str, dict]:
         workflow_input = ClassifySentimentInput(
             team_id=self.team_id,
@@ -101,7 +106,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 id=workflow_id,
                 task_queue=settings.LLMA_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                retry_policy=RetryPolicy(maximum_attempts=2),
+                retry_policy=RetryPolicy(maximum_attempts=MAX_RETRY_ATTEMPTS),
                 task_timeout=task_timeout,
             )
         )
@@ -187,7 +192,11 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             try:
                 client = sync_connect()
                 batch_results = self._execute_workflow(
-                    client, misses, date_from=date_from, date_to=date_to, task_timeout=timedelta(seconds=60)
+                    client,
+                    misses,
+                    date_from=date_from,
+                    date_to=date_to,
+                    task_timeout=timedelta(seconds=WORKFLOW_TIMEOUT_BATCH_SECONDS),
                 )
 
                 to_cache: dict[str, dict] = {}

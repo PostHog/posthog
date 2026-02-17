@@ -14,7 +14,13 @@ from typing import Any
 
 import structlog
 
-from posthog.temporal.llm_analytics.sentiment.constants import CLASSIFY_BATCH_SIZE, LABELS, MODEL_NAME, ONNX_CACHE_DIR
+from posthog.temporal.llm_analytics.sentiment.constants import (
+    CLASSIFY_BATCH_SIZE,
+    LABELS,
+    MODEL_MAX_TOKENS,
+    MODEL_NAME,
+    ONNX_CACHE_DIR,
+)
 from posthog.temporal.llm_analytics.sentiment.schema import SentimentResult
 
 logger = structlog.get_logger(__name__)
@@ -64,7 +70,7 @@ def _load_pipeline():
             tokenizer=tokenizer,
             top_k=None,
             truncation=True,
-            max_length=512,
+            max_length=MODEL_MAX_TOKENS,
         )
 
         logger.info("Sentiment model loaded", model=MODEL_NAME)
