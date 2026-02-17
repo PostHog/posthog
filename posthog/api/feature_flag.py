@@ -2090,7 +2090,7 @@ class FeatureFlagViewSet(
 
             if flags_to_delete_normal:
                 normal_ids = [f.id for f in flags_to_delete_normal]
-                FeatureFlag.objects.filter(id__in=normal_ids).update(
+                FeatureFlag.objects.filter(id__in=normal_ids, team_id=team_id).update(
                     deleted=True,
                     last_modified_by=current_user,
                     updated_at=now_timestamp,
@@ -2100,7 +2100,7 @@ class FeatureFlagViewSet(
             # since each has a unique new key
             if flags_to_delete_with_rename:
                 for flag in flags_to_delete_with_rename:
-                    FeatureFlag.objects.filter(id=flag.id).update(
+                    FeatureFlag.objects.filter(id=flag.id, team_id=team_id).update(
                         deleted=True,
                         last_modified_by=current_user,
                         updated_at=now_timestamp,
