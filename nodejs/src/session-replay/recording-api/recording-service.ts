@@ -249,25 +249,6 @@ export class RecordingService {
             }
         }
 
-        // Must run after the above: CASCADE deletes SessionRecordingViewed,
-        // SessionRecordingExternalReference, SessionRecordingPlaylistItem
-        try {
-            await this.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `DELETE FROM posthog_sessionrecording WHERE team_id = $1 AND session_id = $2`,
-                [teamId, sessionId],
-                'deleteSessionRecording'
-            )
-        } catch (error) {
-            failures.push('posthog_sessionrecording')
-            logger.error('[RecordingService] Postgres deletion failed', {
-                sessionId,
-                teamId,
-                table: 'posthog_sessionrecording',
-                error,
-            })
-        }
-
         if (failures.length > 0) {
             throw new Error(`Failed to delete from: ${failures.join(', ')}`)
         }

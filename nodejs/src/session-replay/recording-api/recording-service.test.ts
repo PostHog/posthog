@@ -262,18 +262,12 @@ describe('RecordingService', () => {
                     isDeleted: true,
                 }),
             ])
-            expect(mockPostgres.query).toHaveBeenCalledTimes(4)
+            expect(mockPostgres.query).toHaveBeenCalledTimes(3)
             expect(mockPostgres.query).toHaveBeenCalledWith(
                 expect.anything(),
                 expect.stringContaining('ee_single_session_summary'),
                 [1, 'session-123'],
                 'deleteSessionSummary'
-            )
-            expect(mockPostgres.query).toHaveBeenCalledWith(
-                expect.anything(),
-                expect.stringContaining('posthog_sessionrecording'),
-                [1, 'session-123'],
-                'deleteSessionRecording'
             )
         })
 
@@ -333,33 +327,6 @@ describe('RecordingService', () => {
                 }),
             })
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalled()
-        })
-
-        it('still runs cascade delete but returns cleanup_failed when a preceding query fails', async () => {
-            mockKeyStore.deleteKey.mockResolvedValue({ deleted: true, deletedAt: 1700000000 })
-            const queryResult = { rows: [], command: '', rowCount: 0, oid: 0, fields: [] }
-            mockPostgres.query
-                .mockRejectedValueOnce(new Error('ee_single_session_summary delete failed'))
-                .mockResolvedValueOnce(queryResult as any) // posthog_exportedrecording
-                .mockResolvedValueOnce(queryResult as any) // posthog_comment
-                .mockResolvedValueOnce(queryResult as any) // posthog_sessionrecording (cascade)
-
-            const result = await service.deleteRecording('session-123', 1)
-
-            expect(result).toEqual({
-                ok: false,
-                error: 'cleanup_failed',
-                metadataError: undefined,
-                postgresError: expect.objectContaining({ message: 'Failed to delete from: ee_single_session_summary' }),
-            })
-            // Cascade delete still runs despite the partial failure
-            expect(mockPostgres.query).toHaveBeenCalledTimes(4)
-            expect(mockPostgres.query).toHaveBeenLastCalledWith(
-                expect.anything(),
-                expect.stringContaining('posthog_sessionrecording'),
-                [1, 'session-123'],
-                'deleteSessionRecording'
-            )
         })
 
         it('propagates unexpected errors', async () => {
