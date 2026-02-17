@@ -1386,7 +1386,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(ch_pdi[0][2], 0)  # is_deleted
         assert ch_pdi[0][1] > 107  # version beats deletion
 
-        # Verify: CH person is also reset (the core bug fix)
+        # Verify: CH person is also reset
         ch_person = sync_execute(
             """
             SELECT argMax(is_deleted, version), max(version)
