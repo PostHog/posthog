@@ -109,6 +109,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
     const interProjectTransfersEnabled = useFeatureFlag('INTER_PROJECT_TRANSFERS')
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const { tags } = useValues(tagsModel)
 
@@ -117,7 +118,6 @@ export function DashboardHeader(): JSX.Element | null {
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
 
     const [terraformModalOpen, setTerraformModalOpen] = useState(false)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
