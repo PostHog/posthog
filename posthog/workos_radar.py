@@ -68,7 +68,7 @@ def _get_raw_user_agent(request: HttpRequest) -> str:
 
 
 def is_radar_bypass_email(email: str) -> bool:
-    return get_client().sismember(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower())
+    return bool(get_client().sismember(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower()))
 
 
 def add_radar_bypass_email(email: str) -> None:
