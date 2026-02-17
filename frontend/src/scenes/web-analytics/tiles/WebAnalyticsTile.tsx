@@ -14,10 +14,11 @@ import { StarHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { UnexpectedNeverError, humanFriendlyDuration, percentage, tryDecodeURIComponent } from 'lib/utils'
+import { UnexpectedNeverError, humanFriendlyDuration, isNotNil, percentage, tryDecodeURIComponent } from 'lib/utils'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
     LANGUAGE_CODE_TO_NAME,
@@ -31,7 +32,9 @@ import {
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_REFERRER_PREFIX,
     GeographyTab,
+    PROPERTY_KEY_LABELS,
     ProductTab,
+    TILE_PROPERTY_KEYS,
     TileId,
     faviconUrl,
     webStatsBreakdownToPropertyName,
@@ -55,7 +58,7 @@ import {
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, InsightLogicProps, PropertyFilterType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 
@@ -68,6 +71,72 @@ import { MarketingAnalyticsTable } from '../tabs/marketing-analytics/frontend/co
 import { marketingAnalyticsLogic } from '../tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { validColumnsForTiles } from '../tabs/marketing-analytics/frontend/logic/utils'
 import { DISPLAY_MODE_OPTIONS } from '../tabs/marketing-analytics/frontend/shared'
+
+interface ActiveChipFilter {
+    filterKey: string
+    filterType: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session
+    value: string | number
+}
+
+const useActiveChipFilters = (tileId?: TileId): ActiveChipFilter[] => {
+    const { rawWebAnalyticsFilters } = useValues(webAnalyticsFilterLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const tilePropertyKeys = tileId ? TILE_PROPERTY_KEYS[tileId] : undefined
+
+    return useMemo(() => {
+        if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DRILL_DOWN] || !tilePropertyKeys) {
+            return []
+        }
+        return rawWebAnalyticsFilters
+            .filter((f) => f.operator === PropertyOperator.Exact && f.value != null && tilePropertyKeys.has(f.key))
+            .flatMap((f) => {
+                const values = Array.isArray(f.value) ? f.value : [f.value]
+                return values.filter(isNotNil).map((v) => ({
+                    filterKey: f.key,
+                    filterType: f.type as ActiveChipFilter['filterType'],
+                    value: v as string | number,
+                }))
+            })
+    }, [rawWebAnalyticsFilters, featureFlags, tilePropertyKeys])
+}
+
+const ActiveFilterChips = ({
+    chips,
+    togglePropertyFilter,
+}: {
+    chips: ActiveChipFilter[]
+    togglePropertyFilter: (
+        type: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session,
+        key: string,
+        value: string | number | null
+    ) => void
+}): JSX.Element | null => {
+    if (chips.length === 0) {
+        return null
+    }
+    return (
+        <div className="flex flex-row flex-wrap gap-1 mx-2 mb-1">
+            {chips.map((chip) => {
+                const label = PROPERTY_KEY_LABELS[chip.filterKey]
+                const displayValue = String(chip.value)
+                const chipText = label ? `${label}: ${displayValue}` : displayValue
+                return (
+                    <LemonTag
+                        key={`${chip.filterKey}-${chip.value}`}
+                        closable
+                        onClose={() => togglePropertyFilter(chip.filterType, chip.filterKey, chip.value)}
+                        type="highlight"
+                        size="small"
+                        title={chipText}
+                        data-attr="web-analytics-filter-chip"
+                    >
+                        <span className="max-w-48 truncate">{chipText}</span>
+                    </LemonTag>
+                )
+            })}
+        </div>
+    )
+}
 
 export const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
@@ -600,7 +669,8 @@ export const WebStatsTrendTile = ({
     showIntervalTile,
     insightProps,
     attachTo,
-}: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
+    tileId,
+}: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean; tileId?: TileId }): JSX.Element => {
     const { togglePropertyFilter, setInterval } = useActions(webAnalyticsLogic)
     const {
         hasCountryFilter,
@@ -608,6 +678,8 @@ export const WebStatsTrendTile = ({
     } = useValues(webAnalyticsLogic)
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
     const regionPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Region)?.key
+
+    const activeChipFilters = useActiveChipFilters(tileId)
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
@@ -695,6 +767,7 @@ export const WebStatsTrendTile = ({
                     </div>
                 </div>
             )}
+            <ActiveFilterChips chips={activeChipFilters} togglePropertyFilter={togglePropertyFilter} />
             <Query attachTo={attachTo} query={query} readOnly={true} context={context} />
         </div>
     )
@@ -788,6 +861,7 @@ export const WebStatsTableTile = ({
     insightProps,
     control,
     attachTo,
+    tileId,
 }: QueryWithInsightProps<DataTableNode> & {
     breakdownBy: WebStatsBreakdown
     control?: JSX.Element
@@ -797,6 +871,8 @@ export const WebStatsTableTile = ({
     const { productTab } = useValues(webAnalyticsLogic)
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
+
+    const activeChipFilters = useActiveChipFilters(tileId)
 
     const isCompoundBreakdown =
         breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign ||
@@ -891,6 +967,7 @@ export const WebStatsTableTile = ({
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             {control != null && <div className="flex flex-row items-center justify-end m-2 mr-4">{control}</div>}
+            <ActiveFilterChips chips={activeChipFilters} togglePropertyFilter={togglePropertyFilter} />
             <Query
                 uniqueKey="WebAnalytics.WebStatsTableTile"
                 attachTo={attachTo}
@@ -1165,6 +1242,7 @@ export const WebQuery = ({
                 query={query}
                 showIntervalTile={showIntervalSelect}
                 insightProps={insightProps}
+                tileId={tileId}
             />
         )
     }

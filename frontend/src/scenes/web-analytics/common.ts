@@ -410,6 +410,53 @@ export const webStatsBreakdownToPropertyName = (
     }
 }
 
+/** Property keys relevant to each tile, used to show filter chips across all tabs within a tile. */
+export const TILE_PROPERTY_KEYS: Partial<Record<TileId, Set<string>>> = {
+    [TileId.SOURCES]: new Set([
+        '$channel_type',
+        '$entry_referring_domain',
+        '$entry_utm_source',
+        '$entry_utm_campaign',
+        '$entry_utm_medium',
+        '$entry_utm_content',
+        '$entry_utm_term',
+    ]),
+    [TileId.DEVICES]: new Set(['$device_type', '$browser', '$os', '$viewport_width', '$viewport_height']),
+    [TileId.GEOGRAPHY]: new Set([
+        '$geoip_country_code',
+        '$geoip_subdivision_1_code',
+        '$geoip_city_name',
+        '$browser_language',
+        '$timezone_offset',
+    ]),
+    [TileId.PATHS]: new Set(['$pathname', '$entry_pathname', '$end_pathname', '$last_external_click_url']),
+}
+
+/** Human-readable labels for property keys, shown as prefixes on filter chips. */
+export const PROPERTY_KEY_LABELS: Record<string, string> = {
+    $channel_type: 'Channel',
+    $entry_referring_domain: 'Referrer',
+    $entry_utm_source: 'UTM source',
+    $entry_utm_medium: 'UTM medium',
+    $entry_utm_campaign: 'UTM campaign',
+    $entry_utm_content: 'UTM content',
+    $entry_utm_term: 'UTM term',
+    $device_type: 'Device',
+    $browser: 'Browser',
+    $os: 'OS',
+    $viewport_width: 'Width',
+    $viewport_height: 'Height',
+    $geoip_country_code: 'Country',
+    $geoip_subdivision_1_code: 'Region',
+    $geoip_city_name: 'City',
+    $browser_language: 'Language',
+    $timezone_offset: 'Timezone',
+    $pathname: 'Path',
+    $entry_pathname: 'Entry path',
+    $end_pathname: 'Exit path',
+    $last_external_click_url: 'Exit click',
+}
+
 export const getWebAnalyticsBreakdownFilter = (breakdown: WebStatsBreakdown): BreakdownFilter | undefined => {
     const property = webStatsBreakdownToPropertyName(breakdown)
 
