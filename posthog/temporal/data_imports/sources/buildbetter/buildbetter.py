@@ -7,11 +7,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.buildbetter.queries import QUERIES, VIEWER_QUERY
-from posthog.temporal.data_imports.sources.buildbetter.settings import (
-    BUILDBETTER_API_URL,
-    BUILDBETTER_DEFAULT_PAGE_SIZE,
-    BUILDBETTER_ENDPOINTS,
-)
+from posthog.temporal.data_imports.sources.buildbetter.settings import BUILDBETTER_API_URL, BUILDBETTER_ENDPOINTS
 
 
 class BuildBetterRetryableError(Exception):
@@ -82,8 +78,9 @@ def _make_paginated_request(
 
         return payload
 
+    page_size = endpoint_config.page_size
     variables: dict[str, Any] = {
-        "limit": BUILDBETTER_DEFAULT_PAGE_SIZE,
+        "limit": page_size,
         "offset": 0,
     }
 
@@ -101,7 +98,7 @@ def _make_paginated_request(
 
             yield data
 
-            if len(data) < BUILDBETTER_DEFAULT_PAGE_SIZE:
+            if len(data) < page_size:
                 break
 
             variables["offset"] = variables["offset"] + len(data)

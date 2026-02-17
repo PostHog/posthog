@@ -9,7 +9,7 @@ CREATED_AT = "created_at"
 ID = "id"
 
 BUILDBETTER_API_URL = "https://api.buildbetter.app/v1/graphql"
-BUILDBETTER_DEFAULT_PAGE_SIZE = 100
+BUILDBETTER_DEFAULT_PAGE_SIZE = 1000
 
 INCREMENTAL_UPDATED_AT: list[IncrementalField] = [
     {
@@ -35,6 +35,7 @@ class BuildBetterEndpointConfig:
     incremental_fields: list[IncrementalField]
     incremental_filter_field: str | None = None
     graphql_query_name: str | None = None
+    page_size: int = BUILDBETTER_DEFAULT_PAGE_SIZE
     primary_key: str = ID
     partition_count: int = 1
     partition_size: int = 1
@@ -48,6 +49,7 @@ BUILDBETTER_ENDPOINTS: dict[str, BuildBetterEndpointConfig] = {
         graphql_query_name="interview",
         incremental_fields=INCREMENTAL_UPDATED_AT,
         incremental_filter_field=UPDATED_AT,
+        page_size=100,
         partition_keys=[CREATED_AT],
     ),
     "extractions": BuildBetterEndpointConfig(
