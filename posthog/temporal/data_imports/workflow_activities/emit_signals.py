@@ -155,6 +155,7 @@ def _query_new_records(
     if config.where_clause:
         where_parts.append(config.where_clause)
     where_sql = " AND ".join(where_parts)
+    # Limiting can cause a data loss, as the missed records won't be picked in the next sync, but it's acceptable for the current use case
     query = f"""
         SELECT *
         FROM {table_name}
