@@ -2,10 +2,15 @@ import * as prometheus from 'prom-client'
 import express, { Request, Response } from 'ultimate-express'
 
 import { corsMiddleware } from '~/api/middleware/cors'
+import { createInternalApiAuthMiddleware } from '~/api/middleware/internal-api-auth'
 import { HealthCheckResultError, PluginServerService } from '~/types'
 import { logger } from '~/utils/logger'
 
 prometheus.collectDefaultMetrics()
+
+export interface SetupExpressAppOptions {
+    internalApiSecret?: string
+}
 
 export function setupCommonRoutes(
     app: express.Application,
@@ -19,11 +24,15 @@ export function setupCommonRoutes(
     return app
 }
 
-export function setupExpressApp(): express.Application {
+export function setupExpressApp(options: SetupExpressAppOptions = {}): express.Application {
     const app = express()
 
     // Add CORS middleware before other middleware
     app.use(corsMiddleware)
+
+    // Add internal API authentication middleware for defense-in-depth.
+    // Primary protection comes from Contour routing at the infra level.
+    app.use(createInternalApiAuthMiddleware({ secret: options.internalApiSecret || '' }))
 
     app.use(
         express.json({

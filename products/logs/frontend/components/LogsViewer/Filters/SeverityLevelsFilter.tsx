@@ -11,8 +11,8 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 
 const options: Record<LogMessage['severity_text'], string> = {
     trace: 'Trace',
-    info: 'Info',
     debug: 'Debug',
+    info: 'Info',
     warn: 'Warn',
     error: 'Error',
     fatal: 'Fatal',

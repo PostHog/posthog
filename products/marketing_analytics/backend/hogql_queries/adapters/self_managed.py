@@ -125,16 +125,27 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
         return ast.Call(name="toFloat", args=[coalesce])
 
     def _get_reported_conversion_value_field(self) -> ast.Expr:
-        # Self-managed sources may not have conversion value mapped
-        # Return 0 as default - users can map this field in future
         reported_conversion_value_field = getattr(self.config.source_map, "reported_conversion_value", None)
+        currency_field = self.config.source_map.currency
+        base_currency = self.context.base_currency
+
         inner_expr: ast.Expr
         if reported_conversion_value_field is None:
             inner_expr = ast.Constant(value=0)
         else:
             inner_expr = ast.Field(chain=[reported_conversion_value_field])
+
         coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
-        return ast.Call(name="toFloat", args=[coalesce])
+        value_float = ast.Call(name="toFloat", args=[coalesce])
+
+        if currency_field and reported_conversion_value_field:
+            convert_currency = ast.Call(
+                name="convertCurrency",
+                args=[ast.Constant(value=currency_field), ast.Constant(value=base_currency), value_float],
+            )
+            return ast.Call(name="toFloat", args=[convert_currency])
+
+        return value_float
 
     def _get_clicks_field(self) -> ast.Expr:
         clicks_field = self.config.source_map.clicks

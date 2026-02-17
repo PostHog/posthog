@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
@@ -22,6 +23,7 @@ import { formatLLMCost, getTraceTimestamp } from './utils'
 export function LLMAnalyticsSessionsScene(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { dateFilter } = useValues(llmAnalyticsSharedLogic)
+    const { searchParams } = useValues(router)
 
     const { setSessionsSort, toggleSessionExpanded, toggleTraceExpanded, toggleGenerationExpanded } =
         useActions(llmAnalyticsSessionsViewLogic)
@@ -229,9 +231,12 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                                                                 </LemonTag>
                                                             )}
                                                             <Link
-                                                                to={urls.llmAnalyticsTrace(trace.id, {
-                                                                    timestamp: getTraceTimestamp(trace.createdAt),
-                                                                })}
+                                                                to={
+                                                                    combineUrl(urls.llmAnalyticsTrace(trace.id), {
+                                                                        ...searchParams,
+                                                                        timestamp: getTraceTimestamp(trace.createdAt),
+                                                                    }).url
+                                                                }
                                                                 onClick={(e) => e.stopPropagation()}
                                                                 className="text-xs"
                                                             >

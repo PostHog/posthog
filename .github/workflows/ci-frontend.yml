@@ -104,7 +104,7 @@ jobs:
               run: pnpm run lint:css
 
             - name: Lint with Oxlint
-              run: pnpm --filter=@posthog/frontend lint:js -f github
+              run: pnpm run lint:js -f github
 
             - name: Check markdown formatting with prettier
               run: pnpm exec prettier --check "**/*.{md,mdx}"
@@ -310,8 +310,8 @@ jobs:
         name: Calculate running time
         needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, changes]
         runs-on: ubuntu-latest
-        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
-            always() &&
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
+            always() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))

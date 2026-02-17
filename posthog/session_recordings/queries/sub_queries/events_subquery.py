@@ -101,6 +101,22 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         group_by: list[ast.Expr],
         limit_expr: ast.Expr,
     ) -> ast.SelectQuery:
+        # NOTE: ORDER BY can cause incorrect results in globalIn contexts on distributed ClickHouse tables.
+        # The ORDER BY was meant to prefer recent sessions when hitting LIMIT, but we saw a
+        # with a bad experience filtering out 60% of results incorrectly
+        # We use a feature flag to control this behavior for safe rollout.
+
+        remove_order_by = posthoganalytics.feature_enabled(
+            "remove-order-by-for-event-subquery",
+            str(self._team.organization.id),
+            send_feature_flag_events=False,
+        )
+
+        order_by = None
+        if not remove_order_by:
+            # Legacy behavior: include ORDER BY (may cause incorrect results)
+            order_by = [ast.OrderExpr(expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]), order="DESC")]
+
         return ast.SelectQuery(
             select=select_expr if isinstance(select_expr, list) else [select_expr],
             select_from=ast.JoinExpr(
@@ -109,7 +125,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             where=self._where_predicates(where_expr),
             having=self._having_predicates(),
             group_by=group_by,
-            order_by=[ast.OrderExpr(expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]), order="DESC")],
+            order_by=order_by,
             limit=limit_expr,
         )
 

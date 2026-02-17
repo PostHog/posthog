@@ -97,7 +97,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'isLifecycle',
                 'isStickiness',
                 'isNonTimeSeriesDisplay',
-                'isSingleSeries',
+                'isSingleSeriesOutput',
+                'isSingleSeriesDefinition',
                 'hasLegend',
                 'showLegend',
                 'vizSpecificOptions',
@@ -339,7 +340,11 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 const isLineGraph =
                     isTrends &&
                     !hasDataWarehouseSeries &&
-                    [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
+                    [
+                        ChartDisplayType.ActionsLineGraph,
+                        ChartDisplayType.ActionsLineGraphCumulative,
+                        ChartDisplayType.ActionsAreaGraph,
+                    ].includes(display)
 
                 return (trendsFilter?.showMovingAverage && isLineGraph && isLinearScale) || false
             },
