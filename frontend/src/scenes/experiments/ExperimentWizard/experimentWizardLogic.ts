@@ -13,6 +13,9 @@ import type { experimentWizardLogicType } from './experimentWizardLogicType'
 
 export type ExperimentWizardStep = 'about' | 'variants' | 'analytics'
 
+const SHOW_GUIDE_STORAGE_KEY = 'experiment-wizard-show-guide'
+const SHOW_GUIDE_DEFAULT = true
+
 const WIZARD_STEPS: ExperimentWizardStep[] = ['about', 'variants', 'analytics']
 
 const STEP_ORDER: Record<ExperimentWizardStep, number> = {
@@ -77,7 +80,14 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
 
     reducers(() => ({
         showGuide: [
-            true,
+            (() => {
+                try {
+                    const stored = localStorage.getItem(SHOW_GUIDE_STORAGE_KEY)
+                    return stored === null ? SHOW_GUIDE_DEFAULT : stored === 'true'
+                } catch {
+                    return SHOW_GUIDE_DEFAULT
+                }
+            })(),
             {
                 toggleGuide: (state) => !state,
             },
@@ -174,6 +184,13 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        toggleGuide: () => {
+            try {
+                localStorage.setItem(SHOW_GUIDE_STORAGE_KEY, JSON.stringify(values.showGuide))
+            } catch {
+                // Ignore localStorage errors
+            }
+        },
         openFullEditor: () => {
             router.actions.push(urls.experiment('new'))
         },

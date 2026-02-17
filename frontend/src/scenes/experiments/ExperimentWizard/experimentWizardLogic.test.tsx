@@ -82,6 +82,55 @@ const apiMocks = {
     },
 }
 
+describe('guide panel localStorage persistence', () => {
+    let logic: ReturnType<typeof experimentWizardLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        useMocks(apiMocks)
+        initKeaTests()
+
+        featureFlagsLogic.mount()
+        experimentsLogic.mount()
+        createExperimentLogic({ tabId: TAB_ID }).mount()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+    })
+
+    it.each([
+        { stored: null, expected: true, label: 'defaults to true when nothing stored' },
+        { stored: 'true', expected: true, label: 'reads true from localStorage' },
+        { stored: 'false', expected: false, label: 'reads false from localStorage' },
+        { stored: 'other', expected: false, label: 'treats non-true strings as false' },
+    ])('$label', async ({ stored, expected }) => {
+        if (stored !== null) {
+            localStorage.setItem('experiment-wizard-show-guide', stored)
+        }
+
+        logic = experimentWizardLogic({ tabId: TAB_ID })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({ showGuide: expected })
+    })
+
+    it('persists to localStorage when toggled', async () => {
+        logic = experimentWizardLogic({ tabId: TAB_ID })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({ showGuide: true })
+
+        logic.actions.toggleGuide()
+        await expectLogic(logic).toMatchValues({ showGuide: false })
+        expect(localStorage.getItem('experiment-wizard-show-guide')).toEqual('false')
+
+        logic.actions.toggleGuide()
+        await expectLogic(logic).toMatchValues({ showGuide: true })
+        expect(localStorage.getItem('experiment-wizard-show-guide')).toEqual('true')
+    })
+})
+
 describe('linked feature flag sync between wizard and classic form', () => {
     describe('switching classic -> wizard', () => {
         let logic: ReturnType<typeof experimentWizardLogic.build>
