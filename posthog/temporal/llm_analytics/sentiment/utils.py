@@ -3,7 +3,7 @@
 from datetime import UTC, timedelta
 from typing import Any
 
-from posthog.temporal.llm_analytics.sentiment.schema import PendingClassification, empty_trace_result
+from posthog.temporal.llm_analytics.sentiment.schema import PendingClassification, TraceResult
 
 
 def average_scores(message_results: list[dict[str, Any]]) -> dict[str, float]:
@@ -27,17 +27,17 @@ def build_trace_result(
     pending: list[PendingClassification],
     classification_results: list,
     pending_offset: int,
-) -> tuple[dict[str, Any], int]:
+) -> tuple[TraceResult, int]:
     """Build a single trace's sentiment result from classified pending items.
 
-    Returns (result_dict, count_consumed) where count_consumed is how many
+    Returns (TraceResult, count_consumed) where count_consumed is how many
     items from classification_results were used.
     """
     trace_pending = [p for p in pending if p.trace_id == trace_id]
     trace_results = classification_results[pending_offset : pending_offset + len(trace_pending)]
 
     if not trace_pending:
-        return empty_trace_result(trace_id), 0
+        return TraceResult.neutral(trace_id), 0
 
     gen_messages: dict[str, dict[int, dict[str, Any]]] = {}
     all_scores: list[dict[str, float]] = []
@@ -65,15 +65,15 @@ def build_trace_result(
     trace_scores = average_score_dicts(all_scores)
     trace_label = max(trace_scores, key=trace_scores.get)  # type: ignore
 
-    return {
-        "trace_id": trace_id,
-        "label": trace_label,
-        "score": round(trace_scores[trace_label], 4),
-        "scores": trace_scores,
-        "generations": generations,
-        "generation_count": len(generations),
-        "message_count": len(trace_pending),
-    }, len(trace_pending)
+    return TraceResult(
+        trace_id=trace_id,
+        label=trace_label,
+        score=round(trace_scores[trace_label], 4),
+        scores=trace_scores,
+        generations=generations,
+        generation_count=len(generations),
+        message_count=len(trace_pending),
+    ), len(trace_pending)
 
 
 def collect_pending(

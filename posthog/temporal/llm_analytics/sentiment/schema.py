@@ -1,6 +1,6 @@
-"""Dataclasses and constants for sentiment classification workflows."""
+"""Dataclasses for sentiment classification workflows."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -18,6 +18,38 @@ class SentimentResult:
     score: float
     scores: dict[str, float]
 
+    @classmethod
+    def neutral(cls) -> "SentimentResult":
+        return cls(label="neutral", score=0.0, scores={"positive": 0.0, "neutral": 0.0, "negative": 0.0})
+
+
+@dataclass
+class TraceResult:
+    trace_id: str
+    label: str
+    score: float
+    scores: dict[str, float]
+    generations: dict[str, Any] = field(default_factory=dict)
+    generation_count: int = 0
+    message_count: int = 0
+
+    @classmethod
+    def neutral(cls, trace_id: str) -> "TraceResult":
+        return cls(
+            trace_id=trace_id, label="neutral", score=0.0, scores={"positive": 0.0, "neutral": 0.0, "negative": 0.0}
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "trace_id": self.trace_id,
+            "label": self.label,
+            "score": self.score,
+            "scores": self.scores,
+            "generations": self.generations,
+            "generation_count": self.generation_count,
+            "message_count": self.message_count,
+        }
+
 
 @dataclass
 class PendingClassification:
@@ -25,20 +57,3 @@ class PendingClassification:
     gen_uuid: str
     msg_index: int
     text: str
-
-
-_EMPTY_RESULT: dict[str, Any] = {
-    "label": "neutral",
-    "score": 0.0,
-    "scores": {"positive": 0.0, "neutral": 0.0, "negative": 0.0},
-}
-
-
-def empty_trace_result(trace_id: str) -> dict[str, Any]:
-    return {
-        "trace_id": trace_id,
-        **_EMPTY_RESULT,
-        "generations": {},
-        "generation_count": 0,
-        "message_count": 0,
-    }

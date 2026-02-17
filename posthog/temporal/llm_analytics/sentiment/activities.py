@@ -52,7 +52,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     offset = 0
     for trace_id in input.trace_ids:
         trace_result, consumed = build_trace_result(trace_id, pending, all_results, offset)
-        output[trace_id] = trace_result
+        output[trace_id] = trace_result.to_dict()
         offset += consumed
 
     return output
