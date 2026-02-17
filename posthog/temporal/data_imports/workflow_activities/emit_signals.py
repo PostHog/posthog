@@ -29,6 +29,8 @@ from products.signals.backend.api import emit_signal
 EMIT_SIGNALS_FEATURE_FLAG = "emit-data-import-signals"
 # Concurrent LLM calls limit for actionability checks
 LLM_CONCURRENCY_LIMIT = 10
+# Concurrent workflow spawns for signal emission
+EMIT_CONCURRENCY_LIMIT = 50
 
 
 @dataclasses.dataclass(frozen=True)
@@ -251,23 +253,34 @@ async def _emit_signals(
     outputs: list[SignalEmitterOutput],
     extra: dict[str, Any],
 ) -> int:
-    count = 0
-    for output in outputs:
-        try:
-            await emit_signal(
-                team=team,
-                source_product="data_imports",
-                source_type=output.source_type,
-                source_id=output.source_id,
-                description=output.description,
-                weight=output.weight,
-                extra=output.extra,
-            )
-            count += 1
-        except Exception as e:
-            activity.logger.exception(f"Error emitting signal for record: {e}", extra=extra)
-            continue
-    return count
+    semaphore = asyncio.Semaphore(EMIT_CONCURRENCY_LIMIT)
+    succeeded = 0
+
+    async def _bounded_emit(output: SignalEmitterOutput) -> bool:
+        async with semaphore:
+            try:
+                await emit_signal(
+                    team=team,
+                    source_product="data_imports",
+                    source_type=output.source_type,
+                    source_id=output.source_id,
+                    description=output.description,
+                    weight=output.weight,
+                    extra=output.extra,
+                )
+                return True
+            except Exception as e:
+                activity.logger.exception(f"Error emitting signal for record: {e}", extra=extra)
+                return False
+
+    results: dict[int, asyncio.Task[bool]] = {}
+    async with asyncio.TaskGroup() as tg:
+        for i, output in enumerate(outputs):
+            results[i] = tg.create_task(_bounded_emit(output))
+    for task in results.values():
+        if task.result():
+            succeeded += 1
+    return succeeded
 
 
 @workflow.defn(name="emit-data-import-signals")

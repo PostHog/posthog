@@ -55,6 +55,7 @@ ZENDESK_TICKETS_CONFIG = SignalSourceTableConfig(
     emitter=zendesk_ticket_emitter,
     partition_field="created_at",
     where_clause=f"status NOT IN {ZENDESK_IGNORED_STATUSES!r}",
+    max_records=100,
     first_sync_lookback_days=7,
     actionability_prompt=ZENDESK_ACTIONABILITY_PROMPT,
 )
