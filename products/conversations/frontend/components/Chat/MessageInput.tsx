@@ -58,7 +58,7 @@ export function MessageInput({
             />
             <div className="flex justify-between items-center mt-2">
                 {showPrivateOption ? (
-                    <Tooltip title="Private messages are only visible to your team, not to the customer">
+                    <Tooltip title="Private notes are only visible to your team, not to the customer.">
                         <span>
                             <LemonCheckbox
                                 checked={isPrivate}
