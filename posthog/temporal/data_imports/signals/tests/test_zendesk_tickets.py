@@ -88,6 +88,7 @@ class TestZendeskTicketsConfig:
         assert ZENDESK_TICKETS_CONFIG.partition_field == "created_at"
 
     def test_where_clause_excludes_closed_and_solved(self):
+        assert ZENDESK_TICKETS_CONFIG.where_clause is not None
         assert "closed" in ZENDESK_TICKETS_CONFIG.where_clause
         assert "solved" in ZENDESK_TICKETS_CONFIG.where_clause
         assert "NOT IN" in ZENDESK_TICKETS_CONFIG.where_clause
