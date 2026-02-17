@@ -1063,7 +1063,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 loadRelatedInsights: async () => {
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
                         const response = await api.get<PaginatedResponse<InsightModel>>(
-                            `api/environments/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
+                            `api/environments/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
                         )
                         return response.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                     }
