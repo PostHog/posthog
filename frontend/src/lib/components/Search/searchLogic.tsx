@@ -16,6 +16,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemViewLogEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
+import { SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
@@ -574,11 +575,21 @@ export const searchLogic = kea<searchLogicType>([
                     return isNegated ? !flagValue : !!flagValue
                 }
 
+                // Skip project-level sections as they are duplicates of environment sections
+                const seenSectionIds = new Set<string>()
+
                 for (const section of SETTINGS_MAP) {
-                    if (section.level === 'environment') {
-                        // temporary until we finish removing environments entirely
+                    // Map environment sections to project level
+                    const effectiveLevel = section.level === 'environment' ? 'project' : section.level
+                    const effectiveSectionId = (
+                        section.level === 'environment' ? section.id.replace('environment-', 'project-') : section.id
+                    ) as SettingSectionId
+
+                    // Skip duplicate project sections (environment sections take priority)
+                    if (seenSectionIds.has(effectiveSectionId)) {
                         continue
                     }
+                    seenSectionIds.add(effectiveSectionId)
 
                     // Filter by feature flag if required
                     if (section.flag) {
@@ -595,7 +606,7 @@ export const searchLogic = kea<searchLogicType>([
                     }
 
                     // Create a search item for each settings section
-                    const levelPrefix = toSentenceCase(section.level)
+                    const levelPrefix = toSentenceCase(effectiveLevel)
 
                     const settings = section.settings
                         .filter((setting) => !!setting.title)
@@ -603,6 +614,7 @@ export const searchLogic = kea<searchLogicType>([
                             toSentenceCase(setting.id.replace(/[-]/g, ' ')),
                             ...(typeof setting.title === 'string' ? [setting.title] : []),
                             ...(typeof setting.description === 'string' ? [setting.description] : []),
+                            ...(setting.keywords ?? []),
                         ])
 
                     // Create the display name for each settings section
@@ -613,20 +625,20 @@ export const searchLogic = kea<searchLogicType>([
 
                     const displayNameSuffix =
                         displayName === 'General' || displayName === 'Danger zone'
-                            ? ` (${toSentenceCase(section.level)})`
+                            ? ` (${toSentenceCase(effectiveLevel)})`
                             : ''
 
                     items.push({
-                        id: `settings-${section.id}`,
+                        id: `settings-${effectiveSectionId}`,
                         name: `${levelPrefix}: ${displayName} (${settings})`,
                         displayName: `${displayName}${displayNameSuffix}`,
                         category: 'settings',
-                        href: section.to || urls.settings(section.id),
+                        href: section.to || urls.settings(effectiveSectionId),
                         itemType: 'settings',
                         record: {
                             type: 'settings',
-                            level: section.level,
-                            sectionId: section.id,
+                            level: effectiveLevel,
+                            sectionId: effectiveSectionId,
                         },
                     })
                 }

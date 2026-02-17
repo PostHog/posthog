@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconArrowLeft, IconInfo } from '@posthog/icons'
@@ -51,6 +51,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         providerKeysLoading,
     } = useValues(llmEvaluationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { searchParams } = useValues(router)
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -94,7 +95,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         if (hasUnsavedChanges) {
             resetEvaluation()
         }
-        push(urls.llmAnalyticsEvaluations())
+        push(combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url)
     }
 
     return (

@@ -9,17 +9,10 @@ import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanF
 import { PathCleanFiltersTable } from 'lib/components/PathCleanFilters/PathCleanFiltersTable'
 import { PathCleaningRulesDebugger } from 'lib/components/PathCleanFilters/PathCleaningRulesDebugger'
 import { isValidRegexp } from 'lib/utils/regexp'
-import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    AvailableFeature,
-    InsightType,
-    PathCleaningFilter,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature, PathCleaningFilter } from '~/types'
 
 const cleanPathWithRegexes = (path: string, filters: PathCleaningFilter[]): string => {
     return filters.reduce((text, filter) => {
@@ -73,38 +66,6 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
 
     return (
         <>
-            <p>
-                Make your <Link to={INSIGHT_TYPE_URLS[InsightType.PATHS]}>Paths</Link> clearer by aliasing one or
-                multiple URLs.{' '}
-                <i>
-                    Example: <code>http://tenant-one.mydomain.com/accounts</code> and{' '}
-                    <code>http://tenant-two.mydomain.com/accounts</code> can become a single <code>/accounts</code>{' '}
-                    path.
-                </i>
-            </p>
-            <p>
-                You can check{' '}
-                <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
-                    our path cleaning rules documentation
-                </Link>{' '}
-                to learn more about it.
-            </p>
-            <p>
-                Each rule is composed of an alias and a regex pattern. Any pattern in a URL or event name that matches
-                the regex will be replaced with the alias. Rules are applied in the order that they're listed.
-            </p>
-            <p>
-                These will be applied in order, so make sure to put the most specific rules first and remember that
-                subsequent rules will receive the result of the previous one, not the original path. You can reorder
-                them by dragging and dropping.
-            </p>
-            <p>
-                <b>
-                    Rules that you set here will be applied before wildcarding and other regex replacement if path
-                    cleaning is switched on in Product and Web Analytics.
-                </b>
-            </p>
-
             <AccessControlAction
                 resourceType={AccessControlResourceType.WebAnalytics}
                 minAccessLevel={AccessControlLevel.Editor}

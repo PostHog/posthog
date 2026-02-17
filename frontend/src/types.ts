@@ -3373,6 +3373,9 @@ export interface ProductTourBannerConfig {
         link?: string
         tourId?: string
     }
+    animation?: {
+        duration: number
+    }
 }
 
 export type ProductTourButtonAction = 'dismiss' | 'link' | 'next_step' | 'previous_step' | 'trigger_tour'
@@ -4954,6 +4957,7 @@ export type APIScopeObject =
     | 'export'
     | 'feature_flag'
     | 'group'
+    | 'health_issue'
     | 'hog_function'
     | 'insight'
     | 'insight_variable'
