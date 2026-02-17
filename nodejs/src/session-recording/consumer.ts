@@ -7,6 +7,7 @@ import { buildIntegerMatcher } from '../config/config'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
 import {
     SessionReplayPipelineInput,
+    SessionReplayPipelineOutput,
     createSessionReplayPipeline,
     runSessionReplayPipeline,
 } from '../ingestion/session_replay'
@@ -35,9 +36,13 @@ import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { captureIngestionWarning } from '../worker/ingestion/utils'
-import { KafkaMessageParser } from './kafka/message-parser'
+import {
+    KAFKA_CONSUMER_GROUP_ID,
+    KAFKA_CONSUMER_GROUP_ID_OVERFLOW,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+} from './constants'
 import { KafkaOffsetManager } from './kafka/offset-manager'
-import { ParsedMessageData } from './kafka/types'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { RetentionAwareStorage } from './sessions/retention-aware-batch-writer'
@@ -84,7 +89,6 @@ export class SessionRecordingIngester {
     private isDebugLoggingEnabled: ValueMatcher<number>
     private readonly promiseScheduler: PromiseScheduler
     private readonly sessionBatchManager: SessionBatchManager
-    private readonly kafkaParser: KafkaMessageParser
     private readonly redisPool: RedisPool
     private readonly restrictionRedisPool: RedisPool
     private readonly teamFilter: TeamFilter
@@ -93,7 +97,7 @@ export class SessionRecordingIngester {
     private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
     private readonly sessionReplayPipeline: BatchPipelineUnwrapper<
         SessionReplayPipelineInput,
-        ParsedMessageData,
+        SessionReplayPipelineOutput,
         { message: Message }
     >
     private readonly kafkaMetadataProducer: KafkaProducerWrapper
@@ -156,7 +160,6 @@ export class SessionRecordingIngester {
         }
 
         this.topTracker = new TopTracker()
-        this.kafkaParser = new KafkaMessageParser(this.topTracker)
 
         // Session recording uses its own Redis instance with fallback to default
         this.redisPool = createRedisPoolFromConfig({
@@ -265,12 +268,12 @@ export class SessionRecordingIngester {
         })
 
         this.sessionReplayPipeline = createSessionReplayPipeline({
-            parser: this.kafkaParser,
             kafkaProducer: this.kafkaMessageProducer,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: !this.consumeOverflow,
             overflowTopic: this.overflowTopic,
             promiseScheduler: this.promiseScheduler,
+            topTracker: this.topTracker,
         })
     }
 
@@ -313,12 +316,13 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
         // Run messages through the pipeline (handles restrictions and parsing)
-        const parsedMessages = await instrumentFn(
+        const pipelineOutputs = await instrumentFn(
             `recordingingesterv2.handleEachBatch.runPipeline`,
             async () => await runSessionReplayPipeline(this.sessionReplayPipeline, messages)
         )
 
         const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.filterBatch`, async () => {
+            const parsedMessages = pipelineOutputs.map((output) => output.parsedMessage)
             const messagesWithTeam = await this.teamFilter.filterBatch(parsedMessages)
             const processedMessages = this.libVersionMonitor
                 ? await this.libVersionMonitor.processBatch(messagesWithTeam)

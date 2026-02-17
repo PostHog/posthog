@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { KafkaMessageParser } from '../../session-recording/kafka/message-parser'
 import { ParsedMessageData } from '../../session-recording/kafka/types'
+import { TopTracker } from '../../session-recording/top-tracker'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
@@ -16,16 +16,17 @@ export interface SessionReplayPipelineInput {
     message: Message
 }
 
-export interface SessionReplayPipelineConfig {
-    // Message parsing
-    parser: KafkaMessageParser
+export interface SessionReplayPipelineOutput {
+    parsedMessage: ParsedMessageData
+}
 
-    // Restrictions
+export interface SessionReplayPipelineConfig {
     kafkaProducer: KafkaProducerWrapper
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
     overflowTopic: string
     promiseScheduler: PromiseScheduler
+    topTracker?: TopTracker
 }
 
 /**
@@ -40,14 +41,14 @@ export interface SessionReplayPipelineConfig {
  */
 export function createSessionReplayPipeline(
     config: SessionReplayPipelineConfig
-): BatchPipelineUnwrapper<SessionReplayPipelineInput, ParsedMessageData, { message: Message }> {
+): BatchPipelineUnwrapper<SessionReplayPipelineInput, SessionReplayPipelineOutput, { message: Message }> {
     const {
-        parser,
         kafkaProducer,
         eventIngestionRestrictionManager,
         overflowEnabled,
         overflowTopic,
         promiseScheduler,
+        topTracker,
     } = config
 
     const pipelineConfig: PipelineConfig = {
@@ -58,19 +59,20 @@ export function createSessionReplayPipeline(
 
     const pipeline = newBatchPipelineBuilder<SessionReplayPipelineInput, { message: Message }>()
         .messageAware((b) =>
-            b
-                // Phase 1: Restrictions (parse headers, apply restrictions)
-                .sequentially((b) =>
-                    b.pipe(createParseHeadersStep()).pipe(
+            b.sequentially((b) =>
+                b
+                    // Parse headers and apply restrictions (drop/overflow)
+                    .pipe(createParseHeadersStep())
+                    .pipe(
                         createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                             overflowEnabled,
                             overflowTopic,
                             preservePartitionLocality: true, // Sessions must stay on the same partition
                         })
                     )
-                )
-                // Phase 2: Parse messages
-                .pipeBatch(createParseMessageStep(parser))
+                    // Parse message content
+                    .pipe(createParseMessageStep({ topTracker }))
+            )
         )
         .handleResults(pipelineConfig)
         .handleSideEffects(promiseScheduler, { await: false })
@@ -87,9 +89,9 @@ export function createSessionReplayPipeline(
  * In future commits, the pipeline will handle all processing internally.
  */
 export async function runSessionReplayPipeline(
-    pipeline: BatchPipelineUnwrapper<SessionReplayPipelineInput, ParsedMessageData, { message: Message }>,
+    pipeline: BatchPipelineUnwrapper<SessionReplayPipelineInput, SessionReplayPipelineOutput, { message: Message }>,
     messages: Message[]
-): Promise<ParsedMessageData[]> {
+): Promise<SessionReplayPipelineOutput[]> {
     if (messages.length === 0) {
         return []
     }
@@ -97,7 +99,7 @@ export async function runSessionReplayPipeline(
     const batch = createBatch(messages.map((message) => ({ message })))
     pipeline.feed(batch)
 
-    const allResults: ParsedMessageData[] = []
+    const allResults: SessionReplayPipelineOutput[] = []
     let results = await pipeline.next()
     while (results !== null) {
         allResults.push(...results)
