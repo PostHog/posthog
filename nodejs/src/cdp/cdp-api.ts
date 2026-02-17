@@ -573,76 +573,61 @@ export class CdpApi {
         }
     }
 
+    private async processAndRespondToWebhook(
+        webhookId: string,
+        req: ModifiedRequest,
+        res: express.Response,
+        onSuccess: (
+            result: Awaited<ReturnType<typeof this.cdpSourceWebhooksConsumer.processWebhook>>
+        ) => Promise<any> | any
+    ): Promise<any> {
+        try {
+            const result = await this.cdpSourceWebhooksConsumer.processWebhook(webhookId, req)
+
+            if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
+                const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
+                if (typeof httpResponse.body === 'string') {
+                    return res
+                        .status(httpResponse.status)
+                        .set('Content-Type', httpResponse.contentType ?? 'text/plain')
+                        .send(httpResponse.body)
+                } else if (typeof httpResponse.body === 'object') {
+                    return res.status(httpResponse.status).json(httpResponse.body)
+                }
+                return res.status(httpResponse.status).send('')
+            }
+
+            if (result.error) {
+                return res.status(500).json({ error: 'Internal error' })
+            }
+
+            return await onSuccess(result)
+        } catch (error) {
+            if (error instanceof SourceWebhookError) {
+                return res.status(error.status).json({ error: error.message })
+            }
+            logger.error('[CdpApi] Error handling webhook', { error })
+            return res.status(500).json({ error: 'Internal error' })
+        }
+    }
+
     private handleWebhook =
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const { webhook_id } = req.params
-
-            try {
-                const result = await this.cdpSourceWebhooksConsumer.processWebhook(webhook_id, req)
-
-                if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
-                    // TODO: Better validation here before we directly use the result
-                    const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
-                    if (typeof httpResponse.body === 'string') {
-                        return res
-                            .status(httpResponse.status)
-                            .set('Content-Type', httpResponse.contentType ?? 'text/plain')
-                            .send(httpResponse.body)
-                    } else if (typeof httpResponse.body === 'object') {
-                        return res.status(httpResponse.status).json(httpResponse.body)
-                    } else {
-                        return res.status(httpResponse.status).send('')
-                    }
-                }
-
-                if (result.error) {
-                    return res.status(500).json({
-                        status: 'Unhandled error',
-                    })
-                }
+            return this.processAndRespondToWebhook(webhook_id, req, res, (result) => {
                 if (!result.finished) {
-                    return res.status(201).json({
-                        status: 'queued',
-                    })
+                    return res.status(201).json({ status: 'queued' })
                 }
-                return res.status(200).json({
-                    status: 'ok',
-                })
-            } catch (error) {
-                if (error instanceof SourceWebhookError) {
-                    return res.status(error.status).json({ error: error.message })
-                }
-                return res.status(500).json({ error: 'Internal error' })
-            }
+                return res.status(200).json({ status: 'ok' })
+            })
         }
 
     private handleWarehouseSourceWebhook =
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const { webhook_id } = req.params
-
-            try {
-                const result = await this.cdpSourceWebhooksConsumer.processWebhook(webhook_id, req)
-
-                // If the template returned an error response (e.g. bad signature), forward it
-                if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
-                    const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
-                    if (typeof httpResponse.body === 'string') {
-                        return res
-                            .status(httpResponse.status)
-                            .set('Content-Type', httpResponse.contentType ?? 'text/plain')
-                            .send(httpResponse.body)
-                    } else if (typeof httpResponse.body === 'object') {
-                        return res.status(httpResponse.status).json(httpResponse.body)
-                    }
-                    return res.status(httpResponse.status).send('')
-                }
-
-                if (result.error) {
-                    return res.status(500).json({ error: 'Internal error' })
-                }
-
+            return this.processAndRespondToWebhook(webhook_id, req, res, async (result) => {
                 if (!result.execResult || typeof result.execResult !== 'object') {
                     return res.status(500).json({ error: 'Template did not return a payload' })
                 }
@@ -665,13 +650,7 @@ export class CdpApi {
                 })
 
                 return res.status(200).json({ status: 'ok' })
-            } catch (error) {
-                if (error instanceof SourceWebhookError) {
-                    return res.status(error.status).json({ error: error.message })
-                }
-                logger.error('[CdpApi] Error handling warehouse source webhook', { error })
-                return res.status(500).json({ error: 'Internal error' })
-            }
+            })
         }
 
     private postSesWebhook =

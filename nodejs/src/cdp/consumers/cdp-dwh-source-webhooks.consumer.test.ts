@@ -8,9 +8,8 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { setupExpressApp } from '~/api/router'
-import { insertHogFunction } from '~/cdp/_tests/fixtures'
+import { insertHogFunction, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
-import { template as warehouseStripeTemplate } from '~/cdp/templates/_sources/warehouse_source/stripe.template'
 import { HogFunctionType } from '~/cdp/types'
 import { KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -19,6 +18,100 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { parseJSON } from '~/utils/json-parse'
 
 import { compileInputs } from '../templates/test/test-helpers'
+
+const STRIPE_TEMPLATE_ID = 'template-warehouse-source-stripe'
+
+const STRIPE_INPUTS_SCHEMA = [
+    {
+        type: 'string' as const,
+        key: 'signing_secret',
+        label: 'Signing secret',
+        required: false,
+        secret: true,
+        hidden: false,
+        description: 'Used to validate the webhook came from Stripe',
+    },
+    {
+        type: 'boolean' as const,
+        key: 'bypass_signature_check',
+        label: 'Bypass signature check',
+        description: 'If set, the stripe-signature header will not be checked. This is not recommended.',
+        default: false,
+        required: false,
+        secret: false,
+    },
+]
+
+const STRIPE_HOG_CODE = `
+if(request.method != 'POST') {
+  return {
+    'httpResponse': {
+      'status': 405,
+      'body': 'Method not allowed'
+    }
+  }
+}
+
+if (not inputs.bypass_signature_check) {
+  let body := request.stringBody
+  let signatureHeader := request.headers['stripe-signature']
+
+  if (empty(signatureHeader)) {
+    return {
+      'httpResponse': {
+        'status': 400,
+        'body': 'Missing signature',
+      }
+    }
+  }
+
+  let headerParts := splitByString(',', signatureHeader)
+  let timestamp := null
+  let v1Signature := null
+
+  for (let _, part in headerParts) {
+      let trimmed := trim(part)
+      if (trimmed like 't=%') {
+          let tParts := splitByString('=', trimmed, 2)
+          if (length(tParts) = 2) {
+              timestamp := tParts[2]
+          }
+      }
+      if (trimmed like 'v1=%') {
+          let v1Parts := splitByString('=', trimmed, 2)
+          if (length(v1Parts) = 2) {
+              v1Signature := v1Parts[2]
+          }
+      }
+  }
+
+  if (empty(timestamp) or empty(v1Signature)) {
+      return {
+        'httpResponse': {
+          'status': 400,
+          'body': 'Could not parse signature',
+        }
+      }
+  }
+
+  let signedPayload := concat(timestamp, '.', body)
+  let computedSignature := sha256HmacChainHex([inputs.signing_secret, signedPayload])
+
+  if (computedSignature != v1Signature) {
+      return {
+        'httpResponse': {
+          'status': 400,
+          'body': 'Bad signature',
+        }
+      }
+  }
+}
+
+return request.body
+`
+
+// Minimal template-like object for compileInputs (only needs inputs_schema)
+const stripeTemplateForInputs = { inputs_schema: STRIPE_INPUTS_SCHEMA } as any
 
 describe('DWH source webhooks', () => {
     let hub: Hub
@@ -54,11 +147,29 @@ describe('DWH source webhooks', () => {
             const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
             jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
+            // Insert the warehouse source templates into the DB
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: STRIPE_TEMPLATE_ID,
+                name: 'Stripe warehouse source webhook',
+                type: 'warehouse_source_webhook',
+                code: STRIPE_HOG_CODE,
+                inputs_schema: STRIPE_INPUTS_SCHEMA,
+            })
+
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-warehouse-source-default',
+                name: 'Default warehouse source webhook',
+                type: 'warehouse_source_webhook',
+                code: 'return request.body',
+                inputs_schema: [],
+            })
+
             hogFunction = await insertHogFunction(hub.postgres, team.id, {
                 type: 'warehouse_source_webhook',
+                template_id: STRIPE_TEMPLATE_ID,
                 bytecode: [],
                 inputs: {
-                    ...(await compileInputs(warehouseStripeTemplate, {
+                    ...(await compileInputs(stripeTemplateForInputs, {
                         signing_secret: signingSecret,
                         bypass_signature_check: false,
                     })),
@@ -164,9 +275,10 @@ describe('DWH source webhooks', () => {
         it('should bypass signature check when configured', async () => {
             const bypassFunction = await insertHogFunction(hub.postgres, team.id, {
                 type: 'warehouse_source_webhook',
+                template_id: STRIPE_TEMPLATE_ID,
                 bytecode: [],
                 inputs: {
-                    ...(await compileInputs(warehouseStripeTemplate, {
+                    ...(await compileInputs(stripeTemplateForInputs, {
                         signing_secret: '',
                         bypass_signature_check: true,
                     })),
@@ -193,9 +305,10 @@ describe('DWH source webhooks', () => {
         it('should return 500 when schema_id is missing from hog function inputs', async () => {
             const noSchemaFunction = await insertHogFunction(hub.postgres, team.id, {
                 type: 'warehouse_source_webhook',
+                template_id: STRIPE_TEMPLATE_ID,
                 bytecode: [],
                 inputs: {
-                    ...(await compileInputs(warehouseStripeTemplate, {
+                    ...(await compileInputs(stripeTemplateForInputs, {
                         signing_secret: '',
                         bypass_signature_check: true,
                     })),
