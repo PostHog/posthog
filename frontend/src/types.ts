@@ -3353,6 +3353,8 @@ export interface ProductTourSurveyQuestion {
     lowerBoundLabel?: string
     /** Label for high end of rating scale (e.g., "Very likely") */
     upperBoundLabel?: string
+    submitButtonText?: string
+    backButtonText?: string
 }
 
 export type ProductTourProgressionTriggerType = 'button' | 'click'
@@ -3453,7 +3455,10 @@ export interface ProductTourStepTranslation {
         primary?: Pick<ProductTourStepButton, 'text'>
         secondary?: Pick<ProductTourStepButton, 'text'>
     }
-    survey?: Pick<ProductTourSurveyQuestion, 'questionText' | 'lowerBoundLabel' | 'upperBoundLabel'>
+    survey?: Pick<
+        ProductTourSurveyQuestion,
+        'questionText' | 'lowerBoundLabel' | 'upperBoundLabel' | 'submitButtonText' | 'backButtonText'
+    >
 }
 
 /** Tracks a snapshot of steps at a point in time for funnel analysis */
