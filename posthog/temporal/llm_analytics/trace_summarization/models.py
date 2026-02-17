@@ -48,8 +48,8 @@ class BatchSummarizationInputs:
     window_start: str | None = None  # RFC3339 format
     window_end: str | None = None  # RFC3339 format
     # Optional property filters to scope which traces/generations are sampled.
-    # Uses PostHog's standard property filter format (same as clustering trace_filters).
-    trace_filters: list[dict[str, Any]] = field(default_factory=list)
+    # Uses PostHog's standard property filter format (same as clustering event_filters).
+    event_filters: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from abc import abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import models
 from django.db.models import query_utils
@@ -14,20 +16,32 @@ from posthog.models.resource_transfer.types import (
 )
 from posthog.models.utils import UUIDTClassicModel
 
+if TYPE_CHECKING:
+    from posthog.models import Team
+
 
 class ResourceTransferVisitor:
-    __VISITORS: list[type["ResourceTransferVisitor"]] = []
+    __VISITORS: list[type[ResourceTransferVisitor]] = []
 
     kind: ResourceKind
     excluded_fields: list[str]
     immutable: bool
+    friendly_name: str
+    user_facing: bool
 
     def __init_subclass__(
-        cls, kind: ResourceKind, excluded_fields: list[str] | None = None, immutable: bool = False
+        cls,
+        kind: ResourceKind,
+        excluded_fields: list[str] | None = None,
+        immutable: bool = False,
+        friendly_name: str | None = None,
+        user_facing: bool = True,
     ) -> None:
         cls.kind = kind
         cls.excluded_fields = excluded_fields or []
         cls.immutable = immutable
+        cls.friendly_name = friendly_name if friendly_name is not None else kind
+        cls.user_facing = user_facing
 
         ResourceTransferVisitor.__VISITORS.append(cls)
 
@@ -45,8 +59,26 @@ class ResourceTransferVisitor:
         """
         return []
 
+    @classmethod
+    def get_display_name(cls, resource: Any) -> str:
+        """
+        Return a human-readable name for a resource instance. Override in subclasses for custom behavior.
+        Falls back to the resource's `name` attribute if present, otherwise uses kind + pk.
+        """
+        if hasattr(resource, "name") and resource.name:
+            return str(resource.name)
+        return f"{cls.kind} {resource.pk}"
+
+    @classmethod
+    def get_resource_team(cls, resource: Any) -> Team:
+        """
+        Return the team that owns a resource instance. Most resources have a `team` foreign key;
+        override in subclasses for models where ownership is determined differently.
+        """
+        return resource.team
+
     @staticmethod
-    def get_visitor(kind_or_value: ResourceKind | Any) -> type["ResourceTransferVisitor"] | None:
+    def get_visitor(kind_or_value: ResourceKind | Any) -> type[ResourceTransferVisitor] | None:
         if isinstance(kind_or_value, str):
             return next(
                 (visitor for visitor in ResourceTransferVisitor.__VISITORS if visitor.kind == kind_or_value), None
@@ -140,6 +172,9 @@ class ResourceTransferVisitor:
 
     @classmethod
     def is_immutable(cls) -> bool:
+        """
+        Return true if this is a visitor for a resource that should never be copied.
+        """
         return cls.immutable
 
 
@@ -148,7 +183,7 @@ Immutable visitors (resources we never want to copy)
 """
 
 
-class TeamVisitor(ResourceTransferVisitor, kind="Team", immutable=True):
+class TeamVisitor(ResourceTransferVisitor, kind="Team", immutable=True, user_facing=False):
     @classmethod
     def get_model(cls) -> type[models.Model]:
         from posthog.models import Team
@@ -156,7 +191,7 @@ class TeamVisitor(ResourceTransferVisitor, kind="Team", immutable=True):
         return Team
 
 
-class ProjectVisitor(ResourceTransferVisitor, kind="Project", immutable=True):
+class ProjectVisitor(ResourceTransferVisitor, kind="Project", immutable=True, user_facing=False):
     @classmethod
     def get_model(cls) -> type[models.Model]:
         from posthog.models import Project
@@ -164,7 +199,7 @@ class ProjectVisitor(ResourceTransferVisitor, kind="Project", immutable=True):
         return Project
 
 
-class UserVisitor(ResourceTransferVisitor, kind="User", immutable=True):
+class UserVisitor(ResourceTransferVisitor, kind="User", immutable=True, user_facing=False):
     @classmethod
     def get_model(cls) -> type[models.Model]:
         from posthog.models import User
@@ -474,12 +509,18 @@ class InsightVisitor(
             payload: ResourcePayload,
             resource_map: ResourceMap,
         ) -> ResourcePayload:
-            vertex = resource_map.get((target_model, old_pk))
+            target_visitor = ResourceTransferVisitor.get_visitor(target_model)
+
+            if target_visitor is None:
+                raise TypeError(f"Could not rewrite {target_model.__name__} because it has no configured visitor")
+
+            vertex = resource_map.get((target_visitor.kind, old_pk))
             if vertex is None:
                 raise ValueError(
                     f"Could not rewrite JSON reference to {target_model.__name__}(pk={old_pk}): "
                     "resource not found in map"
                 )
+
             if vertex.duplicated_resource is None:
                 raise ValueError(
                     f"Could not rewrite JSON reference to {target_model.__name__}(pk={old_pk}): resource not duplicated yet"
@@ -750,6 +791,8 @@ class DashboardTileVisitor(
         "refreshing",
         "refresh_attempt",
     ],
+    friendly_name="Dashboard tile",
+    user_facing=False,
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
@@ -758,7 +801,7 @@ class DashboardTileVisitor(
         return DashboardTile
 
 
-class TextVisitor(ResourceTransferVisitor, kind="Text", excluded_fields=["last_modified_at"]):
+class TextVisitor(ResourceTransferVisitor, kind="Text", excluded_fields=["last_modified_at"], user_facing=False):
     @classmethod
     def get_model(cls) -> type[models.Model]:
         from posthog.models import Text

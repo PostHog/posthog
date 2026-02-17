@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonInput, LemonSegmentedButton, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { ProductTourBannerConfig } from '~/types'
 
@@ -20,6 +20,7 @@ export function BannerSettingsPanel({ tourId }: BannerSettingsPanelProps): JSX.E
 
     const behavior = step.bannerConfig?.behavior ?? 'sticky'
     const actionType = step.bannerConfig?.action?.type ?? 'none'
+    const animateIn = (step.bannerConfig?.animation?.duration ?? 0) > 0
 
     const updateBannerConfig = (updates: Partial<ProductTourBannerConfig>): void => {
         updateSelectedStep({
@@ -45,7 +46,7 @@ export function BannerSettingsPanel({ tourId }: BannerSettingsPanelProps): JSX.E
         <div className="py-3 px-4">
             <div className="flex gap-10">
                 <div className="flex-1 min-w-0 space-y-4">
-                    <div className="flex items-center justify-between gap-4">
+                    <div className="flex flex-col items-start gap-2">
                         <div>
                             <div className="font-medium text-sm">Position</div>
                             <div className="text-muted text-xs">
@@ -81,6 +82,20 @@ export function BannerSettingsPanel({ tourId }: BannerSettingsPanelProps): JSX.E
                             fullWidth
                         />
                     )}
+                    <div className="flex items-center gap-2">
+                        <Tooltip title="Banner slides in from the top of the page with a brief animation. When disabled, the banner will appear suddenly after page load, potentially causing a layout shift.">
+                            <div className="font-medium text-sm">Animate in</div>
+                        </Tooltip>
+                        <LemonSwitch
+                            data-attr="product-tours-banner-animation-toggle"
+                            checked={animateIn}
+                            onChange={(checked) =>
+                                updateBannerConfig({
+                                    animation: { duration: checked ? 300 : 0 },
+                                })
+                            }
+                        />
+                    </div>
                 </div>
 
                 <div className="flex-1 min-w-0 space-y-3">

@@ -10,6 +10,8 @@ from django.test import SimpleTestCase, TestCase
 
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
+from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
+
 from posthog.clickhouse.client import (
     execute_async as client,
     sync_execute,
@@ -153,6 +155,28 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(result.end_time)
         assert result.results is not None
         self.assertEqual(result.results["results"], [[2]])
+
+    def test_async_query_posthog_ai_limit(self):
+        query = build_query("SELECT arrayJoin(range(1, 100001))")
+        query_id = client.enqueue_process_query_task(
+            self.team, self.user.id, query, _test_only_bypass_celery=True, is_posthog_ai=True
+        ).id
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertFalse(result.error, result.error_message or "<no error message>")
+        self.assertTrue(result.complete)
+        assert result.results is not None
+        self.assertEqual(len(result.results["results"]), DEFAULT_POSTHOG_AI_RETURNED_ROWS)
+
+    def test_async_query_posthog_ai_limit_with_explicit_limit(self):
+        query = build_query("SELECT arrayJoin(range(1, 100001)) LIMIT 300")
+        query_id = client.enqueue_process_query_task(
+            self.team, self.user.id, query, _test_only_bypass_celery=True, is_posthog_ai=True
+        ).id
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertFalse(result.error, result.error_message or "<no error message>")
+        self.assertTrue(result.complete)
+        assert result.results is not None
+        self.assertEqual(len(result.results["results"]), 300)
 
     def test_async_query_client_errors(self):
         query = build_query("SELECT WOW SUCH DATA FROM NOWHERE THIS WILL CERTAINLY WORK")

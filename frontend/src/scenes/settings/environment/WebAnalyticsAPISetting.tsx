@@ -22,10 +22,6 @@ export function WebAnalyticsEnablePreAggregatedTables(): JSX.Element {
 
     return (
         <>
-            <p>
-                When enabled, this project will use the new query engine for Web Analytics whenever possible. This
-                setting is mandatory if you wish to enable the Web Analytics API.
-            </p>
             <AccessControlAction
                 resourceType={AccessControlResourceType.WebAnalytics}
                 minAccessLevel={AccessControlLevel.Editor}
