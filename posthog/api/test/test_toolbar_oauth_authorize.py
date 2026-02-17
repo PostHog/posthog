@@ -1,3 +1,5 @@
+from urllib.parse import parse_qs, urlparse
+
 from posthog.test.base import APIBaseTest
 
 
@@ -18,12 +20,16 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
             f"Expected 200 from toolbar_oauth/authorize, got {response.status_code}. Body: {response.content[:500]!r}"
         )
 
+    def _get_authorization_url(self, response) -> str:
+        # Use template context (not rendered HTML) because layout.html isn't available in CI
+        return response.context["authorization_url"]
+
     def test_renders_oauth_authorize_url(self):
         response = self._get_authorize()
         self._assert_authorize_ok(response)
-        content = response.content.decode()
-        assert "/oauth/authorize" in content
-        assert "code_challenge" in content
+        auth_url = self._get_authorization_url(response)
+        assert "/oauth/authorize" in auth_url
+        assert "code_challenge" in auth_url
 
     def test_rejects_missing_redirect(self):
         response = self.client.get("/toolbar_oauth/authorize/")
@@ -41,18 +47,21 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
     def test_oauth_url_contains_state_and_pkce_params(self):
         response = self._get_authorize()
         self._assert_authorize_ok(response)
-        content = response.content.decode()
-        assert "state=" in content
-        assert "code_challenge=" in content
-        assert "code_challenge_method=S256" in content
+        auth_url = self._get_authorization_url(response)
+        qs = parse_qs(urlparse(auth_url).query)
+        assert "state" in qs
+        assert "code_challenge" in qs
+        assert qs.get("code_challenge_method") == ["S256"]
 
     def test_oauth_url_contains_correct_redirect_uri(self):
         response = self._get_authorize()
         self._assert_authorize_ok(response)
-        content = response.content.decode()
-        assert "redirect_uri=" in content
-        assert "toolbar_oauth" in content
-        assert "callback" in content
+        auth_url = self._get_authorization_url(response)
+        qs = parse_qs(urlparse(auth_url).query)
+        assert "redirect_uri" in qs
+        redirect_uri = qs["redirect_uri"][0]
+        assert "toolbar_oauth" in redirect_uri
+        assert "callback" in redirect_uri
 
     def test_code_verifier_is_stored_in_session(self):
         response = self._get_authorize()
