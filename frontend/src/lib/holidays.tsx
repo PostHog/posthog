@@ -50,7 +50,7 @@ export const isHalloween = wrapWithStorybookCheck(() => {
 
 type Holiday = 'christmas' | 'halloween'
 type HolidayMatcher<T> = {
-    [key in Holiday]: T
+    [key in Holiday]?: T
 }
 
 export const holidaysMatcher = <T,>(matcher: HolidayMatcher<T>, orElse: T): T => {
@@ -59,10 +59,10 @@ export const holidaysMatcher = <T,>(matcher: HolidayMatcher<T>, orElse: T): T =>
         return orElse
     }
 
-    if (matcher.christmas && isChristmas()) {
+    if (matcher.christmas !== undefined && isChristmas()) {
         return matcher.christmas
     }
-    if (matcher.halloween && isHalloween()) {
+    if (matcher.halloween !== undefined && isHalloween()) {
         return matcher.halloween
     }
 
