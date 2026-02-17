@@ -14,6 +14,9 @@ from posthog.redis import get_client
 # 7 days in seconds
 PROPERTY_VALUES_CACHE_TTL = 7 * 24 * 60 * 60
 
+# How long to wait before allowing another background refresh (seconds)
+PROPERTY_VALUES_REFRESH_COOLDOWN = 60
+
 
 def _make_cache_key(
     team_id: int,
@@ -89,6 +92,32 @@ def get_cached_property_values(
             return None
 
     return None
+
+
+def is_refresh_on_cooldown(
+    team_id: int,
+    property_type: str,
+    property_key: str,
+    search_value: Optional[str] = None,
+    event_names: Optional[list[str]] = None,
+) -> bool:
+    """Return True if a refresh was triggered within the cooldown window."""
+    redis_client = get_client()
+    cooldown_key = _make_cache_key(team_id, property_type, property_key, search_value, event_names) + ":refreshing"
+    return redis_client.exists(cooldown_key) > 0
+
+
+def set_refresh_cooldown(
+    team_id: int,
+    property_type: str,
+    property_key: str,
+    search_value: Optional[str] = None,
+    event_names: Optional[list[str]] = None,
+) -> None:
+    """Mark that a refresh was triggered; prevents re-triggering during the cooldown window."""
+    redis_client = get_client()
+    cooldown_key = _make_cache_key(team_id, property_type, property_key, search_value, event_names) + ":refreshing"
+    redis_client.set(cooldown_key, "1", ex=PROPERTY_VALUES_REFRESH_COOLDOWN)
 
 
 def cache_property_values(

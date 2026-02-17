@@ -441,7 +441,7 @@ class EventViewSet(
         else:
             # Check if this property is hidden (enterprise feature)
             if self._is_property_hidden(key, team):
-                return self._return_with_short_cache([])
+                return self._return_with_short_cache({"results": [], "refreshing": False})
 
             return self._event_property_values(query_params)
 
@@ -449,7 +449,11 @@ class EventViewSet(
         self,
         query_params: EventValueQueryParams,
     ) -> response.Response:
-        from posthog.api.property_value_cache import get_cached_property_values
+        from posthog.api.property_value_cache import (
+            get_cached_property_values,
+            is_refresh_on_cooldown,
+            set_refresh_cooldown,
+        )
         from posthog.tasks.property_value_cache import (
             refresh_event_property_values_cache,
             run_event_property_query_and_cache,
@@ -470,26 +474,40 @@ class EventViewSet(
         )
 
         if cached is not None:
-            refresh_event_property_values_cache.delay(  # type: ignore[operator]
-                query_params.team.pk,
-                query_params.key,
-                query_params.is_column,
-                query_params.value,
-                query_params.event_names,
-                property_filters,
+            on_cooldown = is_refresh_on_cooldown(
+                team_id=query_params.team.pk,
+                property_type="event",
+                property_key=query_params.key,
+                search_value=query_params.value,
+                event_names=query_params.event_names,
             )
-            return self._return_with_short_cache(cached)
+            if not on_cooldown:
+                set_refresh_cooldown(
+                    team_id=query_params.team.pk,
+                    property_type="event",
+                    property_key=query_params.key,
+                    search_value=query_params.value,
+                    event_names=query_params.event_names,
+                )
+                refresh_event_property_values_cache.delay(  # type: ignore[operator]
+                    query_params.team.pk,
+                    query_params.key,
+                    query_params.is_column,
+                    query_params.value,
+                    query_params.event_names,
+                    property_filters,
+                )
+            return self._return_with_short_cache({"results": cached, "refreshing": not on_cooldown})
 
-        return self._return_with_short_cache(
-            run_event_property_query_and_cache(
-                query_params.team.pk,
-                query_params.key,
-                query_params.is_column,
-                query_params.value,
-                query_params.event_names,
-                property_filters,
-            )
+        result = run_event_property_query_and_cache(
+            query_params.team.pk,
+            query_params.key,
+            query_params.is_column,
+            query_params.value,
+            query_params.event_names,
+            property_filters,
         )
+        return self._return_with_short_cache({"results": result, "refreshing": False})
 
     @staticmethod
     def _return_with_short_cache(values) -> response.Response:
@@ -536,7 +554,9 @@ class EventViewSet(
 
         result = execute_hogql_query(query, team=query_params.team)
 
-        return self._return_with_short_cache([{"name": event[0]} for event in result.results])
+        return self._return_with_short_cache(
+            {"results": [{"name": event[0]} for event in result.results], "refreshing": False}
+        )
 
 
 class LegacyEventViewSet(EventViewSet):

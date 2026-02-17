@@ -515,9 +515,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             if not key or key.startswith("$virt"):
                 span.set_attribute("result_count", 0)
-                return response.Response([])
+                return response.Response({"results": [], "refreshing": False})
 
-            from posthog.api.property_value_cache import get_cached_property_values
+            from posthog.api.property_value_cache import (
+                get_cached_property_values,
+                is_refresh_on_cooldown,
+                set_refresh_cooldown,
+            )
             from posthog.tasks.property_value_cache import (
                 refresh_person_property_values_cache,
                 run_person_property_query_and_cache,
@@ -531,13 +535,26 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
             if cached is not None:
-                refresh_person_property_values_cache.delay(self.team.pk, key, value)  # type: ignore[operator]
+                on_cooldown = is_refresh_on_cooldown(
+                    team_id=self.team.pk,
+                    property_type="person",
+                    property_key=key,
+                    search_value=value,
+                )
+                if not on_cooldown:
+                    set_refresh_cooldown(
+                        team_id=self.team.pk,
+                        property_type="person",
+                        property_key=key,
+                        search_value=value,
+                    )
+                    refresh_person_property_values_cache.delay(self.team.pk, key, value)  # type: ignore[operator]
                 span.set_attribute("result_count", len(cached))
-                return response.Response(cached)
+                return response.Response({"results": cached, "refreshing": not on_cooldown})
 
             result = run_person_property_query_and_cache(self.team.pk, key, value)
             span.set_attribute("result_count", len(result))
-            return response.Response(result)
+            return response.Response({"results": result, "refreshing": False})
 
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
