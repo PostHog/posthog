@@ -203,6 +203,7 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
         try:
             cached_response_bytes = query_cache.get(self.cache_key)
         except Exception:
+            logger.warning("query_cache_read_error", team_id=self.team_id, cache_key=self.cache_key, exc_info=True)
             try:
                 query_cache.delete(self.cache_key)
             except Exception:

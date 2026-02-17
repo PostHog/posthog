@@ -1,3 +1,5 @@
+import threading
+
 from django_redis.pool import ConnectionFactory
 from redis.cluster import RedisCluster
 
@@ -15,10 +17,13 @@ class RedisClusterConnectionFactory(ConnectionFactory):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._cluster_clients: dict[str, RedisCluster] = {}
+        self._lock = threading.Lock()
 
     def connect(self, url: str) -> RedisCluster:
         if url not in self._cluster_clients:
-            self._cluster_clients[url] = RedisCluster.from_url(url)
+            with self._lock:
+                if url not in self._cluster_clients:
+                    self._cluster_clients[url] = RedisCluster.from_url(url)
         return self._cluster_clients[url]
 
     def disconnect(self, connection) -> None:
