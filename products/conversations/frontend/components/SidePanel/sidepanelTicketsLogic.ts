@@ -1,6 +1,6 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import posthog from 'posthog-js'
+import posthog, { UserFeedbackRecordingResult } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -33,6 +33,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         setView: (view: SidePanelViewState) => ({ view }),
         setCurrentTicket: (ticket: ConversationTicket) => ({ ticket }),
         sendMessage: (content: string, onSuccess: () => void) => ({ content, onSuccess }),
+        startFeedbackRecording: true,
+        setFeedbackRecordingResult: (result: UserFeedbackRecordingResult | null) => ({ result }),
+        setPrefillMessage: (message: string) => ({ message }),
     }),
     reducers({
         view: [
@@ -83,6 +86,18 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 setMessageSending: (_, { sending }) => sending,
             },
         ],
+        feedbackRecordingResult: [
+            null as UserFeedbackRecordingResult | null,
+            {
+                setFeedbackRecordingResult: (_, { result }) => result,
+            },
+        ],
+        prefillMessage: [
+            null as string | null,
+            {
+                setPrefillMessage: (_, { message }) => message,
+            },
+        ],
     }),
     selectors({
         isEnabled: [
@@ -92,6 +107,17 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         totalUnreadCount: [(s) => [s.tickets], (tickets) => tickets.reduce((sum, t) => sum + (t.unread_count ?? 0), 0)],
     }),
     listeners(({ actions, values, cache }) => ({
+        startFeedbackRecording: () => {
+            actions.setFeedbackRecordingResult(null)
+
+            posthog.feedbackRecording?.launchFeedbackRecordingUI((result: UserFeedbackRecordingResult) => {
+                actions.setFeedbackRecordingResult(result)
+                actions.setPrefillMessage(
+                    "Hey PostHog Support,\n\nI'm sharing a screen recording where I've explained the problem I'm seeing. Looking forward to hearing from you about this.\n\nThanks!"
+                )
+                actions.setView('new')
+            })
+        },
         loadTickets: async () => {
             if (!values.isEnabled || !posthog.conversations) {
                 return
@@ -184,7 +210,13 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // If we're in "new" view, force creation of a new ticket
                 const forceNewTicket = values.view === 'new'
 
-                const response = await posthog.conversations.sendMessage(content, {}, forceNewTicket)
+                const metadata: Record<string, any> = {}
+                if (values.feedbackRecordingResult) {
+                    metadata.feedback_recording_id = values.feedbackRecordingResult.feedback_id
+                    metadata.feedback_session_id = values.feedbackRecordingResult.session_id
+                }
+
+                const response = await posthog.conversations.sendMessage(content, metadata, forceNewTicket)
                 if (response) {
                     // If we just created a new ticket, set it as current and switch to chat view
                     if (values.view === 'new') {
@@ -201,6 +233,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     }
                     actions.loadTickets()
                     actions.loadMessages(response.ticket_id)
+                    actions.setFeedbackRecordingResult(null)
+                    actions.setPrefillMessage('')
                     lemonToast.success('Message sent!')
                     onSuccess()
                 }

@@ -1,5 +1,5 @@
 import { JSONContent } from '@tiptap/core'
-import { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
@@ -16,6 +16,10 @@ export interface MessageInputProps {
     minRows?: number
     /** Whether to show the "Send as private" checkbox */
     showPrivateOption?: boolean
+    /** Initial text content to prefill the editor with */
+    initialContent?: string | null
+    /** Content rendered between the editor and the submit button */
+    belowEditor?: React.ReactNode
 }
 
 export function MessageInput({
@@ -25,11 +29,22 @@ export function MessageInput({
     buttonText = 'Send',
     minRows = 3,
     showPrivateOption = false,
+    initialContent,
+    belowEditor,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(true)
     const [isUploading, setIsUploading] = useState(false)
     const [isPrivate, setIsPrivate] = useState(false)
     const editorRef = useRef<RichContentEditorType | null>(null)
+    const appliedInitialContent = useRef(false)
+
+    useEffect(() => {
+        if (initialContent && editorRef.current && !appliedInitialContent.current) {
+            editorRef.current.pasteContent(0, initialContent)
+            appliedInitialContent.current = true
+            setIsEmpty(false)
+        }
+    }, [initialContent])
 
     const handleSubmit = (): void => {
         if (editorRef.current && !isEmpty) {
@@ -56,6 +71,7 @@ export function MessageInput({
                 minRows={minRows}
                 className={isPrivate ? 'bg-warning-highlight border-warning' : undefined}
             />
+            {belowEditor && <div className="flex justify-end mt-1.5">{belowEditor}</div>}
             <div className="flex justify-between items-center mt-2">
                 {showPrivateOption ? (
                     <Tooltip title="Private messages are only visible to your team, not to the customer">
