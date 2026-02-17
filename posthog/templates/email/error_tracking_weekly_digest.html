@@ -39,7 +39,7 @@
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
         <thead>
             <tr style="border-bottom: 1px solid #e1e5e9;">
-                <th align="left" style="padding: 8px 8px 8px 0; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">Issue</th>
+                <th align="left" style="padding: 8px 8px 8px 0; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; text-align: left;">Issue</th>
                 <th align="center" style="padding: 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">Volume</th>
                 <th align="right" style="padding: 8px 0 8px 8px; font-size: 0.75em; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; width: 90px;">Occurrences</th>
             </tr>
@@ -47,7 +47,7 @@
         <tbody>
             {% for issue in top_issues %}
             <tr style="border-bottom: 1px solid #f3f4f6;">
-                <td align="left" style="padding: 10px 8px 10px 0; vertical-align: top;">
+                <td align="left" style="padding: 10px 8px 10px 0; vertical-align: top; text-align: left;">
                     <a href="{{ issue.url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em;">{{ issue.name }}</a>
                     {% if issue.description %}
                     <div style="color: #6b7280; font-size: 0.8em; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px;">{{ issue.description }}</div>
