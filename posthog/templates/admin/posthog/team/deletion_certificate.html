@@ -279,17 +279,9 @@
                 <div class="number">{{ certificate.total_deleted }}</div>
                 <div class="label">Deleted</div>
             </div>
-            <div class="summary-card warning">
-                <div class="number">{{ certificate.total_not_found }}</div>
-                <div class="label">Not Found</div>
-            </div>
-            <div class="summary-card warning">
-                <div class="number">{{ certificate.total_already_deleted }}</div>
-                <div class="label">Already Deleted</div>
-            </div>
             <div class="summary-card error">
-                <div class="number">{{ certificate.total_errors }}</div>
-                <div class="label">Errors</div>
+                <div class="number">{{ certificate.total_failed }}</div>
+                <div class="label">Failed</div>
             </div>
         </div>
     </div>
@@ -325,61 +317,11 @@
     </div>
     {% endif %}
 
-    {% if certificate.not_found_session_ids %}
+    {% if certificate.failed %}
     <div class="section">
-        <h2>Not Found Session IDs ({{ certificate.not_found_session_ids|length }})</h2>
-        <details class="collapsible-section">
-            <summary>Show {{ certificate.not_found_session_ids|length }} session IDs</summary>
-            <table class="recordings-table">
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Session ID</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for session_id in certificate.not_found_session_ids %}
-                    <tr>
-                        <td>{{ forloop.counter }}</td>
-                        <td class="session-id">{{ session_id }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </details>
-    </div>
-    {% endif %}
-
-    {% if certificate.already_deleted_session_ids %}
-    <div class="section">
-        <h2>Already Deleted Session IDs ({{ certificate.already_deleted_session_ids|length }})</h2>
-        <details class="collapsible-section">
-            <summary>Show {{ certificate.already_deleted_session_ids|length }} session IDs</summary>
-            <table class="recordings-table">
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Session ID</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for session_id in certificate.already_deleted_session_ids %}
-                    <tr>
-                        <td>{{ forloop.counter }}</td>
-                        <td class="session-id">{{ session_id }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </details>
-    </div>
-    {% endif %}
-
-    {% if certificate.errors %}
-    <div class="section">
-        <h2>Errors ({{ certificate.errors|length }})</h2>
+        <h2>Failed ({{ certificate.failed|length }})</h2>
         <details class="collapsible-section" open>
-            <summary>Show {{ certificate.errors|length }} errors</summary>
+            <summary>Show {{ certificate.failed|length }} failures</summary>
             <table class="recordings-table">
                 <thead>
                     <tr>
@@ -389,7 +331,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for error in certificate.errors %}
+                    {% for error in certificate.failed %}
                     <tr>
                         <td>{{ forloop.counter }}</td>
                         <td class="session-id">{{ error.session_id }}</td>

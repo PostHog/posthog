@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from posthog.models.exported_recording import ExportedRecording
-from posthog.storage.recordings import block_storage
+from posthog.storage.recordings.errors import BlockFetchError
 from posthog.temporal.export_recording.activities import (
     _redis_key,
     _redis_url,
@@ -250,9 +250,7 @@ async def test_export_recording_data_success():
         patch("posthog.temporal.export_recording.activities.SessionRecording", return_value=mock_recording),
         patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
         patch("posthog.temporal.export_recording.activities.list_blocks") as mock_list_blocks,
-        patch(
-            "posthog.temporal.export_recording.activities.block_storage.cleartext_block_storage"
-        ) as mock_storage_client,
+        patch("posthog.temporal.export_recording.activities.encrypted_block_storage") as mock_storage_client,
         patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
@@ -262,7 +260,9 @@ async def test_export_recording_data_success():
 
         await export_recording_data(export_context)
 
-        mock_storage.fetch_compressed_block.assert_called_once_with(mock_block.url)
+        mock_storage.fetch_compressed_block.assert_called_once_with(
+            mock_block.url, export_context.session_id, export_context.team_id
+        )
         assert mock_redis.setex.call_count == 2
 
         block_call = mock_redis.setex.call_args_list[0]
@@ -291,14 +291,18 @@ async def test_export_recording_data_no_blocks():
     mock_recording = MagicMock()
     mock_redis = AsyncMock()
 
+    mock_storage = AsyncMock()
+
     with (
         patch("posthog.temporal.export_recording.activities.SessionRecording", return_value=mock_recording),
         patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
         patch("posthog.temporal.export_recording.activities.list_blocks") as mock_list_blocks,
+        patch("posthog.temporal.export_recording.activities.encrypted_block_storage") as mock_storage_client,
         patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
         mock_list_blocks.return_value = []
+        mock_storage_client.return_value.__aenter__.return_value = mock_storage
         mock_get_async_client.return_value = mock_redis
 
         await export_recording_data(export_context)
@@ -325,15 +329,18 @@ async def test_export_recording_data_malformed_url():
 
     mock_recording = MagicMock()
     mock_redis = AsyncMock()
+    mock_storage = AsyncMock()
 
     with (
         patch("posthog.temporal.export_recording.activities.SessionRecording", return_value=mock_recording),
         patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
         patch("posthog.temporal.export_recording.activities.list_blocks") as mock_list_blocks,
+        patch("posthog.temporal.export_recording.activities.encrypted_block_storage") as mock_storage_client,
         patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
         mock_list_blocks.return_value = [mock_block]
+        mock_storage_client.return_value.__aenter__.return_value = mock_storage
         mock_get_async_client.return_value = mock_redis
 
         await export_recording_data(export_context)
@@ -359,16 +366,14 @@ async def test_export_recording_data_block_fetch_error():
 
     mock_recording = MagicMock()
     mock_storage = AsyncMock()
-    mock_storage.fetch_compressed_block = AsyncMock(side_effect=block_storage.BlockFetchError("Fetch failed"))
+    mock_storage.fetch_compressed_block = AsyncMock(side_effect=BlockFetchError("Fetch failed"))
     mock_redis = AsyncMock()
 
     with (
         patch("posthog.temporal.export_recording.activities.SessionRecording", return_value=mock_recording),
         patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
         patch("posthog.temporal.export_recording.activities.list_blocks") as mock_list_blocks,
-        patch(
-            "posthog.temporal.export_recording.activities.block_storage.cleartext_block_storage"
-        ) as mock_storage_client,
+        patch("posthog.temporal.export_recording.activities.encrypted_block_storage") as mock_storage_client,
         patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
