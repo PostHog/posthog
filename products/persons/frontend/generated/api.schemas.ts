@@ -477,6 +477,18 @@ export const PersonsLifecycleRetrieveFormat = {
     json: 'json',
 } as const
 
+export type PersonsPropertiesAtTimeRetrieveParams = {
+    format?: PersonsPropertiesAtTimeRetrieveFormat
+}
+
+export type PersonsPropertiesAtTimeRetrieveFormat =
+    (typeof PersonsPropertiesAtTimeRetrieveFormat)[keyof typeof PersonsPropertiesAtTimeRetrieveFormat]
+
+export const PersonsPropertiesAtTimeRetrieveFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
 export type PersonsResetPersonDistinctIdCreateParams = {
     format?: PersonsResetPersonDistinctIdCreateFormat
 }
@@ -785,6 +797,18 @@ export type PersonsLifecycleRetrieve2Format =
     (typeof PersonsLifecycleRetrieve2Format)[keyof typeof PersonsLifecycleRetrieve2Format]
 
 export const PersonsLifecycleRetrieve2Format = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type PersonsPropertiesAtTimeRetrieve2Params = {
+    format?: PersonsPropertiesAtTimeRetrieve2Format
+}
+
+export type PersonsPropertiesAtTimeRetrieve2Format =
+    (typeof PersonsPropertiesAtTimeRetrieve2Format)[keyof typeof PersonsPropertiesAtTimeRetrieve2Format]
+
+export const PersonsPropertiesAtTimeRetrieve2Format = {
     csv: 'csv',
     json: 'json',
 } as const
