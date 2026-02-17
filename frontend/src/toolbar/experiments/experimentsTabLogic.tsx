@@ -220,6 +220,18 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                         lemonToast.error(`Experiment save failed: ${e.message}`)
                     }
                 }
+                const response: WebExperiment = await res.json()
+
+                experimentsLogic.actions.updateExperiment({ experiment: response })
+                actions.selectExperiment(null)
+
+                lemonToast.success('Experiment saved', {
+                    button: {
+                        label: 'Open in PostHog',
+                        action: () => window.open(joinWithUiHost(uiHost, urls.experiment(response.id)), '_blank'),
+                    },
+                })
+                breakpoint()
             },
 
             // whether we show errors after touch (true) or submit (false)
