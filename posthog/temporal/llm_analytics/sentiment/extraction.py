@@ -17,41 +17,6 @@ def _is_tool_result_message(content: object) -> bool:
     return all(isinstance(block, dict) and block.get("type") == "tool_result" for block in content)
 
 
-def extract_user_messages(ai_input: object) -> str:
-    """Extract and concatenate all user messages from $ai_input.
-
-    Filters for role === "user" messages, extracts text content,
-    and concatenates with "\n\n---\n\n" separator. Handles OpenAI and
-    Anthropic message formats.
-
-    Returns empty string if no user messages found, input is missing,
-    or all user messages are empty.
-    """
-    if not ai_input:
-        return ""
-
-    if isinstance(ai_input, str):
-        return ai_input
-
-    if isinstance(ai_input, dict):
-        if ai_input.get("role") == "user":
-            return _extract_content_text(ai_input.get("content", ""))
-        return ""
-
-    if not isinstance(ai_input, list):
-        return ""
-
-    user_texts = []
-    for msg in ai_input:
-        if isinstance(msg, dict) and msg.get("role") == "user":
-            if _is_tool_result_message(msg.get("content")):
-                continue
-            text = _extract_content_text(msg.get("content", ""))
-            if text:
-                user_texts.append(text)
-    return "\n\n---\n\n".join(user_texts)
-
-
 def extract_user_messages_individually(ai_input: object) -> list[tuple[int, str]]:
     """Extract the last N individual user messages from $ai_input.
 

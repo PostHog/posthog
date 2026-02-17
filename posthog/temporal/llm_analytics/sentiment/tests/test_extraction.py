@@ -2,77 +2,9 @@ from parameterized import parameterized
 
 from posthog.temporal.llm_analytics.sentiment.extraction import (
     _is_tool_result_message,
-    extract_user_messages,
     extract_user_messages_individually,
     truncate_to_token_limit,
 )
-
-
-class TestExtractUserMessages:
-    @parameterized.expand(
-        [
-            ("none_input", None, ""),
-            ("empty_string", "", ""),
-            ("plain_string", "hello world", "hello world"),
-            ("single_user_dict", {"role": "user", "content": "hi"}, "hi"),
-            ("non_user_dict", {"role": "assistant", "content": "hi"}, ""),
-            ("dict_no_role", {"content": "hi"}, ""),
-            (
-                "list_with_user_msgs",
-                [
-                    {"role": "user", "content": "msg-a"},
-                    {"role": "assistant", "content": "reply"},
-                    {"role": "user", "content": "msg-b"},
-                ],
-                "msg-a\n\n---\n\nmsg-b",
-            ),
-            ("list_no_user_msgs", [{"role": "assistant", "content": "reply"}], ""),
-            ("empty_list", [], ""),
-            (
-                "anthropic_content_blocks",
-                [
-                    {
-                        "role": "user",
-                        "content": [{"type": "text", "text": "block-a"}, {"type": "text", "text": "block-b"}],
-                    }
-                ],
-                "block-a block-b",
-            ),
-            ("integer_input", 42, ""),
-            (
-                "anthropic_tool_result_skipped",
-                [
-                    {"role": "user", "content": "tell me a joke"},
-                    {"role": "assistant", "content": [{"type": "tool_use", "name": "joke_tool", "input": {}}]},
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "tool_result", "tool_use_id": "toolu_01", "content": "Why did the chicken..."}
-                        ],
-                    },
-                    {"role": "user", "content": "haha nice"},
-                ],
-                "tell me a joke\n\n---\n\nhaha nice",
-            ),
-            (
-                "anthropic_multiple_tool_results_skipped",
-                [
-                    {"role": "user", "content": "do two things"},
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "tool_result", "tool_use_id": "t1", "content": "result 1"},
-                            {"type": "tool_result", "tool_use_id": "t2", "content": "result 2"},
-                        ],
-                    },
-                    {"role": "user", "content": "thanks"},
-                ],
-                "do two things\n\n---\n\nthanks",
-            ),
-        ]
-    )
-    def test_extract_user_messages(self, _name: str, ai_input, expected: str):
-        assert extract_user_messages(ai_input) == expected
 
 
 class TestExtractUserMessagesIndividually:

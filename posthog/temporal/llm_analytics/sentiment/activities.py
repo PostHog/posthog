@@ -21,7 +21,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     from posthog.sync import database_sync_to_async
     from posthog.temporal.llm_analytics.sentiment.constants import MAX_TOTAL_CLASSIFICATIONS
     from posthog.temporal.llm_analytics.sentiment.data import fetch_generations
-    from posthog.temporal.llm_analytics.sentiment.model import classify_batch
+    from posthog.temporal.llm_analytics.sentiment.model import classify
 
     resolved_from, resolved_to = resolve_date_bounds(input.date_from, input.date_to)
 
@@ -36,7 +36,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
         pending.extend(collect_pending(rows_by_trace.get(trace_id, []), trace_id, MAX_TOTAL_CLASSIFICATIONS))
 
     # Batch classify all texts across all traces in one call
-    all_results = classify_batch([p.text for p in pending]) if pending else []
+    all_results = classify([p.text for p in pending]) if pending else []
 
     if pending:
         from posthog.temporal.llm_analytics.sentiment.metrics import (

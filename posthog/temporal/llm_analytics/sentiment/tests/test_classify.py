@@ -4,8 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.temporal.llm_analytics.sentiment.activities import classify_sentiment_activity
-from posthog.temporal.llm_analytics.sentiment.model import SentimentResult
-from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentInput
+from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentInput, SentimentResult
 
 
 def _make_row(uuid: str, messages: list[dict], trace_id: str = "trace-1") -> tuple:
@@ -30,7 +29,7 @@ def _single_input(trace_id: str = "trace-1", **kwargs) -> ClassifySentimentInput
 
 _PATCH_HOGQL = "posthog.hogql.query.execute_hogql_query"
 _PATCH_TEAM = "posthog.models.team.Team.objects"
-_PATCH_CLASSIFY = "posthog.temporal.llm_analytics.sentiment.model.classify_batch"
+_PATCH_CLASSIFY = "posthog.temporal.llm_analytics.sentiment.model.classify"
 _PATCH_CAP = "posthog.temporal.llm_analytics.sentiment.constants.MAX_TOTAL_CLASSIFICATIONS"
 
 
@@ -220,7 +219,7 @@ class TestClassifySentimentBatch:
 
         result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_ids=["t1", "t2"]))
 
-        # One classify_batch call with all texts
+        # One classify call with all texts
         mock_classify.assert_called_once_with(["hello from t1", "hello from t2"])
         # One execute_hogql_query call (single ClickHouse query)
         mock_hogql.assert_called_once()

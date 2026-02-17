@@ -2,7 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.temporal.llm_analytics.sentiment.model import SentimentResult, classify, classify_batch
+from posthog.temporal.llm_analytics.sentiment.model import classify
+from posthog.temporal.llm_analytics.sentiment.schema import SentimentResult
 
 
 def _make_pipeline_output(label: str, score: float) -> list[dict[str, object]]:
@@ -44,9 +45,9 @@ class TestClassifyBatch:
         ]
     )
     @patch("posthog.temporal.llm_analytics.sentiment.model._load_pipeline")
-    def test_classify_batch(self, _name: str, texts: list[str], expected: list[SentimentResult], mock_load: MagicMock):
+    def test_classify(self, _name: str, texts: list[str], expected: list[SentimentResult], mock_load: MagicMock):
         if not texts:
-            result = classify_batch(texts)
+            result = classify(texts)
             assert result == expected
             mock_load.assert_not_called()
             return
@@ -62,7 +63,7 @@ class TestClassifyBatch:
         mock_pipe.return_value = pipeline_outputs
         mock_load.return_value = mock_pipe
 
-        result = classify_batch(texts)
+        result = classify(texts)
 
         mock_pipe.assert_called_once_with(texts, batch_size=32)
         assert len(result) == len(expected)
@@ -71,24 +72,12 @@ class TestClassifyBatch:
             assert r.score == e.score
 
     @patch("posthog.temporal.llm_analytics.sentiment.model._load_pipeline")
-    def test_classify_delegates_to_batch(self, mock_load: MagicMock):
-        mock_pipe = MagicMock()
-        mock_pipe.return_value = [_make_pipeline_output("neutral", 0.7)]
-        mock_load.return_value = mock_pipe
-
-        result = classify("test text")
-
-        mock_pipe.assert_called_once_with(["test text"], batch_size=32)
-        assert result.label == "neutral"
-        assert result.score == 0.7
-
-    @patch("posthog.temporal.llm_analytics.sentiment.model._load_pipeline")
     def test_missing_labels_filled_with_zero(self, mock_load: MagicMock):
         mock_pipe = MagicMock()
         mock_pipe.return_value = [[{"label": "positive", "score": 0.95}]]
         mock_load.return_value = mock_pipe
 
-        result = classify_batch(["text"])
+        result = classify(["text"])
 
         assert result[0].scores["neutral"] == 0.0
         assert result[0].scores["negative"] == 0.0

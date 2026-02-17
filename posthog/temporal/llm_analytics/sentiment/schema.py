@@ -13,6 +13,13 @@ class ClassifySentimentInput:
 
 
 @dataclass
+class SentimentResult:
+    label: str
+    score: float
+    scores: dict[str, float]
+
+
+@dataclass
 class PendingClassification:
     trace_id: str
     gen_uuid: str
