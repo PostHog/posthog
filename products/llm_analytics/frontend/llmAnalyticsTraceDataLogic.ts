@@ -69,7 +69,7 @@ export function getSingleTraceLoadTiming(
         .map((event) => dayjs.utc(event.createdAt))
         .filter((timestamp) => timestamp.isValid())
         .reduce(
-            (earliest, timestamp) => (timestamp.isBefore(earliest) ? timestamp : earliest),
+            (earliest, timestamp) => (earliest === null || timestamp.isBefore(earliest) ? timestamp : earliest),
             null as dayjs.Dayjs | null
         )
 
