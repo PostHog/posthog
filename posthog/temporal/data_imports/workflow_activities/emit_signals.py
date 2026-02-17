@@ -31,7 +31,7 @@ EMIT_SIGNALS_FEATURE_FLAG = "emit-data-import-signals"
 LLM_CONCURRENCY_LIMIT = 10
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class EmitSignalsActivityInputs:
     team_id: int
     schema_id: uuid.UUID
