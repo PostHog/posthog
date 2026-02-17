@@ -92,7 +92,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
         return asyncio.run(
             client.execute_workflow(
-                "llma-sentiment-on-demand",
+                "llma-sentiment-classify",
                 workflow_input,
                 id=workflow_id,
                 task_queue=settings.LLMA_TASK_QUEUE,
@@ -191,7 +191,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
                 batch_results: dict[str, dict] = asyncio.run(
                     client.execute_workflow(
-                        "llma-sentiment-on-demand-batch",
+                        "llma-sentiment-classify-batch",
                         workflow_input,
                         id=workflow_id,
                         task_queue=settings.LLMA_TASK_QUEUE,

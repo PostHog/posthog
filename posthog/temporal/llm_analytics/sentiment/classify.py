@@ -411,7 +411,7 @@ async def classify_sentiment_batch_activity(input: ClassifySentimentBatchInput) 
     return output
 
 
-@temporalio.workflow.defn(name="llma-sentiment-on-demand-batch")
+@temporalio.workflow.defn(name="llma-sentiment-classify-batch")
 class ClassifySentimentBatchWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> ClassifySentimentBatchInput:
@@ -430,7 +430,7 @@ class ClassifySentimentBatchWorkflow(PostHogWorkflow):
         )
 
 
-@temporalio.workflow.defn(name="llma-sentiment-on-demand")
+@temporalio.workflow.defn(name="llma-sentiment-classify")
 class ClassifySentimentWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> ClassifySentimentInput:
