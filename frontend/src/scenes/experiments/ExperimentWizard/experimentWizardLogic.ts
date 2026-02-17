@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 import type { Experiment, FeatureFlagType } from '~/types'
 
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
+import { selectExistingFeatureFlagModalLogic } from '../ExperimentForm/selectExistingFeatureFlagModalLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
 import { NEW_EXPERIMENT } from '../constants'
 import type { experimentWizardLogicType } from './experimentWizardLogicType'
@@ -54,6 +55,8 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             ],
             variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false }),
             ['validateFeatureFlagKey', 'clearFeatureFlagKeyValidation'],
+            selectExistingFeatureFlagModalLogic,
+            ['loadFeatureFlagsForAutocomplete', 'loadFeatureFlagsSuccess'],
         ],
     })),
 
@@ -167,6 +170,23 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         openFullEditor: () => {
             router.actions.push(urls.experiment('new'))
         },
+        loadFeatureFlagsSuccess: ({
+            featureFlags,
+        }: {
+            featureFlags: { results: FeatureFlagType[]; count: number }
+        }) => {
+            const key = values.experiment?.feature_flag_key
+            if (key && !values.linkedFeatureFlag && featureFlags.results?.length) {
+                const match = featureFlags.results.find((f) => f.key === key)
+                if (match) {
+                    actions.setLinkedFeatureFlag(match)
+                    actions.setFeatureFlagConfig({
+                        feature_flag_key: match.key,
+                        feature_flag_variants: match.filters?.multivariate?.variants || [],
+                    })
+                }
+            }
+        },
         nextStep: () => {
             actions.markStepDeparted(values.currentStep)
             const currentIndex = WIZARD_STEPS.indexOf(values.currentStep)
@@ -201,6 +221,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
     events(({ actions }) => ({
         afterMount: () => {
             actions.resetWizard()
+            actions.loadFeatureFlagsForAutocomplete()
         },
     })),
 ])
