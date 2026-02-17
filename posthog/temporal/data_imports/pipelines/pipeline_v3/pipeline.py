@@ -40,7 +40,7 @@ from products.data_warehouse.backend.models import ExternalDataJob, ExternalData
 from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
-KAFKA_FLUSH_BATCH_SIZE = 100
+PARQUET_COMPRESSION = "zstd"
 
 
 class PipelineV3(Generic[ResumableData]):
@@ -92,7 +92,9 @@ class PipelineV3(Generic[ResumableData]):
 
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
 
-        self._s3_batch_writer = S3BatchWriter(self._logger, self._job, str(self._schema.id), self._job.workflow_run_id)
+        self._s3_batch_writer = S3BatchWriter(
+            self._logger, self._job, str(self._schema.id), self._job.workflow_run_id, compression=PARQUET_COMPRESSION
+        )
 
         sync_type: SyncTypeLiteral = "full_refresh"
         if self._schema.is_incremental:
@@ -201,9 +203,6 @@ class PipelineV3(Generic[ResumableData]):
                 if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
                     self._shutdown_monitor.raise_if_is_worker_shutdown()
 
-                if len(self._batch_results) >= KAFKA_FLUSH_BATCH_SIZE:
-                    self._kafka_producer.flush()
-
             if self._batcher.should_yield(include_incomplete_chunk=True):
                 py_table = self._batcher.get_table()
                 row_count += py_table.num_rows
@@ -242,6 +241,7 @@ class PipelineV3(Generic[ResumableData]):
         self._batch_results.append(batch_result)
 
         self._kafka_producer.send_batch_notification(batch_result, is_final_batch=False, cumulative_row_count=row_count)
+        self._kafka_producer.flush()
 
         self._internal_schema.add_pyarrow_table(pa_table)
 
