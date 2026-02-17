@@ -199,8 +199,17 @@ async def _check_actionability(
         )
         response_text = (response.text or "").strip().upper()
         return "NOT_ACTIONABLE" not in response_text
-    except Exception:
+    except Exception as e:
         # If LLM call fails, allow to pass to not block the emission, as fails should not happen often
+        posthoganalytics.capture_exception(
+            e,
+            properties={
+                "tag": "data_warehouse_signals_import",
+                "error_type": "actionability_check_failed",
+                "source_type": output.source_type,
+                "source_id": output.source_id,
+            },
+        )
         return True
 
 
