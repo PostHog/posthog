@@ -1,24 +1,29 @@
-import { LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 
-import { ProductTourBannerConfig, ProductTourStep } from '~/types'
+import { LemonInput, LemonSegmentedButton, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+
+import { ProductTourBannerConfig } from '~/types'
 
 import { TourSelector } from '../components/TourSelector'
+import { productTourLogic } from '../productTourLogic'
 
 export interface BannerSettingsPanelProps {
-    step: ProductTourStep
-    onChange: (step: ProductTourStep) => void
+    tourId: string
 }
 
-export function BannerSettingsPanel({ step, onChange }: BannerSettingsPanelProps): JSX.Element {
+export function BannerSettingsPanel({ tourId }: BannerSettingsPanelProps): JSX.Element {
+    const { productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
+    const { updateSelectedStep } = useActions(productTourLogic({ id: tourId }))
+
+    const steps = productTourForm.content?.steps ?? []
+    const step = steps[selectedStepIndex]
+
     const behavior = step.bannerConfig?.behavior ?? 'sticky'
     const actionType = step.bannerConfig?.action?.type ?? 'none'
-
-    const updateStep = (updates: Partial<ProductTourStep>): void => {
-        onChange({ ...step, ...updates })
-    }
+    const animateIn = (step.bannerConfig?.animation?.duration ?? 0) > 0
 
     const updateBannerConfig = (updates: Partial<ProductTourBannerConfig>): void => {
-        updateStep({
+        updateSelectedStep({
             bannerConfig: {
                 ...step.bannerConfig,
                 behavior,
@@ -41,7 +46,7 @@ export function BannerSettingsPanel({ step, onChange }: BannerSettingsPanelProps
         <div className="py-3 px-4">
             <div className="flex gap-10">
                 <div className="flex-1 min-w-0 space-y-4">
-                    <div className="flex items-center justify-between gap-4">
+                    <div className="flex flex-col items-start gap-2">
                         <div>
                             <div className="font-medium text-sm">Position</div>
                             <div className="text-muted text-xs">
@@ -77,6 +82,20 @@ export function BannerSettingsPanel({ step, onChange }: BannerSettingsPanelProps
                             fullWidth
                         />
                     )}
+                    <div className="flex items-center gap-2">
+                        <Tooltip title="Banner slides in from the top of the page with a brief animation. When disabled, the banner will appear suddenly after page load, potentially causing a layout shift.">
+                            <div className="font-medium text-sm">Animate in</div>
+                        </Tooltip>
+                        <LemonSwitch
+                            data-attr="product-tours-banner-animation-toggle"
+                            checked={animateIn}
+                            onChange={(checked) =>
+                                updateBannerConfig({
+                                    animation: { duration: checked ? 300 : 0 },
+                                })
+                            }
+                        />
+                    </div>
                 </div>
 
                 <div className="flex-1 min-w-0 space-y-3">

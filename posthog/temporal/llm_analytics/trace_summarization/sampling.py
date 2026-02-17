@@ -5,12 +5,15 @@ The full trace data is fetched later by the summarization activity using
 TraceQueryRunner per-item, so sampling only needs IDs and timestamps.
 """
 
+from typing import Any
+
 import structlog
 import temporalio
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
@@ -45,7 +48,12 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
         raise ValueError("window_start and window_end must be provided by the workflow")
 
     def _sample_items(
-        team_id: int, window_start: str, window_end: str, max_items: int, analysis_level: str
+        team_id: int,
+        window_start: str,
+        window_end: str,
+        max_items: int,
+        analysis_level: str,
+        event_filters: list[dict[str, Any]] | None = None,
     ) -> list[SampledItem]:
         try:
             team = Team.objects.get(id=team_id)
@@ -55,6 +63,12 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
 
         start_dt_str = format_datetime_for_clickhouse(window_start)
         end_dt_str = format_datetime_for_clickhouse(window_end)
+
+        # Build optional trace filter expression from property filters
+        trace_filter_expr: ast.Expr | None = None
+        if event_filters:
+            filter_exprs = [property_to_expr(f, team) for f in event_filters]
+            trace_filter_expr = ast.And(exprs=filter_exprs) if len(filter_exprs) > 1 else filter_exprs[0]
 
         if analysis_level == "generation":
             # Sample generations directly: get the last generation per trace
@@ -80,6 +94,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                 HAVING last_generation_id IS NOT NULL
                     AND event_count <= {max_events}
                     AND total_properties_size <= {max_properties_size}
+                    AND countIf({trace_filter}) > 0
                 ORDER BY trace_first_timestamp DESC
                 LIMIT {limit}
                 """
@@ -94,6 +109,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     "limit": ast.Constant(value=max_items),
                     "max_events": ast.Constant(value=MAX_TRACE_EVENTS_LIMIT),
                     "max_properties_size": ast.Constant(value=MAX_TRACE_PROPERTIES_SIZE),
+                    "trace_filter": trace_filter_expr or ast.Constant(value=True),
                 },
                 team=team,
                 limit_context=LimitContext.QUERY_ASYNC,
@@ -144,6 +160,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                 GROUP BY trace_id
                 HAVING event_count <= {max_events}
                     AND total_properties_size <= {max_properties_size}
+                    AND countIf({trace_filter}) > 0
                 ORDER BY first_timestamp DESC
                 LIMIT {limit}
                 """
@@ -158,6 +175,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     "limit": ast.Constant(value=max_items),
                     "max_events": ast.Constant(value=MAX_TRACE_EVENTS_LIMIT),
                     "max_properties_size": ast.Constant(value=MAX_TRACE_PROPERTIES_SIZE),
+                    "trace_filter": trace_filter_expr or ast.Constant(value=True),
                 },
                 team=team,
                 limit_context=LimitContext.QUERY_ASYNC,
@@ -190,6 +208,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
             inputs.window_end,
             inputs.max_items,
             inputs.analysis_level,
+            event_filters=inputs.event_filters if inputs.event_filters else None,
         )
 
     logger.debug(

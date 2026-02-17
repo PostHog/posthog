@@ -61,7 +61,7 @@
         HAVING ifNull(equals(start_interval_index, 0), 0)) AS actor_activity
      GROUP BY actor_activity.actor_id) AS source
   ORDER BY length(source.appearances) DESC, source.actor_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -172,7 +172,7 @@
         HAVING ifNull(equals(start_interval_index, 0), 0)) AS actor_activity
      GROUP BY actor_activity.actor_id) AS source
   ORDER BY length(source.appearances) DESC, source.actor_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,

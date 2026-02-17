@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from collections import defaultdict
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
@@ -21,7 +24,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventDefinition, Team
+from posthog.models import EventDefinition, ObjectMediaPreview, Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
@@ -262,6 +265,31 @@ class EventDefinitionViewSet(
             results = [("last_seen_at::date", "DESC"), ("name", "ASC")]
 
         return results
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        objects = page if page is not None else list(queryset)
+
+        # Batch-fetch media preview URLs to avoid N+1 queries in the serializer
+        event_ids = [obj.id for obj in objects]
+        media_map: dict[str, list[str]] = defaultdict(list)
+        if event_ids:
+            previews = (
+                ObjectMediaPreview.objects.filter(event_definition_id__in=event_ids)
+                .select_related("uploaded_media", "exported_asset")
+                .order_by("-updated_at")
+            )
+            for p in previews:
+                if p.media_url:
+                    media_map[str(p.event_definition_id)].append(p.media_url)
+
+        serializer = self.get_serializer(objects, many=True)
+        serializer.context["media_preview_urls_map"] = media_map
+
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return response.Response(serializer.data)
 
     def dangerously_get_object(self):
         return self._get_event_definition(id=self.kwargs["id"], team__project_id=self.project_id)
