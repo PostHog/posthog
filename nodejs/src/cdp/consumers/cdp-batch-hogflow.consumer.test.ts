@@ -380,7 +380,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             })
 
             expect(result).toHaveLength(3)
-            expect(result.map((item) => item.person?.id)).toEqual(['person-1', 'person-2', 'person-3'])
+            expect(result.map((item) => item.state?.person?.id)).toEqual(['person-1', 'person-2', 'person-3'])
 
             expect(mockGetBlastRadiusPersons).toHaveBeenCalledTimes(2)
             expect(mockGetBlastRadiusPersons).toHaveBeenNthCalledWith(1, team, batchRequest.filters, 5, null)
