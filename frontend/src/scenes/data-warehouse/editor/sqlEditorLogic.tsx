@@ -53,8 +53,8 @@ import { ViewEmptyState } from './ViewLoadingState'
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
-import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
+import type { sqlEditorLogicType } from './sqlEditorLogicType'
 import {
     aiSuggestionOnAccept,
     aiSuggestionOnAcceptText,
@@ -62,7 +62,7 @@ import {
     aiSuggestionOnRejectText,
 } from './suggestions/aiSuggestion'
 
-export interface MultitabEditorLogicProps {
+export interface SqlEditorLogicProps {
     tabId: string
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
@@ -89,14 +89,14 @@ export interface SuggestionPayload {
     source?: 'max_ai' | 'hogql_fixer'
     onAccept: (
         shouldRunQuery: boolean,
-        actions: multitabEditorLogicType['actions'],
-        values: multitabEditorLogicType['values'],
-        props: multitabEditorLogicType['props']
+        actions: sqlEditorLogicType['actions'],
+        values: sqlEditorLogicType['values'],
+        props: sqlEditorLogicType['props']
     ) => void
     onReject: (
-        actions: multitabEditorLogicType['actions'],
-        values: multitabEditorLogicType['values'],
-        props: multitabEditorLogicType['props']
+        actions: sqlEditorLogicType['actions'],
+        values: sqlEditorLogicType['values'],
+        props: sqlEditorLogicType['props']
     ) => void
 }
 
@@ -109,7 +109,7 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
     types: string[][]
 }
 
-function getTabHash(values: multitabEditorLogicType['values']): Record<string, any> {
+function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     const hash: Record<string, any> = {
         q: values.queryInput ?? '',
     }
@@ -126,10 +126,9 @@ function getTabHash(values: multitabEditorLogicType['values']): Record<string, a
     return hash
 }
 
-// Misnomer now: this logic is responsible for the state of one sql editor tab
-export const multitabEditorLogic = kea<multitabEditorLogicType>([
-    path(['data-warehouse', 'editor', 'multitabEditorLogic']),
-    props({} as MultitabEditorLogicProps),
+export const sqlEditorLogic = kea<sqlEditorLogicType>([
+    path(['data-warehouse', 'editor', 'sqlEditorLogic']),
+    props({} as SqlEditorLogicProps),
     tabAwareScene(),
     connect(() => ({
         values: [
@@ -172,8 +171,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             queryOverride,
             switchTab,
         }),
-        setActiveQuery: (query: string) => ({ query }),
-
         createTab: (
             query?: string,
             view?: DataWarehouseSavedQuery,
@@ -204,6 +201,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({ sourceQuery }),
         setMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
         setMetadataLoading: (loading: boolean) => ({ loading }),
+        setInsightLoading: (loading: boolean) => ({ loading }),
         editView: (query: string, view: DataWarehouseSavedQuery) => ({ query, view }),
         editInsight: (query: string, insight: QueryBasedInsightModel) => ({ query, insight }),
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
@@ -231,7 +229,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         updateViewSuccess: (view: UpdateViewPayload, draftId?: string) => ({ view, draftId }),
         setUpstreamViewMode: (mode: 'graph' | 'table') => ({ mode }),
         setHoveredNode: (nodeId: string | null) => ({ nodeId }),
-        setTabDraftId: (tabUri: string, draftId: string) => ({ tabUri, draftId }),
         saveDraft: (activeTab: QueryTab, queryInput: string, viewId: string) => ({
             activeTab,
             queryInput,
@@ -287,16 +284,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 setQueryInput: (_, { queryInput }) => queryInput,
             },
         ],
-        activeQuery: [
-            null as string | null,
-            {
-                setActiveQuery: (_, { query }) => query,
-            },
-        ],
         editingInsight: [
             null as QueryBasedInsightModel | null,
             {
                 updateTab: (_, { tab }) => tab.insight ?? null,
+            },
+        ],
+        insightLoading: [
+            false,
+            {
+                setInsightLoading: (_, { loading }) => loading,
             },
         ],
         activeTab: [
@@ -1204,10 +1201,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             : undefined
 
                         actions.createTab(draft.query.query, associatedView, undefined, draft)
-
-                        if (values.activeTab) {
-                            actions.setTabDraftId(values.activeTab.uri.toString(), draft.id)
-                        }
                     }
                     return
                 } else if (searchParams.open_view || (hashParams.view && values.queryInput === null)) {
@@ -1245,7 +1238,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         actions.updateTab({ ...values.activeTab, insight: undefined })
                     }
                     actions._setSuggestionPayload(null)
-                    actions.setQueryInput(null)
 
                     const shortId = searchParams.open_insight || hashParams.insight
                     if (shortId === 'new') {
@@ -1257,7 +1249,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     }
 
                     // Open Insight
-                    const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
+                    actions.setInsightLoading(true)
+                    let insight: QueryBasedInsightModel | null
+                    try {
+                        insight = await insightsApi.getByShortId(shortId, undefined, 'async')
+                    } catch {
+                        actions.setInsightLoading(false)
+                        lemonToast.error('Insight not found')
+                        return
+                    }
+                    actions.setInsightLoading(false)
                     if (!insight) {
                         lemonToast.error('Insight not found')
                         return
