@@ -1,6 +1,6 @@
 ---
 name: resource-duplication
-description: Resource duplication exprt - use when configuring a resource to be copied between projects.
+description: Resource duplication expert - use when configuring a resource to be copied between projects.
 tools: Read, Write, Edit, MultiEdit, Grep, Glob, Bash
 ---
 
@@ -16,7 +16,7 @@ Resource duplication is a feature we offer to customers, which allows them to co
 
 ### Overview
 
-Resources are duplicated by constructing a data-dependency graph between django models, topoligically sorting each vertex in the graph, the iteratively duplicating each resource in the resulting directed acyclic graph.
+Resources are duplicated by constructing a data-dependency graph between django models, topologically sorting each vertex in the graph, then iteratively duplicating each resource in the resulting directed acyclic graph.
 
 Dependencies between models are detected from 1) django relations (ex: models.ForeignKeyField, related_name=, etc.), and 2) functions that extract foreign keys from JSON columns (in the code these are called dynamic edges).
 
@@ -52,7 +52,7 @@ Some resources like Teams, Users, Projects do not make sense to copy because the
 
 ### User facing resources
 
-If your resource is a child resource of other another resource that can be duplicated, and you do NOT want your resource to be shown in the UI when duplicating, then set `user_facing=False`. In this case, the resource will not be shown in the UI, the user will not have an option to perform a substitution for an existing resource, and your resource will always be duplicated.
+If your resource is a child resource of another resource that can be duplicated, and you do NOT want your resource to be shown in the UI when duplicating, then set `user_facing=False`. In this case, the resource will not be shown in the UI, the user will not have an option to perform a substitution for an existing resource, and your resource will always be duplicated.
 
 For example, this is needed for some join tables like `DashboardTile`, which is an internal resource that the user is not aware of, but is needed for data modeling reasons.
 
