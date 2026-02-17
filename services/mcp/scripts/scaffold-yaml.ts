@@ -14,6 +14,7 @@
  *   pnpm scaffold-yaml --path /api/projects/{project_id}/actions/
  *   pnpm scaffold-yaml --sync-all
  */
+import { execSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
@@ -59,6 +60,18 @@ const YAML_HEADER = `# MCP tool definition — tool entries are scaffolded from 
 // ------------------------------------------------------------------
 // Helpers
 // ------------------------------------------------------------------
+
+function formatWithPrettier(filePaths: string[]): void {
+    if (filePaths.length === 0) {
+        return
+    }
+    const quoted = filePaths.map((f) => `"${f}"`).join(' ')
+    try {
+        execSync(`pnpm exec prettier --write ${quoted}`, { stdio: 'pipe', cwd: REPO_ROOT })
+    } catch {
+        // Not critical — prettier may not be available in all environments
+    }
+}
 
 function loadOpenApi(): OpenApiSpec {
     if (!fs.existsSync(OPENAPI_PATH)) {
@@ -247,9 +260,11 @@ function mergeWithExisting(
 // ------------------------------------------------------------------
 
 /**
- * Re-scaffold all existing YAML definitions. Reads the `feature` field
- * from each YAML as the tag, finds matching OpenAPI operations, and
- * merges new/removed operations. Idempotent and non-destructive.
+ * Re-scaffold all existing YAML definitions. Derives the product name
+ * from the file/directory structure, finds matching OpenAPI operations
+ * by URL path, and merges new/removed operations. Idempotent and
+ * non-destructive. Runs prettier on written files so output matches
+ * what lint-staged produces.
  */
 function syncAll(spec: OpenApiSpec): void {
     interface SyncTarget {
@@ -298,6 +313,8 @@ function syncAll(spec: OpenApiSpec): void {
         return
     }
 
+    const writtenFiles: string[] = []
+
     for (const { product, filePath } of targets) {
         const rawOps = findOperationsByProduct(spec, product)
         const ops = deduplicateOperations(rawOps)
@@ -307,6 +324,7 @@ function syncAll(spec: OpenApiSpec): void {
         }
         const { content, added, removed } = mergeWithExisting(filePath, ops, product)
         fs.writeFileSync(filePath, content)
+        writtenFiles.push(filePath)
         const parts = [`${ops.length} operation(s)`]
         if (added > 0) {
             parts.push(`${added} new`)
@@ -319,6 +337,8 @@ function syncAll(spec: OpenApiSpec): void {
         }
         process.stdout.write(`${product}: ${parts.join(', ')}\n`)
     }
+
+    formatWithPrettier(writtenFiles)
 }
 
 function main(): void {
@@ -385,6 +405,8 @@ function main(): void {
         fs.writeFileSync(resolvedOutput, generateFreshYaml(ops, name))
         process.stdout.write(`${ops.length} operation(s) — created ${resolvedOutput}\n`)
     }
+
+    formatWithPrettier([resolvedOutput])
 }
 
 main()
