@@ -1,1 +1,1 @@
-1011_eventschema_enforcement_mode
+1012_eventschema_enforcement_mode_idx
