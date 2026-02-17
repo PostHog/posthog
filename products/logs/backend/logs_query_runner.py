@@ -19,7 +19,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import operator_is_negative, property_to_expr
+from posthog.hogql.property import get_lowercase_index_hint, operator_is_negative, property_to_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -277,7 +277,10 @@ class LogsQueryRunnerMixin(QueryRunner):
                 exprs.append(property_to_expr(self.attribute_filters, team=self.team))
 
             if self.log_filters:
-                exprs.append(property_to_expr(self.log_filters, team=self.team))
+                for filter in self.log_filters:
+                    if filter.key == "message":
+                        exprs.append(get_lowercase_index_hint(filter, team=self.team))
+                    exprs.append(property_to_expr(filter, team=self.team))
 
         exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 

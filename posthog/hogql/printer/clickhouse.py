@@ -45,6 +45,7 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
     "$ai_trace_id",
     "$ai_session_id",
     "$ai_is_error",
+    "body",
 }
 
 
