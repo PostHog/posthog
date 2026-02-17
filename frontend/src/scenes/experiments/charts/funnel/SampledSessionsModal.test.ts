@@ -4,7 +4,6 @@ import { parseTimestamp } from './SampledSessionsModal'
 
 describe('parseTimestamp', () => {
     it('parses bare datetime string using project timezone', () => {
-        // "2026-02-14 00:24:05" in US/Pacific = 08:24:05 UTC
         const result = parseTimestamp('2026-02-14 00:24:05', 'US/Pacific')
         expect(result.utc().format('YYYY-MM-DD HH:mm:ss')).toBe('2026-02-14 08:24:05')
     })
@@ -15,7 +14,6 @@ describe('parseTimestamp', () => {
     })
 
     it('parses bare datetime string in Europe/London timezone', () => {
-        // In February, Europe/London is UTC+0
         const result = parseTimestamp('2026-02-14 08:24:05', 'Europe/London')
         expect(result.utc().format('YYYY-MM-DD HH:mm:ss')).toBe('2026-02-14 08:24:05')
     })

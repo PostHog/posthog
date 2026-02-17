@@ -17,9 +17,7 @@ import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
 
-/** Parse a timestamp string, converting from project timezone if needed.
- *  If the string already has timezone info (Z or +/-offset), parse it directly.
- *  Otherwise, treat it as a local time in the project timezone. */
+/** Bare datetime strings (no Z or offset) are assumed to be in the project timezone. */
 export const parseTimestamp = (timestamp: string, timezone: string): Dayjs => {
     if (/([Zz]|[+-]\d{2}:?\d{2})\s*$/.test(timestamp)) {
         return dayjs(timestamp)

@@ -211,7 +211,7 @@ export function findNewEvents(allSnapshots: eventWithTime[], currentEvents: even
     return newEvents
 }
 
-/** Find the segment that contains the given timestamp, with fallback for out-of-range timestamps. */
+/** Find the segment containing this timestamp, falling back to the nearest valid one if out of range. */
 export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?: number): RecordingSegment | null {
     if (timestamp === undefined) {
         return null
@@ -222,9 +222,8 @@ export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?
                 return segment
             }
         }
-        // Timestamp is outside all segments (e.g. due to timezone mismatch).
-        // Fall back to the nearest segment with a windowId so the player can
-        // still initialize instead of getting stuck buffering forever.
+        // Timestamp doesn't fall in any segment (e.g. timezone mismatch).
+        // Pick the nearest segment that has a windowId so the player can still boot.
         const nearest =
             timestamp < segments[0].startTimestamp
                 ? segments.find((s) => s.windowId !== undefined)
