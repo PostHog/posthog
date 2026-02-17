@@ -77,7 +77,7 @@ export function SidePanelOfframpModal(): JSX.Element {
             open={shouldShowOfframpModal}
             onOpenChange={(open) => {
                 if (!open) {
-                    dismissOfframpModal()
+                    dismissOfframpModal(activeIndex)
                 }
             }}
             className="group bg-surface-popover w-[300px] md:w-[640px] max-h-[none]"
@@ -106,6 +106,7 @@ export function SidePanelOfframpModal(): JSX.Element {
                                 setActiveTab(steps[activeIndex - 1].id)
                             }
                         }}
+                        data-attr={`context-panel-offramp-${step.id}-content`}
                     >
                         <div className="flex flex-col @md:flex-row">
                             <div
@@ -134,6 +135,7 @@ export function SidePanelOfframpModal(): JSX.Element {
                             isFirstStep && 'cursor-default opacity-0 pointer-events-none'
                         )}
                         tabIndex={isFirstStep ? -1 : 0}
+                        data-attr="context-panel-offramp-back-button"
                     >
                         Back
                     </LemonButton>
@@ -145,6 +147,7 @@ export function SidePanelOfframpModal(): JSX.Element {
                         )}
                         tabIndex={isFirstStep ? -1 : 0}
                         size="lg"
+                        data-attr="context-panel-offramp-back-icon-button"
                     >
                         <IconArrowLeft />
                     </ButtonPrimitive>
@@ -157,6 +160,7 @@ export function SidePanelOfframpModal(): JSX.Element {
                                     i === activeIndex ? 'bg-accent' : 'bg-fill-tertiary'
                                 }`}
                                 onClick={() => setActiveTab(step.id)}
+                                data-attr={`context-panel-offramp-step-indicator-${step.id}`}
                             />
                         ))}
                     </div>
@@ -164,8 +168,9 @@ export function SidePanelOfframpModal(): JSX.Element {
                         <LemonButton
                             type="primary"
                             size="small"
-                            onClick={dismissOfframpModal}
+                            onClick={() => dismissOfframpModal(activeIndex)}
                             className="justify-self-end"
+                            data-attr="context-panel-offramp-dont-show-again-button"
                         >
                             Don't show again
                         </LemonButton>
@@ -176,6 +181,7 @@ export function SidePanelOfframpModal(): JSX.Element {
                                 size="small"
                                 className="hidden @xl:block justify-self-end"
                                 onClick={() => setActiveTab(steps[activeIndex + 1].id)}
+                                data-attr="context-panel-offramp-next-button"
                             >
                                 Next
                             </LemonButton>
@@ -184,6 +190,7 @@ export function SidePanelOfframpModal(): JSX.Element {
                                 variant="outline"
                                 size="lg"
                                 onClick={() => setActiveTab(steps[activeIndex + 1].id)}
+                                data-attr="context-panel-offramp-next-icon-button"
                             >
                                 <IconArrowRight />
                             </ButtonPrimitive>

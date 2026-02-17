@@ -87,6 +87,7 @@ export function SceneTitlePanelButton({
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
                     iconOnly
+                    data-attr="open-context-panel-ai-button"
                 >
                     <div className="relative">
                         <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
@@ -113,6 +114,7 @@ export function SceneTitlePanelButton({
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
                     iconOnly
+                    data-attr="open-context-panel-button"
                 >
                     <IconSidePanel className="text-primary group-hover:text-primary z-10" />
                 </ButtonPrimitive>

@@ -70,6 +70,7 @@ export function HealthMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
                         iconOnly={iconOnly}
                         className="group"
                         menuItem={!iconOnly}
+                        data-attr="health-menu-button"
                     >
                         <span className="flex text-secondary group-hover:text-primary">
                             <IconWithBadge size="xsmall" content={triggerBadgeContent} status={triggerBadgeStatus}>
@@ -113,6 +114,7 @@ export function HealthMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
                                                 className:
                                                     'flex flex-col gap-1 p-2 border border-primary rounded h-32 items-center justify-center shadow hover:border-accent transition-colors',
                                             }}
+                                            data-attr="health-menu-view-health-overview-button"
                                         >
                                             <IconStethoscope className="size-5" />
                                             <span className="text-sm font-medium">View health overview</span>
@@ -135,6 +137,7 @@ export function HealthMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
                                             tooltip={postHogStatusTooltip}
                                             tooltipPlacement="right"
                                             tooltipCloseDelayMs={0}
+                                            data-attr="health-menu-posthog-status-button"
                                         >
                                             <IconWithBadge
                                                 content={postHogStatusBadgeContent}
@@ -158,6 +161,7 @@ export function HealthMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
                                             tooltip={sdkDoctorTooltip}
                                             tooltipPlacement="right"
                                             tooltipCloseDelayMs={0}
+                                            data-attr="health-menu-sdk-doctor-button"
                                         >
                                             <IconWithBadge
                                                 size="xsmall"
@@ -179,6 +183,7 @@ export function HealthMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
                                             tooltip={pipelineStatusTooltip}
                                             tooltipPlacement="right"
                                             tooltipCloseDelayMs={0}
+                                            data-attr="health-menu-pipeline-status-button"
                                         >
                                             <IconWithBadge
                                                 size="xsmall"
@@ -193,7 +198,12 @@ export function HealthMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
                                 />
                                 <Menu.Item
                                     render={(props) => (
-                                        <Link {...props} to={urls.ingestionWarnings()} buttonProps={{ menuItem: true }}>
+                                        <Link
+                                            {...props}
+                                            to={urls.ingestionWarnings()}
+                                            buttonProps={{ menuItem: true }}
+                                            data-attr="health-menu-ingestion-warnings-button"
+                                        >
                                             <IconWarning className="size-5" />
                                             Ingestion warnings
                                         </Link>
