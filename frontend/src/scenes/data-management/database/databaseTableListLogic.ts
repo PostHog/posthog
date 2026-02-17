@@ -83,7 +83,8 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         ],
         allTablesMap: [
             (s) => [s.allTables],
-            (allTables: DatabaseSchemaTable[]): Record<string, DatabaseSchemaTable> => toMapByName(allTables),
+            (allTables: DatabaseSchemaTable[]): Record<string, DatabaseSchemaTable> =>
+                toMapByName(allTables.filter((t) => t.type !== 'endpoint')),
             { resultEqualityCheck: objectsEqual },
         ],
         posthogTables: [
