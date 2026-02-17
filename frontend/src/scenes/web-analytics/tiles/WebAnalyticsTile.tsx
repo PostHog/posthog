@@ -867,6 +867,7 @@ export const WebStatsTableTile = ({
 
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
+            // Compound breakdowns (UTM s/m/c, Viewport, Timezone) have dedicated handling in onClick
             if (!key && !type && !isCompoundBreakdown) {
                 return {}
             }
