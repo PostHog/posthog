@@ -28,10 +28,11 @@ class TestProductAnalyticsAgentToolkit(BaseTest):
             context_manager=AssistantContextManager(self.team, self.user, RunnableConfig(configurable={})),
         )
 
-        # Check that CreateInsightTool is in the tools property
+        # Check that CreateInsightTool and CreateAlertTool are in the tools property
         tool_classes = toolkit.tools
         tool_class_names = [tool_class.__name__ for tool_class in tool_classes]
         self.assertIn("CreateInsightTool", tool_class_names)
+        self.assertIn("CreateAlertTool", tool_class_names)
 
 
 class TestProductAnalyticsAgentNode(BaseTest):
