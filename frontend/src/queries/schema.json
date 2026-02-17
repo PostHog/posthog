@@ -15420,7 +15420,8 @@
                 "BingAds",
                 "Shopify",
                 "Attio",
-                "SnapchatAds"
+                "SnapchatAds",
+                "Linear"
             ],
             "type": "string"
         },
