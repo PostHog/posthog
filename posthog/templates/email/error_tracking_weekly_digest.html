@@ -19,7 +19,7 @@
     <p style="margin: 0 0 16px 0; font-size: 0.85em; color: #6b7280; text-align: left;">All exceptions captured across <strong>{{ team.name }}</strong> in the last 7 days.</p>
     <div style="text-align: center;">
         <p style="margin: 0 0 16px 0; font-size: 2.5em; font-weight: bold;">
-            {{ exception_count|intcomma }}
+            {{ exception_count|compact_number }}
         </p>
         {% if daily_counts %}
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
@@ -48,11 +48,11 @@
             </td>
             <td align="center" style="text-align: center; padding: 8px;">
                 <div style="font-size: 0.8em; color: #6b7280;">Total sessions</div>
-                <div style="font-size: 1.5em; font-weight: bold;">{{ crash_free.total_sessions|intcomma }}</div>
+                <div style="font-size: 1.5em; font-weight: bold;">{{ crash_free.total_sessions|compact_number }}</div>
             </td>
             <td align="center" style="text-align: center; padding: 8px;">
                 <div style="font-size: 0.8em; color: #6b7280;">Crashed sessions</div>
-                <div style="font-size: 1.5em; font-weight: bold;">{{ crash_free.crash_sessions|intcomma }}</div>
+                <div style="font-size: 1.5em; font-weight: bold;">{{ crash_free.crash_sessions|compact_number }}</div>
             </td>
         </tr>
     </table>
@@ -96,7 +96,7 @@
                     {% endif %}
                 </td>
                 <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; color: #111827; white-space: nowrap; width: 90px;">
-                    {{ issue.occurrence_count|intcomma }}
+                    {{ issue.occurrence_count|compact_number }}
                 </td>
             </tr>
             {% endfor %}
@@ -142,7 +142,7 @@
                     {% endif %}
                 </td>
                 <td align="right" style="padding: 10px 0 10px 8px; vertical-align: middle; color: #111827; white-space: nowrap; width: 90px;">
-                    {{ issue.occurrence_count|intcomma }}
+                    {{ issue.occurrence_count|compact_number }}
                 </td>
             </tr>
             {% endfor %}
@@ -154,7 +154,7 @@
 {% if ingestion_failure_count > 0 %}
 <div style="background-color: #fef3cd; border: 1px solid #ffc107; padding: 20px; border-radius: 8px; margin-bottom: 16px;">
     <p style="margin: 0 0 8px 0; font-weight: 700; color: #856404; font-size: 1em;">
-        &#9888; {{ ingestion_failure_count|intcomma }} exceptions failed to ingest
+        &#9888; {{ ingestion_failure_count|compact_number }} exceptions failed to ingest
     </p>
     <p style="margin: 0 0 16px 0; color: #664d03; font-size: 0.9em;">
         Sometimes our ingestion pipeline fails to process exceptions. This is usually caused by malformed events being sent. You can inspect each failed exception to see what went wrong by expanding it.
