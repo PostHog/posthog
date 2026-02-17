@@ -66,6 +66,7 @@ jobs:
             clickhouse_oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             clickhouse_oldest_supported_image: ${{ steps.read-versions.outputs.oldest_supported_image }}
             clickhouse_all: ${{ steps.read-versions.outputs.all }}
+            clickhouse_skip_compat: ${{ steps.check-compat.outputs.skip }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -182,6 +183,19 @@ jobs:
                   fi
                   echo "all=$all" >> $GITHUB_OUTPUT
                   echo "All versions for compat tests: $all"
+
+            - name: Check if compat tests are needed
+              id: check-compat
+              if: github.event_name == 'push' || steps.filter.outputs.backend == 'true'
+              run: |
+                  UNIQUE=$(jq -r '[.[]] | unique | length' .github/clickhouse-versions.json)
+                  if [ "$UNIQUE" -eq 1 ]; then
+                    echo "skip=true" >> $GITHUB_OUTPUT
+                    echo "All CH versions identical — compat tests provide no additional coverage, skipping"
+                  else
+                    echo "skip=false" >> $GITHUB_OUTPUT
+                    echo "Multiple CH versions found — compat tests needed"
+                  fi
 
     check-idor-coverage:
         needs: [changes]
@@ -1035,7 +1049,7 @@ jobs:
     clickhouse-compat:
         name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' && needs.get_clickhouse_versions.outputs.skip_compat != 'true'
+        if: needs.changes.outputs.backend == 'true' && needs.changes.outputs.clickhouse_skip_compat != 'true'
         runs-on: depot-ubuntu-latest
         strategy:
             fail-fast: false
