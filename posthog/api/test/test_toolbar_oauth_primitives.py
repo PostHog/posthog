@@ -1,4 +1,3 @@
-import re
 import json
 from urllib.parse import parse_qs, urlparse
 
@@ -618,13 +617,8 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
         )
         assert response.status_code == 200
 
-        content = response.content.decode()
-        match = re.search(r'href="([^"]*oauth/authorize/[^"]*)"', content)
-        if not match:
-            match = re.search(r'"authorization_url":\s*"([^"]*)"', content)
-        assert match, f"Could not find authorization_url in response: {content[:500]}"
-
-        auth_url = match.group(1).replace("&amp;", "&")
+        # Use template context (not rendered HTML) because layout.html isn't available in CI
+        auth_url = response.context["authorization_url"]
         qs = parse_qs(urlparse(auth_url).query)
         return qs["state"][0]
 
