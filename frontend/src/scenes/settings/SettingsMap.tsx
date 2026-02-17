@@ -77,7 +77,6 @@ import { SurveySettings } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import { TeamDangerZone } from './environment/TeamDangerZone'
 import {
-    Bookmarklet,
     TeamAuthorizedURLs,
     TeamBusinessModel,
     TeamDisplayName,
@@ -128,35 +127,40 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'General',
         settings: [
             {
-                id: 'display-name',
-                title: 'Display name',
-                component: <TeamDisplayName />,
+                id: 'variables',
+                title: 'Project API key & ID',
+                component: <TeamVariables />,
+                keywords: ['api key', 'token', 'project id'],
             },
             {
                 id: 'snippet',
                 title: 'Web snippet',
                 component: <WebSnippet />,
+                keywords: ['javascript', 'install', 'setup', 'tracking', 'code'],
             },
             {
                 id: 'authorized-urls',
                 title: 'Toolbar Authorized URLs',
                 component: <TeamAuthorizedURLs />,
+                keywords: ['domain', 'whitelist', 'allowlist'],
             },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-customization',
+        title: 'Customization',
+        settings: [
             {
-                id: 'bookmarklet',
-                title: 'Bookmarklet',
-                component: <Bookmarklet />,
+                id: 'display-name',
+                title: 'Display name',
+                component: <TeamDisplayName />,
             },
-            {
-                id: 'variables',
-                title: 'Project ID',
-                component: <TeamVariables />,
-            },
-
             {
                 id: 'date-and-time',
                 title: 'Date & time',
                 component: <TeamTimezone />,
+                keywords: ['timezone', 'utc', 'locale'],
             },
             {
                 id: 'business-model',
@@ -168,12 +172,13 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'environment',
         id: 'environment-autocapture',
-        title: 'Autocapture & heatmaps',
+        title: 'Autocapture',
         settings: [
             {
                 id: 'autocapture',
                 title: 'Autocapture',
                 component: <AutocaptureSettings />,
+                keywords: ['click', 'input', 'form', 'dom', 'automatic', 'event'],
             },
             {
                 id: 'autocapture-data-attributes',
@@ -181,46 +186,24 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <DataAttributes />,
             },
             {
-                id: 'heatmaps',
-                title: 'Heatmaps',
-                component: <HeatmapsSettings />,
-            },
-            {
                 id: 'web-vitals-autocapture',
                 title: 'Web vitals autocapture',
                 component: <WebVitalsAutocaptureSettings />,
+                keywords: ['lcp', 'cls', 'fid', 'performance', 'core web vitals'],
             },
             {
                 id: 'dead-clicks-autocapture',
                 title: 'Dead clicks autocapture',
                 component: <DeadClicksAutocaptureSettings />,
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-csp-reporting',
-        title: 'CSP reporting',
-        flag: 'CSP_REPORTING',
-        settings: [
-            {
-                id: 'csp-reporting',
-                title: (
-                    <>
-                        CSP reporting{' '}
-                        <LemonTag type="warning" className="ml-1 uppercase">
-                            Beta
-                        </LemonTag>
-                    </>
-                ),
-                component: <CSPReportingSettings />,
+                keywords: ['rage click', 'broken', 'unresponsive'],
             },
         ],
     },
     {
         level: 'environment',
         id: 'environment-max',
-        title: 'AI',
+        title: 'PostHog AI',
+        group: 'AI',
         settings: [
             {
                 id: 'core-memory',
@@ -244,11 +227,33 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'mcp-server',
         title: 'MCP server',
+        group: 'AI',
         settings: [
             {
                 id: 'mcp-server-configure',
                 title: 'Model Context Protocol (MCP) server',
                 component: <MCPServerSettings />,
+                keywords: ['ai', 'llm', 'claude', 'cursor', 'copilot'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-csp-reporting',
+        title: 'CSP reporting',
+        flag: 'CSP_REPORTING',
+        settings: [
+            {
+                id: 'csp-reporting',
+                title: (
+                    <>
+                        CSP reporting{' '}
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                component: <CSPReportingSettings />,
             },
         ],
     },
@@ -293,6 +298,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
+                keywords: ['test account', 'internal', 'exclude', 'filter'],
             },
             {
                 id: 'data-theme',
@@ -328,13 +334,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <PathCleaningFiltersConfig />,
             },
             {
-                id: 'datacapture',
-                title: 'IP data capture configuration',
-                description:
-                    'When enabled, PostHog will discard client IP addresses from all events captured in this project. IP data will not be stored or used for location-based insights.',
-                component: <IPCapture />,
-            },
-            {
                 id: 'human-friendly-comparison-periods',
                 title: 'Human friendly comparison periods',
                 component: <HumanFriendlyComparisonPeriodsSetting />,
@@ -356,6 +355,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Sessions Table Version',
                 component: <SessionsTableVersion />,
                 flag: 'SETTINGS_SESSION_TABLE_VERSION',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-privacy',
+        title: 'Privacy',
+        settings: [
+            {
+                id: 'datacapture',
+                title: 'IP data capture configuration',
+                description:
+                    'When enabled, client IP addresses will not be stored with your events. Transformations like GeoIP enrichment and bot detection can still use the IP before it is discarded.',
+                component: <IPCapture />,
+                keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation', 'discard'],
             },
         ],
     },
@@ -438,6 +452,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'cookieless-server-hash-mode',
                 title: 'Cookieless server hash mode',
                 component: <CookielessServerHashModeSetting />,
+                keywords: ['cookie', 'privacy', 'gdpr', 'tracking', 'consent'],
             },
             {
                 id: 'bounce-rate-duration',
@@ -485,6 +500,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay',
                 title: 'Session replay',
                 component: <ReplayGeneral />,
+                keywords: ['recording', 'video', 'screen', 'session'],
             },
             {
                 id: 'replay-triggers',
@@ -495,11 +511,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-masking',
                 title: 'Privacy and masking',
                 component: <ReplayMaskingSettings />,
+                keywords: ['redact', 'sensitive', 'pii', 'hide', 'mask'],
             },
             {
                 id: 'replay-network',
                 title: 'Network capture',
                 component: <NetworkCaptureSettings />,
+                keywords: ['xhr', 'fetch', 'api', 'request', 'response', 'headers'],
             },
             {
                 id: 'web-vitals-autocapture',
@@ -540,6 +558,20 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-heatmaps',
+        title: 'Heatmaps',
+        group: 'Products',
+        settings: [
+            {
+                id: 'heatmaps',
+                title: 'Heatmaps',
+                component: <HeatmapsSettings />,
+                keywords: ['click map', 'scroll', 'rage click', 'mouse'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-surveys',
         title: 'Surveys',
         group: 'Products',
@@ -548,6 +580,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'surveys-interface',
                 title: 'Surveys web interface',
                 component: <SurveySettings />,
+                keywords: ['popup', 'widget', 'feedback', 'nps', 'csat'],
             },
         ],
     },
@@ -603,6 +636,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-exception-autocapture',
                 title: 'Exception autocapture',
                 component: <ExceptionAutocaptureSettings />,
+                keywords: ['crash', 'bug', 'exception', 'stack trace'],
             },
             {
                 id: 'error-tracking-alerting',
@@ -628,6 +662,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-symbol-sets',
                 title: 'Symbol sets',
                 component: <SymbolSets />,
+                keywords: ['source map', 'sourcemap', 'debug', 'minified'],
             },
             {
                 id: 'error-tracking-releases',
@@ -672,6 +707,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-webhooks',
                 title: 'Webhook integration',
                 component: <WebhookIntegration />,
+                keywords: ['notification', 'alert', 'http', 'callback'],
             },
             {
                 id: 'integration-slack',
@@ -697,6 +733,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-ip-allowlist',
                 title: 'Static IP addresses',
                 component: <IPAllowListInfo />,
+                keywords: ['whitelist', 'firewall', 'allowlist', 'cidr'],
             },
         ],
     },
@@ -851,6 +888,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <OrganizationAI />,
+                keywords: ['llm', 'consent', 'opt-in', 'data sharing'],
+                searchDescription:
+                    'PostHog AI features use external AI services for data analysis. This can involve transfer of identifying user data.',
             },
             {
                 id: 'organization-ip-anonymization-default',
@@ -858,6 +898,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'When enabled, new projects will automatically have "Discard client IP data" turned on. This is recommended for GDPR compliance. Existing projects are not affected.',
                 component: <OrgIPAnonymizationDefault />,
+                keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation'],
             },
         ],
     },
@@ -894,6 +935,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Organization members',
                 component: <Members />,
             },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-notifications',
+        title: 'Notifications',
+        settings: [
             {
                 id: 'email-members',
                 title: 'Notification preferences',
@@ -922,6 +970,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'authentication-domains',
                 title: 'Authentication Domains',
                 component: <VerifiedDomains />,
+                keywords: ['sso', 'saml', 'single sign-on', 'domain verification', 'enforce'],
             },
         ],
     },
@@ -934,6 +983,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-proxy',
                 title: 'Managed reverse proxies',
                 component: <ManagedReverseProxy />,
+                keywords: ['custom domain', 'dns', 'cname', 'ad blocker', 'first party'],
             },
         ],
     },
@@ -946,6 +996,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-security',
                 title: 'Security',
                 component: <OrganizationSecuritySettings />,
+                keywords: ['password', 'session', 'timeout', 'compliance'],
             },
         ],
     },
@@ -1000,11 +1051,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: '2fa',
                 title: 'Two-factor authentication',
                 component: <TwoFactorSettings />,
+                keywords: ['two-factor', 'mfa', 'authenticator', 'security', 'totp'],
             },
             {
                 id: 'passkeys',
                 title: 'Passkeys',
                 component: <PasskeySettings />,
+                keywords: ['webauthn', 'fido', 'biometric', 'passwordless'],
             },
         ],
     },
@@ -1017,6 +1070,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'personal-api-keys',
                 title: 'Personal API keys',
                 component: <PersonalAPIKeys />,
+                keywords: ['token', 'api key', 'authentication', 'secret'],
             },
         ],
     },
@@ -1053,6 +1107,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'theme',
                 title: 'Theme',
                 component: <ThemeSwitcher onlyLabel />,
+                keywords: ['dark mode', 'light mode', 'appearance', 'color scheme'],
             },
             {
                 id: 'sql-editor-tab-preference',
@@ -1064,12 +1119,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Anonymize data collection',
                 component: <OptOutCapture />,
                 hideOn: [Realm.Cloud],
+                keywords: ['telemetry', 'opt out', 'privacy', 'tracking'],
             },
             {
                 id: 'allow-impersonation',
                 title: 'Support access',
                 component: <AllowImpersonation />,
                 flag: 'CONTROL_SUPPORT_LOGIN',
+                keywords: ['impersonation', 'support login', 'debug'],
             },
             {
                 id: 'hedgehog-mode',

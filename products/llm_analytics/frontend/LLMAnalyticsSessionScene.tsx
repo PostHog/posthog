@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { Suspense, lazy } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
@@ -44,6 +45,7 @@ export function LLMAnalyticsSessionScene(): JSX.Element {
 
 function SessionSceneWrapper(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { searchParams } = useValues(router)
     const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
 
     const {
@@ -202,9 +204,12 @@ function SessionSceneWrapper(): JSX.Element {
                                                         </LemonTag>
                                                     )}
                                                     <Link
-                                                        to={urls.llmAnalyticsTrace(trace.id, {
-                                                            timestamp: getTraceTimestamp(trace.createdAt),
-                                                        })}
+                                                        to={
+                                                            combineUrl(urls.llmAnalyticsTrace(trace.id), {
+                                                                ...searchParams,
+                                                                timestamp: getTraceTimestamp(trace.createdAt),
+                                                            }).url
+                                                        }
                                                         onClick={(e) => e.stopPropagation()}
                                                         className="text-xs"
                                                     >
@@ -226,10 +231,13 @@ function SessionSceneWrapper(): JSX.Element {
                                                             </Tooltip>
                                                         ) : (
                                                             <Link
-                                                                to={urls.llmAnalyticsTrace(trace.id, {
-                                                                    timestamp: getTraceTimestamp(trace.createdAt),
-                                                                    tab: 'summary',
-                                                                })}
+                                                                to={
+                                                                    combineUrl(urls.llmAnalyticsTrace(trace.id), {
+                                                                        ...searchParams,
+                                                                        timestamp: getTraceTimestamp(trace.createdAt),
+                                                                        tab: 'summary',
+                                                                    }).url
+                                                                }
                                                                 onClick={(e) => e.stopPropagation()}
                                                                 className="text-sm font-medium"
                                                             >

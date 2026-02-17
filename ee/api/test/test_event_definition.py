@@ -13,7 +13,7 @@ from posthog.api.test.test_event_definition import EventData, capture_event
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import ActivityLog, Tag, Team, User
+from posthog.models import ActivityLog, ObjectMediaPreview, Tag, Team, UploadedMedia, User
 from posthog.models.event_definition import EventDefinition
 
 from ee.models.event_definition import EnterpriseEventDefinition
@@ -504,3 +504,75 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=nonexistent")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_list_media_preview_urls_no_n_plus_one(self):
+        """List endpoint batch-fetches media preview URLs instead of querying per event."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        # Create 5 events with media previews
+        for i in range(5):
+            event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name=f"media_event_{i}")
+            media = UploadedMedia.objects.create(
+                team=self.demo_team, file_name=f"screenshot_{i}.png", content_type="image/png"
+            )
+            ObjectMediaPreview.objects.create(team=self.demo_team, event_definition=event, uploaded_media=media)
+
+        with CaptureQueriesContext(connection) as ctx_baseline:
+            response = self.client.get("/api/projects/@current/event_definitions/")
+            assert response.status_code == status.HTTP_200_OK
+
+        baseline_queries = len(ctx_baseline)
+
+        # Add 10 more events with media previews
+        for i in range(10):
+            event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name=f"extra_media_event_{i}")
+            media = UploadedMedia.objects.create(
+                team=self.demo_team, file_name=f"extra_{i}.png", content_type="image/png"
+            )
+            ObjectMediaPreview.objects.create(team=self.demo_team, event_definition=event, uploaded_media=media)
+
+        with CaptureQueriesContext(connection) as ctx_more:
+            response = self.client.get("/api/projects/@current/event_definitions/")
+            assert response.status_code == status.HTTP_200_OK
+
+        more_queries = len(ctx_more)
+
+        # If N+1 exists, adding 10 events would add ~10 queries.
+        # With batch fetching, query count should stay roughly constant.
+        assert more_queries <= baseline_queries + 3, (
+            f"Possible N+1: {baseline_queries} queries with 5 media events, {more_queries} queries with 15 media events"
+        )
+
+    def test_list_includes_media_preview_urls(self):
+        """List endpoint returns media_preview_urls for each event definition."""
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="event_with_media")
+        media = UploadedMedia.objects.create(team=self.demo_team, file_name="screenshot.png", content_type="image/png")
+        ObjectMediaPreview.objects.create(team=self.demo_team, event_definition=event, uploaded_media=media)
+
+        response = self.client.get("/api/projects/@current/event_definitions/")
+        assert response.status_code == status.HTTP_200_OK
+
+        event_data = next(r for r in response.json()["results"] if r["name"] == "event_with_media")
+        assert len(event_data["media_preview_urls"]) == 1
+        assert "uploaded_media" in event_data["media_preview_urls"][0]
+
+    def test_list_media_preview_urls_empty_when_no_media(self):
+        """Events without media previews return empty media_preview_urls."""
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        response = self.client.get("/api/projects/@current/event_definitions/")
+        assert response.status_code == status.HTTP_200_OK
+
+        for result in response.json()["results"]:
+            assert result["media_preview_urls"] == []
