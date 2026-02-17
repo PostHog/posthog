@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
@@ -206,11 +206,32 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 ].join(' • '),
         ],
     })),
-    subscriptions({
-        documentTitle: (documentTitle: string) => {
-            if (typeof document !== 'undefined') {
-                document.title = documentTitle
+    afterMount(({ cache }) => {
+        cache.syncTitle = (): void => {
+            if (
+                document.visibilityState === 'visible' &&
+                cache.desiredTitle != null &&
+                document.title !== cache.desiredTitle
+            ) {
+                document.title = cache.desiredTitle
             }
-        },
+        }
+        cache.disposables.add(
+            () => {
+                document.addEventListener('visibilitychange', cache.syncTitle)
+                return () => document.removeEventListener('visibilitychange', cache.syncTitle)
+            },
+            'titleSync',
+            { pauseOnPageHidden: false }
+        )
     }),
+    subscriptions(({ cache }) => ({
+        documentTitle: (documentTitle: string) => {
+            if (typeof document === 'undefined') {
+                return
+            }
+            cache.desiredTitle = documentTitle
+            cache.syncTitle?.()
+        },
+    })),
 ])

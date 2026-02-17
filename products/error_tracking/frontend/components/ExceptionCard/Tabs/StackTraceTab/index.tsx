@@ -7,6 +7,7 @@ import { RawExceptionList } from 'lib/components/Errors/ExceptionList/RawExcepti
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import posthog from 'lib/posthog-typed'
 import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { cn } from 'lib/utils/css-classes'
 
 import { useCallbackOnce } from 'products/error_tracking/frontend/hooks/use-callback-once'
 
@@ -26,15 +27,17 @@ export function StackTraceTab({ className, renderActions, ...props }: StackTrace
     const { exceptionAttributes, release } = useValues(errorPropertiesLogic)
 
     return (
-        <TabsPrimitiveContent {...props}>
-            <SubHeader className="justify-between">
+        <TabsPrimitiveContent {...props} className={cn('flex flex-col', className)}>
+            <SubHeader className="justify-between shrink-0">
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
                     {release && <ReleasePreviewPill release={release} />}
                 </div>
                 {renderActions?.()}
             </SubHeader>
-            <StacktraceIssueDisplay className="p-2" />
+            <div className="flex-1 min-h-0 overflow-y-auto">
+                <StacktraceIssueDisplay className="p-2" />
+            </div>
         </TabsPrimitiveContent>
     )
 }

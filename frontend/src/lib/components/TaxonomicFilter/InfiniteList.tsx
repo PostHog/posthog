@@ -339,7 +339,7 @@ const InfiniteListRow = ({
     if (item && itemGroup) {
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
         const isExactMatchItem =
-            listGroupType === TaxonomicFilterGroupType.QuickFilters && itemGroup.type !== listGroupType
+            listGroupType === TaxonomicFilterGroupType.SuggestedFilters && itemGroup.type !== listGroupType
 
         return (
             <div
@@ -356,7 +356,12 @@ const InfiniteListRow = ({
                     }
                     return (
                         canSelectItem(listGroupType, dataWarehousePopoverFields) &&
-                        selectItem(itemGroup, itemValue ?? null, item, items.originalQuery)
+                        selectItem(
+                            itemGroup,
+                            itemValue ?? null,
+                            item,
+                            isExactMatchItem ? undefined : items.originalQuery
+                        )
                     )
                 }}
             >
@@ -424,6 +429,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         taxonomicGroups,
         selectedProperties,
         dataWarehousePopoverFields,
+        anyGroupLoading,
     } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const {
@@ -464,8 +470,15 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     // 2. We're not currently loading
     // 3. We have a search query (otherwise if hasRemoteDataSource=true, we're just waiting for data)
     // 4. We're not showing the non-captured event option
+    const isSuggestedFilters = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
     const showEmptyState =
-        totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption
+        totalListCount === 0 &&
+        !isLoading &&
+        !(isSuggestedFilters && anyGroupLoading) &&
+        (!!searchQuery || !hasRemoteDataSource) &&
+        !showNonCapturedEventOption
+    const showLoadingState =
+        (isLoading || (isSuggestedFilters && anyGroupLoading)) && (!results || results.length === 0)
 
     useEffect(() => {
         if (index >= 0 && listRef.current) {
@@ -479,12 +492,13 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list', 'h-full')}>
             {showEmptyState ? (
                 <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
-                    {listGroupType === TaxonomicFilterGroupType.QuickFilters && !searchQuery ? (
+                    {isSuggestedFilters ? (
                         <>
                             <IconSearch className="text-5xl text-tertiary" />
                             <span className="text-secondary text-center">
-                                Try pasting an email, URL, screen name, or element text
+                                Start searching and we'll suggest filters...
                             </span>
+                            <span className="text-secondary text-center">Try pasting an email, URL, or hostname</span>
                         </>
                     ) : (
                         <>
@@ -501,7 +515,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         </>
                     )}
                 </div>
-            ) : isLoading && (!results || results.length === 0) ? (
+            ) : showLoadingState ? (
                 <div className="flex items-center justify-center h-full">
                     <Spinner className="text-3xl" />
                 </div>
@@ -561,7 +575,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                 />
             )}
             {isActiveTab &&
-            selectedItemHasPopover(selectedItem, listGroupType, selectedItemGroup) &&
+            selectedItemHasPopover(selectedItem, selectedItemGroup?.type ?? listGroupType, selectedItemGroup) &&
             showPopover &&
             selectedItem ? (
                 <BindLogic
