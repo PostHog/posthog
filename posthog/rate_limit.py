@@ -624,3 +624,10 @@ class WidgetTeamThrottle(SimpleRateThrottle):
 class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
     scope = "symbol_set_upload_sustained"
     rate = "12000/hour"
+
+
+class ToolbarOAuthRefreshThrottle(IPThrottle):
+    """Rate limit the unauthenticated toolbar OAuth refresh endpoint by IP."""
+
+    scope = "toolbar_oauth_refresh"
+    rate = "30/minute"

@@ -249,44 +249,54 @@ def build_authorization_url(
     return f"{settings.SITE_URL}/oauth/authorize/?{urlencode(params)}"
 
 
-def exchange_code_for_tokens(
-    client_id: str,
-    code: str,
-    code_verifier: str,
-) -> dict[str, Any]:
-    """Exchange an authorization code for tokens by calling the token endpoint."""
-    redirect_uri = _get_redirect_uri()
+def _post_to_token_endpoint(data: dict[str, str], error_code: str) -> dict[str, Any]:
+    """POST to the OAuth token endpoint and return the parsed payload."""
     token_url = f"{settings.SITE_URL}/oauth/token/"
 
     response = requests.post(
         token_url,
-        data={
-            "grant_type": "authorization_code",
-            "client_id": client_id,
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "code_verifier": code_verifier,
-        },
+        data=data,
         timeout=settings.TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS,
     )
 
     try:
         payload = response.json()
     except (ValueError, requests.exceptions.JSONDecodeError):
-        raise ToolbarOAuthError("token_exchange_failed", "Non-JSON response from token endpoint", 502)
+        raise ToolbarOAuthError(error_code, "Non-JSON response from token endpoint", 502)
 
     if response.status_code >= 400:
-        error = payload.get("error", "token_exchange_failed")
-        detail = payload.get("error_description", "OAuth token exchange failed")
+        error = payload.get("error", error_code)
+        detail = payload.get("error_description", "OAuth token request failed")
         raise ToolbarOAuthError(error, detail, 400)
 
+    if not payload.get("access_token"):
+        raise ToolbarOAuthError(error_code, "Token response missing access_token", 502)
+
     return {
-        "access_token": payload.get("access_token"),
+        "access_token": payload["access_token"],
         "refresh_token": payload.get("refresh_token"),
         "expires_in": payload.get("expires_in"),
         "token_type": payload.get("token_type"),
         "scope": payload.get("scope"),
     }
+
+
+def exchange_code_for_tokens(
+    client_id: str,
+    code: str,
+    code_verifier: str,
+) -> dict[str, Any]:
+    """Exchange an authorization code for tokens by calling the token endpoint."""
+    return _post_to_token_endpoint(
+        data={
+            "grant_type": "authorization_code",
+            "client_id": client_id,
+            "code": code,
+            "redirect_uri": _get_redirect_uri(),
+            "code_verifier": code_verifier,
+        },
+        error_code="token_exchange_failed",
+    )
 
 
 def refresh_tokens(
@@ -294,35 +304,14 @@ def refresh_tokens(
     refresh_token: str,
 ) -> dict[str, Any]:
     """Exchange a refresh token for new access + refresh tokens."""
-    token_url = f"{settings.SITE_URL}/oauth/token/"
-
-    response = requests.post(
-        token_url,
+    return _post_to_token_endpoint(
         data={
             "grant_type": "refresh_token",
             "client_id": client_id,
             "refresh_token": refresh_token,
         },
-        timeout=settings.TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS,
+        error_code="token_refresh_failed",
     )
-
-    try:
-        payload = response.json()
-    except (ValueError, requests.exceptions.JSONDecodeError):
-        raise ToolbarOAuthError("token_refresh_failed", "Non-JSON response from token endpoint", 502)
-
-    if response.status_code >= 400:
-        error = payload.get("error", "token_refresh_failed")
-        detail = payload.get("error_description", "OAuth token refresh failed")
-        raise ToolbarOAuthError(error, detail, 400)
-
-    return {
-        "access_token": payload.get("access_token"),
-        "refresh_token": payload.get("refresh_token"),
-        "expires_in": payload.get("expires_in"),
-        "token_type": payload.get("token_type"),
-        "scope": payload.get("scope"),
-    }
 
 
 def new_state_nonce() -> str:
