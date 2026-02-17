@@ -159,6 +159,24 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                 return
             }
 
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.PageviewEvents) {
+                const urlFilter: EventPropertyFilter = {
+                    key: '$current_url',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.IContains,
+                    type: PropertyFilterType.Event,
+                }
+                const eventFilter: ActionFilter = {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: EntityTypes.EVENTS,
+                    properties: [urlFilter],
+                }
+                newValues.push(eventFilter)
+                actions.setGroupValues(newValues)
+                return
+            }
+
             if (taxonomicGroup.type === TaxonomicFilterGroupType.ScreenEvents) {
                 const screenNameFilter: EventPropertyFilter = {
                     key: '$screen_name',

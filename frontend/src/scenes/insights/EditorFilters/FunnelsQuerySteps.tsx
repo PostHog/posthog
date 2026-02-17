@@ -77,6 +77,8 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.EventMetadata,
+                    TaxonomicFilterGroupType.PageviewEvents,
+                    TaxonomicFilterGroupType.ScreenEvents,
                     ...groupsTaxonomicTypes,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
@@ -87,6 +89,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 actionsTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.PageviewEvents,
                     TaxonomicFilterGroupType.ScreenEvents,
                     ...(supportsDwhFunnels ? [TaxonomicFilterGroupType.DataWarehouse] : []),
                 ]}

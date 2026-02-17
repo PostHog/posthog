@@ -35,6 +35,8 @@ export function TrendsSeries(): JSX.Element | null {
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.EventMetadata,
+        TaxonomicFilterGroupType.PageviewEvents,
+        TaxonomicFilterGroupType.ScreenEvents,
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
@@ -95,6 +97,7 @@ export function TrendsSeries(): JSX.Element | null {
                 actionsTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.PageviewEvents,
                     TaxonomicFilterGroupType.ScreenEvents,
                     ...(isTrends && display !== ChartDisplayType.CalendarHeatmap
                         ? [TaxonomicFilterGroupType.DataWarehouse]

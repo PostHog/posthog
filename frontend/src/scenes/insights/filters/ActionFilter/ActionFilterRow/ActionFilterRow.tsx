@@ -375,6 +375,26 @@ export function ActionFilterRow({
                     })
                     return
                 }
+                if (taxonomicGroupType === TaxonomicFilterGroupType.PageviewEvents) {
+                    updateFilter({
+                        type: EntityTypes.EVENTS,
+                        id: '$pageview',
+                        name: '$pageview',
+                        index,
+                    })
+                    updateFilterProperty({
+                        index,
+                        properties: [
+                            {
+                                key: '$current_url',
+                                value: changedValue ? String(changedValue) : '',
+                                operator: PropertyOperator.IContains,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    })
+                    return
+                }
                 if (taxonomicGroupType === TaxonomicFilterGroupType.ScreenEvents) {
                     updateFilter({
                         type: EntityTypes.EVENTS,

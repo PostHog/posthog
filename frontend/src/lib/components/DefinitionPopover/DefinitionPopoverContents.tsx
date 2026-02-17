@@ -337,6 +337,37 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             </>
         )
     }
+    if (
+        group.type === TaxonomicFilterGroupType.PageviewEvents ||
+        group.type === TaxonomicFilterGroupType.ScreenEvents
+    ) {
+        const _definition = definition as SimpleOption
+        const isPageview = group.type === TaxonomicFilterGroupType.PageviewEvents
+        const eventName = isPageview ? '$pageview' : '$screen'
+        const eventDescription = isPageview
+            ? 'When a user loads (or reloads) a page.'
+            : 'When a user loads a screen in a mobile app.'
+        const propertyName = isPageview ? '$current_url' : '$screen_name'
+
+        return (
+            <>
+                <DefinitionPopover.Description
+                    description={
+                        <>
+                            {eventDescription}
+                            <br />
+                            <br />
+                            Selecting this will add a{' '}
+                            <span className="font-mono text-xs font-semibold">{eventName}</span> event filtered by{' '}
+                            <span className="font-mono text-xs font-semibold">{propertyName}</span> matching{' '}
+                            <span className="font-mono text-xs font-semibold">{_definition.name}</span>.
+                        </>
+                    }
+                />
+                <DefinitionPopover.Example value={_definition.name} />
+            </>
+        )
+    }
     if (group.type === TaxonomicFilterGroupType.Elements) {
         const _definition = definition as SimpleOption
         return (

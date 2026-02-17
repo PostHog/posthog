@@ -60,6 +60,8 @@ export function getSingularType(type: TaxonomicFilterGroupType): string {
             return 'feature'
         case TaxonomicFilterGroupType.PageviewUrls:
             return 'pageview url'
+        case TaxonomicFilterGroupType.PageviewEvents:
+            return 'pageview event'
         case TaxonomicFilterGroupType.Screens:
             return 'screen'
         case TaxonomicFilterGroupType.ScreenEvents:

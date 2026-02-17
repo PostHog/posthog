@@ -860,6 +860,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => `Pageview URL`,
                     },
                     {
+                        name: 'Pageview events',
+                        searchPlaceholder: 'pageview events',
+                        type: TaxonomicFilterGroupType.PageviewEvents,
+                        endpoint: `api/environments/${teamId}/events/values/?key=$current_url`,
+                        searchAlias: 'value',
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopoverHeader: () => `Pageview event`,
+                    },
+                    {
                         name: 'Screens',
                         searchPlaceholder: 'screens',
                         type: TaxonomicFilterGroupType.Screens,
