@@ -25,6 +25,7 @@ export function GroupedAccessControlRuleModal(props: {
     canEdit: boolean
     memberIsOrgAdmin: boolean
     memberHasAdminAccess: boolean
+    memberHasAdminAccessViaRoles: boolean
     roleHasAdminAccess: boolean
 }): JSX.Element | null {
     const logic = accessControlsLogic({ projectId: props.projectId })
@@ -95,6 +96,7 @@ export function GroupedAccessControlRuleModal(props: {
                 canEdit={props.canEdit}
                 memberIsOrgAdmin={props.memberIsOrgAdmin}
                 memberHasAdminAccess={props.memberHasAdminAccess}
+                memberHasAdminAccessViaRoles={props.memberHasAdminAccessViaRoles}
                 roleHasAdminAccess={props.roleHasAdminAccess}
             />
         </LemonModal>
@@ -146,6 +148,7 @@ function GroupedAccessControlRuleModalContent(props: {
     canEdit: boolean
     memberIsOrgAdmin: boolean
     memberHasAdminAccess: boolean
+    memberHasAdminAccessViaRoles: boolean
     roleHasAdminAccess: boolean
 }): JSX.Element {
     const mappedLevels = props.groupedRuleForm.levels.reduce(
@@ -164,10 +167,20 @@ function GroupedAccessControlRuleModalContent(props: {
             return 'Cannot edit'
         }
 
+        if (props.memberHasAdminAccessViaRoles) {
+            return 'User already has Admin access via roles.'
+        }
+
         if (props.memberHasAdminAccess || props.roleHasAdminAccess) {
             return 'Feature overrides do not apply to admins'
         }
-    }, [props.loading, props.canEdit, props.memberHasAdminAccess, props.roleHasAdminAccess])
+    }, [
+        props.loading,
+        props.canEdit,
+        props.memberHasAdminAccess,
+        props.memberHasAdminAccessViaRoles,
+        props.roleHasAdminAccess,
+    ])
 
     const disabledReasonForProject = useMemo(() => {
         if (props.loading) {
@@ -182,6 +195,8 @@ function GroupedAccessControlRuleModalContent(props: {
             return 'Project overrides do not apply to admins'
         }
     }, [props.loading, props.canEdit, props.memberIsOrgAdmin])
+
+    const canClearFeatureOverrides = !props.loading && !disabledReasonForFeatures
 
     return (
         <div className="space-y-4">
@@ -220,13 +235,19 @@ function GroupedAccessControlRuleModalContent(props: {
                         to="#"
                         onClick={(e) => {
                             e.preventDefault()
+                            if (!canClearFeatureOverrides) {
+                                return
+                            }
                             props.onClear()
                         }}
-                        className={props.loading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
+                        className={canClearFeatureOverrides ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}
                     >
                         Clear all
                     </Link>
                 </div>
+                {props.memberHasAdminAccessViaRoles && (
+                    <p className="text-xs text-muted-alt mb-2">User already has Admin access via roles.</p>
+                )}
 
                 {props.resources
                     .filter((r) => r.key !== 'project')

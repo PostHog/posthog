@@ -34,6 +34,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         canEditRoleBasedAccessControls,
         ruleModalMemberIsOrgAdmin,
         ruleModalMemberHasAdminAccess,
+        ruleModalMemberHasAdminAccessViaRoles,
         ruleModalRoleHasAdminAccess,
     } = useValues(logic)
 
@@ -100,6 +101,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                     onSave={saveGroupedRules}
                     memberIsOrgAdmin={ruleModalMemberIsOrgAdmin}
                     memberHasAdminAccess={ruleModalMemberHasAdminAccess}
+                    memberHasAdminAccessViaRoles={ruleModalMemberHasAdminAccessViaRoles}
                     roleHasAdminAccess={ruleModalRoleHasAdminAccess}
                 />
             )}

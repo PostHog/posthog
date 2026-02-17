@@ -23,6 +23,7 @@ import { accessControlLogic } from '../accessControlLogic'
 import { MemberResourceAccessControls, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import type { accessControlsLogicType } from './accessControlsLogicType'
+import { getEffectiveProjectAccessForMember } from './effectiveProjectAccessUtils'
 import { getIdForDefaultRow, getIdForMemberRow, getIdForRoleRow } from './helpers'
 import { AccessControlFilters, AccessControlRow, AccessControlsTab, RuleModalState, ScopeType } from './types'
 
@@ -249,6 +250,33 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 }
 
                 // Member scope rows
+                const mappedAccessControlRoles = accessControlRoles.reduce(
+                    (acc, accessControlRole) => {
+                        if (!accessControlRole.role) {
+                            return acc
+                        }
+                        if (accessControlRole.access_level === null || accessControlRole.access_level === undefined) {
+                            return acc
+                        }
+                        return Object.assign(acc, {
+                            [accessControlRole.role]: accessControlRole.access_level as AccessControlLevel,
+                        })
+                    },
+                    {} as Record<string, AccessControlLevel>
+                )
+                const roleIdsByMemberUuid = new Map<string, string[]>()
+                if (canUseRoles) {
+                    for (const role of roles ?? []) {
+                        for (const roleMember of role.members) {
+                            const existingRoleIds = roleIdsByMemberUuid.get(roleMember.user_uuid)
+                            if (existingRoleIds) {
+                                existingRoleIds.push(role.id)
+                            } else {
+                                roleIdsByMemberUuid.set(roleMember.user_uuid, [role.id])
+                            }
+                        }
+                    }
+                }
                 const mappedAccessControlMembers = accessControlMembers.reduce(
                     (acc, accessControlMember) => {
                         if (!accessControlMember.organization_member) {
@@ -274,10 +302,15 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     const levels: AccessControlLevelMapping[] = []
                     const projectOverride = mappedAccessControlMembers[member.id]
                     const isOrgAdmin = member.level >= OrganizationMembershipLevel.Admin
-                    // Org admins/owners always have admin access to the project
-                    const effectiveProjectLevel = isOrgAdmin
-                        ? AccessControlLevel.Admin
-                        : ((projectOverride?.access_level ?? projectDefaultLevel) as AccessControlLevel)
+                    const roleOverrideLevels = (roleIdsByMemberUuid.get(member.user.uuid) ?? [])
+                        .map((roleId) => mappedAccessControlRoles[roleId])
+                        .filter((level): level is AccessControlLevel => level !== null && level !== undefined)
+                    const { effectiveProjectLevel, hasAdminAccessViaRoles } = getEffectiveProjectAccessForMember({
+                        projectDefaultLevel,
+                        memberOverrideLevel: projectOverride?.access_level as AccessControlLevel | null | undefined,
+                        roleOverrideLevels,
+                        isOrganizationAdmin: isOrgAdmin,
+                    })
                     levels.push({
                         resourceKey: 'project',
                         level: effectiveProjectLevel,
@@ -300,6 +333,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                         id: getIdForMemberRow(member.id),
                         role: { id: member.id, name: fullName(member.user) },
                         member,
+                        memberHasAdminAccessViaRoles: hasAdminAccessViaRoles,
                         levels,
                     })
                 }
@@ -468,6 +502,22 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 }
 
                 return false
+            },
+        ],
+
+        ruleModalMemberHasAdminAccessViaRoles: [
+            (s) => [s.ruleModalState],
+            (ruleModalState): boolean => {
+                if (!ruleModalState) {
+                    return false
+                }
+
+                const row = ruleModalState.row
+                if (!row.member) {
+                    return false
+                }
+
+                return !!row.memberHasAdminAccessViaRoles
             },
         ],
 

@@ -8,6 +8,7 @@ export type AccessControlRow = {
     id: string
     levels: AccessControlLevelMapping[]
     member?: OrganizationMemberType
+    memberHasAdminAccessViaRoles?: boolean
     role: Pick<RoleType, 'id' | 'name'>
 }
 

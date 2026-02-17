@@ -1,6 +1,7 @@
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
 import { AccessControlLevelMapping } from './accessControlsLogic'
+import { getEffectiveProjectAccessForMember } from './effectiveProjectAccessUtils'
 import { AccessControlFilters, AccessControlRow, AccessControlsTab } from './types'
 
 /**
@@ -427,6 +428,64 @@ describe('accessControlsLogic', () => {
                     noMinMax
                 )
                 expect(result.length).toBe(2)
+            })
+        })
+    })
+
+    describe('getEffectiveProjectAccessForMember', () => {
+        it('returns project default when no member or role overrides exist', () => {
+            const result = getEffectiveProjectAccessForMember({
+                projectDefaultLevel: AccessControlLevel.Member,
+                memberOverrideLevel: null,
+                roleOverrideLevels: [],
+                isOrganizationAdmin: false,
+            })
+
+            expect(result).toEqual({
+                effectiveProjectLevel: AccessControlLevel.Member,
+                hasAdminAccessViaRoles: false,
+            })
+        })
+
+        it('returns highest project level across default, member, and role overrides', () => {
+            const result = getEffectiveProjectAccessForMember({
+                projectDefaultLevel: AccessControlLevel.None,
+                memberOverrideLevel: AccessControlLevel.Member,
+                roleOverrideLevels: [AccessControlLevel.Admin],
+                isOrganizationAdmin: false,
+            })
+
+            expect(result).toEqual({
+                effectiveProjectLevel: AccessControlLevel.Admin,
+                hasAdminAccessViaRoles: true,
+            })
+        })
+
+        it('does not mark admin via roles when admin comes from member override', () => {
+            const result = getEffectiveProjectAccessForMember({
+                projectDefaultLevel: AccessControlLevel.Member,
+                memberOverrideLevel: AccessControlLevel.Admin,
+                roleOverrideLevels: [AccessControlLevel.Member],
+                isOrganizationAdmin: false,
+            })
+
+            expect(result).toEqual({
+                effectiveProjectLevel: AccessControlLevel.Admin,
+                hasAdminAccessViaRoles: false,
+            })
+        })
+
+        it('always returns admin for organization admins', () => {
+            const result = getEffectiveProjectAccessForMember({
+                projectDefaultLevel: AccessControlLevel.None,
+                memberOverrideLevel: AccessControlLevel.None,
+                roleOverrideLevels: [AccessControlLevel.Member],
+                isOrganizationAdmin: true,
+            })
+
+            expect(result).toEqual({
+                effectiveProjectLevel: AccessControlLevel.Admin,
+                hasAdminAccessViaRoles: false,
             })
         })
     })
