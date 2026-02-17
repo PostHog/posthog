@@ -345,6 +345,7 @@ testdata_group_superset = [
 ]
 
 
-@pytest.mark.parametrize("a,b,expected", testdata_superset + testdata_group_superset)
+# TODO: Use testdata_superset instead of testdata_equals params
+@pytest.mark.parametrize("a,b,expected", testdata_equals + testdata_group_superset)
 def test_is_superset(a, b, expected):
     assert is_superset(a, b) == expected
