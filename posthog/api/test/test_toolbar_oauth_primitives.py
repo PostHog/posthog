@@ -9,6 +9,7 @@ from django.test import RequestFactory
 
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.request import Request
 
 from posthog.api.oauth.toolbar_service import (
     CALLBACK_PATH,
@@ -348,10 +349,10 @@ class TestTemporaryTokenBearerPassthrough(APIBaseTest):
         self.factory = RequestFactory()
         self.auth = TemporaryTokenAuthentication()
 
-    def _make_cross_origin_request(self, **extra):
-        request = self.factory.get("/api/some-endpoint/", **extra)
-        request.META["HTTP_ORIGIN"] = "https://customer-site.example.com"
-        return request
+    def _make_cross_origin_request(self, **extra) -> Request:
+        wsgi_request = self.factory.get("/api/some-endpoint/", **extra)
+        wsgi_request.META["HTTP_ORIGIN"] = "https://customer-site.example.com"
+        return Request(wsgi_request)
 
     def test_cross_origin_without_temp_token_or_bearer_raises(self):
         request = self._make_cross_origin_request()
@@ -367,8 +368,7 @@ class TestTemporaryTokenBearerPassthrough(APIBaseTest):
         self.user.temporary_token = "test-temp-token-123"
         self.user.save(update_fields=["temporary_token"])
 
-        request = self.factory.get("/api/some-endpoint/", {"temporary_token": "test-temp-token-123"})
-        request.META["HTTP_ORIGIN"] = "https://customer-site.example.com"
+        request = self._make_cross_origin_request(data={"temporary_token": "test-temp-token-123"})
         result = self.auth.authenticate(request)
         self.assertIsNotNone(result)
         self.assertEqual(result[0], self.user)
