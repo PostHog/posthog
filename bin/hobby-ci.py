@@ -118,10 +118,10 @@ class HobbyTester:
         return (
             'echo "$LOG_PREFIX Checking if node image exists for commit $CURRENT_COMMIT..."; '
             'if curl -sf "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/$CURRENT_COMMIT" > /dev/null 2>&1; then '
-            '  export POSTHOG_NODE_TAG=$CURRENT_COMMIT; '
+            "  export POSTHOG_NODE_TAG=$CURRENT_COMMIT; "
             '  echo "$LOG_PREFIX Node image found for commit, using tag: $CURRENT_COMMIT"; '
             "else "
-            '  export POSTHOG_NODE_TAG=latest; '
+            "  export POSTHOG_NODE_TAG=latest; "
             '  echo "$LOG_PREFIX Node image not found for commit, falling back to tag: latest"; '
             "fi"
         )
