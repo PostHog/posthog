@@ -548,7 +548,21 @@ class EventViewSet(
                         values.append(value[0])
 
             span.set_attribute("result_count", len(values))
-            return self._return_with_short_cache([{"name": convert_property_value(value)} for value in flatten(values)])
+            formatted_values = [{"name": convert_property_value(value)} for value in flatten(values)]
+
+            # Cache the results in Redis with 7-day expiry
+            from posthog.api.property_value_cache import cache_property_values
+
+            cache_property_values(
+                team_id=query_params.team.pk,
+                property_type="event",
+                property_key=query_params.key,
+                values=formatted_values,
+                search_value=query_params.value,
+                event_names=query_params.event_names,
+            )
+
+            return self._return_with_short_cache(formatted_values)
 
     @staticmethod
     def _return_with_short_cache(values) -> response.Response:

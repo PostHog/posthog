@@ -544,6 +544,26 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "get_person_property_values_for_key_success",
                 tags={"team_id": self.team.id},
             )
+
+            # Cache the results in Redis with 7-day expiry
+            # Convert result tuples (value, count) to dict format for caching
+            if isinstance(result, list):
+                from posthog.api.property_value_cache import cache_property_values
+
+                cached_values = []
+                for val, count in result:
+                    try:
+                        cached_values.append({"name": convert_property_value(json.loads(val)), "count": count})
+                    except json.decoder.JSONDecodeError:
+                        cached_values.append({"name": convert_property_value(val), "count": count})
+
+                cache_property_values(
+                    team_id=self.team.pk,
+                    property_type="person",
+                    property_key=key,
+                    values=cached_values,
+                    search_value=value,
+                )
         except Exception as e:
             statsd.incr(
                 "get_person_property_values_for_key_error",
