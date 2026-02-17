@@ -191,6 +191,8 @@ func copyFileWithEnvSubst(src, dst, version string) error {
 	content = strings.ReplaceAll(content, "$POSTHOG_APP_TAG", version)
 	// Replace POSTHOG_NODE_TAG, preserving the :-latest default syntax for Docker Compose
 	content = strings.ReplaceAll(content, "${POSTHOG_NODE_TAG:-latest}", nodeTag)
+	content = strings.ReplaceAll(content, "${POSTHOG_NODE_TAG}", nodeTag)
+	content = strings.ReplaceAll(content, "$POSTHOG_NODE_TAG", nodeTag)
 
 	return os.WriteFile(dst, []byte(content), 0644)
 }
