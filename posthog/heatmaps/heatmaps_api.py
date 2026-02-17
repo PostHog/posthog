@@ -222,7 +222,8 @@ class HeatmapEventsResponseSerializer(serializers.Serializer):
 
 
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "heatmap"
+    scope_object_read_actions = ["list", "retrieve", "events"]
 
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapsResponseSerializer
