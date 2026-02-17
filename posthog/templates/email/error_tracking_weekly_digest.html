@@ -30,6 +30,7 @@
                 </td>
                 {% endfor %}
             </tr>
+            <tr><td colspan="{{ daily_counts|length }}" style="height: 1px; background-color: #e1e5e9; padding: 0; font-size: 0; line-height: 0;"></td></tr>
             <tr>
                 {% for day in daily_counts %}
                 <td align="center" style="padding: 4px 3px 0; font-size: 0.75em; color: #9ca3af;">{{ day.day }}</td>
@@ -72,6 +73,7 @@
                             </td>
                             {% endfor %}
                         </tr>
+                        <tr><td colspan="{{ issue.sparkline|length }}" style="height: 1px; background-color: #e1e5e9; padding: 0; font-size: 0; line-height: 0;"></td></tr>
                     </table>
                     {% endif %}
                 </td>
@@ -117,6 +119,7 @@
                             </td>
                             {% endfor %}
                         </tr>
+                        <tr><td colspan="{{ issue.sparkline|length }}" style="height: 1px; background-color: #e1e5e9; padding: 0; font-size: 0; line-height: 0;"></td></tr>
                     </table>
                     {% endif %}
                 </td>
@@ -129,12 +132,6 @@
     </table>
 </div>
 {% endif %}
-
-<div style="margin-bottom: 16px; text-align: center;">
-    <a class="button" href="{{ error_tracking_url }}">
-        View Error Tracking
-    </a>
-</div>
 
 {% if ingestion_failure_count > 0 %}
 <div style="background-color: #fef3cd; border: 1px solid #ffc107; padding: 20px; border-radius: 8px; margin-bottom: 16px;">
@@ -156,15 +153,19 @@
     </table>
 </div>
 {% endif %}
+
+<div style="margin-bottom: 16px; text-align: center;">
+    <a href="{{ error_tracking_url }}" style="display: inline-block; padding: 10px 24px; background-color: #f54e00; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 0.9em;">Open error tracking</a>
+</div>
 {% endblock %}
 
 {% block footer %}
-You can <a href="{% absolute_uri '/settings/user-notifications' %}">manage these notifications in PostHog</a>.
+You can <a href="{% absolute_uri '/settings/user-notifications' %}" style="color: #f54e00;">manage these notifications in PostHog</a>.
 <br /><br />
 Need help?
 <a href="https://posthog.com/questions?{{ utm_tags }}"
-    target="_blank"><b>Visit support</b></a>
+    target="_blank" style="color: #f54e00;"><b>Visit support</b></a>
 or
 <a href="https://posthog.com/docs?{{ utm_tags }}"
-    target="_blank"><b>read our documentation</b></a>.
+    target="_blank" style="color: #f54e00;"><b>read our documentation</b></a>.
 {% endblock %}
