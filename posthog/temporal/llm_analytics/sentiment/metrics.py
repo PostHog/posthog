@@ -45,7 +45,6 @@ SENTIMENT_LATENCY_HISTOGRAM_BUCKETS = [
 # ---------------------------------------------------------------------------
 
 SENTIMENT_ACTIVITY_TYPES = {
-    "classify_sentiment_activity",
     "classify_sentiment_batch_activity",
 }
 
