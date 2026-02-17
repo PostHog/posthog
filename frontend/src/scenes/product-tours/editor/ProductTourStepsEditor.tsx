@@ -12,11 +12,12 @@ import { ProductTourPreview } from '../components/ProductTourPreview'
 import { StepSettings } from '../components/StepSettings'
 import { productTourLogic } from '../productTourLogic'
 import { isAnnouncement, isBannerAnnouncement } from '../productToursLogic'
-import { createDefaultStep, getStepIcon, getStepLabel, getStepTitle } from '../stepUtils'
+import { createDefaultStep, getStepIcon, getStepLabel, getStepTitle, resolveStepTranslation } from '../stepUtils'
 import { BannerSettingsPanel } from './BannerSettingsPanel'
 import { StepContentEditor } from './StepContentEditor'
 import { SurveyStepEditor } from './SurveyStepEditor'
 import { TourSettingsPanel } from './TourSettingsPanel'
+import { TranslationFieldsEditor } from './TranslationFieldsEditor'
 
 export interface ProductTourStepsEditorProps {
     tourId: string
@@ -37,9 +38,8 @@ export const TOUR_STEP_MIN_WIDTH = 200
 export const TOUR_STEP_MAX_WIDTH = 700
 
 export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps): JSX.Element {
-    const { productTour, productTourForm, selectedStepIndex, selectedLanguage } = useValues(
-        productTourLogic({ id: tourId })
-    )
+    const { productTour, productTourForm, selectedStep, selectedStepIndex, selectedLanguage, isEditingTranslation } =
+        useValues(productTourLogic({ id: tourId }))
     const { setProductTourFormValue, setSelectedStepIndex, updateSelectedStep } = useActions(
         productTourLogic({ id: tourId })
     )
@@ -50,8 +50,6 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
     const isBannerMode = productTour ? isBannerAnnouncement(productTour) : false
     const [stepToDelete, setStepToDelete] = useState<number | null>(null)
     const [showPreviewModal, setShowPreviewModal] = useState(false)
-
-    const selectedStep = steps[selectedStepIndex]
 
     const updateSteps = (newSteps: ProductTourStep[]): void => {
         setProductTourFormValue('content', {
@@ -157,7 +155,7 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                                         {getStepIcon(step.type)}
                                     </span>
                                     <span className="flex-1 overflow-hidden font-medium truncate">
-                                        {getStepTitle(step, index)}
+                                        {getStepTitle(resolveStepTranslation(step, selectedLanguage), index)}
                                     </span>
                                 </button>
                             )
@@ -234,16 +232,21 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                                             <SurveyStepEditor
                                                 survey={selectedStep.survey}
                                                 onChange={(survey) => updateSelectedStep({ survey })}
+                                                isEditingTranslation={isEditingTranslation}
                                             />
-                                            <div className="mt-4">
-                                                <label className="text-sm font-medium block mb-2">Position</label>
-                                                <PositionSelector
-                                                    value={selectedStep.modalPosition ?? SurveyPosition.MiddleCenter}
-                                                    onChange={(position: ScreenPosition) =>
-                                                        updateSelectedStep({ modalPosition: position })
-                                                    }
-                                                />
-                                            </div>
+                                            {!isEditingTranslation && (
+                                                <div className="mt-4">
+                                                    <label className="text-sm font-medium block mb-2">Position</label>
+                                                    <PositionSelector
+                                                        value={
+                                                            selectedStep.modalPosition ?? SurveyPosition.MiddleCenter
+                                                        }
+                                                        onChange={(position: ScreenPosition) =>
+                                                            updateSelectedStep({ modalPosition: position })
+                                                        }
+                                                    />
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <div className="text-xs text-muted uppercase tracking-wide mb-3">
@@ -267,21 +270,12 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                     )}
                 </div>
 
-                {selectedStep.type !== 'survey' && (
-                    <div className="border rounded overflow-hidden">
-                        <div className="flex items-center justify-between px-3 py-2 bg-surface-primary border-b font-semibold">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-muted">
-                                {isBannerMode ? 'Banner settings' : 'Step settings'}
-                            </span>
-                        </div>
-                        <div className="py-3 px-4">
-                            {isBannerMode ? (
-                                <BannerSettingsPanel tourId={tourId} />
-                            ) : (
-                                productTour && <StepSettings tourId={tourId} />
-                            )}
-                        </div>
-                    </div>
+                {selectedStep?.type !== 'survey' && isEditingTranslation ? (
+                    <TranslationFieldsEditor tourId={tourId} />
+                ) : isBannerMode ? (
+                    <BannerSettingsPanel tourId={tourId} />
+                ) : (
+                    <StepSettings tourId={tourId} />
                 )}
             </div>
 
@@ -313,24 +307,25 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                 <p className="text-muted mt-2">This action cannot be undone.</p>
             </LemonModal>
 
-            {/* Preview modal */}
-            <LemonModal
-                isOpen={showPreviewModal}
-                onClose={() => setShowPreviewModal(false)}
-                title={`Preview: ${getStepTitle(selectedStep, selectedStepIndex)}`}
-                width={800}
-            >
-                <div className="flex justify-center items-center p-8 bg-[#f0f0f0] rounded min-h-[300px]">
-                    {selectedStep && (
-                        <ProductTourPreview
-                            step={selectedStep}
-                            appearance={appearance}
-                            stepIndex={selectedStepIndex}
-                            totalSteps={steps.length}
-                        />
-                    )}
-                </div>
-            </LemonModal>
+            {selectedStep && (
+                <LemonModal
+                    isOpen={showPreviewModal}
+                    onClose={() => setShowPreviewModal(false)}
+                    title={`Preview: ${getStepTitle(selectedStep, selectedStepIndex)}`}
+                    width={800}
+                >
+                    <div className="flex justify-center items-center p-8 bg-[#f0f0f0] rounded min-h-[300px]">
+                        {selectedStep && (
+                            <ProductTourPreview
+                                step={selectedStep}
+                                appearance={appearance}
+                                stepIndex={selectedStepIndex}
+                                totalSteps={steps.length}
+                            />
+                        )}
+                    </div>
+                </LemonModal>
+            )}
         </div>
     )
 }

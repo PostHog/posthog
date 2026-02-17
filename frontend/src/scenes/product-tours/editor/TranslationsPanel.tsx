@@ -2,7 +2,7 @@ import classNames from 'classnames'
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconCopy } from '@posthog/icons'
+import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -50,7 +50,7 @@ const COMMON_LANGUAGES: LemonInputSelectOption[] = [
 
 function LanguageCard({ tourId, langCode }: { tourId: string; langCode: string }): JSX.Element {
     const { productTourForm, selectedLanguage } = useValues(productTourLogic({ id: tourId }))
-    const { setSelectedLanguage } = useActions(productTourLogic({ id: tourId }))
+    const { setSelectedLanguage, removeLanguage } = useActions(productTourLogic({ id: tourId }))
 
     const isActive = langCode === selectedLanguage
     const isDefault = langCode === productTourForm.content.languages?.at(0)
@@ -58,10 +58,9 @@ function LanguageCard({ tourId, langCode }: { tourId: string; langCode: string }
     return (
         <button
             className={classNames(
-                'flex p-3 rounded-md bg-surface-primary border border items-center justify-between cursor-pointer',
-                isActive && 'border border-accent'
+                'group flex p-3 rounded-md bg-surface-primary border items-center justify-between cursor-pointer',
+                isActive ? 'border-accent' : 'border'
             )}
-            role="button"
             onClick={() => setSelectedLanguage(langCode)}
         >
             <div className="flex items-center gap-1">
@@ -70,10 +69,27 @@ function LanguageCard({ tourId, langCode }: { tourId: string; langCode: string }
                     type="tertiary"
                     size="xsmall"
                     icon={<IconCopy className="w-4 h-4" />}
-                    onClick={() => copyToClipboard(langCode, 'language code')}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        void copyToClipboard(langCode, 'language code')
+                    }}
                 />
             </div>
-            {isDefault && <LemonTag>Default</LemonTag>}
+            <div className="flex items-center gap-1">
+                {isDefault && <LemonTag>Default</LemonTag>}
+                {!isDefault && (
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        icon={<IconTrash className="w-4 h-4" />}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            removeLanguage(langCode)
+                        }}
+                    />
+                )}
+            </div>
         </button>
     )
 }
