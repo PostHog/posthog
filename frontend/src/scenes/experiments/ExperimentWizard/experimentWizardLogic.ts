@@ -1,6 +1,7 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import type { Experiment, FeatureFlagType } from '~/types'
@@ -60,6 +61,12 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             ['validateFeatureFlagKey', 'clearFeatureFlagKeyValidation'],
             selectExistingFeatureFlagModalLogic,
             ['loadFeatureFlagsForAutocomplete', 'loadFeatureFlagsSuccess'],
+            eventUsageLogic,
+            [
+                'reportExperimentWizardStarted',
+                'reportExperimentWizardGuideToggled',
+                'reportExperimentCreationFormSwitched',
+            ],
         ],
     })),
 
@@ -193,6 +200,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             }
         },
         openFullEditor: () => {
+            actions.reportExperimentCreationFormSwitched('wizard', 'classic_form', values.currentStep)
             router.actions.push(urls.experiment('new'))
         },
         loadFeatureFlagsSuccess: ({
@@ -243,8 +251,9 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         },
     })),
 
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
+            actions.reportExperimentWizardStarted(values.showGuide)
             actions.resetWizard()
             actions.loadFeatureFlagsForAutocomplete()
         },

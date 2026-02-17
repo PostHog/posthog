@@ -1141,7 +1141,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     })
 
                     if (response) {
-                        actions.reportExperimentCreated(response)
+                        actions.reportExperimentCreated(response, {
+                            creation_source: 'legacy',
+                        })
                         actions.addProductIntent({
                             product_type: ProductKey.EXPERIMENTS,
                             intent_context: ProductIntentContext.EXPERIMENT_CREATED,
