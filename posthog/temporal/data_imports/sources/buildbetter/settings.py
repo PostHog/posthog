@@ -33,7 +33,6 @@ INCREMENTAL_CREATED_AT: list[IncrementalField] = [
 @dataclass
 class BuildBetterEndpointConfig:
     incremental_fields: list[IncrementalField]
-    incremental_filter_field: str | None = None
     graphql_query_name: str | None = None
     page_size: int = BUILDBETTER_DEFAULT_PAGE_SIZE
     primary_key: str = ID
@@ -48,15 +47,27 @@ BUILDBETTER_ENDPOINTS: dict[str, BuildBetterEndpointConfig] = {
     "interviews": BuildBetterEndpointConfig(
         graphql_query_name="interview",
         incremental_fields=INCREMENTAL_UPDATED_AT,
-        incremental_filter_field=UPDATED_AT,
         page_size=100,
         partition_keys=[CREATED_AT],
     ),
     "extractions": BuildBetterEndpointConfig(
         graphql_query_name="extraction",
         incremental_fields=INCREMENTAL_CREATED_AT,
-        incremental_filter_field=CREATED_AT,
         partition_keys=[CREATED_AT],
+    ),
+    "persons": BuildBetterEndpointConfig(
+        graphql_query_name="person",
+        incremental_fields=INCREMENTAL_UPDATED_AT,
+        partition_mode=None,
+        partition_format=None,
+        partition_keys=None,
+    ),
+    "companies": BuildBetterEndpointConfig(
+        graphql_query_name="company",
+        incremental_fields=INCREMENTAL_UPDATED_AT,
+        partition_mode=None,
+        partition_format=None,
+        partition_keys=None,
     ),
 }
 

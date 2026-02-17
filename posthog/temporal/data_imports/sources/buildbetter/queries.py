@@ -124,9 +124,52 @@ query PaginatedExtractions($limit: Int!, $offset: Int!, $where: extraction_bool_
     }
 }"""
 
+PERSONS_QUERY = """
+query PaginatedPersons($limit: Int!, $offset: Int!, $where: person_bool_exp) {
+    person(limit: $limit, offset: $offset, order_by: {updated_at: asc}, where: $where) {
+        id
+        external_id
+        first_name
+        last_name
+        email
+        title
+        department
+        avatar_url
+        source
+        source_identifier
+        company_id
+        company {
+            id
+            name
+            domain
+        }
+        persona_id
+        persona {
+            id
+            name
+        }
+        created_at
+        updated_at
+    }
+}"""
+
+COMPANIES_QUERY = """
+query PaginatedCompanies($limit: Int!, $offset: Int!, $where: company_bool_exp) {
+    company(limit: $limit, offset: $offset, order_by: {updated_at: asc}, where: $where) {
+        id
+        name
+        domain
+        photo_url
+        created_at
+        updated_at
+    }
+}"""
+
 VIEWER_QUERY = "{ interview(limit: 1) { id } }"
 
 QUERIES: dict[str, str] = {
     "interviews": INTERVIEWS_QUERY,
     "extractions": EXTRACTIONS_QUERY,
+    "persons": PERSONS_QUERY,
+    "companies": COMPANIES_QUERY,
 }

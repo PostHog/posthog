@@ -52,14 +52,16 @@ class BuildBetterSource(SimpleSource[BuildBetterSourceConfig]):
         return validate_buildbetter_credentials(config.api_key)
 
     def source_for_pipeline(self, config: BuildBetterSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        incremental_field_last_value = None
+        if inputs.should_use_incremental_field and inputs.db_incremental_field_last_value is not None:
+            incremental_field_last_value = str(inputs.db_incremental_field_last_value)
+
         return buildbetter_source(
             api_key=config.api_key,
             endpoint_name=inputs.schema_name,
             logger=inputs.logger,
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value
-            if inputs.should_use_incremental_field
-            else None,
+            incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
+            incremental_field_last_value=incremental_field_last_value,
         )
 
     @property

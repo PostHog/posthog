@@ -110,19 +110,15 @@ def buildbetter_source(
     api_key: str,
     endpoint_name: str,
     logger: FilteringBoundLogger,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any | None = None,
+    incremental_field: str | None = None,
+    incremental_field_last_value: str | None = None,
 ) -> SourceResponse:
     endpoint_config = BUILDBETTER_ENDPOINTS.get(endpoint_name)
     if not endpoint_config:
         raise ValueError(f"Unknown BuildBetter endpoint: {endpoint_name}")
 
     def get_rows():
-        incremental_field = None
-        incremental_field_last_value = None
-        if should_use_incremental_field and db_incremental_field_last_value is not None:
-            incremental_field = endpoint_config.incremental_filter_field
-            incremental_field_last_value = str(db_incremental_field_last_value)
+        if incremental_field and incremental_field_last_value:
             logger.debug(
                 f"BuildBetter: incremental sync for {endpoint_name} on {incremental_field} since {incremental_field_last_value}"
             )
