@@ -2097,16 +2097,18 @@ class FeatureFlagViewSet(
                         updated_at=now_timestamp,
                     )
 
-                # Flags with soft-deleted experiments need key rename - handled individually
-                # since each has a unique new key
+                # Flags with soft-deleted experiments need key rename - use bulk_update
+                # to update all flags in a single query with per-flag key values
                 if flags_to_delete_with_rename:
                     for flag in flags_to_delete_with_rename:
-                        FeatureFlag.objects.filter(id=flag.id, team_id=team_id).update(
-                            deleted=True,
-                            last_modified_by=current_user,
-                            updated_at=now_timestamp,
-                            key=f"{flag.key}:deleted:{flag.id}",
-                        )
+                        flag.deleted = True
+                        flag.last_modified_by = current_user
+                        flag.updated_at = now_timestamp
+                        flag.key = f"{flag.key}:deleted:{flag.id}"
+                    FeatureFlag.objects.bulk_update(
+                        flags_to_delete_with_rename,
+                        ["deleted", "last_modified_by", "updated_at", "key"],
+                    )
 
                 if activity_log_entries:
                     bulk_log_activity(activity_log_entries)
