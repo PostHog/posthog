@@ -4,6 +4,7 @@ Tests for point-in-time person properties building functionality.
 
 import json
 from datetime import UTC, datetime
+from typing import cast
 
 from unittest.mock import patch
 
@@ -26,7 +27,7 @@ class TestPointInTimeProperties(TestCase):
         self.assertIn("distinct_id must be a non-empty string", str(cm.exception))
 
         with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time(None, 1, timestamp)
+            build_person_properties_at_time(cast(str, None), 1, timestamp)
         self.assertIn("distinct_id must be a non-empty string", str(cm.exception))
 
         # Test invalid team_id
@@ -40,7 +41,7 @@ class TestPointInTimeProperties(TestCase):
 
         # Test invalid timestamp
         with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time("user123", 1, "2023-01-01")
+            build_person_properties_at_time("user123", 1, cast(datetime, "2023-01-01"))
         self.assertIn("timestamp must be a datetime object", str(cm.exception))
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")

@@ -1138,8 +1138,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 timestamp = datetime.fromisoformat(timestamp_str).replace(tzinfo=UTC)
         except ValueError as e:
+            logger.warning("Invalid timestamp format for distinct_id %s: %s", distinct_id, e)
             return response.Response(
-                {"error": f"Invalid timestamp format: {e}. Use ISO format like 2023-06-15T14:30:00Z"},
+                {"error": "Invalid timestamp format. Use ISO format like 2023-06-15T14:30:00Z"},
                 status=400,
             )
 
@@ -1218,9 +1219,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             return response.Response(person_data)
 
-        except Exception as e:
+        except Exception:
+            logger.exception(
+                "Failed to build person properties at time",
+                distinct_id=distinct_id,
+                timestamp=timestamp_str,
+            )
             return response.Response(
-                {"error": f"Failed to build person properties: {str(e)}"},
+                {"error": "Failed to build person properties."},
                 status=500,
             )
 
