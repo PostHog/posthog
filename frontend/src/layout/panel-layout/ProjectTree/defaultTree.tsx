@@ -35,6 +35,7 @@ import {
     IconPiggyBank,
     IconPlay,
     IconPlug,
+    IconReceipt,
     IconRetention,
     IconRewindPlay,
     IconRocket,
@@ -117,6 +118,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     heatmap: {
         icon: <IconApp />,
         iconColor: ['var(--color-product-heatmaps-light)', 'var(--color-product-heatmaps-dark)'],
+    },
+    session_profile: {
+        icon: <IconReceipt />,
     },
     session_replay: {
         icon: <IconRewindPlay />,
