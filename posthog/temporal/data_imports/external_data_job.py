@@ -358,6 +358,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         last_synced_at=last_synced_at,
                     ),
                     id=f"emit-data-import-signals-{job_id}",
+                    # TBD: Signals are currently using video export queue as the main one, comment to clarify
                     task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                     # Let the child workflow finish even if the parent completes or fails
                     parent_close_policy=ParentClosePolicy.ABANDON,
