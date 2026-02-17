@@ -1441,7 +1441,7 @@ class SessionRecordingViewSet(
                 raise
             except BlockFetchError:
                 logger.exception(
-                    "Failed to fetch block",
+                    "fetch_block_failed",
                     recording_id=recording.session_id,
                     team_id=self.team.id,
                     block_index=block_index,
