@@ -196,10 +196,20 @@ function GroupedAccessControlRuleModalContent(props: {
             return 'User is an organization admin'
         }
 
+        if (props.projectHasDefaultAdminAccess) {
+            return 'Project default access is set to Admin'
+        }
+
         if (props.memberHasRoleWithAdminAccess) {
             return 'User already has a role with Admin access'
         }
-    }, [props.loading, props.canEdit, props.memberIsOrgAdmin, props.memberHasRoleWithAdminAccess])
+    }, [
+        props.loading,
+        props.canEdit,
+        props.memberIsOrgAdmin,
+        props.projectHasDefaultAdminAccess,
+        props.memberHasRoleWithAdminAccess,
+    ])
 
     return (
         <div className="space-y-4">
