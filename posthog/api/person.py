@@ -12,7 +12,7 @@ from django.shortcuts import get_object_or_404
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -33,7 +33,7 @@ from posthog.schema import ProductKey
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
 from posthog.api.capture import capture_internal
-from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
+from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.insight import capture_legacy_api_call
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
@@ -1093,6 +1093,70 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         asyncio.run(start_all_workflows())
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="distinct_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="The distinct_id of the person (mutually exclusive with person_id)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="person_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="The person_id (UUID) to build properties for (mutually exclusive with distinct_id)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="timestamp",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="ISO datetime string for the point in time (e.g., '2023-06-15T14:30:00Z')",
+                required=True,
+            ),
+            OpenApiParameter(
+                name="include_set_once",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                description="Whether to handle $set_once operations (default: false)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="debug",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                description="Whether to include debug information with raw events (default: false)",
+                required=False,
+            ),
+        ],
+        responses={
+            200: {
+                "description": "Person properties at the specified time",
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "properties": {
+                                "name": "John Doe",
+                                "email": "john@example.com",
+                                "signup_date": "2023-06-01",
+                            },
+                            "distinct_id_used": "user123",
+                            "person_id_used": None,
+                            "query_mode": "distinct_id",
+                            "distinct_ids_queried": ["user123", "user456"],
+                            "distinct_ids_count": 2,
+                        }
+                    }
+                },
+            },
+            400: {"description": "Bad request - invalid parameters"},
+            404: {"description": "Person not found"},
+            500: {"description": "Internal server error"},
+        },
+        tags=["persons"],
+    )
     @action(methods=["GET"], detail=False, required_scopes=["person:read"], permission_classes=[IsAuthenticated])
     def properties_at_time(self, request: request.Request) -> response.Response:
         """
