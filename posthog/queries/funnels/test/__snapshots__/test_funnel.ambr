@@ -79,7 +79,7 @@
                                WHERE team_id = 99999
                                  AND event IN ['step one', 'step three', 'step two']
                                  AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-14 23:59:59', 'UTC') )
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-14 23:59:59', 'UTC'))
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 99999
@@ -88,8 +88,8 @@
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-14 23:59:59', 'UTC')
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 ))
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))
@@ -169,7 +169,7 @@
                                WHERE team_id = 99999
                                  AND event IN ['step one', 'step three', 'step two']
                                  AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-14 23:59:59', 'UTC') )
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-14 23:59:59', 'UTC'))
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 99999
@@ -178,8 +178,8 @@
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-14 23:59:59', 'UTC')
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 ))
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))
@@ -286,8 +286,8 @@
                          AND notEmpty(e.person_id)
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 ))
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))
@@ -335,7 +335,7 @@
                                        (SELECT id
                                         FROM person
                                         WHERE team_id = 99999
-                                          AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%')) )
+                                          AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%')))
                                    GROUP BY id
                                    HAVING max(is_deleted) = 0
                                    AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%')) SETTINGS optimize_aggregation_in_order = 1)), 1, 0) as step_0,
@@ -354,7 +354,7 @@
                          WHERE team_id = 99999
                            AND event IN ['paid', 'user signed up']
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC'))
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
@@ -368,8 +368,8 @@
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                    AND (step_0 = 1
-                        OR step_1 = 1) ))
-           WHERE step_0 = 1 ))
+                        OR step_1 = 1)))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))
@@ -424,7 +424,7 @@
                                    FROM cohortpeople
                                    WHERE team_id = 99999
                                      AND cohort_id = 99999
-                                     AND version = 0 )), 1, 0) as step_0,
+                                     AND version = 0)), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -440,7 +440,7 @@
                          WHERE team_id = 99999
                            AND event IN ['paid', 'user signed up']
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC'))
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
@@ -454,8 +454,8 @@
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                    AND (step_0 = 1
-                        OR step_1 = 1) ))
-           WHERE step_0 = 1 ))
+                        OR step_1 = 1)))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))
@@ -629,7 +629,7 @@
                                WHERE team_id = 99999
                                  AND event IN ['$pageview', 'user signed up']
                                  AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') )
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC'))
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
@@ -643,7 +643,7 @@
                                  AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%'
                                        AND has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))
                                       OR (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))) )
+                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
@@ -656,8 +656,8 @@
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 ))
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))
@@ -739,7 +739,7 @@
                                WHERE team_id = 99999
                                  AND event IN ['$pageview', 'user signed up']
                                  AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') )
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC'))
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
@@ -753,7 +753,7 @@
                                  AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%'
                                        AND has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))
                                       OR (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))) )
+                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
@@ -766,8 +766,8 @@
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 ))
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))
@@ -854,7 +854,7 @@
                                WHERE team_id = 99999
                                  AND event IN ['$pageview', 'user signed up']
                                  AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') )
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC'))
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
@@ -868,7 +868,7 @@
                                  AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%'
                                        AND has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))
                                       OR (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))) )
+                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
@@ -881,8 +881,8 @@
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 ))
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))
@@ -969,7 +969,7 @@
                                WHERE team_id = 99999
                                  AND event IN ['$pageview', 'user signed up']
                                  AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') )
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC'))
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
@@ -983,7 +983,7 @@
                                  AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%'
                                        AND has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))
                                       OR (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))) )
+                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
@@ -996,8 +996,8 @@
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 ))
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))
@@ -1062,7 +1062,7 @@
                          WHERE team_id = 99999
                            AND event IN ['paid', 'user signed up']
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC'))
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
@@ -1076,8 +1076,8 @@
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                    AND (step_0 = 1
-                        OR step_1 = 1) ))
-           WHERE step_0 = 1 ))
+                        OR step_1 = 1)))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))
@@ -1132,7 +1132,7 @@
                          WHERE team_id = 99999
                            AND event IN ['paid', 'user signed up']
                            AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 00:00:00', 'US/Pacific')
-                           AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-14 23:59:59', 'US/Pacific') )
+                           AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-14 23:59:59', 'US/Pacific'))
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 99999
@@ -1140,8 +1140,8 @@
                    AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2020-01-01 00:00:00', 'US/Pacific')
                    AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2020-01-14 23:59:59', 'US/Pacific')
                    AND (step_0 = 1
-                        OR step_1 = 1) ))
-           WHERE step_0 = 1 ))
+                        OR step_1 = 1)))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps))
@@ -1224,7 +1224,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 99999
@@ -1232,8 +1232,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) )))
-           WHERE step_0 = 1 ))
+                           OR step_1 = 1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1324,7 +1324,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 99999
@@ -1332,10 +1332,10 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) ) ARRAY
+                           OR step_1 = 1)) ARRAY
                  JOIN prop_vals as prop
-                 WHERE prop != [] ))
-           WHERE step_0 = 1 ))
+                 WHERE prop != []))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1422,7 +1422,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 99999
@@ -1430,8 +1430,8 @@
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
-                           OR step_1 = 1) )))
-           WHERE step_0 = 1 ))
+                           OR step_1 = 1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
