@@ -1,5 +1,6 @@
 import math
 import asyncio
+import hashlib
 import datetime as dt
 import dataclasses
 from typing import Any, Optional, TypedDict
@@ -102,11 +103,13 @@ async def get_realtime_cohort_calculation_count_activity(
 
         # First, process teams that should include all cohorts
         if inputs.team_ids:
-            for team_id in inputs.team_ids:
-                if not isinstance(team_id, int) or team_id <= 0:
-                    continue  # Skip invalid team IDs
+            # Filter out invalid team IDs
+            valid_team_ids = [team_id for team_id in inputs.team_ids if isinstance(team_id, int) and team_id > 0]
+
+            if valid_team_ids:
+                # Single query for all valid teams instead of N queries
                 team_cohorts_count = Cohort.objects.filter(
-                    deleted=False, cohort_type=CohortType.REALTIME, team_id=team_id
+                    deleted=False, cohort_type=CohortType.REALTIME, team_id__in=valid_team_ids
                 ).count()
                 total_count += team_cohorts_count
 
@@ -154,11 +157,13 @@ async def get_realtime_cohort_selection_activity(
 
         # Step 1: Add cohort IDs for teams that should process everything
         if inputs.team_ids:
-            for team_id in inputs.team_ids:
-                if not isinstance(team_id, int) or team_id <= 0:
-                    continue  # Skip invalid team IDs
+            # Filter out invalid team IDs
+            valid_team_ids = [team_id for team_id in inputs.team_ids if isinstance(team_id, int) and team_id > 0]
+
+            if valid_team_ids:
+                # Single query for all valid teams instead of N queries
                 team_cohort_ids = list(
-                    Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME, team_id=team_id)
+                    Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME, team_id__in=valid_team_ids)
                     .order_by("id")
                     .values_list("id", flat=True)
                 )
@@ -182,11 +187,26 @@ async def get_realtime_cohort_selection_activity(
                 )
 
             if other_teams_cohort_ids:
-                # Apply global percentage - SAME LOGIC AS COUNT ACTIVITY
+                # Apply global percentage with fair rotation
                 num_to_include = int(len(other_teams_cohort_ids) * inputs.global_percentage)
                 if num_to_include > 0:
-                    # Take the first N cohort IDs for deterministic selection
-                    selected_other_cohort_ids = other_teams_cohort_ids[:num_to_include]
+                    # Use date-based rotation to ensure all cohorts get a chance
+                    # Hash each cohort ID with today's date to create fair rotation
+                    today = dt.date.today().isoformat()  # e.g., "2026-02-17"
+
+                    # Create list of (hash_value, cohort_id) tuples for sorting
+                    cohort_hash_pairs = []
+                    for cohort_id in other_teams_cohort_ids:
+                        # Create a deterministic but rotating hash based on cohort ID and date
+                        hash_input = f"{cohort_id}:{today}".encode()
+                        hash_value = hashlib.md5(hash_input).hexdigest()
+                        cohort_hash_pairs.append((hash_value, cohort_id))
+
+                    # Sort by hash to get pseudo-random but deterministic order for today
+                    cohort_hash_pairs.sort(key=lambda x: x[0])
+
+                    # Take the first N cohorts from the rotated order
+                    selected_other_cohort_ids = [cohort_id for _, cohort_id in cohort_hash_pairs[:num_to_include]]
                     selected_cohort_ids.extend(selected_other_cohort_ids)
 
         # Step 3: Remove duplicates while preserving order

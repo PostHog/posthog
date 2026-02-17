@@ -464,12 +464,9 @@ class TestRealtimeCohortCalculationCoordinator:
         inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids={2, 3}, global_percentage=0.5)
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
-            # Create separate mock querysets for different calls
-            team2_queryset = Mock()
-            team2_queryset.count.return_value = 10  # Team 2 has 10 cohorts
-
-            team3_queryset = Mock()
-            team3_queryset.count.return_value = 20  # Team 3 has 20 cohorts
+            # Combined teams queryset (teams 2 and 3 together)
+            combined_teams_queryset = Mock()
+            combined_teams_queryset.count.return_value = 30  # Team 2 + Team 3 = 10 + 20 = 30 cohorts
 
             other_teams_queryset = Mock()
             other_teams_queryset.count.return_value = 30  # Other teams have 30 cohorts
@@ -478,15 +475,14 @@ class TestRealtimeCohortCalculationCoordinator:
             base_queryset = Mock()
             base_queryset.exclude.return_value = other_teams_queryset
 
-            # Mock the filter calls in order
-            mock_cohort.objects.filter.side_effect = [team2_queryset, team3_queryset, base_queryset]
+            # Mock the filter calls in order: combined teams query, then other teams query
+            mock_cohort.objects.filter.side_effect = [combined_teams_queryset, base_queryset]
 
             result = await get_realtime_cohort_calculation_count_activity(inputs)
 
-            # Team 2: All 10 cohorts
-            # Team 3: All 20 cohorts
+            # Combined teams (2+3): All 30 cohorts
             # Global: 50% of 30 = 15 cohorts (int(30 * 0.5))
-            # Total: 10 + 20 + 15 = 45
+            # Total: 30 + 15 = 45
             assert result.count == 45
 
     @pytest.mark.asyncio
@@ -586,15 +582,11 @@ class TestRealtimeCohortSelectionActivity:
         inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids={2, 3}, global_percentage=None)
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
-            # Team 2 has cohorts [10, 20]
-            team2_queryset = Mock()
-            team2_queryset.order_by.return_value.values_list.return_value = [10, 20]
+            # Combined teams query returns all cohorts from teams 2 and 3
+            combined_teams_queryset = Mock()
+            combined_teams_queryset.order_by.return_value.values_list.return_value = [10, 20, 30, 40]
 
-            # Team 3 has cohorts [30, 40]
-            team3_queryset = Mock()
-            team3_queryset.order_by.return_value.values_list.return_value = [30, 40]
-
-            mock_cohort.objects.filter.side_effect = [team2_queryset, team3_queryset]
+            mock_cohort.objects.filter.return_value = combined_teams_queryset
 
             result = await get_realtime_cohort_selection_activity(inputs)
 
@@ -618,8 +610,12 @@ class TestRealtimeCohortSelectionActivity:
 
             result = await get_realtime_cohort_selection_activity(inputs)
 
-            # Should select 50% = 3 cohorts (first 3)
-            assert result.cohort_ids == [1, 2, 3]
+            # Should select 50% = 3 cohorts (rotated based on date, but always 3 total)
+            assert len(result.cohort_ids) == 3
+            # All selected IDs should be from the available set
+            assert all(cohort_id in [1, 2, 3, 4, 5, 6] for cohort_id in result.cohort_ids)
+            # Should be unique
+            assert len(set(result.cohort_ids)) == 3
 
     @pytest.mark.asyncio
     async def test_selection_activity_with_small_global_percentage_returns_zero(self):
@@ -677,13 +673,10 @@ class TestRealtimeCohortSelectionActivity:
         inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids={2, 3}, global_percentage=0.5)
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
-            # Team 2 has cohorts [10, 30]
-            team2_queryset = Mock()
-            team2_queryset.order_by.return_value.values_list.return_value = [10, 30]
-
-            # Team 3 has cohorts [20, 30] - note: 30 is duplicate
-            team3_queryset = Mock()
-            team3_queryset.order_by.return_value.values_list.return_value = [20, 30]
+            # Combined teams query returns all cohorts from teams 2 and 3
+            # Team 2: [10, 30], Team 3: [20, 30] -> Combined: [10, 30, 20, 30]
+            combined_teams_queryset = Mock()
+            combined_teams_queryset.order_by.return_value.values_list.return_value = [10, 30, 20, 30]
 
             # Other teams have cohorts [1, 2, 10] - note: 10 is duplicate
             other_teams_base_queryset = Mock()
@@ -691,13 +684,22 @@ class TestRealtimeCohortSelectionActivity:
             other_teams_queryset.order_by.return_value.values_list.return_value = [1, 2, 10]
             other_teams_base_queryset.exclude.return_value = other_teams_queryset
 
-            mock_cohort.objects.filter.side_effect = [team2_queryset, team3_queryset, other_teams_base_queryset]
+            mock_cohort.objects.filter.side_effect = [combined_teams_queryset, other_teams_base_queryset]
 
             result = await get_realtime_cohort_selection_activity(inputs)
 
-            # Should deduplicate: [10, 30, 20, 1] (50% of [1,2,10] = 1 cohort)
-            # Sorted result: [1, 10, 20, 30]
-            assert result.cohort_ids == [1, 10, 20, 30]
+            # Should include forced teams cohorts: [10, 30, 20]
+            # Plus 50% of other teams' [1, 2, 10] = 1 cohort (with rotation)
+            # After deduplication and sorting: should have all forced cohorts plus 1 other
+            assert len(result.cohort_ids) == 4
+            # Should include all forced team cohorts
+            assert all(cohort_id in result.cohort_ids for cohort_id in [10, 20, 30])
+            # Should include one additional cohort from the percentage selection
+            other_cohorts = [id for id in result.cohort_ids if id not in [10, 20, 30]]
+            assert len(other_cohorts) == 1
+            assert other_cohorts[0] in [1, 2]  # Rotation picks one of these
+            # Should be sorted
+            assert result.cohort_ids == sorted(result.cohort_ids)
 
     @pytest.mark.asyncio
     async def test_selection_activity_skips_invalid_team_ids(self):
@@ -722,8 +724,8 @@ class TestRealtimeCohortSelectionActivity:
             assert mock_cohort.objects.filter.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_selection_activity_deterministic_ordering(self):
-        """Should always return cohorts in the same order for consistent distribution."""
+    async def test_selection_activity_fair_rotation(self):
+        """Should select cohorts using fair rotation based on date, not always lowest IDs."""
 
         inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids=set(), global_percentage=0.6)
 
@@ -735,6 +737,42 @@ class TestRealtimeCohortSelectionActivity:
 
             result = await get_realtime_cohort_selection_activity(inputs)
 
-            # Should take first 3 (60% of 5) and sort them
-            # Selected: [50, 10, 30], sorted: [10, 30, 50]
-            assert result.cohort_ids == [10, 30, 50]
+            # Should select 60% = 3 cohorts, rotated based on date hash
+            assert len(result.cohort_ids) == 3
+            # All selected IDs should be from available set
+            assert all(cohort_id in [50, 10, 30, 20, 40] for cohort_id in result.cohort_ids)
+            # Should be unique
+            assert len(set(result.cohort_ids)) == 3
+            # Should be sorted in final result
+            assert result.cohort_ids == sorted(result.cohort_ids)
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_rotation_changes_over_time(self):
+        """Should select different cohorts on different dates for fair rotation."""
+
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids=set(), global_percentage=0.5)
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            # Set up cohorts
+            queryset = Mock()
+            queryset.order_by.return_value.values_list.return_value = [1, 2, 3, 4, 5, 6]
+            mock_cohort.objects.filter.return_value = queryset
+
+            # Mock different dates to verify rotation
+            with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.dt") as mock_dt:
+                # Test with date 1
+                mock_dt.date.today.return_value.isoformat.return_value = "2026-01-01"
+                result1 = await get_realtime_cohort_selection_activity(inputs)
+
+                # Test with date 2
+                mock_dt.date.today.return_value.isoformat.return_value = "2026-01-02"
+                result2 = await get_realtime_cohort_selection_activity(inputs)
+
+                # Both should select 50% = 3 cohorts
+                assert len(result1.cohort_ids) == 3
+                assert len(result2.cohort_ids) == 3
+
+                # Selection should be different (rotation working)
+                # Note: It's theoretically possible they could be the same by chance,
+                # but with MD5 hash and 6 cohorts, it's extremely unlikely
+                assert set(result1.cohort_ids) != set(result2.cohort_ids)
