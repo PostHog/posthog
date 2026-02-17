@@ -1,14 +1,71 @@
 import re
 import json
 import uuid
+import logging
 from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import CloningVisitor
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
+
+logger = logging.getLogger(__name__)
+
+
+class _ReplacePlaceholdersWithDummies(CloningVisitor):
+    """Replace all {variables.foo} placeholders with empty string constants."""
+
+    def visit_placeholder(self, node: ast.Placeholder) -> ast.Constant:
+        return ast.Constant(value="")
+
+
+_PLACEHOLDER_REPLACER = _ReplacePlaceholdersWithDummies()
+
+
+# Matches Nullable(...) and LowCardinality(...) — single-arg wrappers
+_TRANSPARENT_WRAPPER_RE = re.compile(r"^(?:Nullable|LowCardinality)\((.+)\)$")
+# Matches SimpleAggregateFunction(func, Type) and AggregateFunction(func, Type)
+_AGG_FUNC_RE = re.compile(r"^(?:Simple)?AggregateFunction\(.+?,\s*(.+)\)$")
+
+
+def _clickhouse_type_to_serialized_type(ch_type: str) -> str:
+    """Map a ClickHouse type string to a serialized endpoint column type."""
+    t = ch_type
+    while True:
+        if m := _TRANSPARENT_WRAPPER_RE.match(t):
+            t = m.group(1)
+        elif m := _AGG_FUNC_RE.match(t):
+            t = m.group(1)
+        else:
+            break
+
+    if t.startswith(("UInt", "Int")):
+        return "integer"
+    if t.startswith("Float"):
+        return "float"
+    if t.startswith("Decimal"):
+        return "decimal"
+    if t.startswith(("String", "UUID", "Enum", "FixedString")):
+        return "string"
+    if t.startswith("DateTime"):
+        return "datetime"
+    if t in ("Date", "Date32"):
+        return "date"
+    if t == "Bool":
+        return "boolean"
+    if t.startswith("Array"):
+        return "array"
+    if t.startswith(("Tuple", "Map")):
+        return "json"
+    logger.warning("Unhandled ClickHouse type: %s", ch_type)
+    return "unknown"
 
 
 def validate_endpoint_name(value: str) -> None:
@@ -68,6 +125,11 @@ class EndpointVersion(models.Model):
         default=True,
         help_text="Whether this version is available for execution. Inactive versions cannot be run.",
     )
+    columns = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="SELECT column names and types. Null means not yet computed; empty list means no columns found.",
+    )
 
     class Meta:
         db_table = "endpoints_endpointversion"
@@ -87,6 +149,13 @@ class EndpointVersion(models.Model):
 
     def __str__(self) -> str:
         return f"{self.endpoint.name} v{self.version}"
+
+    def get_columns(self) -> list[dict]:
+        """Return columns, lazily populating from ClickHouse if not yet computed."""
+        if self.columns is None:
+            self.columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
+            self.save(update_fields=["columns"])
+        return self.columns
 
     def can_materialize(self) -> tuple[bool, str]:
         """Check if this version can be materialized.
@@ -133,6 +202,42 @@ class EndpointVersion(models.Model):
                 return False, "Query is empty or invalid."
 
         return True, ""
+
+    @staticmethod
+    def extract_columns(query: dict, team_id: int) -> list[dict]:
+        """Extract SELECT column names and types by describing the query against ClickHouse."""
+        if query.get("kind") != "HogQLQuery":
+            return []
+        hogql_string = query.get("query", "")
+        if not hogql_string:
+            return []
+        try:
+            from posthog.hogql.query import HogQLQueryExecutor
+
+            from posthog.clickhouse.client import sync_execute
+
+            parsed = parse_select(hogql_string)
+            cleaned = _PLACEHOLDER_REPLACER.visit(parsed)
+
+            team = Team.objects.get(pk=team_id)
+            executor = HogQLQueryExecutor(query=cleaned, team=team, limit_context=None)
+            clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
+
+            if not clickhouse_sql:
+                return []
+
+            # nosemgrep: clickhouse-fstring-param-audit (clickhouse_sql is compiler output from HogQLQueryExecutor, not user input)
+            rows = sync_execute(
+                f"DESCRIBE TABLE ({clickhouse_sql})",
+                clickhouse_context.values,
+                team_id=team_id,
+                readonly=True,
+            )
+
+            return [{"name": row[0], "type": _clickhouse_type_to_serialized_type(row[1])} for row in rows]
+        except Exception as e:
+            capture_exception(e)
+            return []
 
 
 class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -220,6 +325,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         self.save(update_fields=["current_version", "updated_at"])
 
         # Create new version, inheriting settings from previous version
+        columns = EndpointVersion.extract_columns(query, team_id=self.team_id)
         version = EndpointVersion.objects.create(
             endpoint=self,
             version=self.current_version,
@@ -228,6 +334,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
             cache_age_seconds=previous_cache_age,
             description=previous_description,
             is_materialized=False,
+            columns=columns,
         )
 
         return version
