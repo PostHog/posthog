@@ -111,13 +111,11 @@ function createProducePromises(
                             distinctId: record.distinctId,
                             uuid: record.uuid,
                         })
-                        promises.push(
-                            captureIngestionWarning(kafkaProducer, record.teamId, 'message_size_too_large', {
-                                eventUuid: record.uuid,
-                                distinctId: record.distinctId,
-                                step: 'flushBatchStoresStep',
-                            })
-                        )
+                        return captureIngestionWarning(kafkaProducer, record.teamId, 'message_size_too_large', {
+                            eventUuid: record.uuid,
+                            distinctId: record.distinctId,
+                            step: 'flushBatchStoresStep',
+                        })
                     } else {
                         // Other errors should fail the side effect
                         logger.error('❌', 'flushBatchStoresStep: Failed to produce message', {
