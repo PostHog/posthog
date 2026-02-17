@@ -54,6 +54,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         currentDraft,
         changesToSave,
         inProgressViewEdits,
+        isEmbeddedMode,
     } = useValues(sqlEditorLogic)
 
     const {
@@ -98,15 +99,15 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
 
     return (
         <div className="flex grow flex-col overflow-hidden">
-            {(editingView || editingInsight || insightLoading) && (
+            {!isEmbeddedMode && (editingView || editingInsight || insightLoading) && (
                 <div className="h-5 bg-warning-highlight">
                     <span className="pl-2 text-xs">
-                        {editingView ? (
+                        {!isEmbeddedMode && editingView ? (
                             <>
                                 Editing {isDraft ? 'draft of ' : ''} {isMaterializedView ? 'materialized view' : 'view'}{' '}
                                 "{editingView.name}"
                             </>
-                        ) : editingInsight ? (
+                        ) : !isEmbeddedMode && editingInsight ? (
                             <>
                                 Editing insight "
                                 <Link to={urls.insightView(editingInsight.short_id)}>{editingInsight.name}</Link>"
@@ -120,7 +121,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
             <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
                 <RunButton />
                 <LemonDivider vertical />
-                {isDraft && featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
+                {!isEmbeddedMode && isDraft && featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
                     <>
                         <LemonButton
                             type="tertiary"
@@ -188,7 +189,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                         </LemonButton>
                     </>
                 )}
-                {editingView && !isDraft && activeTab && (
+                {!isEmbeddedMode && editingView && !isDraft && activeTab && (
                     <>
                         {featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
                             <LemonButton
@@ -225,7 +226,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                         </LemonButton>
                     </>
                 )}
-                {editingView && (
+                {!isEmbeddedMode && editingView && (
                     <>
                         <LemonButton
                             onClick={() => openHistoryModal()}
@@ -238,7 +239,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                         </LemonButton>
                     </>
                 )}
-                {!editingInsight && !editingView && !insightLoading && (
+                {!isEmbeddedMode && !editingInsight && !editingView && !insightLoading && (
                     <>
                         <AppShortcut
                             name="SQLEditorSaveAsView"

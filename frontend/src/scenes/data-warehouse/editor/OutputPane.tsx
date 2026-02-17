@@ -3,7 +3,7 @@ import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
@@ -300,6 +300,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
         updateInsightButtonEnabled,
         showLegacyFilters,
         hasQueryInput,
+        isEmbeddedMode,
     } = useValues(sqlEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -462,33 +463,48 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
 
     const hasColumns = columns.length > 1
 
+    useEffect(() => {
+        if (isEmbeddedMode && activeTab !== OutputTab.Results) {
+            setActiveTab(OutputTab.Results)
+        }
+    }, [isEmbeddedMode, activeTab, setActiveTab])
+
     return (
         <div className="OutputPane flex flex-col w-full flex-1 bg-white dark:bg-black">
             <div className="flex flex-row justify-between align-center w-full min-h-[50px] overflow-y-auto">
                 <div className="flex min-h-[50px] gap-2 ml-4">
-                    {[
-                        {
-                            key: OutputTab.Results,
-                            label: 'Results',
-                            icon: <IconTableChart />,
-                        },
-                        {
-                            key: OutputTab.Visualization,
-                            label: 'Visualization',
-                            icon: <IconGraph />,
-                        },
-                        {
-                            key: OutputTab.Materialization,
-                            label: 'Materialization',
-                            icon: <IconBolt />,
-                        },
-                        {
-                            key: OutputTab.Endpoint,
-                            label: 'Endpoint',
-                            icon: <IconCode2 />,
-                            flag: FEATURE_FLAGS.ENDPOINTS,
-                        },
-                    ]
+                    {(!isEmbeddedMode
+                        ? [
+                              {
+                                  key: OutputTab.Results,
+                                  label: 'Results',
+                                  icon: <IconTableChart />,
+                              },
+                              {
+                                  key: OutputTab.Visualization,
+                                  label: 'Visualization',
+                                  icon: <IconGraph />,
+                              },
+                              {
+                                  key: OutputTab.Materialization,
+                                  label: 'Materialization',
+                                  icon: <IconBolt />,
+                              },
+                              {
+                                  key: OutputTab.Endpoint,
+                                  label: 'Endpoint',
+                                  icon: <IconCode2 />,
+                                  flag: FEATURE_FLAGS.ENDPOINTS,
+                              },
+                          ]
+                        : [
+                              {
+                                  key: OutputTab.Results,
+                                  label: 'Results',
+                                  icon: <IconTableChart />,
+                              },
+                          ]
+                    )
                         .filter((tab) => !tab.flag || featureFlags[tab.flag])
                         .map((tab) => (
                             <div
@@ -521,7 +537,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             }}
                         />
                     )}
-                    {activeTab === OutputTab.Visualization && (
+                    {!isEmbeddedMode && activeTab === OutputTab.Visualization && (
                         <>
                             <div className="flex justify-between flex-wrap">
                                 <div className="flex items-center" />
@@ -584,7 +600,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             </div>
                         </>
                     )}
-                    {activeTab === OutputTab.Results && (
+                    {!isEmbeddedMode && activeTab === OutputTab.Results && (
                         <LemonButton
                             disabledReason={
                                 insightLoading
@@ -645,7 +661,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             />
                         </Tooltip>
                     )}
-                    {activeTab === OutputTab.Results && (
+                    {!isEmbeddedMode && activeTab === OutputTab.Results && (
                         <Tooltip title="Share your current query">
                             <LemonButton
                                 id="sql-editor-share"

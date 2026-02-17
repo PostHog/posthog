@@ -55,6 +55,7 @@ import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import type { sqlEditorLogicType } from './sqlEditorLogicType'
+import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 import {
     aiSuggestionOnAccept,
     aiSuggestionOnAcceptText,
@@ -64,6 +65,7 @@ import {
 
 export interface SqlEditorLogicProps {
     tabId: string
+    mode?: SQLEditorMode
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
 }
@@ -128,7 +130,7 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
 
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
-    props({} as SqlEditorLogicProps),
+    props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
     tabAwareScene(),
     connect(() => ({
         values: [
@@ -1080,6 +1082,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput) => !!queryInput],
+        isEmbeddedMode: [(_, p) => [p.mode], (mode) => isEmbeddedSQLEditorMode(mode ?? SQLEditorMode.FullScene)],
         dataLogicKey: [(_, p) => [p.tabId], (tabId) => `data-warehouse-editor-data-node-${tabId}`],
         isDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? !!activeTab.draft?.id : false)],
         currentDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? activeTab.draft : null)],
@@ -1150,14 +1153,23 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     }),
     tabAwareActionToUrl(({ values }) => ({
         syncUrlWithQuery: () => {
+            if (values.isEmbeddedMode) {
+                return
+            }
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
         createTab: () => {
+            if (values.isEmbeddedMode) {
+                return
+            }
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
     })),
     tabAwareUrlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
+            if (isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene)) {
+                return
+            }
             if (
                 !searchParams.open_query &&
                 !searchParams.open_view &&
