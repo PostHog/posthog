@@ -8,7 +8,6 @@ from typing import Any
 from django.conf import settings
 
 import posthoganalytics
-from asgiref.sync import sync_to_async
 from google.genai import types
 from posthoganalytics.ai.gemini import AsyncClient, genai
 from temporalio import activity, workflow
@@ -26,7 +25,6 @@ from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput
 from products.data_warehouse.backend.models import ExternalDataSchema
 from products.signals.backend.api import emit_signal
 
-EMIT_SIGNALS_FEATURE_FLAG = "emit-data-import-signals"
 # Concurrent LLM calls limit for actionability checks
 LLM_CONCURRENCY_LIMIT = 20
 # Concurrent workflow spawns for signal emission
@@ -68,14 +66,6 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
             extra=inputs.properties_to_log,
         )
         return {"status": "skipped", "reason": "no_config_registered", "signals_emitted": 0}
-    # Check if the FF enabled to allow signals emission
-    # Using regular sync to async as FF check should not close any old Django connections
-    if not await sync_to_async(_is_feature_flag_enabled, thread_sensitive=False)(inputs.team_id):
-        activity.logger.warning(
-            f"Feature flag {EMIT_SIGNALS_FEATURE_FLAG} not enabled for team {inputs.team_id} for emitting signals",
-            extra=inputs.properties_to_log,
-        )
-        return {"status": "skipped", "reason": "feature_flag_disabled", "signals_emitted": 0}
     # Fetch schema and team (raises if either doesn't exist)
     schema, team = await database_sync_to_async(_fetch_schema_and_team, thread_sensitive=False)(
         inputs.schema_id, inputs.team_id
@@ -124,10 +114,6 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         extra=inputs.properties_to_log,
     )
     return {"status": "success", "signals_emitted": signals_emitted}
-
-
-def _is_feature_flag_enabled(team_id: int) -> bool:
-    return posthoganalytics.feature_enabled(EMIT_SIGNALS_FEATURE_FLAG, str(team_id)) is True
 
 
 def _fetch_schema_and_team(schema_id: uuid.UUID, team_id: int) -> tuple[ExternalDataSchema, Team]:

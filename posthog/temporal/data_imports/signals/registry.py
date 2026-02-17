@@ -4,6 +4,8 @@ from typing import Any
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
+EMIT_SIGNALS_FEATURE_FLAG = "emit-data-import-signals"
+
 
 @dataclasses.dataclass(frozen=True)
 class SignalEmitterOutput:

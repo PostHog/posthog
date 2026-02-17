@@ -1,4 +1,5 @@
 from posthog.temporal.data_imports.signals.registry import (
+    EMIT_SIGNALS_FEATURE_FLAG,
     SignalEmitter,
     SignalEmitterOutput,
     SignalSourceTableConfig,
@@ -7,6 +8,7 @@ from posthog.temporal.data_imports.signals.registry import (
 )
 
 __all__ = [
+    "EMIT_SIGNALS_FEATURE_FLAG",
     "SignalEmitter",
     "SignalEmitterOutput",
     "SignalSourceTableConfig",

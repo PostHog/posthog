@@ -21,7 +21,6 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
-from posthog.temporal.data_imports.signals import is_signal_emission_registered
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource
 from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
@@ -253,13 +252,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # Safety net, to avoid errors if old workers didn't pick up the dataclass yet and still return tuples
             if isinstance(create_job_result, tuple):
                 job_id, incremental_or_append, source_type = create_job_result
-                schema_name, last_synced_at = None, None
+                schema_name, last_synced_at, emit_signals_enabled = None, None, False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
                 source_type = create_job_result.source_type
                 schema_name = create_job_result.schema_name
                 last_synced_at = create_job_result.last_synced_at
+                emit_signals_enabled = create_job_result.emit_signals_enabled
             update_inputs.job_id = job_id
 
             # Check billing limits
@@ -343,13 +343,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     ),
                 )
 
-            # Emit signals for new records (if registered for this source type + schema).
+            # Emit signals for new records (if registered for this source type + schema), if FF enabled.
             # Fire-and-forget: runs on its own task queue so it doesn't block the import pipeline.
-            if (
-                source_type is not None
-                and schema_name is not None
-                and is_signal_emission_registered(source_type, schema_name)
-            ):
+            if source_type is not None and schema_name is not None and emit_signals_enabled:
                 await workflow.start_child_workflow(
                     EmitDataImportSignalsWorkflow.run,
                     EmitSignalsActivityInputs(
