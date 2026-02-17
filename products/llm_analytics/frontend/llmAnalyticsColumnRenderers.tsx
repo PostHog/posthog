@@ -16,7 +16,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { AIDataLoading } from './components/AIDataLoading'
-import { SentimentBar } from './components/SentimentTag'
+import { SentimentBar, flattenGenerationMessages } from './components/SentimentTag'
 import { EventData, useAIData } from './hooks/useAIData'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
@@ -213,7 +213,7 @@ function LazySentimentColumnCell({ traceId }: { traceId: string }): JSX.Element 
         <SentimentBar
             label={cached.label}
             score={cached.score}
-            scores={cached.scores as { positive: number; neutral: number; negative: number }}
+            messages={flattenGenerationMessages(cached.generations)}
         />
     )
 }

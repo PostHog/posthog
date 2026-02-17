@@ -59,7 +59,45 @@ export function SentimentTag({ label, score, scores, loading }: SentimentTagProp
     )
 }
 
-export function SentimentBar({ label, score, scores, loading }: SentimentTagProps): JSX.Element | null {
+export interface MessageSentiment {
+    label: string
+    score: number
+}
+
+interface MessageScore {
+    label?: string
+    scores?: Record<string, number>
+}
+
+export interface SentimentBarProps {
+    label: string
+    score: number
+    loading?: boolean
+    // Individual message scores for computing max positive/negative tick marks.
+    // Pass generation messages directly, or flatten from multiple generations.
+    messages?: Record<string | number, MessageScore>
+}
+
+function computeExtremes(messages?: Record<string | number, MessageScore>): {
+    maxPositive: number
+    maxNegative: number
+} {
+    let maxPositive = 0
+    let maxNegative = 0
+    if (messages) {
+        for (const msg of Object.values(messages)) {
+            if (msg.label === 'positive' && msg.scores && msg.scores.positive > maxPositive) {
+                maxPositive = msg.scores.positive
+            }
+            if (msg.label === 'negative' && msg.scores && msg.scores.negative > maxNegative) {
+                maxNegative = msg.scores.negative
+            }
+        }
+    }
+    return { maxPositive, maxNegative }
+}
+
+export function SentimentBar({ label, score, loading, messages }: SentimentBarProps): JSX.Element | null {
     if (loading) {
         return <LemonSkeleton className="h-1.5 w-10" />
     }
@@ -67,61 +105,12 @@ export function SentimentBar({ label, score, scores, loading }: SentimentTagProp
     const sentimentLabel = (label as SentimentLabel) ?? 'neutral'
     const barColor = SENTIMENT_BAR_COLOR[sentimentLabel] ?? 'bg-border'
     const widthPercent = Math.round(score * 100)
-
-    return (
-        <Tooltip title={<span className="whitespace-pre-line">{buildTooltip(label, scores)}</span>}>
-            <div className="relative w-10 my-0.5 shrink-0">
-                <div className="h-1.5 bg-border-light rounded-full overflow-hidden">
-                    <div
-                        className={`h-full rounded-full ${barColor}`}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: `${widthPercent}%` }}
-                    />
-                </div>
-            </div>
-        </Tooltip>
-    )
-}
-
-export interface MessageSentiment {
-    label: string
-    score: number
-}
-
-export interface TraceSentimentChipProps {
-    sentiment: {
-        label?: string
-        score?: number
-        generations?: Record<string, { messages?: Record<number, { label?: string; scores?: Record<string, number> }> }>
-    }
-}
-
-export function TraceSentimentChip({ sentiment }: TraceSentimentChipProps): JSX.Element | null {
-    const label = (sentiment.label ?? 'neutral') as SentimentLabel
-    const score = sentiment.score ?? 0
-    const widthPercent = Math.round(score * 100)
-    const barColor = SENTIMENT_BAR_COLOR[label] ?? 'bg-border'
-
-    let maxPositive = 0
-    let maxNegative = 0
-    if (sentiment.generations) {
-        for (const gen of Object.values(sentiment.generations)) {
-            for (const msg of Object.values(gen.messages ?? {})) {
-                if (msg.label === 'positive' && msg.scores && msg.scores.positive > maxPositive) {
-                    maxPositive = msg.scores.positive
-                }
-                if (msg.label === 'negative' && msg.scores && msg.scores.negative > maxNegative) {
-                    maxNegative = msg.scores.negative
-                }
-            }
-        }
-    }
-
+    const { maxPositive, maxNegative } = computeExtremes(messages)
     const showMaxPositive = maxPositive > 0.05
     const showMaxNegative = maxNegative > 0.05
 
     const capitalize = (s: string): string => s[0].toUpperCase() + s.slice(1)
-    const tooltipParts = [`${capitalize(label)}: ${Math.round(score * 100)}%`]
+    const tooltipParts = [`${capitalize(sentimentLabel)}: ${widthPercent}%`]
     if (showMaxPositive) {
         tooltipParts.push(`max positive: ${Math.round(maxPositive * 100)}%`)
     }
@@ -133,7 +122,7 @@ export function TraceSentimentChip({ sentiment }: TraceSentimentChipProps): JSX.
 
     return (
         <Tooltip title={tooltipText}>
-            <span className="relative w-10 my-0.5 inline-block">
+            <span className="relative w-10 my-0.5 inline-block shrink-0">
                 <span className="block h-1.5 bg-border-light rounded-full overflow-hidden">
                     <span
                         className={`block h-full rounded-full ${barColor}`}
@@ -158,6 +147,22 @@ export function TraceSentimentChip({ sentiment }: TraceSentimentChipProps): JSX.
             </span>
         </Tooltip>
     )
+}
+
+/** Flatten all messages from all generations into a single record for SentimentBar. */
+export function flattenGenerationMessages(
+    generations?: Record<string, { messages?: Record<string | number, MessageScore> }>
+): Record<string, MessageScore> | undefined {
+    if (!generations) {
+        return undefined
+    }
+    const flat: Record<string, MessageScore> = {}
+    for (const [genId, gen] of Object.entries(generations)) {
+        for (const [msgId, msg] of Object.entries(gen.messages ?? {})) {
+            flat[`${genId}:${msgId}`] = msg
+        }
+    }
+    return Object.keys(flat).length > 0 ? flat : undefined
 }
 
 export function MessageSentimentBar({ sentiment }: { sentiment: MessageSentiment }): JSX.Element | null {

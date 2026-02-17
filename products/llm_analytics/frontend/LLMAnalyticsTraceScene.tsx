@@ -62,7 +62,7 @@ import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
-import { SentimentBar, TraceSentimentChip } from './components/SentimentTag'
+import { SentimentBar, flattenGenerationMessages } from './components/SentimentTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
@@ -417,7 +417,11 @@ function TraceMetadata({
             ))}
             {sentimentResult && !sentimentLoading && (
                 <Chip title="Sentiment">
-                    <TraceSentimentChip sentiment={sentimentResult} />
+                    <SentimentBar
+                        label={sentimentResult.label ?? 'neutral'}
+                        score={sentimentResult.score ?? 0}
+                        messages={flattenGenerationMessages(sentimentResult.generations)}
+                    />
                 </Chip>
             )}
         </header>
@@ -638,7 +642,7 @@ const TreeNode = React.memo(function TraceNode({
                         <SentimentBar
                             label={genSentiment.label}
                             score={genSentiment.score}
-                            scores={genSentiment.scores}
+                            messages={genSentiment.messages}
                         />
                     )}
                     {!isCollapsedDueToFilter && (
