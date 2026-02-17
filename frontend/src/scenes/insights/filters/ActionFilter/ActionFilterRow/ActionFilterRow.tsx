@@ -43,6 +43,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, getEventNamesForAction } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { DataWarehouseFunnelStepDefinitionPopover } from 'scenes/data-warehouse/DataWarehouseFunnelStepDefinitionPopover'
+import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -258,6 +260,8 @@ export function ActionFilterRow({
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
     const [isMenuVisible, setIsMenuVisible] = useState(false)
+    const [dataWarehouseStepTable, setDataWarehouseStepTable] = useState<DataWarehouseTableForInsight | null>(null)
+    const [isDataWarehouseStepModalOpen, setIsDataWarehouseStepModalOpen] = useState(false)
 
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
@@ -375,6 +379,12 @@ export function ActionFilterRow({
                 }
                 const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
                 if (groupType === EntityTypes.DATA_WAREHOUSE) {
+                    if (isFunnelContext) {
+                        setDataWarehouseStepTable(item as DataWarehouseTableForInsight)
+                        setIsDataWarehouseStepModalOpen(true)
+                        return
+                    }
+
                     const extraValues = Object.fromEntries(
                         dataWarehousePopoverFields.map(({ key }) => [key, item?.[key]])
                     )
@@ -406,7 +416,9 @@ export function ActionFilterRow({
             disabled={disabled || readOnly}
             showNumericalPropsOnly={showNumericalPropsOnly}
             dataWarehousePopoverFields={
-                typeKey === 'plugin-filters' ? ([] as DataWarehousePopoverField[]) : dataWarehousePopoverFields
+                typeKey === 'plugin-filters' || isFunnelContext
+                    ? ([] as DataWarehousePopoverField[])
+                    : dataWarehousePopoverFields
             }
             excludedProperties={excludedProperties}
             allowNonCapturedEvents={allowNonCapturedEvents}
@@ -865,6 +877,44 @@ export function ActionFilterRow({
                     />
                 </div>
             )}
+
+            <DataWarehouseFunnelStepDefinitionPopover
+                isOpen={isDataWarehouseStepModalOpen}
+                table={dataWarehouseStepTable}
+                dataWarehousePopoverFields={dataWarehousePopoverFields}
+                initialValues={{
+                    customName: filter.custom_name || '',
+                    properties: filter.properties ?? [],
+                    fieldMappings: Object.fromEntries(
+                        dataWarehousePopoverFields.map(({ key }) => [
+                            key,
+                            filter[key as keyof ActionFilter] as string | undefined,
+                        ])
+                    ),
+                }}
+                onClose={() => {
+                    setIsDataWarehouseStepModalOpen(false)
+                    setDataWarehouseStepTable(null)
+                }}
+                onSave={({ customName, properties, fieldMappings }) => {
+                    if (!dataWarehouseStepTable) {
+                        return
+                    }
+
+                    updateFilter({
+                        type: EntityTypes.DATA_WAREHOUSE,
+                        id: dataWarehouseStepTable.name,
+                        name: dataWarehouseStepTable.name,
+                        custom_name: customName || null,
+                        table_name: dataWarehouseStepTable.name,
+                        index,
+                        properties,
+                        ...fieldMappings,
+                    })
+                    setIsDataWarehouseStepModalOpen(false)
+                    setDataWarehouseStepTable(null)
+                }}
+            />
         </li>
     )
 }

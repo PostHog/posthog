@@ -25,6 +25,7 @@ import { TablePreview } from 'lib/components/TablePreview/TablePreview'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink, IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { TablePreview } from 'scenes/data-warehouse/TablePreview'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
