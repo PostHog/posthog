@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { Suspense, lazy } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
@@ -9,7 +10,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -33,12 +33,8 @@ export const scene: SceneExport = {
     logic: llmAnalyticsSessionLogic,
 }
 
-export function LLMAnalyticsSessionScene({ tabId }: { tabId?: string }): JSX.Element {
-    const sessionLogic = llmAnalyticsSessionLogic({ tabId })
-    const { sessionId, query } = useValues(sessionLogic)
-    const sessionDataLogic = llmAnalyticsSessionDataLogic({ sessionId, query })
-
-    useAttachedLogic(sessionDataLogic, sessionLogic)
+export function LLMAnalyticsSessionScene(): JSX.Element {
+    const { sessionId, query } = useValues(llmAnalyticsSessionLogic)
 
     return (
         <BindLogic logic={llmAnalyticsSessionDataLogic} props={{ sessionId, query }}>
@@ -49,6 +45,7 @@ export function LLMAnalyticsSessionScene({ tabId }: { tabId?: string }): JSX.Ele
 
 function SessionSceneWrapper(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { searchParams } = useValues(router)
     const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
 
     const {
@@ -207,9 +204,12 @@ function SessionSceneWrapper(): JSX.Element {
                                                         </LemonTag>
                                                     )}
                                                     <Link
-                                                        to={urls.llmAnalyticsTrace(trace.id, {
-                                                            timestamp: getTraceTimestamp(trace.createdAt),
-                                                        })}
+                                                        to={
+                                                            combineUrl(urls.llmAnalyticsTrace(trace.id), {
+                                                                ...searchParams,
+                                                                timestamp: getTraceTimestamp(trace.createdAt),
+                                                            }).url
+                                                        }
                                                         onClick={(e) => e.stopPropagation()}
                                                         className="text-xs"
                                                     >
@@ -231,10 +231,13 @@ function SessionSceneWrapper(): JSX.Element {
                                                             </Tooltip>
                                                         ) : (
                                                             <Link
-                                                                to={urls.llmAnalyticsTrace(trace.id, {
-                                                                    timestamp: getTraceTimestamp(trace.createdAt),
-                                                                    tab: 'summary',
-                                                                })}
+                                                                to={
+                                                                    combineUrl(urls.llmAnalyticsTrace(trace.id), {
+                                                                        ...searchParams,
+                                                                        timestamp: getTraceTimestamp(trace.createdAt),
+                                                                        tab: 'summary',
+                                                                    }).url
+                                                                }
                                                                 onClick={(e) => e.stopPropagation()}
                                                                 className="text-sm font-medium"
                                                             >

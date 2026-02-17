@@ -1,11 +1,11 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -29,7 +29,6 @@ import {
 export interface ClusterDetailLogicProps {
     runId: string
     clusterId: number
-    tabId?: string
 }
 
 export interface TraceWithSummary {
@@ -60,7 +59,7 @@ export interface ScatterDataset {
 export const clusterDetailLogic = kea<clusterDetailLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clusterDetailLogic']),
     props({} as ClusterDetailLogicProps),
-    key((props) => `${props.runId}:${props.clusterId}::${props.tabId ?? 'default'}`),
+    key((props) => `${props.runId}:${props.clusterId}`),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
     })),
@@ -383,7 +382,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         actions.loadClusterData()
     }),
 
-    tabAwareUrlToAction(({ actions, props }) => ({
+    urlToAction(({ actions, props }) => ({
         '/llm-analytics/clusters/:runId/:clusterId': ({ runId, clusterId }: { runId?: string; clusterId?: string }) => {
             const decodedRunId = runId ? decodeURIComponent(runId) : ''
             const parsedClusterId = clusterId ? parseInt(clusterId, 10) : 0

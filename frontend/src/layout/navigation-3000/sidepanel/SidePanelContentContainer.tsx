@@ -17,7 +17,7 @@ export function SidePanelContentContainer({
         <div className={isRemovingSidePanelFlag ? 'h-full' : 'contents'}>
             <ScrollableShadows
                 direction="vertical"
-                innerClassName="p-2"
+                innerClassName="p-2 flex flex-col"
                 styledScrollbars
                 className={cn(
                     !isRemovingSidePanelFlag && flagOffClassName,
