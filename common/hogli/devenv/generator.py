@@ -117,6 +117,9 @@ class MprocsGenerator(ConfigGenerator):
         """
         procs: dict[str, dict[str, Any]] = {}
 
+        # Info process is always first
+        procs["info"] = self._build_info_process(resolved)
+
         # Iterate in original mprocs.yaml order to preserve ordering
         for name in self.registry.get_processes():
             proc_config = self.registry.get_process_config(name)
@@ -173,6 +176,49 @@ class MprocsGenerator(ConfigGenerator):
             scrollback=global_settings.get("scrollback", 10000),
             posthog_config=source_config,
         )
+
+    def _build_info_process(self, resolved: ResolvedEnvironment) -> dict[str, Any]:
+        """Build the info process shell command with environment summary and news.
+
+        News is read at runtime from devenv/news.txt so developers always see the
+        latest items without re-running hogli dev:generate.
+        """
+        process_count = len(resolved.units)
+        products = sorted(resolved.intents) if resolved.intents else ["(none)"]
+
+        # ANSI color codes matching PostHog brand
+        orange = r"\033[38;2;245;78;0m"  # #F54E00
+        blue = r"\033[38;2;29;74;255m"  # #1D4AFF
+        gray = r"\033[38;5;245m"
+        bold = r"\033[1m"
+        reset = r"\033[0m"
+
+        # news.txt sits next to intent-map.yaml in the devenv/ directory, which
+        # is at the repo root — the same cwd mprocs launches from.
+        news_path = "devenv/news.txt"
+
+        shell = f"""\
+echo ''
+printf '{orange}{bold}  PostHog Dev Environment{reset}\\n'
+printf '{gray}  ─────────────────────────────────────{reset}\\n'
+echo ''
+if [ -f {news_path} ]; then
+    printf '  {orange}{bold}News:{reset}\\n'
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -z "$line" ] && continue
+        printf '    {gray}·{reset} %s\\n' "$line"
+    done < {news_path}
+    echo ''
+fi
+printf '  {bold}Commands:{reset}\\n'
+printf '    {blue}hogli dev:setup{reset}    Configure which services run\\n'
+printf '    {blue}hogli dev:explain{reset}  Show why each service is running\\n'
+echo ''
+printf '{gray}  ─────────────────────────────────────{reset}\\n'
+printf '  {bold}Products:{reset}  {blue}{", ".join(products)}{reset}\\n'
+printf '  {bold}Processes:{reset} {process_count} active\\n'
+printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'"""
+        return {"shell": shell}
 
     def _add_startup_message(self, proc_config: dict[str, Any], process_name: str, reason: str) -> dict[str, Any]:
         """Add a startup message to a process config.

@@ -9,6 +9,27 @@
 # See devenv/intent-map.yaml for intent-to-capability mappings.
 
 procs:
+    info:
+        shell: |
+            echo ''
+            printf '\033[38;2;245;78;0m\033[1m  PostHog Dev Environment\033[0m\n'
+            printf '\033[38;5;245m  ─────────────────────────────────────\033[0m\n'
+            echo ''
+            if [ -f devenv/news.txt ]; then
+                printf '  \033[38;2;245;78;0m\033[1mNews:\033[0m\n'
+                while IFS= read -r line || [ -n "$line" ]; do
+                    [ -z "$line" ] && continue
+                    printf '    \033[38;5;245m·\033[0m %s\n' "$line"
+                done < devenv/news.txt
+                echo ''
+            fi
+            printf '  \033[1mCommands:\033[0m\n'
+            printf '    \033[38;2;29;74;255mhogli dev:setup\033[0m    Configure which services run\n'
+            printf '    \033[38;2;29;74;255mhogli dev:explain\033[0m  Show why each service is running\n'
+            echo ''
+            printf '\033[38;5;245m  ─────────────────────────────────────\033[0m\n'
+            printf '  \033[38;5;245mRun \033[0m\033[38;2;29;74;255mhogli dev:setup\033[0m\033[38;5;245m to tailor this to your workflow.\033[0m\n'
+
     backend:
         shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-backend'
         # no capability - always_required via intent-map.yaml
