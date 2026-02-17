@@ -9,7 +9,11 @@ import React, { useEffect } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 
-import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
+    TaxonomicFilterGroupType,
+} from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { DISPLAY_TYPES_TO_CATEGORIES as DISPLAY_TYPES_TO_CATEGORY, FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
@@ -105,6 +109,7 @@ export interface ActionFilterProps {
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
     hogQLGlobals?: Record<string, any>
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -142,6 +147,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         excludedProperties,
         allowNonCapturedEvents,
         hogQLGlobals,
+        definitionPopoverRenderer,
     },
     ref
 ): JSX.Element {
@@ -271,6 +277,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                         dataWarehousePopoverFields={dataWarehousePopoverFields}
                                         excludedProperties={excludedProperties}
                                         insightType={filters.insight}
+                                        definitionPopoverRenderer={definitionPopoverRenderer}
                                     />
                                 ) : (
                                     <ActionFilterRow
@@ -287,6 +294,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                                 ? hideDeleteBtn(filter, index)
                                                 : hideDeleteBtn
                                         }
+                                        definitionPopoverRenderer={definitionPopoverRenderer}
                                         {...commonProps}
                                     />
                                 )

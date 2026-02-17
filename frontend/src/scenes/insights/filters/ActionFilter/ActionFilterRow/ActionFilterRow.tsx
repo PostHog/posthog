@@ -27,6 +27,7 @@ import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
     TaxonomicFilterGroupType,
     isQuickFilterItem,
     quickFilterToPropertyFilters,
@@ -180,6 +181,7 @@ export interface ActionFilterRowProps {
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
     hogQLGlobals?: Record<string, any>
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 export function ActionFilterRow({
@@ -218,6 +220,7 @@ export function ActionFilterRow({
     excludedProperties,
     allowNonCapturedEvents,
     hogQLGlobals,
+    definitionPopoverRenderer,
 }: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
     const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
     const effectiveActionsTaxonomicGroupTypes = showQuickFilters
@@ -475,6 +478,7 @@ export function ActionFilterRow({
             }
             excludedProperties={excludedProperties}
             allowNonCapturedEvents={allowNonCapturedEvents}
+            definitionPopoverRenderer={definitionPopoverRenderer}
         />
     )
 
