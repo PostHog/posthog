@@ -72,7 +72,7 @@ class Command(BaseCommand):
             "--label",
             type=str,
             action="append",
-            default=["bug"],
+            default=None,
             help="Filter by label (can be specified multiple times, default: bug). Pass --label '' to disable.",
         )
         parser.add_argument(
@@ -112,12 +112,11 @@ class Command(BaseCommand):
                 "page": page,
                 "sort": "created",
                 "direction": "desc",
-                # filter out pull requests — the issues endpoint includes them
-                "pulls": "false",
+                # pull requests show up in the issues endpoint; filtered out below
             }
 
-            # GitHub API accepts comma-separated labels
-            labels = [lbl for lbl in (options["label"] or []) if lbl]
+            raw_labels = options["label"] if options["label"] is not None else ["bug"]
+            labels = [lbl for lbl in raw_labels if lbl]
             if labels:
                 params["labels"] = ",".join(labels)
 

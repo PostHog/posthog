@@ -88,7 +88,9 @@ class Command(BaseCommand):
         except Team.DoesNotExist:
             raise CommandError(f"Team {options['team_id']} not found")
 
-        json_files = sorted(input_dir.glob("*.json"), key=lambda p: int(p.stem), reverse=True)
+        json_files = sorted(
+            [p for p in input_dir.glob("*.json") if p.stem.isdigit()], key=lambda p: int(p.stem), reverse=True
+        )
         if not json_files:
             raise CommandError(f"No JSON files found in {input_dir}")
 
