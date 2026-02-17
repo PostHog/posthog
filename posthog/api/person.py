@@ -21,6 +21,7 @@ from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import JSONParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -1091,6 +1092,137 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             await asyncio.gather(*tasks)
 
         asyncio.run(start_all_workflows())
+
+    @action(methods=["GET"], detail=False, required_scopes=["person:read"], permission_classes=[IsAuthenticated])
+    def properties_at_time(self, request: request.Request) -> response.Response:
+        """
+        Get person properties as they existed at a specific point in time.
+
+        This endpoint reconstructs person properties by querying ClickHouse events
+        for $set and $set_once operations up to the specified timestamp.
+
+        Query parameters:
+        - distinct_id: The distinct_id of the person
+        - timestamp: ISO datetime string for the point in time (e.g., "2023-06-15T14:30:00Z")
+        - include_set_once: Whether to handle $set_once operations (default: false)
+        - debug: Whether to include debug information with raw events (default: false)
+        """
+        from posthog.models.person.point_in_time_properties import (
+            build_person_properties_at_time,
+            build_person_properties_at_time_with_set_once,
+        )
+
+        distinct_id = request.GET.get("distinct_id")
+        timestamp_str = request.GET.get("timestamp")
+        include_set_once = request.GET.get("include_set_once", "false").lower() == "true"
+        debug = request.GET.get("debug", "false").lower() == "true"
+
+        if not distinct_id:
+            return response.Response(
+                {"error": "distinct_id parameter is required"},
+                status=400,
+            )
+
+        if not timestamp_str:
+            return response.Response(
+                {"error": "timestamp parameter is required (ISO format: 2023-06-15T14:30:00Z)"},
+                status=400,
+            )
+
+        try:
+            # Parse timestamp - support both with and without timezone
+            if timestamp_str.endswith("Z"):
+                timestamp = datetime.fromisoformat(timestamp_str[:-1]).replace(tzinfo=UTC)
+            elif "+" in timestamp_str or timestamp_str.count("-") > 2:
+                timestamp = datetime.fromisoformat(timestamp_str)
+            else:
+                timestamp = datetime.fromisoformat(timestamp_str).replace(tzinfo=UTC)
+        except ValueError as e:
+            return response.Response(
+                {"error": f"Invalid timestamp format: {e}. Use ISO format like 2023-06-15T14:30:00Z"},
+                status=400,
+            )
+
+        try:
+            # Get the current person object
+            try:
+                person = Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
+            except Person.DoesNotExist:
+                return response.Response(
+                    {"error": f"Person with distinct_id '{distinct_id}' not found"},
+                    status=404,
+                )
+
+            # Build point-in-time properties
+            if include_set_once:
+                point_in_time_properties = build_person_properties_at_time_with_set_once(
+                    distinct_id=distinct_id, team_id=self.team_id, timestamp=timestamp
+                )
+            else:
+                point_in_time_properties = build_person_properties_at_time(
+                    distinct_id=distinct_id, team_id=self.team_id, timestamp=timestamp
+                )
+
+            # Serialize the person object
+            person_data = PersonSerializer(person, context={"get_team": lambda: self.team}).data
+
+            # Replace current properties with point-in-time properties
+            person_data["properties"] = point_in_time_properties
+
+            # Add metadata about the point-in-time query
+            person_data["point_in_time_metadata"] = {
+                "queried_timestamp": timestamp.isoformat(),
+                "include_set_once": include_set_once,
+                "distinct_id_used": distinct_id,
+            }
+
+            # Add debug information if requested
+            if debug:
+                from posthog.clickhouse.client import sync_execute
+
+                # Run the same query that the point-in-time function uses
+                query = """
+                SELECT
+                    toJSONString(properties) as properties_json,
+                    timestamp,
+                    event
+                FROM events
+                WHERE team_id = %(team_id)s
+                    AND distinct_id = %(distinct_id)s
+                    AND timestamp <= %(timestamp)s
+                    AND (
+                        event = '$set'
+                        OR JSONHas(properties, '$set')
+                    )
+                ORDER BY timestamp ASC
+                """
+
+                params = {
+                    "team_id": self.team_id,
+                    "distinct_id": distinct_id,
+                    "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+
+                try:
+                    debug_rows = sync_execute(query, params, settings={"max_execution_time": 30})
+                    person_data["debug"] = {
+                        "query": query,
+                        "params": params,
+                        "events_found": len(debug_rows),
+                        "events": [
+                            {"properties_json": row[0], "timestamp": str(row[1]), "event": row[2]} for row in debug_rows
+                        ],
+                    }
+                except Exception as debug_error:
+                    person_data["debug"] = {"error": f"Debug query failed: {str(debug_error)}"}
+
+            return response.Response(person_data)
+
+        except Exception as e:
+            return response.Response(
+                {"error": f"Failed to build person properties: {str(e)}"},
+                status=500,
+            )
 
 
 def paginated_result(
