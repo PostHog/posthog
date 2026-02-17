@@ -165,7 +165,7 @@ func FixEnvQuoting() error {
 		needsQuote := strings.ContainsAny(value, " ,") || strings.Contains(value, "://")
 		if needsQuote {
 			value = strings.ReplaceAll(value, "\"", "\\\"")
-			result.WriteString(fmt.Sprintf("%s=\"%s\"\n", key, value))
+			fmt.Fprintf(&result, "%s=\"%s\"\n", key, value)
 		} else {
 			result.WriteString(line)
 			result.WriteString("\n")
