@@ -1,0 +1,7 @@
+# Web traffic channels (direct, organic search, etc)
+
+Channels are the different sources that bring traffic to your website, e.g. Paid Search, Organic Social, Direct, etc.
+
+```sql
+{{ render_hogql_example({"kind": "WebStatsTableQuery", "filterTestAccounts": false, "breakdownBy": "InitialChannelType", "properties": [], "dateRange": {"date_from": "-7d"}}) }}
+```

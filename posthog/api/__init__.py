@@ -99,6 +99,7 @@ from . import (
     exports,
     feature_flag,
     flag_value,
+    health_issue,
     hog,
     hog_function,
     hog_function_template,
@@ -108,6 +109,7 @@ from . import (
     instance_status,
     integration,
     materialized_column_slot,
+    object_media_preview,
     organization,
     organization_domain,
     organization_feature_flag,
@@ -291,6 +293,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"health_issues",
+    health_issue.HealthIssueViewSet,
+    "environment_health_issues",
+    ["team_id"],
+)
+
+environments_router.register(
     r"llm_prompts",
     LLMPromptViewSet,
     "environment_llm_prompts",
@@ -455,6 +464,13 @@ projects_router.register(
 )
 
 projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["project_id"])
+
+projects_router.register(
+    r"object_media_previews",
+    object_media_preview.ObjectMediaPreviewViewSet,
+    "project_object_media_previews",
+    ["project_id"],
+)
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
 projects_router.register(

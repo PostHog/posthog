@@ -257,23 +257,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
 
             - name: Wait for Docker services
-              run: |
-                  # Can't use bin/wait-for-docker here — working tree is on master
-                  # which doesn't have the script yet.
-                  SECONDS=0
-                  for svc in db redis7 kafka clickhouse; do
-                    while true; do
-                      if [ "$SECONDS" -ge 300 ]; then
-                        echo "Timed out after 300s waiting for $svc"
-                        exit 1
-                      fi
-                      cid=$(docker compose -f docker-compose.dev.yml ps -q "$svc" 2>/dev/null || true)
-                      [ -n "$cid" ] && status=$(docker inspect --format='{{.State.Health.Status}}' "$cid" 2>/dev/null || echo starting) && [ "$status" = "healthy" ] && break
-                      echo "Waiting for $svc... (${SECONDS}s)"
-                      sleep 1
-                    done
-                  done
-                  echo "All services healthy in ${SECONDS}s."
+              run: bin/wait-for-docker
 
             - name: Run migrations up to master
               run: |
@@ -1043,6 +1027,8 @@ jobs:
             oldest_supported_image: ${{ steps.read-versions.outputs.oldest_supported_image }}
             # All unique versions for compat tests
             all: ${{ steps.read-versions.outputs.all }}
+            # Whether to skip compat tests (all versions identical = no extra coverage)
+            skip_compat: ${{ steps.check-compat.outputs.skip }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -1070,10 +1056,22 @@ jobs:
                   echo "all=$all" >> $GITHUB_OUTPUT
                   echo "All versions for compat tests: $all"
 
+            - name: Check if compat tests are needed
+              id: check-compat
+              run: |
+                  UNIQUE=$(jq -r '[.[]] | unique | length' .github/clickhouse-versions.json)
+                  if [ "$UNIQUE" -eq 1 ]; then
+                    echo "skip=true" >> $GITHUB_OUTPUT
+                    echo "All CH versions identical — compat tests provide no additional coverage, skipping"
+                  else
+                    echo "skip=false" >> $GITHUB_OUTPUT
+                    echo "Multiple CH versions found — compat tests needed"
+                  fi
+
     clickhouse-compat:
         name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
         needs: [changes, get_clickhouse_versions]
-        if: needs.changes.outputs.backend == 'true'
+        if: needs.changes.outputs.backend == 'true' && needs.get_clickhouse_versions.outputs.skip_compat != 'true'
         runs-on: depot-ubuntu-latest
         strategy:
             fail-fast: false
