@@ -181,6 +181,7 @@ export const productTourLogic = kea<productTourLogicType>([
         editingProductTour: (editing: boolean) => ({ editing }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setEditTab: (tab: ProductTourEditTab) => ({ tab }),
+        setSelectedLanguage: (langCode: string) => ({ langCode }),
         setSelectedStepIndex: (index: number) => ({ index }),
         updateSelectedStep: (updates: Partial<ProductTourStep>) => ({ updates }),
         launchProductTour: true,
@@ -427,6 +428,12 @@ export const productTourLogic = kea<productTourLogicType>([
                 setSelectedStepIndex: (_, { index }) => index,
             },
         ],
+        _selectedLanguage: [
+            null as string | null,
+            {
+                setSelectedLanguage: (_, { langCode }) => langCode,
+            },
+        ],
         isToolbarModalOpen: [
             false,
             {
@@ -470,11 +477,10 @@ export const productTourLogic = kea<productTourLogicType>([
                 })
             }
         },
-        submitProductTourFormFailure: () => {
-            const errorMessage =
-                values.productTourFormAllErrors._form ||
-                values.productTourFormAllErrors.name ||
-                'Failed to save product tour'
+        submitProductTourFormFailure: ({ error }) => {
+            const apiDetail = (error as any)?.detail || (error as any)?.data?.content?.[0]
+            const formErrors = values.productTourFormAllErrors
+            const errorMessage = apiDetail || formErrors._form || formErrors.name || 'Failed to save product tour'
             lemonToast.error(errorMessage)
         },
         publishDraft: async () => {
@@ -648,6 +654,12 @@ export const productTourLogic = kea<productTourLogicType>([
             (s) => [s.targetingFlagFilters],
             (targetingFlagFilters: FeatureFlagFilters | undefined): boolean => {
                 return !!targetingFlagFilters && !isEqual(targetingFlagFilters, DEFAULT_TARGETING_FILTERS)
+            },
+        ],
+        selectedLanguage: [
+            (s) => [s._selectedLanguage, s.productTourForm],
+            (_selectedLanguage: string | null, productTourForm: ProductTourForm): string | null => {
+                return _selectedLanguage ?? productTourForm.content.languages?.[0] ?? null
             },
         ],
         entityKeyword: [

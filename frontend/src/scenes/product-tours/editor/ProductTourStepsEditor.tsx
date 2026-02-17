@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChevronDown, IconCursorClick, IconEye, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonModal } from '@posthog/lemon-ui'
+import { IconChevronDown, IconCursorClick, IconEye, IconGlobe, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonModal, LemonTag } from '@posthog/lemon-ui'
 
 import { PositionSelector } from 'scenes/surveys/survey-appearance/SurveyAppearancePositionSelector'
 
@@ -37,7 +37,9 @@ export const TOUR_STEP_MIN_WIDTH = 200
 export const TOUR_STEP_MAX_WIDTH = 700
 
 export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps): JSX.Element {
-    const { productTour, productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
+    const { productTour, productTourForm, selectedStepIndex, selectedLanguage } = useValues(
+        productTourLogic({ id: tourId })
+    )
     const { setProductTourFormValue, setSelectedStepIndex, updateSelectedStep } = useActions(
         productTourLogic({ id: tourId })
     )
@@ -178,6 +180,11 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
                                             ? productTourForm.name || 'Announcement'
                                             : getStepTitle(selectedStep, selectedStepIndex)}
                                     </span>
+                                    {selectedLanguage && (
+                                        <LemonTag className="flex gap-2">
+                                            <IconGlobe /> {selectedLanguage}
+                                        </LemonTag>
+                                    )}
                                 </div>
                                 {!isAnnouncementMode && (
                                     <div className="flex items-center gap-1">
