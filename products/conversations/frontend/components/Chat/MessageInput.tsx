@@ -66,7 +66,7 @@ export function MessageInput({
                                 label={
                                     <span className="inline-flex items-center gap-1">
                                         <IconLock className="text-sm" />
-                                        Send as private
+                                        Attach as private note
                                     </span>
                                 }
                             />
@@ -81,7 +81,7 @@ export function MessageInput({
                     loading={messageSending}
                     disabledReason={isEmpty ? 'No message' : isUploading ? 'Uploading image...' : undefined}
                 >
-                    {buttonText}
+                    {isPrivate ? 'Attach' : buttonText}
                 </LemonButton>
             </div>
         </div>
