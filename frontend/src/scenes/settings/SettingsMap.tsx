@@ -1385,7 +1385,15 @@ export const SETTINGS_MAP: SettingSection[] = [
         hideSelfHost: true,
         title: 'Billing',
         to: urls.organizationBilling(),
-        settings: [],
+        settings: [
+            {
+                id: 'billing',
+                title: 'Billing',
+                description: 'Manage your billing plan, payment methods, and invoices.',
+                component: <></>,
+                keywords: ['billing', 'payment', 'invoice', 'plan', 'subscription', 'credit card', 'pricing'],
+            },
+        ],
     },
     {
         level: 'organization',

@@ -47,6 +47,7 @@ export interface SearchResultGroup {
     sectionId: SettingSectionId
     sectionTitle: string
     level: SettingLevelId
+    to?: string
     results: SearchResult[]
 }
 
@@ -209,14 +210,18 @@ export const settingsLogic = kea<settingsLogicType>([
         navigateToSetting: ({ sectionId, settingId }) => {
             const section = values.sections.find((s) => s.id === sectionId)
             if (section) {
-                actions.selectSection(sectionId, section.level)
-                actions.setSearchTerm('')
-                setTimeout(() => {
-                    const element = document.getElementById(settingId)
-                    if (element) {
-                        element.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                    }
-                }, 200)
+                if (section.to) {
+                    router.actions.push(section.to)
+                } else {
+                    actions.selectSection(sectionId, section.level)
+                    actions.setSearchTerm('')
+                    setTimeout(() => {
+                        const element = document.getElementById(settingId)
+                        if (element) {
+                            element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                        }
+                    }, 200)
+                }
             }
         },
     })),
@@ -482,8 +487,8 @@ export const settingsLogic = kea<settingsLogicType>([
         ],
 
         searchResults: [
-            (s) => [s.searchTerm, s.globalSearchIndex],
-            (searchTerm, globalSearchIndex): SearchResultGroup[] => {
+            (s) => [s.searchTerm, s.globalSearchIndex, s.sections],
+            (searchTerm, globalSearchIndex, sections): SearchResultGroup[] => {
                 if (!searchTerm.trim()) {
                     return []
                 }
@@ -495,7 +500,8 @@ export const settingsLogic = kea<settingsLogicType>([
                     const { sectionId, sectionTitle, level, settingId, settingTitle } = result.item
                     let group = groupMap.get(sectionId)
                     if (!group) {
-                        group = { sectionId, sectionTitle, level, results: [] }
+                        const section = sections.find((s: SettingSection) => s.id === sectionId)
+                        group = { sectionId, sectionTitle, level, to: section?.to, results: [] }
                         groupMap.set(sectionId, group)
                     }
                     group.results.push({ settingId, settingTitle, sectionId, sectionTitle, level })

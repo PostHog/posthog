@@ -197,6 +197,7 @@ export type SettingId =
     | 'change-requests'
     | 'banner'
     | 'sql-editor-tab-preference'
+    | 'billing'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

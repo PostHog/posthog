@@ -307,6 +307,7 @@ function SearchResults({
                             <LemonButton
                                 fullWidth
                                 size="small"
+                                sideIcon={group.to ? <IconExternal /> : undefined}
                                 onClick={
                                     handleLocally
                                         ? (e) => {
