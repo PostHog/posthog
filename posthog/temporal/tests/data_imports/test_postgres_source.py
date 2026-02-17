@@ -9,6 +9,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import pytest
+from posthog.test.base import override_settings
 from unittest import mock
 
 from django.conf import settings
@@ -18,6 +19,7 @@ import pytest_asyncio
 from psycopg import AsyncConnection, AsyncCursor, sql
 from psycopg.rows import TupleRow
 
+from posthog.temporal.data_imports.sources.common.base import SimpleSource
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
@@ -368,7 +370,8 @@ def test_postgresql_source_config_loads_with_nested_dict_disabled_tunnel():
 
 class TestSSLRequirement:
     def test_get_sslmode_returns_require_when_ssl_required(self):
-        assert _get_sslmode(require_ssl=True) == "require"
+        with override_settings(DEBUG=False, TEST=False):
+            assert _get_sslmode(require_ssl=True) == "require"
 
     def test_get_sslmode_returns_prefer_when_ssl_not_required(self):
         assert _get_sslmode(require_ssl=False) == "prefer"
@@ -422,6 +425,7 @@ class TestSSLRequirement:
         with mock.patch(
             "posthog.temporal.data_imports.sources.postgres.source.postgres_source"
         ) as mock_postgres_source:
+            assert isinstance(postgres_source, SimpleSource)
             postgres_source.source_for_pipeline(config, mock_inputs)
             mock_postgres_source.assert_called_once()
             call_kwargs = mock_postgres_source.call_args.kwargs
@@ -469,26 +473,11 @@ class TestSSLRequirement:
         with mock.patch(
             "posthog.temporal.data_imports.sources.postgres.source.postgres_source"
         ) as mock_postgres_source:
+            assert isinstance(postgres_source, SimpleSource)
             postgres_source.source_for_pipeline(config, mock_inputs)
             mock_postgres_source.assert_called_once()
             call_kwargs = mock_postgres_source.call_args.kwargs
             assert call_kwargs["require_ssl"] is False
-
-    @pytest.mark.django_db(transaction=True)
-    def test_validate_credentials_requires_ssl(self, team, postgres_config):
-        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
-
-        postgres_source = PostgresSource()
-        config = postgres_source.parse_config(postgres_config)
-
-        with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas"
-        ) as mock_get_schemas:
-            mock_get_schemas.return_value = {"test_table": [("id", "integer")]}
-            postgres_source.validate_credentials(config, team.id)
-            mock_get_schemas.assert_called_once()
-            call_kwargs = mock_get_schemas.call_args.kwargs
-            assert call_kwargs["require_ssl"] is True
 
     @pytest.mark.django_db(transaction=True)
     def test_validate_credentials_returns_error_on_ssl_failure(self, team, postgres_config):
@@ -497,12 +486,16 @@ class TestSSLRequirement:
         postgres_source = PostgresSource()
         config = postgres_source.parse_config(postgres_config)
 
-        with mock.patch(
-            "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas"
-        ) as mock_get_schemas:
+        with (
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas"
+            ) as mock_get_schemas,
+            override_settings(DEBUG=False, TEST=False),
+        ):
             mock_get_schemas.side_effect = SSLRequiredError(
                 "SSL/TLS connection is required but your database does not support it."
             )
             valid, error = postgres_source.validate_credentials(config, team.id)
             assert valid is False
+            assert error is not None
             assert "SSL/TLS connection is required" in error

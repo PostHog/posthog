@@ -725,8 +725,7 @@ def postgres_source(
     if not table_name:
         raise ValueError("Table name is missing")
 
-    # If require_ssl is True, override sslmode to "require"
-    effective_sslmode = "require" if require_ssl else sslmode
+    effective_sslmode = _get_sslmode(require_ssl)
 
     with tunnel() as (host, port):
         try:
