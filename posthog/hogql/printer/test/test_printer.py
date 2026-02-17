@@ -1530,7 +1530,7 @@ class TestPrinter(BaseTest):
     def test_select_limit_with_posthog_ai_context(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, limit_context=LimitContext.POSTHOG_AI)
         self.assertEqual(
-            self._select("select 1 limit 500", context=context),
+            self._select("select 1 limit 1000", context=context),
             f"SELECT 1 LIMIT {MAX_SELECT_POSTHOG_AI_LIMIT}",
         )
 

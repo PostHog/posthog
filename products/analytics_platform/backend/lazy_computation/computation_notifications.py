@@ -28,7 +28,7 @@ def publish_job_completion(job_id: uuid.UUID, status: str) -> None:
         client = redis.get_client()
         client.publish(job_channel(job_id), status)
     except Exception:
-        logger.warning("Failed to publish preaggregation job completion for %s", job_id, exc_info=True)
+        logger.warning("Failed to publish computation job completion for %s", job_id, exc_info=True)
 
 
 def subscribe_to_jobs(job_ids: list[uuid.UUID]) -> redis_lib.client.PubSub:

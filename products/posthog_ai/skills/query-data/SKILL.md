@@ -222,7 +222,7 @@ WHERE g.event = '$ai_generation'
 
 ### Other constraints
 
-- All queries are limited to 100 rows, so you should use LIMIT and OFFSET for pagination.
+- Your query results are capped at 100 rows by default. You can request up to 500 rows using a LIMIT clause. If you need more data, paginate using LIMIT and OFFSET in subsequent queries.
 - You should cherry-pick `properties` of events, persons, or groups, so we don't get OOMs.
 
 ---

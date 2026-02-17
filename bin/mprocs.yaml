@@ -221,5 +221,13 @@ procs:
         autostart: false
         # no capability - manual start
 
+    warehouse-pipeline-load:
+        shell: |-
+            bin/check_postgres_up && \
+            bin/check_kafka_clickhouse_up && \
+            python manage.py run_warehouse_pipeline_load --health-port 8090 --batch-size 100 --consumer-group warehouse-pipeline-load-dev
+        autostart: false
+        # no capability - manual start
+
 mouse_scroll_speed: 1
 scrollback: 10000
