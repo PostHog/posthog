@@ -8,6 +8,7 @@ from posthog.temporal.delete_recordings.activities import (
 from posthog.temporal.delete_recordings.workflows import (
     DeleteRecordingsWithPersonWorkflow,
     DeleteRecordingsWithQueryWorkflow,
+    DeleteRecordingsWithSessionIdsWorkflow,
     DeleteRecordingsWithTeamWorkflow,
     PurgeDeletedRecordingMetadataWorkflow,
 )
@@ -16,6 +17,7 @@ WORKFLOWS = [
     DeleteRecordingsWithPersonWorkflow,
     DeleteRecordingsWithTeamWorkflow,
     DeleteRecordingsWithQueryWorkflow,
+    DeleteRecordingsWithSessionIdsWorkflow,
     PurgeDeletedRecordingMetadataWorkflow,
 ]
 
