@@ -168,8 +168,8 @@ async def insert_event_values_in_clickhouse(
 
 async def insert_sessions_in_clickhouse(client: ClickHouseClient, table: str = "sharded_events"):
     generate_sessions_query = RAW_SESSION_TABLE_BACKFILL_SELECT_SQL()
-    if table == "events_recent":
-        generate_sessions_query = generate_sessions_query.replace("posthog_test.events", "posthog_test.events_recent")
+    if table in ("events_recent", "sharded_events_recent"):
+        generate_sessions_query = generate_sessions_query.replace("posthog_test.events", f"posthog_test.{table}")
         generate_sessions_query = generate_sessions_query.replace(
             "`$session_id`", "JSONExtractString(properties, '$session_id')"
         )
@@ -198,7 +198,7 @@ async def generate_test_events_in_clickhouse(
     distinct_ids: list[str] | None = None,
     duplicate: bool = False,
     batch_size: int = 10000,
-    table: str = "events_recent",
+    table: str = "sharded_events_recent",
     insert_sessions: bool = False,
 ) -> tuple[list[EventValues], list[EventValues], list[EventValues]]:
     """Insert test events into the given table.
