@@ -18,6 +18,8 @@ def get_warpstream_kafka_producer() -> _KafkaProducer:
     return _WarpStreamKafkaProducer(
         kafka_hosts=settings.WAREHOUSE_PIPELINES_KAFKA_HOSTS,
         kafka_security_protocol=settings.WAREHOUSE_PIPELINES_KAFKA_SECURITY_PROTOCOL,
+        acks="all",
+        enable_idempotence=True,
     )
 
 
