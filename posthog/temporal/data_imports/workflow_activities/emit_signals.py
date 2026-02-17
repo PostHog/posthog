@@ -1,6 +1,8 @@
+import json
 import uuid
 import asyncio
 import dataclasses
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
@@ -9,13 +11,15 @@ import posthoganalytics
 from asgiref.sync import sync_to_async
 from google.genai import types
 from posthoganalytics.ai.gemini import genai
-from temporalio import activity
+from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
 
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.data_imports.signals import SignalSourceTableConfig, get_signal_config
 from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput
 
@@ -261,3 +265,20 @@ async def _emit_signals(
             activity.logger.exception(f"Error emitting signal for record: {e}", extra=extra)
             continue
     return count
+
+
+@workflow.defn(name="emit-data-import-signals")
+class EmitDataImportSignalsWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> EmitSignalsActivityInputs:
+        loaded = json.loads(inputs[0])
+        return EmitSignalsActivityInputs(**loaded)
+
+    @workflow.run
+    async def run(self, inputs: EmitSignalsActivityInputs) -> None:
+        await workflow.execute_activity(
+            emit_data_import_signals_activity,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )

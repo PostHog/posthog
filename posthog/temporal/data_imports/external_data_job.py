@@ -37,8 +37,10 @@ from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityOutputs,
     create_external_data_job_model_activity,
 )
-from posthog.temporal.data_imports.workflow_activities.emit_signals import EmitSignalsActivityInputs
-from posthog.temporal.data_imports.workflow_activities.emit_signals_workflow import EmitDataImportSignalsWorkflow
+from posthog.temporal.data_imports.workflow_activities.emit_signals import (
+    EmitDataImportSignalsWorkflow,
+    EmitSignalsActivityInputs,
+)
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,

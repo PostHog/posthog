@@ -10,8 +10,10 @@ from posthog.temporal.data_imports.external_data_job import (
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
-from posthog.temporal.data_imports.workflow_activities.emit_signals import emit_data_import_signals_activity
-from posthog.temporal.data_imports.workflow_activities.emit_signals_workflow import EmitDataImportSignalsWorkflow
+from posthog.temporal.data_imports.workflow_activities.emit_signals import (
+    EmitDataImportSignalsWorkflow,
+    emit_data_import_signals_activity,
+)
 
 WORKFLOWS = [ExternalDataJobWorkflow, CDPProducerJobWorkflow]
 
