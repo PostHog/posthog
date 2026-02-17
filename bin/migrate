@@ -158,13 +158,17 @@ if run_scope "persons"; then
     if [ "${DEPLOYMENT:-}" = "hobby" ]; then
         echo "Running persons migrations via Django management command (hobby)..."
         python manage.py apply_persons_migrations --hobby
+        if [ $? -ne 0 ]; then
+            echo "Error in apply_persons_migrations, exiting."
+            exit 1
+        fi
     elif [ "${DEBUG:-0}" = "1" ]; then
         echo "Running persons migrations via Django management command..."
         python manage.py apply_persons_migrations --database=persons_db_writer --ensure-database
-    fi
-    if [ $? -ne 0 ]; then
-        echo "Error in apply_persons_migrations, exiting."
-        exit 1
+        if [ $? -ne 0 ]; then
+            echo "Error in apply_persons_migrations, exiting."
+            exit 1
+        fi
     fi
 fi
 
