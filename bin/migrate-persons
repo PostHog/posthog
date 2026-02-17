@@ -22,7 +22,7 @@ for alias in aliases:
                 "ALTER TABLE posthog_person "
                 "ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP WITH TIME ZONE"
             )
-        print(f"[migrate-persons-compat] ensured posthog_person.last_seen_at on alias '{alias}'")
+        print(f"[migrate-persons] ensured posthog_person.last_seen_at on alias '{alias}'")
         break
     except DatabaseError as err:
         last_error = err
