@@ -13,20 +13,22 @@ import {
     IconCopy,
     IconDownload,
     IconExpand45,
+    IconFilter,
     IconGear,
     IconGraph,
     IconMinus,
     IconPlus,
     IconShare,
 } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonDropdown, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { IconTableChart } from 'lib/lemon-ui/icons'
+import { IconTableChart, IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
@@ -287,6 +289,68 @@ function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetai
     )
 }
 
+function FiltersDropdown(): JSX.Element {
+    const { sourceQuery, hasTestAccountFilters } = useValues(sqlEditorLogic)
+    const { setSourceQuery, runQuery, setLocalDefault } = useActions(sqlEditorLogic)
+
+    const hasDateRange = !!(
+        sourceQuery.source.filters?.dateRange?.date_from || sourceQuery.source.filters?.dateRange?.date_to
+    )
+    const hasTestFilter = hasTestAccountFilters && !!sourceQuery.source.filters?.filterTestAccounts
+    const activeFilterCount = (hasDateRange ? 1 : 0) + (hasTestFilter ? 1 : 0)
+
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            overlay={
+                <div className="flex flex-col gap-2 p-2 min-w-64">
+                    <DateRange
+                        key="date-range"
+                        query={sourceQuery.source}
+                        setQuery={(query) => {
+                            setSourceQuery({
+                                ...sourceQuery,
+                                source: query,
+                            })
+                            runQuery(query.query)
+                        }}
+                    />
+                    <TestAccountFilterSwitch
+                        checked={hasTestFilter}
+                        onChange={(checked: boolean) => {
+                            setSourceQuery({
+                                ...sourceQuery,
+                                source: {
+                                    ...sourceQuery.source,
+                                    filters: {
+                                        ...sourceQuery.source.filters,
+                                        filterTestAccounts: checked,
+                                    },
+                                },
+                            })
+                            setLocalDefault(checked)
+                            runQuery()
+                        }}
+                        size="small"
+                    />
+                </div>
+            }
+        >
+            <LemonButton
+                icon={
+                    <IconWithCount count={activeFilterCount} showZero={false}>
+                        <IconFilter />
+                    </IconWithCount>
+                }
+                type="secondary"
+                size="small"
+            >
+                Filters
+            </LemonButton>
+        </LemonDropdown>
+    )
+}
+
 export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
@@ -301,7 +365,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
         showLegacyFilters,
         hasQueryInput,
     } = useValues(sqlEditorLogic)
-    const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(sqlEditorLogic)
+    const { saveAsInsight, updateInsight, setSourceQuery, shareTab } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -508,19 +572,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                         ))}
                 </div>
                 <div className="flex gap-2 py-2 px-4 flex-shrink-0">
-                    {showLegacyFilters && (
-                        <DateRange
-                            key="date-range"
-                            query={sourceQuery.source}
-                            setQuery={(query) => {
-                                setSourceQuery({
-                                    ...sourceQuery,
-                                    source: query,
-                                })
-                                runQuery(query.query)
-                            }}
-                        />
-                    )}
+                    {showLegacyFilters && <FiltersDropdown />}
                     {activeTab === OutputTab.Visualization && (
                         <>
                             <div className="flex justify-between flex-wrap">

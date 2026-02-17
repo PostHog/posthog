@@ -2,6 +2,8 @@ from typing import Any, Optional
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import DateRange, EventPropertyFilter, GroupPropertyFilter, HogQLFilters, PersonPropertyFilter
 
 from posthog.hogql import ast
@@ -32,7 +34,10 @@ class TestFilters(BaseTest):
 
     def test_replace_filters_empty(self):
         select = replace_filters(self._parse_select("SELECT event FROM events"), HogQLFilters(), self.team)
-        self.assertEqual(self._print_ast(select), f"SELECT event FROM events LIMIT {MAX_SELECT_RETURNED_ROWS}")
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT event FROM events LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
 
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
@@ -40,7 +45,8 @@ class TestFilters(BaseTest):
             self.team,
         )
         self.assertEqual(
-            self._print_ast(select), f"SELECT event FROM events WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}"
+            self._print_ast(select),
+            f"SELECT event FROM events WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
         select = replace_filters(
@@ -49,7 +55,8 @@ class TestFilters(BaseTest):
             self.team,
         )
         self.assertEqual(
-            self._print_ast(select), f"SELECT event FROM events WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}"
+            self._print_ast(select),
+            f"SELECT event FROM events WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_raises_when_filters_empty_and_not_events_or_sessions(self):
@@ -74,7 +81,11 @@ class TestFilters(BaseTest):
             QueryError,
             "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs or groups table.",
         ):
-            replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
+            replace_filters(
+                select,
+                HogQLFilters(dateRange=DateRange(date_from="2020-02-02")),
+                self.team,
+            )
 
     def test_replace_filters_date_range(self):
         select = replace_filters(
@@ -204,9 +215,48 @@ class TestFilters(BaseTest):
             f"SELECT event FROM events WHERE notILike(toString(person.properties.email), '%posthog.com%') LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    @parameterized.expand(
+        [
+            ("sessions", "SELECT $session_id FROM sessions WHERE {filters}"),
+            ("groups", "SELECT group_key FROM groups WHERE {filters}"),
+            ("logs", "SELECT message FROM logs WHERE {filters}"),
+            (
+                "union_events_and_sessions",
+                "SELECT COUNT(*) FROM events WHERE {filters} UNION ALL SELECT COUNT(*) FROM sessions WHERE {filters}",
+            ),
+        ]
+    )
+    def test_replace_filters_test_accounts_raises_for_non_events_table(self, _name: str, query: str):
+        self.team.test_account_filters = [
+            {
+                "key": "email",
+                "type": "person",
+                "value": "posthog.com",
+                "operator": "not_icontains",
+            }
+        ]
+        self.team.save()
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "Filtering out internal and test users is only supported for queries that select from the events table.",
+        ):
+            replace_filters(
+                self._parse_select(query),
+                HogQLFilters(filterTestAccounts=True),
+                self.team,
+            )
+
     def test_replace_filters_groups_empty(self):
-        select = replace_filters(self._parse_select("SELECT group_key FROM groups"), HogQLFilters(), self.team)
-        self.assertEqual(self._print_ast(select), f"SELECT group_key FROM groups LIMIT {MAX_SELECT_RETURNED_ROWS}")
+        select = replace_filters(
+            self._parse_select("SELECT group_key FROM groups"),
+            HogQLFilters(),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT group_key FROM groups LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
 
         select = replace_filters(
             self._parse_select("SELECT group_key FROM groups where {filters}"),
@@ -214,7 +264,8 @@ class TestFilters(BaseTest):
             self.team,
         )
         self.assertEqual(
-            self._print_ast(select), f"SELECT group_key FROM groups WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}"
+            self._print_ast(select),
+            f"SELECT group_key FROM groups WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
         select = replace_filters(
@@ -223,7 +274,8 @@ class TestFilters(BaseTest):
             self.team,
         )
         self.assertEqual(
-            self._print_ast(select), f"SELECT group_key FROM groups WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}"
+            self._print_ast(select),
+            f"SELECT group_key FROM groups WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_replace_filters_groups_date_range(self):
@@ -265,7 +317,11 @@ class TestFilters(BaseTest):
             HogQLFilters(
                 properties=[
                     GroupPropertyFilter(
-                        key="company_name", operator="exact", value="PostHog", type="group", group_type_index=0
+                        key="company_name",
+                        operator="exact",
+                        value="PostHog",
+                        type="group",
+                        group_type_index=0,
                     )
                 ]
             ),
@@ -282,10 +338,18 @@ class TestFilters(BaseTest):
             HogQLFilters(
                 properties=[
                     GroupPropertyFilter(
-                        key="company_name", operator="exact", value="PostHog", type="group", group_type_index=0
+                        key="company_name",
+                        operator="exact",
+                        value="PostHog",
+                        type="group",
+                        group_type_index=0,
                     ),
                     GroupPropertyFilter(
-                        key="industry", operator="exact", value="Software", type="group", group_type_index=0
+                        key="industry",
+                        operator="exact",
+                        value="Software",
+                        type="group",
+                        group_type_index=0,
                     ),
                 ]
             ),
@@ -303,7 +367,11 @@ class TestFilters(BaseTest):
                 dateRange=DateRange(date_from="2020-02-02"),
                 properties=[
                     GroupPropertyFilter(
-                        key="company_name", operator="exact", value="PostHog", type="group", group_type_index=0
+                        key="company_name",
+                        operator="exact",
+                        value="PostHog",
+                        type="group",
+                        group_type_index=0,
                     )
                 ],
             ),
@@ -323,4 +391,8 @@ class TestFilters(BaseTest):
             QueryError,
             "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs or groups table.",
         ):
-            replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
+            replace_filters(
+                select,
+                HogQLFilters(dateRange=DateRange(date_from="2020-02-02")),
+                self.team,
+            )
