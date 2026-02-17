@@ -9,22 +9,18 @@ import { fromParamsGivenUrl } from 'lib/utils'
 
 import type { mcpStoreLogicType } from './mcpStoreLogicType'
 
-export interface MCPServer {
-    id: string
+export interface RecommendedServer {
     name: string
     url: string
     description: string
     icon_url: string
     auth_type: 'none' | 'api_key' | 'oauth'
-    is_default: boolean
-    created_at: string
-    updated_at: string
-    created_by: Record<string, any> | null
+    oauth_provider_kind?: string
 }
 
 export interface MCPServerInstallation {
     id: string
-    server: MCPServer | null
+    server: Record<string, any> | null
     name: string
     display_name: string
     url: string
@@ -57,11 +53,11 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
 
     loaders(({ values, actions }) => ({
         servers: [
-            [] as MCPServer[],
+            [] as RecommendedServer[],
             {
                 loadServers: async () => {
                     const response = await api.mcpServers.list()
-                    return response.results
+                    return response.results as RecommendedServer[]
                 },
             },
         ],
@@ -70,7 +66,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             {
                 loadInstallations: async () => {
                     const response = await api.mcpServerInstallations.list()
-                    return response.results
+                    return response.results as MCPServerInstallation[]
                 },
                 installServer: async ({
                     serverId,
@@ -79,10 +75,10 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     serverId: string
                     configuration?: Record<string, any>
                 }) => {
-                    const installation = await api.mcpServerInstallations.create({
+                    const installation = (await api.mcpServerInstallations.create({
                         server_id: serverId,
                         ...(configuration ? { configuration } : {}),
-                    })
+                    })) as MCPServerInstallation
                     lemonToast.success('Server installed')
                     return [...values.installations, installation]
                 },
@@ -107,14 +103,14 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     description?: string
                 }) => {
                     try {
-                        const installation = await api.mcpServerInstallations.oauthCallback({
+                        const installation = (await api.mcpServerInstallations.oauthCallback({
                             code,
                             server_id: serverId,
                             state_token: stateToken,
                             mcp_url: mcpUrl || '',
                             display_name: displayName || '',
                             description: description || '',
-                        })
+                        })) as MCPServerInstallation
                         lemonToast.success('Server connected')
                         actions.loadServers()
                         const existing = values.installations.find(
@@ -145,7 +141,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             (s) => [s.installations],
             (installations: MCPServerInstallation[]): Set<string> => new Set(installations.map((i) => i.url)),
         ],
-        recommendedServers: [(s) => [s.servers], (servers: MCPServer[]): MCPServer[] => servers],
+        recommendedServers: [(s) => [s.servers], (servers: RecommendedServer[]): RecommendedServer[] => servers],
     }),
 
     urlToAction(({ actions }) => ({

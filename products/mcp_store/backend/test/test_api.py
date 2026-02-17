@@ -28,24 +28,16 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["name"] == "My Server"
         assert response.json()["url"] == "https://mcp.example.com"
         assert response.json()["auth_type"] == "api_key"
-        assert response.json()["is_default"] is False
 
-    def test_list_servers(self):
-        self._create_server(name="Server 1", url="https://mcp1.example.com")
-        self._create_server(name="Server 2", url="https://mcp2.example.com")
-
+    def test_list_servers_returns_static_catalog(self):
         response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
         assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["results"]) == 2
-
-    def test_servers_are_platform_level(self):
-        self._create_server(name="Global Server", url="https://mcp.global.com")
-
-        team2 = Team.objects.create(organization=self.organization, name="Team 2")
-        response = self.client.get(f"/api/environments/{team2.id}/mcp_servers/")
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["name"] == "Global Server"
+        results = response.json()["results"]
+        assert len(results) == 3
+        names = [s["name"] for s in results]
+        assert "PostHog MCP" in names
+        assert "Linear" in names
+        assert "Notion" in names
 
     def test_retrieve_server(self):
         server = self._create_server()

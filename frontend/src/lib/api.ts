@@ -3434,6 +3434,7 @@ const api = {
             auth_type: string
             api_key?: string
             description?: string
+            oauth_provider_kind?: string
         }): Promise<Record<string, any>> {
             return await new ApiRequest().mcpServerInstallations().withAction('install_custom').create({ data })
         },

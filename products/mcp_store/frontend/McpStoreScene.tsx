@@ -17,7 +17,7 @@ import IconPostHogService from 'public/posthog-icon.svg'
 import IconLinearService from 'public/services/linear.svg'
 
 import { AddCustomServerModal } from './AddCustomServerModal'
-import { MCPServer, MCPServerInstallation, mcpStoreLogic } from './mcpStoreLogic'
+import { MCPServerInstallation, RecommendedServer, mcpStoreLogic } from './mcpStoreLogic'
 
 const SERVER_ICONS: Record<string, string> = {
     'PostHog MCP': IconPostHogService,
@@ -33,11 +33,13 @@ function ConnectOAuthButton({
     name,
     url,
     description,
+    oauthProviderKind,
     type = 'primary',
 }: {
     name: string
     url: string
     description: string
+    oauthProviderKind?: string
     type?: 'primary' | 'secondary'
 }): JSX.Element {
     const [loading, setLoading] = useState(false)
@@ -55,6 +57,7 @@ function ConnectOAuthButton({
                         url,
                         auth_type: 'oauth',
                         description,
+                        ...(oauthProviderKind ? { oauth_provider_kind: oauthProviderKind } : {}),
                     })
                     if (result?.redirect_url) {
                         window.location.href = result.redirect_url
@@ -119,28 +122,31 @@ export function McpStoreScene(): JSX.Element {
                     },
                     {
                         width: 0,
-                        render: (_: any, installation: MCPServerInstallation) =>
-                            installation.pending_oauth ? (
-                                <ConnectOAuthButton
-                                    name={installation.display_name || installation.name}
-                                    url={installation.url}
-                                    description={installation.description}
-                                />
-                            ) : installation.needs_reauth && installation.server ? (
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    onClick={() => {
-                                        window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${installation.server!.id}`
-                                    }}
-                                >
-                                    Reconnect
-                                </LemonButton>
-                            ) : (
-                                <LemonTag type="success" icon={<IconCheck />}>
-                                    Active
-                                </LemonTag>
-                            ),
+                        render: (_: any, installation: MCPServerInstallation) => (
+                            <div className="flex items-center justify-end">
+                                {installation.pending_oauth ? (
+                                    <ConnectOAuthButton
+                                        name={installation.display_name || installation.name}
+                                        url={installation.url}
+                                        description={installation.description}
+                                    />
+                                ) : installation.needs_reauth && installation.server ? (
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={() => {
+                                            window.location.href = `/api/environments/${currentTeamId}/mcp_server_installations/authorize/?server_id=${installation.server!.id}`
+                                        }}
+                                    >
+                                        Reconnect
+                                    </LemonButton>
+                                ) : (
+                                    <LemonTag type="success" icon={<IconCheck />}>
+                                        Active
+                                    </LemonTag>
+                                )}
+                            </div>
+                        ),
                     },
                     {
                         width: 0,
@@ -178,7 +184,7 @@ export function McpStoreScene(): JSX.Element {
                     <LemonTable
                         loading={serversLoading}
                         dataSource={recommendedServers.filter(
-                            (s: MCPServer) =>
+                            (s: RecommendedServer) =>
                                 !searchTerm ||
                                 s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                 s.description.toLowerCase().includes(searchTerm.toLowerCase())
@@ -186,7 +192,7 @@ export function McpStoreScene(): JSX.Element {
                         columns={[
                             {
                                 width: 0,
-                                render: (_: any, server: MCPServer) => {
+                                render: (_: any, server: RecommendedServer) => {
                                     const iconSrc = SERVER_ICONS[server.name] || server.icon_url
                                     return iconSrc ? (
                                         <img src={iconSrc} alt="" className="w-6 h-6" />
@@ -198,8 +204,8 @@ export function McpStoreScene(): JSX.Element {
                             {
                                 title: 'Name',
                                 key: 'name',
-                                sorter: (a: MCPServer, b: MCPServer) => a.name.localeCompare(b.name),
-                                render: (_: any, server: MCPServer) => (
+                                sorter: (a: RecommendedServer, b: RecommendedServer) => a.name.localeCompare(b.name),
+                                render: (_: any, server: RecommendedServer) => (
                                     <div>
                                         <span className="font-semibold">{server.name}</span>
                                         {server.description && (
@@ -210,19 +216,23 @@ export function McpStoreScene(): JSX.Element {
                             },
                             {
                                 width: 0,
-                                render: (_: any, server: MCPServer) =>
-                                    installedServerUrls.has(server.url) ? (
-                                        <LemonTag type="success" icon={<IconCheck />}>
-                                            Active
-                                        </LemonTag>
-                                    ) : (
-                                        <ConnectOAuthButton
-                                            name={server.name}
-                                            url={server.url}
-                                            description={server.description}
-                                            type="secondary"
-                                        />
-                                    ),
+                                render: (_: any, server: RecommendedServer) => (
+                                    <div className="flex items-center justify-end">
+                                        {installedServerUrls.has(server.url) ? (
+                                            <LemonTag type="success" icon={<IconCheck />}>
+                                                Active
+                                            </LemonTag>
+                                        ) : (
+                                            <ConnectOAuthButton
+                                                name={server.name}
+                                                url={server.url}
+                                                description={server.description}
+                                                oauthProviderKind={server.oauth_provider_kind}
+                                                type="secondary"
+                                            />
+                                        )}
+                                    </div>
+                                ),
                             },
                         ]}
                     />

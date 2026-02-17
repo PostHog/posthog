@@ -21,7 +21,7 @@ from posthog.models.integration import OauthIntegration
 from posthog.rate_limit import MCPOAuthBurstThrottle, MCPOAuthSustainedThrottle
 from posthog.security.url_validation import is_url_allowed
 
-from .models import OAUTH_KIND_MAP, MCPServer, MCPServerInstallation
+from .models import RECOMMENDED_SERVERS, MCPServer, MCPServerInstallation, SensitiveConfig
 from .oauth import discover_oauth_metadata, generate_pkce, register_dcr_client
 
 logger = structlog.get_logger(__name__)
@@ -39,12 +39,11 @@ class MCPServerSerializer(serializers.ModelSerializer):
             "description",
             "icon_url",
             "auth_type",
-            "is_default",
             "created_at",
             "updated_at",
             "created_by",
         ]
-        read_only_fields = ["id", "is_default", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
     def validate_url(self, value: str) -> str:
         allowed, error = is_url_allowed(value)
@@ -72,7 +71,10 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return True
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(is_default=True).order_by("-created_at")
+        return queryset.order_by("-created_at")
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response({"results": RECOMMENDED_SERVERS})
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         url = request.data.get("url", "")
@@ -151,12 +153,14 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         )
 
 
+# Used for installing custom MCP servers
 class InstallCustomSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=200)
     url = serializers.URLField(max_length=2048)
     auth_type = serializers.ChoiceField(choices=["none", "api_key", "oauth"])
     api_key = serializers.CharField(required=False, allow_blank=True, default="")
     description = serializers.CharField(required=False, allow_blank=True, default="")
+    oauth_provider_kind = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate_url(self, value: str) -> str:
         allowed, error = is_url_allowed(value)
@@ -192,11 +196,14 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         auth_type = data["auth_type"]
         api_key = data.get("api_key", "")
         description = data.get("description", "")
+        oauth_provider_kind = data.get("oauth_provider_kind", "")
 
         if auth_type == "oauth":
-            return self._authorize_for_custom(request, name=name, mcp_url=url, description=description)
+            return self._authorize_for_custom(
+                request, name=name, mcp_url=url, description=description, oauth_provider_kind=oauth_provider_kind
+            )
 
-        sensitive_config: dict[str, Any] = {}
+        sensitive_config: SensitiveConfig = {}
         if auth_type == "api_key" and api_key:
             sensitive_config["api_key"] = api_key
 
@@ -216,7 +223,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         result_serializer = MCPServerInstallationSerializer(installation, context=self.get_serializer_context())
         return Response(result_serializer.data, status=status.HTTP_201_CREATED)
 
-    def _authorize_for_custom(self, request: Request, *, name: str, mcp_url: str, description: str) -> HttpResponse:
+    def _authorize_for_custom(
+        self, request: Request, *, name: str, mcp_url: str, description: str, oauth_provider_kind: str = ""
+    ) -> HttpResponse:
         from django.conf import settings
 
         redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/mcp-servers"
@@ -253,6 +262,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             redirect_uri=redirect_uri,
             name=name,
             request=request,
+            oauth_provider_kind=oauth_provider_kind,
         )
         if isinstance(server, Response):
             installation.delete()
@@ -303,6 +313,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         redirect_uri: str,
         name: str,
         request: Request,
+        oauth_provider_kind: str = "",
     ) -> MCPServer | Response:
         existing_server = MCPServer.objects.filter(url=issuer_url).first()
 
@@ -338,6 +349,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             name=name,
             url=issuer_url,
             auth_type="oauth",
+            oauth_provider_kind=oauth_provider_kind,
             oauth_metadata=metadata,
             oauth_client_id=client_id,
             created_by=request.user,
@@ -359,10 +371,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except MCPServer.DoesNotExist:
             return Response({"detail": "Server not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        kind = OAUTH_KIND_MAP.get(server.url)
-        if kind:
+        if server.oauth_provider_kind:
             try:
-                return self._authorize_known_provider(kind, server_id)
+                return self._authorize_known_provider(server.oauth_provider_kind, server_id)
             except NotImplementedError:
                 pass
 
@@ -470,10 +481,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except MCPServer.DoesNotExist:
             return Response({"detail": "Server not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        kind = OAUTH_KIND_MAP.get(server.url)
-        if kind:
+        if server.oauth_provider_kind:
             try:
-                token_data = self._exchange_known_provider_token(kind, code)
+                token_data = self._exchange_known_provider_token(server.oauth_provider_kind, code)
             except NotImplementedError:
                 token_data = self._exchange_dcr_token(request, server, code)
         else:
@@ -486,7 +496,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if not access_token:
             return Response({"detail": "No access token in response"}, status=status.HTTP_400_BAD_REQUEST)
 
-        sensitive_config: dict[str, Any] = {
+        sensitive_config: SensitiveConfig = {
             "access_token": access_token,
             "token_retrieved_at": int(time.time()),
         }

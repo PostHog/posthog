@@ -1,5 +1,10 @@
+from __future__ import annotations
+
 import time
-from typing import Literal, Self
+from typing import TYPE_CHECKING, Literal, Self
+
+if TYPE_CHECKING:
+    from products.mcp_store.backend.models import SensitiveConfig
 
 from django.core.cache import caches
 
@@ -286,6 +291,7 @@ def _get_installations(team: Team, user: User) -> list[dict]:
             "display_name",
             "url",
             "auth_type",
+            "server__oauth_provider_kind",
             "server__oauth_metadata",
             "server__oauth_client_id",
             "configuration",
@@ -307,12 +313,12 @@ def _mark_needs_reauth_sync(installation_id: str) -> None:
     inst.save(update_fields=["sensitive_configuration", "updated_at"])
 
 
-def _refresh_token_sync(installation: dict) -> dict:
+def _refresh_token_sync(installation: dict) -> SensitiveConfig:
     import time as _time
 
     from posthog.models.integration import OauthIntegration
 
-    from products.mcp_store.backend.models import OAUTH_KIND_MAP, MCPServerInstallation
+    from products.mcp_store.backend.models import MCPServerInstallation
     from products.mcp_store.backend.oauth import TokenRefreshError, refresh_oauth_token
 
     sensitive = installation.get("sensitive_configuration") or {}
@@ -320,8 +326,7 @@ def _refresh_token_sync(installation: dict) -> dict:
     if not refresh_token:
         raise TokenRefreshError("No refresh token available")
 
-    server_url = installation["url"]
-    kind = OAUTH_KIND_MAP.get(server_url)
+    kind = installation.get("server__oauth_provider_kind") or ""
 
     if kind:
         try:
@@ -347,7 +352,7 @@ def _refresh_token_sync(installation: dict) -> dict:
         client_secret=client_secret,
     )
 
-    updated_sensitive: dict = {
+    updated_sensitive: SensitiveConfig = {
         "access_token": token_data["access_token"],
         "token_retrieved_at": int(_time.time()),
         "refresh_token": token_data.get("refresh_token", refresh_token),
