@@ -1,4 +1,4 @@
-import { EventSchemaEnforcement, IncomingEventWithTeam, Team } from '../../types'
+import { EventSchemaEnforcement, Team } from '../../types'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PipelineResultType, drop, ok } from '../pipelines/results'
 import { createValidateEventSchemaStep, validateEventAgainstSchema } from './validate-event-schema'
@@ -326,24 +326,20 @@ describe('validateEventAgainstSchema', () => {
 
 describe('createValidateEventSchemaStep', () => {
     const createInput = (eventName: string, properties: Record<string, unknown> | undefined) => ({
-        eventWithTeam: {
-            event: {
-                event: eventName,
-                distinct_id: 'user123',
-                team_id: 1,
-                uuid: '123e4567-e89b-12d3-a456-426614174000',
-                ip: '127.0.0.1',
-                site_url: 'https://example.com',
-                now: '2021-01-01T00:00:00Z',
-                properties,
-            },
-            team: {
-                id: 1,
-                name: 'Test Team',
-            } as unknown as Team,
-            message: {} as any,
-            headers: {} as any,
-        } as unknown as IncomingEventWithTeam,
+        event: {
+            event: eventName,
+            distinct_id: 'user123',
+            team_id: 1,
+            uuid: '123e4567-e89b-12d3-a456-426614174000',
+            ip: '127.0.0.1',
+            site_url: 'https://example.com',
+            now: '2021-01-01T00:00:00Z',
+            properties,
+        },
+        team: {
+            id: 1,
+            name: 'Test Team',
+        } as unknown as Team,
     })
 
     it('should pass events when team has no enforced schemas', async () => {

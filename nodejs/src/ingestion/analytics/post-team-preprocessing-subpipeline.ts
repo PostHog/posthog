@@ -70,9 +70,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         builder
             // These validation steps are synchronous, so we can process events sequentially.
             .sequentially((b) => {
-                const validated = b
-                    .pipe(createValidateEventMetadataStep())
-                    .pipe(createValidateEventPropertiesStep())
+                const validated = b.pipe(createValidateEventMetadataStep()).pipe(createValidateEventPropertiesStep())
 
                 const schemaChecked = eventSchemaEnforcementEnabled
                     ? validated.pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager))

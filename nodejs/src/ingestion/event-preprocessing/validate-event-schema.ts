@@ -1,4 +1,4 @@
-import { EventSchemaEnforcement, IncomingEventWithTeam } from '../../types'
+import { EventSchemaEnforcement, PipelineEvent, Team } from '../../types'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -108,12 +108,11 @@ export function validateEventAgainstSchema(
  *
  * @param schemaManager - Manager for fetching enforced schemas (uses caching internally)
  */
-export function createValidateEventSchemaStep<T extends { eventWithTeam: IncomingEventWithTeam }>(
+export function createValidateEventSchemaStep<T extends { event: PipelineEvent; team: Team }>(
     schemaManager: EventSchemaEnforcementManager
 ): ProcessingStep<T, T> {
     return async function validateEventSchemaStep(input) {
-        const { eventWithTeam } = input
-        const { event, team } = eventWithTeam
+        const { event, team } = input
 
         const enforcedSchemas = await schemaManager.getSchemas(team.id)
         if (enforcedSchemas.size === 0) {
