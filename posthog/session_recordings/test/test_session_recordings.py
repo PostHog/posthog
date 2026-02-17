@@ -1667,7 +1667,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=False,
     )
     def test_bulk_delete_with_date_from_parameter(self, _mock_should_use_recording_api):
-        """Test that bulk_delete accepts and uses the date_from parameter to optimize ClickHouse queries."""
         Person.objects.create(team=self.team, distinct_ids=["user1"], properties={"email": "bla"})
 
         # Set team retention to 90 days
