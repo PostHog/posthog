@@ -709,7 +709,29 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             releaseStreamingLock() // release the lock
         },
     })),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
+        [sidePanelStateLogic.actionTypes.setSidePanelOpen]: ({ open }: { open: boolean }) => {
+            if (!open || props.tabId !== 'sidepanel' || !cache.deferredMountActions) {
+                return
+            }
+            cache.deferredMountActions = false
+
+            if (values.queueingEnabled && values.conversation?.id) {
+                actions.loadQueueData()
+            }
+            if (values.autoRun && values.question) {
+                actions.askMax(values.question)
+                actions.setAutoRun(false)
+            } else if (
+                values.conversation?.status === ConversationStatus.InProgress &&
+                !values.streamingActive &&
+                !cache.generationController
+            ) {
+                if (!values.multiQuestionFormPending) {
+                    actions.reconnectToStream()
+                }
+            }
+        },
         setConversation: ({ conversation }) => {
             const nextConversationId = conversation?.id ?? null
             if (cache.lastConversationId !== nextConversationId) {
@@ -1593,6 +1615,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     actions.setAgentMode(parsedMode)
                 }
             }
+        }
+
+        // When pre-rendered behind a closed side panel (UX_REMOVE_SIDEPANEL),
+        // defer API actions until the panel actually opens
+        if (
+            props.tabId === 'sidepanel' &&
+            sidePanelStateLogic.isMounted() &&
+            !sidePanelStateLogic.values.sidePanelOpen
+        ) {
+            cache.deferredMountActions = true
+            return
         }
 
         if (values.queueingEnabled && values.conversation?.id) {
