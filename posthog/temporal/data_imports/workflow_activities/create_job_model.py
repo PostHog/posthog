@@ -42,7 +42,7 @@ class CreateExternalDataJobModelActivityOutputs:
     source_type: str
     schema_name: str
     # ISO timestamp of when the previous sync completed, used to detect new records
-    last_synced_at: str | None
+    last_synced_at: str | None = None
 
 
 @activity.defn
