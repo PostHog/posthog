@@ -38,6 +38,42 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
     return results if isinstance(results, list) else []
 
 
+def get_crash_free_sessions(team: Team) -> dict:
+    """Calculate crash free sessions rate for the last 7 days via HogQL."""
+    from posthog.hogql.query import execute_hogql_query
+
+    try:
+        response = execute_hogql_query(
+            query="""
+                SELECT
+                    uniq($session_id) as total_sessions,
+                    uniqIf($session_id, event = '$exception') as crash_sessions
+                FROM events
+                WHERE timestamp >= now() - INTERVAL 7 DAY
+                AND timestamp < now()
+                AND notEmpty($session_id)
+            """,
+            team=team,
+        )
+    except Exception:
+        logger.exception(f"Failed to query crash free sessions for team {team.pk}")
+        return {}
+
+    if not response.results or not response.results[0]:
+        return {}
+
+    total_sessions, crash_sessions = response.results[0]
+    if total_sessions == 0:
+        return {}
+
+    crash_free_rate = round((1 - crash_sessions / total_sessions) * 100, 2)
+    return {
+        "total_sessions": total_sessions,
+        "crash_sessions": crash_sessions,
+        "crash_free_rate": crash_free_rate,
+    }
+
+
 def get_daily_exception_counts(team_id: int) -> list[dict]:
     """Get exception counts per day for the last 7 days from ClickHouse."""
     from posthog.clickhouse.client import sync_execute

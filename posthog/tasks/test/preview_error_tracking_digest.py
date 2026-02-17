@@ -159,6 +159,11 @@ html = template.render(
                 "url": "https://us.posthog.com/project/2/error_tracking/new3",
             },
         ],
+        "crash_free": {
+            "total_sessions": 284532,
+            "crash_sessions": 3421,
+            "crash_free_rate": 98.80,
+        },
         "error_tracking_url": "https://us.posthog.com/project/2/error_tracking",
         "ingestion_failures_url": "https://us.posthog.com/project/2/activity/explore",
         "contact_support_url": "https://posthog.com/support",

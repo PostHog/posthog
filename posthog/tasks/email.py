@@ -1392,6 +1392,7 @@ def send_error_tracking_weekly_digest_for_team(
     """Send the weekly error tracking digest email to all members of a team."""
     from products.error_tracking.backend.weekly_digest import (
         build_ingestion_failures_url,
+        get_crash_free_sessions,
         get_daily_exception_counts,
         get_new_issues_for_team,
         get_top_issues_for_team,
@@ -1413,6 +1414,7 @@ def send_error_tracking_weekly_digest_for_team(
     top_issues = get_top_issues_for_team(team)
     new_issues = get_new_issues_for_team(team)
     daily_counts = get_daily_exception_counts(team_id)
+    crash_free = get_crash_free_sessions(team)
 
     date_suffix = timezone.now().strftime("%Y-%W")
     error_tracking_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking"
@@ -1431,6 +1433,7 @@ def send_error_tracking_weekly_digest_for_team(
                 "top_issues": top_issues,
                 "new_issues": new_issues,
                 "daily_counts": daily_counts,
+                "crash_free": crash_free,
                 "error_tracking_url": error_tracking_url,
                 "ingestion_failures_url": ingestion_failures_url,
                 "contact_support_url": "https://posthog.com/support",
