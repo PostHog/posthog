@@ -21,11 +21,15 @@ export type GetBlockResult =
     | { ok: false; error: 'deleted'; deletedAt?: number }
 
 export type DeleteRecordingResult =
-    | { ok: true }
+    | { ok: true; deletedAt: number }
     | { ok: false; error: 'not_found' }
-    | { ok: false; error: 'already_deleted'; deletedAt?: number }
     | { ok: false; error: 'not_supported' }
     | { ok: false; error: 'cleanup_failed'; metadataError?: unknown; postgresError?: unknown }
+
+export type BulkDeleteRecordingsResult = {
+    deleted: string[]
+    failed: { session_id: string; error: string }[]
+}
 
 export class RecordingService {
     constructor(
@@ -115,6 +119,7 @@ export class RecordingService {
         logger.debug('[RecordingService] deleteKey result', { teamId, sessionId, result })
 
         if (result.deleted) {
+            const deletedAt = result.deletedAt
             const [metadataResult, postgresResult] = await Promise.allSettled([
                 this.emitDeletionEvent(sessionId, teamId),
                 this.deletePostgresRecords(sessionId, teamId),
@@ -130,7 +135,7 @@ export class RecordingService {
                 })
                 return { ok: false, error: 'cleanup_failed', metadataError, postgresError }
             }
-            return { ok: true }
+            return { ok: true, deletedAt }
         }
 
         if (result.reason === 'already_deleted') {
@@ -139,7 +144,7 @@ export class RecordingService {
                 sessionId,
                 deleted_at: result.deletedAt,
             })
-            return { ok: false, error: 'already_deleted', deletedAt: result.deletedAt }
+            return { ok: true, deletedAt: result.deletedAt }
         }
 
         if (result.reason === 'not_supported') {
@@ -147,6 +152,37 @@ export class RecordingService {
         }
 
         return { ok: false, error: 'not_found' }
+    }
+
+    async bulkDeleteRecordings(sessionIds: string[], teamId: number): Promise<BulkDeleteRecordingsResult> {
+        logger.info('[RecordingService] bulkDeleteRecordings request', { teamId, count: sessionIds.length })
+
+        const results = await Promise.allSettled(sessionIds.map((sid) => this.deleteRecording(sid, teamId)))
+
+        const deleted: string[] = []
+        const failed: { session_id: string; error: string }[] = []
+
+        for (let i = 0; i < results.length; i++) {
+            const result = results[i]
+            const sessionId = sessionIds[i]
+            if (result.status === 'fulfilled') {
+                if (result.value.ok) {
+                    deleted.push(sessionId)
+                } else {
+                    failed.push({ session_id: sessionId, error: result.value.error })
+                }
+            } else {
+                failed.push({ session_id: sessionId, error: 'unexpected_error' })
+            }
+        }
+
+        logger.info('[RecordingService] bulkDeleteRecordings complete', {
+            teamId,
+            deletedCount: deleted.length,
+            failedCount: failed.length,
+        })
+
+        return { deleted, failed }
     }
 
     private async emitDeletionEvent(sessionId: string, teamId: number): Promise<void> {

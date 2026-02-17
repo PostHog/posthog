@@ -1350,12 +1350,8 @@ class SessionRecordingViewSet(
         return blocks
 
     def _should_use_recording_api(self) -> bool:
-        """Check if we should use the Recording API for fetching blocks."""
-        if not settings.RECORDING_API_URL:
-            return False
-
-        if not settings.RECORDING_API_ENABLED:
-            return False
+        if not is_cloud():
+            return True
 
         return bool(
             posthoganalytics.feature_enabled(
@@ -1368,39 +1364,14 @@ class SessionRecordingViewSet(
         )
 
     def _bulk_delete_via_recording_api(self, session_ids: list[str]) -> list[str]:
-        """Delete multiple recordings via recording-api using a single HTTP session.
+        """Delete multiple recordings via recording-api bulk endpoint.
 
         Returns list of session IDs that failed to delete.
         """
 
         async def _delete_all() -> list[str]:
             async with encrypted_block_storage() as storage:
-
-                async def _delete_one(sid: str) -> str | None:
-                    try:
-                        await storage.delete_recording(sid, self.team.id)
-                        return None
-                    except RecordingDeletedError:
-                        return None  # Already deleted
-                    except (BlockFetchError, BlockDeletionNotSupportedError) as e:
-                        logger.warning(
-                            "recording_api_delete_failed",
-                            error=str(e),
-                            session_id=sid,
-                            team_id=self.team.id,
-                        )
-                        return sid
-                    except Exception as e:
-                        logger.exception(
-                            "recording_api_delete_error",
-                            error=str(e),
-                            session_id=sid,
-                            team_id=self.team.id,
-                        )
-                        return sid
-
-                results = await asyncio.gather(*[_delete_one(sid) for sid in session_ids])
-                return [sid for sid in results if sid is not None]
+                return await storage.bulk_delete_recordings(session_ids, self.team.id)
 
         try:
             return async_to_sync(_delete_all)()
@@ -1422,8 +1393,6 @@ class SessionRecordingViewSet(
 
         try:
             return async_to_sync(_delete)()
-        except RecordingDeletedError:
-            return True  # Already deleted
         except (BlockFetchError, BlockDeletionNotSupportedError) as e:
             logger.warning(
                 "recording_api_delete_failed",

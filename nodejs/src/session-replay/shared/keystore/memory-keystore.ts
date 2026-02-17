@@ -54,8 +54,9 @@ export class MemoryKeyStore implements KeyStore {
         }
         if (this.keystore.has(`${teamId}:${sessionId}`)) {
             this.keystore.delete(`${teamId}:${sessionId}`)
-            this.deletedKeys.set(`${teamId}:${sessionId}`, Math.floor(Date.now() / 1000))
-            return Promise.resolve({ deleted: true })
+            const deletedAt = Math.floor(Date.now() / 1000)
+            this.deletedKeys.set(`${teamId}:${sessionId}`, deletedAt)
+            return Promise.resolve({ deleted: true, deletedAt })
         }
         return Promise.resolve({ deleted: false, reason: 'not_found' })
     }

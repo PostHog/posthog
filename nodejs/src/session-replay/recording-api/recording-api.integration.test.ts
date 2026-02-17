@@ -231,7 +231,7 @@ describe('Recording API encryption integration', () => {
 
                 // Delete the key
                 const deleteResult = await keyStore.deleteKey(sessionId, teamId)
-                expect(deleteResult).toEqual({ deleted: true })
+                expect(deleteResult).toEqual({ deleted: true, deletedAt: expect.any(Number) })
 
                 // Verify decryption fails after deletion
                 await expect(decryptor.decryptBlock(sessionId, teamId, encrypted)).rejects.toThrow(
@@ -876,7 +876,12 @@ describe('Recording API encryption integration', () => {
                 const res = await supertest(app).delete(`/api/projects/${teamId}/recordings/${sessionId}`)
 
                 expect(res.status).toBe(200)
-                expect(res.body).toEqual({ team_id: teamId, session_id: sessionId, status: 'deleted' })
+                expect(res.body).toEqual({
+                    team_id: teamId,
+                    session_id: sessionId,
+                    status: 'deleted',
+                    deleted_at: expect.any(Number),
+                })
             })
 
             it('should return 404 for non-existent key', async () => {
@@ -886,7 +891,7 @@ describe('Recording API encryption integration', () => {
                 expect(res.body.error).toBe('Recording key not found')
             })
 
-            it('should return 410 for already deleted key', async () => {
+            it('should return 200 for already deleted key (idempotent)', async () => {
                 const sessionId = 'http-already-deleted'
                 const teamId = 1
                 await keyStore.generateKey(sessionId, teamId)
@@ -894,9 +899,13 @@ describe('Recording API encryption integration', () => {
 
                 const res = await supertest(app).delete(`/api/projects/${teamId}/recordings/${sessionId}`)
 
-                expect(res.status).toBe(410)
-                expect(res.body.error).toBe('Recording has already been deleted')
-                expect(res.body.deleted_at).toBeDefined()
+                expect(res.status).toBe(200)
+                expect(res.body).toEqual({
+                    team_id: teamId,
+                    session_id: sessionId,
+                    status: 'deleted',
+                    deleted_at: expect.any(Number),
+                })
             })
         })
     })

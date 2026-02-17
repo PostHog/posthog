@@ -108,7 +108,7 @@ describe('MemoryKeyStore', () => {
             await keyStore.generateKey('session-123', 1)
             const result = await keyStore.deleteKey('session-123', 1)
 
-            expect(result).toEqual({ deleted: true })
+            expect(result).toEqual({ deleted: true, deletedAt: expect.any(Number) })
         })
 
         it('should return not_found if key did not exist', async () => {

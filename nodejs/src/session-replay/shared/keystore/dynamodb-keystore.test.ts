@@ -222,7 +222,7 @@ describe('DynamoDBKeyStore', () => {
             expect(mockKMSClient.send).not.toHaveBeenCalled()
         })
 
-        it('should return deleted key with undefined deletedAt if deleted_at is missing', async () => {
+        it('should throw if deleted key has no deleted_at timestamp', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
@@ -231,13 +231,7 @@ describe('DynamoDBKeyStore', () => {
                 },
             })
 
-            const result = await keyStore.getKey('session-123', 1)
-
-            expect(result.plaintextKey).toEqual(Buffer.alloc(0))
-            expect(result.encryptedKey).toEqual(Buffer.alloc(0))
-            expect(result.sessionState).toBe('deleted')
-            expect(result.deletedAt).toBeUndefined()
-            expect(mockKMSClient.send).not.toHaveBeenCalled()
+            await expect(keyStore.getKey('session-123', 1)).rejects.toThrow('no deleted_at timestamp')
         })
 
         it('should throw error if DynamoDB query fails', async () => {
@@ -304,7 +298,10 @@ describe('DynamoDBKeyStore', () => {
             expect(updateCall.input.ExpressionAttributeValues[':deleted_at']).toEqual({
                 N: String(Math.floor(new Date('2024-01-15T12:00:00Z').getTime() / 1000)),
             })
-            expect(result).toEqual({ deleted: true })
+            expect(result).toEqual({
+                deleted: true,
+                deletedAt: Math.floor(new Date('2024-01-15T12:00:00Z').getTime() / 1000),
+            })
         })
 
         it('should return not_found if key did not exist', async () => {
@@ -332,7 +329,7 @@ describe('DynamoDBKeyStore', () => {
             expect(result).toEqual({ deleted: false, reason: 'already_deleted', deletedAt: 1700000000 })
         })
 
-        it('should return already_deleted with undefined deletedAt if deleted_at is missing', async () => {
+        it('should throw if deleted key has no deleted_at timestamp', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
@@ -341,9 +338,7 @@ describe('DynamoDBKeyStore', () => {
                 },
             })
 
-            const result = await keyStore.deleteKey('session-123', 1)
-
-            expect(result).toEqual({ deleted: false, reason: 'already_deleted', deletedAt: undefined })
+            await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow('no deleted_at timestamp')
         })
 
         it('should throw error if DynamoDB get fails', async () => {

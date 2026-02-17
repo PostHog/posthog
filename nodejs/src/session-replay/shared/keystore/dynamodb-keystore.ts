@@ -138,7 +138,10 @@ export class DynamoDBKeyStore implements KeyStore {
                 sessionState: 'ciphertext',
             }
         } else if (sessionState === 'deleted') {
-            const deletedAt = result.Item?.deleted_at?.N ? parseInt(result.Item.deleted_at.N, 10) : undefined
+            if (!result.Item?.deleted_at?.N) {
+                throw new Error(`Key for session ${sessionId} is deleted but has no deleted_at timestamp`)
+            }
+            const deletedAt = parseInt(result.Item.deleted_at.N, 10)
             return {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
@@ -181,7 +184,10 @@ export class DynamoDBKeyStore implements KeyStore {
         }
 
         if (existingItem.Item.session_state?.S === 'deleted') {
-            const deletedAt = existingItem.Item.deleted_at?.N ? parseInt(existingItem.Item.deleted_at.N, 10) : undefined
+            if (!existingItem.Item.deleted_at?.N) {
+                throw new Error(`Key for session ${sessionId} is deleted but has no deleted_at timestamp`)
+            }
+            const deletedAt = parseInt(existingItem.Item.deleted_at.N, 10)
             return { deleted: false, reason: 'already_deleted', deletedAt }
         }
 
@@ -201,7 +207,7 @@ export class DynamoDBKeyStore implements KeyStore {
             })
         )
 
-        return { deleted: true }
+        return { deleted: true, deletedAt }
     }
 
     stop(): void {

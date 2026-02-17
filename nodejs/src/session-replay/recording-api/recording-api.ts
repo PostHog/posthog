@@ -19,7 +19,7 @@ import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
 import { RetentionService } from '../shared/retention/retention-service'
 import { TeamService } from '../shared/teams/team-service'
 import { RecordingService } from './recording-service'
-import { GetBlockQuerySchema, RecordingParamsSchema } from './schemas'
+import { BulkDeleteBodySchema, GetBlockQuerySchema, RecordingParamsSchema, TeamParamsSchema } from './schemas'
 import { KeyStore, RecordingApiHub, RecordingDecryptor } from './types'
 
 export class RecordingApi {
@@ -170,6 +170,7 @@ export class RecordingApi {
 
         router.get('/api/projects/:team_id/recordings/:session_id/block', asyncHandler(this.getBlock))
         router.delete('/api/projects/:team_id/recordings/:session_id', asyncHandler(this.deleteRecording))
+        router.post('/api/projects/:team_id/recordings/bulk_delete', asyncHandler(this.bulkDeleteRecordings))
 
         return router
     }
@@ -243,6 +244,36 @@ export class RecordingApi {
         }
     }
 
+    private bulkDeleteRecordings = async (req: express.Request, res: express.Response): Promise<void> => {
+        const paramsResult = TeamParamsSchema.safeParse(req.params)
+        if (!paramsResult.success) {
+            res.status(400).json({ error: paramsResult.error.issues[0].message })
+            return
+        }
+
+        const bodyResult = BulkDeleteBodySchema.safeParse(req.body)
+        if (!bodyResult.success) {
+            res.status(400).json({ error: bodyResult.error.issues[0].message })
+            return
+        }
+
+        if (!this.recordingService) {
+            res.status(503).json({ error: 'Service not initialized' })
+            return
+        }
+
+        const { team_id: teamId } = paramsResult.data
+        const { session_ids: sessionIds } = bodyResult.data
+
+        try {
+            const result = await this.recordingService.bulkDeleteRecordings(sessionIds, teamId)
+            res.json(result)
+        } catch (error) {
+            logger.error('[RecordingApi] Error in bulk delete', { error, teamId })
+            res.status(500).json({ error: 'Failed to bulk delete recordings' })
+        }
+    }
+
     private deleteRecording = async (req: express.Request, res: express.Response): Promise<void> => {
         // Parse and validate request
         const paramsResult = RecordingParamsSchema.safeParse(req.params)
@@ -265,13 +296,6 @@ export class RecordingApi {
 
             // Serialize response
             if (!result.ok) {
-                if (result.error === 'already_deleted') {
-                    res.status(410).json({
-                        error: 'Recording has already been deleted',
-                        deleted_at: result.deletedAt,
-                    })
-                    return
-                }
                 if (result.error === 'not_supported') {
                     res.status(501).json({ error: 'Recording deletion is not supported for this deployment' })
                     return
@@ -284,7 +308,7 @@ export class RecordingApi {
                 return
             }
 
-            res.json({ team_id: teamId, session_id: sessionId, status: 'deleted' })
+            res.json({ team_id: teamId, session_id: sessionId, status: 'deleted', deleted_at: result.deletedAt })
         } catch (error) {
             logger.error('[RecordingApi] Error deleting recording key', { error, teamId, sessionId })
             res.status(500).json({ error: 'Failed to delete recording key' })

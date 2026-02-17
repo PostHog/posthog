@@ -2049,20 +2049,17 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @parameterized.expand(
         [
-            ("url_empty", "", True, True, False),
-            ("not_enabled", "http://localhost:6738", False, True, False),
-            ("flag_off", "http://localhost:6738", True, False, False),
-            ("flag_returns_none", "http://localhost:6738", True, None, False),
-            ("all_conditions_met", "http://localhost:6738", True, True, True),
+            ("non_cloud", False, True, True),
+            ("cloud_flag_off", True, False, False),
+            ("cloud_flag_none", True, None, False),
+            ("cloud_flag_on", True, True, True),
         ]
     )
-    def test_should_use_recording_api(self, _name, url, enabled, flag_result, expected):
+    def test_should_use_recording_api(self, _name, cloud, flag_result, expected):
         with (
-            patch("posthog.session_recordings.session_recording_api.settings") as mock_settings,
+            patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=cloud),
             patch("posthog.session_recordings.session_recording_api.posthoganalytics") as mock_posthoganalytics,
         ):
-            mock_settings.RECORDING_API_URL = url
-            mock_settings.RECORDING_API_ENABLED = enabled
             mock_posthoganalytics.feature_enabled.return_value = flag_result
 
             viewset = SessionRecordingViewSet()
