@@ -150,13 +150,23 @@ pub fn generate_embedding_text(
     let (text, count) = match model {
         EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
             let encoder = tiktoken_rs::cl100k_base()?;
-            let tokens: Vec<_> = encoder
+            let mut tokens: Vec<_> = encoder
                 .encode_with_special_tokens(content)
                 .into_iter()
                 .take(model.model_input_window())
                 .collect();
+            // Truncation can split a multi-byte character's token sequence,
+            // producing bytes that aren't valid UTF-8 on decode. Drop trailing
+            // tokens until we land on a clean boundary.
+            let text = loop {
+                match encoder.decode(tokens.clone()) {
+                    Ok(text) => break text,
+                    Err(_) => {
+                        tokens.pop();
+                    }
+                }
+            };
             let token_count = tokens.len();
-            let text = encoder.decode(tokens)?;
             (text, token_count)
         }
     };
@@ -190,4 +200,23 @@ pub fn construct_request(
     // This expect is fine, because we have total control over everything in the
     // request, except the string of input content, which will serialize correctly.
     req.build().expect("we manage to build the request")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_embedding_text_truncation_at_multibyte_boundary() {
+        // Emojis like 🔥 encode to 3 tokens in cl100k_base. When content exceeds
+        // the 8192 token window, truncation can split an emoji's token sequence,
+        // producing bytes that aren't valid UTF-8 on decode.
+        let padding = "word ".repeat(8180);
+        let content = format!("{padding}{}", "🔥".repeat(100));
+        let model = EmbeddingModel::default();
+
+        let (text, _count) =
+            generate_embedding_text(&content, &model, &RequestLabels::default()).unwrap();
+        assert!(content.starts_with(&text));
+    }
 }
