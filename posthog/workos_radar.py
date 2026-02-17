@@ -85,7 +85,7 @@ def evaluate_auth_attempt(
     action: RadarAction,
     auth_method: RadarAuthMethod,
     user_id: Optional[str] = None,
-    bypass: bool = True,
+    bypass: bool = False,
 ) -> Optional[RadarVerdict]:
     """
     Evaluate an authentication attempt using the WorkOS Radar Attempts API.
@@ -96,9 +96,10 @@ def evaluate_auth_attempt(
         action: Whether this is a signup or signin attempt
         auth_method: The authentication method (password or passkey)
         user_id: Optional user ID if the user already exists (for signin)
-        bypass: When True (default), blocking is skipped (log-only mode).
-            When False and verdict is BLOCK, raises SuspiciousAttemptBlocked
-            (unless the email is in the Redis bypass list).
+        bypass: When True, blocking is skipped (log-only mode).
+            When False (default), and verdict is BLOCK, raises
+            SuspiciousAttemptBlocked (unless the email is in the Redis
+            bypass list).
 
     Returns:
         The Radar verdict (allow, challenge, block, error, or disabled)

@@ -14,61 +14,49 @@
     .remove-btn { color: #ba2121; cursor: pointer; background: none; border: none; text-decoration: underline; }
     .remove-btn:hover { color: #a41515; }
     .empty-state { color: #666; font-style: italic; padding: 12px 0; }
+    .msg-success { background: #dfd; padding: 8px 12px; margin-bottom: 10px; border-radius: 4px; }
+    .msg-error { background: #fdd; padding: 8px 12px; margin-bottom: 10px; border-radius: 4px; }
 </style>
 {% endblock %}
 
 {% block content %}
 
-{% if messages %}
-    {% for message in messages %}
-        <div class="messagelist"><ul class="messagelist"><li class="{{ message.tags }}">{{ message }}</li></ul></div>
-    {% endfor %}
-{% endif %}
+<div id="messages"></div>
 
 <div class="email-list">
     <fieldset class="module aligned">
-        <h2>Bypassed emails ({{ bypass_emails|length }})</h2>
+        <h2>Bypassed emails (<span id="email-count">{{ bypass_emails|length }}</span>)</h2>
 
-        {% if bypass_emails %}
-        <table>
+        <table id="email-table" {% if not bypass_emails %}style="display:none"{% endif %}>
             <thead>
                 <tr>
                     <th>Email</th>
                     <th>Actions</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="email-list-body">
                 {% for email in bypass_emails %}
-                <tr>
+                <tr data-email="{{ email }}">
                     <td>{{ email }}</td>
                     <td>
-                        <form method="post" style="display: inline;">
-                            {% csrf_token %}
-                            <input type="hidden" name="remove_email" value="{{ email }}" />
-                            <button type="submit" class="remove-btn" onclick="return confirm('Remove {{ email }} from bypass list?')">Remove</button>
-                        </form>
+                        <button type="button" class="remove-btn" onclick="removeEmail('{{ email }}')">Remove</button>
                     </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-        {% else %}
-        <p class="empty-state">No emails are currently bypassed.</p>
-        {% endif %}
+        <p id="empty-state" class="empty-state" {% if bypass_emails %}style="display:none"{% endif %}>No emails are currently bypassed.</p>
     </fieldset>
 </div>
 
-<form method="post" style="margin-top: 30px;">
-    {% csrf_token %}
-
+<form id="add-form" style="margin-top: 30px;" onsubmit="return addEmail(event)">
     <fieldset class="module aligned">
         <h2>Add email</h2>
 
         <div class="form-row">
-            <label for="{{ form.email.id_for_label }}">{{ form.email.label }}:</label>
-            {{ form.email }}
-            {% if form.email.help_text %}<p class="help">{{ form.email.help_text }}</p>{% endif %}
-            {{ form.email.errors }}
+            <label for="id_email">Email:</label>
+            <input type="email" name="email" id="id_email" required />
+            <p class="help">Email address to bypass suspicious signup checks</p>
         </div>
     </fieldset>
 
@@ -76,4 +64,72 @@
         <input type="submit" value="Add to bypass list" class="default" />
     </div>
 </form>
+
+<script>
+const API_BASE = '/api/admin/radar-bypass/';
+
+function getCookie(name) {
+    const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    return match ? match[2] : null;
+}
+
+function showMessage(text, isError) {
+    const el = document.getElementById('messages');
+    el.innerHTML = '<div class="msg-' + (isError ? 'error' : 'success') + '">' + text + '</div>';
+    setTimeout(() => { el.innerHTML = ''; }, 4000);
+}
+
+function updateCount() {
+    const rows = document.querySelectorAll('#email-list-body tr');
+    document.getElementById('email-count').textContent = rows.length;
+    document.getElementById('email-table').style.display = rows.length ? '' : 'none';
+    document.getElementById('empty-state').style.display = rows.length ? 'none' : '';
+}
+
+function addEmail(e) {
+    e.preventDefault();
+    const input = document.getElementById('id_email');
+    const email = input.value.trim();
+    if (!email) return false;
+
+    fetch(API_BASE, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
+        body: JSON.stringify({email: email})
+    }).then(r => {
+        if (r.ok) {
+            const tbody = document.getElementById('email-list-body');
+            const tr = document.createElement('tr');
+            tr.dataset.email = email;
+            tr.innerHTML = '<td>' + email + '</td><td><button type="button" class="remove-btn" onclick="removeEmail(\'' + email + '\')">Remove</button></td>';
+            tbody.appendChild(tr);
+            input.value = '';
+            updateCount();
+            showMessage('Added ' + email + ' to bypass list.', false);
+        } else {
+            r.json().then(d => showMessage(d.email ? d.email[0] : 'Failed to add email.', true));
+        }
+    });
+    return false;
+}
+
+function removeEmail(email) {
+    if (!confirm('Remove ' + email + ' from bypass list?')) return;
+
+    fetch(API_BASE + 'remove/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
+        body: JSON.stringify({email: email})
+    }).then(r => {
+        if (r.ok || r.status === 204) {
+            const row = document.querySelector('tr[data-email="' + email + '"]');
+            if (row) row.remove();
+            updateCount();
+            showMessage('Removed ' + email + ' from bypass list.', false);
+        } else {
+            showMessage('Failed to remove email.', true);
+        }
+    });
+}
+</script>
 {% endblock %}

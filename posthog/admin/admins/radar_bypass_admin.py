@@ -1,43 +1,54 @@
-from django import forms
-from django.contrib import admin, messages
-from django.core.exceptions import PermissionDenied
-from django.shortcuts import redirect, render
+from django.contrib import admin
+from django.shortcuts import render
+
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAdminUser
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.redis import get_client
 from posthog.workos_radar import WORKOS_RADAR_BYPASS_REDIS_KEY, add_radar_bypass_email, remove_radar_bypass_email
 
 
-class AddBypassEmailForm(forms.Form):
-    email = forms.EmailField(help_text="Email address to bypass suspicious signup checks")
+class RadarBypassEmailSerializer(serializers.Serializer):
+    email = serializers.EmailField(help_text="Email address to bypass suspicious signup checks")
+
+
+class RadarBypassViewSet(viewsets.ViewSet):
+    permission_classes = [IsAdminUser]
+
+    def list(self, request: Request) -> Response:
+        bypass_emails = sorted(
+            member.decode() if isinstance(member, bytes) else member
+            for member in get_client().smembers(WORKOS_RADAR_BYPASS_REDIS_KEY)
+        )
+        return Response(bypass_emails)
+
+    def create(self, request: Request) -> Response:
+        serializer = RadarBypassEmailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        add_radar_bypass_email(email)
+        return Response({"email": email}, status=status.HTTP_201_CREATED)
+
+    @action(methods=["post"], detail=False, url_path="remove")
+    def remove(self, request: Request) -> Response:
+        serializer = RadarBypassEmailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        remove_radar_bypass_email(email)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 def radar_bypass_view(request):
-    if not request.user.is_staff:
-        raise PermissionDenied
-
-    if request.method == "POST":
-        if "remove_email" in request.POST:
-            email = request.POST["remove_email"]
-            remove_radar_bypass_email(email)
-            messages.success(request, f"Removed {email} from bypass list.")
-            return redirect("radar-bypass")
-
-        form = AddBypassEmailForm(request.POST)
-        if form.is_valid():
-            email = form.cleaned_data["email"]
-            add_radar_bypass_email(email)
-            messages.success(request, f"Added {email} to bypass list.")
-            return redirect("radar-bypass")
-    else:
-        form = AddBypassEmailForm()
-
+    """Admin template view — thin wrapper that renders the HTML admin page."""
     bypass_emails = sorted(
         member.decode() if isinstance(member, bytes) else member
         for member in get_client().smembers(WORKOS_RADAR_BYPASS_REDIS_KEY)
     )
 
     context = {
-        "form": form,
         "bypass_emails": bypass_emails,
         "title": "Suspicious signup checks bypass",
         "has_view_permission": True,

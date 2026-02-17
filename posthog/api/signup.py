@@ -171,7 +171,6 @@ class SignupSerializer(serializers.Serializer):
             email=validated_data["email"],
             action=RadarAction.SIGNUP,
             auth_method=auth_method,
-            bypass=False,
         )
 
         is_instance_first_user: bool = not User.objects.exists()
@@ -392,7 +391,6 @@ class InviteSignupSerializer(serializers.Serializer):
                 email=invite.target_email,
                 action=RadarAction.SIGNUP,
                 auth_method=auth_method,
-                bypass=False,
             )
 
         # Only check SSO enforcement if we're not already logged in
