@@ -51,6 +51,33 @@ describe('EmailService', () => {
     afterEach(async () => {
         await closeHub(hub)
     })
+    describe('when SES is not configured', () => {
+        it('should not crash on construction and should fail explicitly on send', async () => {
+            const serviceWithoutSES = new EmailService({ ...hub, SES_REGION: '' })
+            expect(serviceWithoutSES.ses).toBeNull()
+            expect(serviceWithoutSES.sesV2Client).toBeNull()
+
+            await insertIntegration(hub.postgres, team.id, {
+                id: 1,
+                kind: 'email',
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'ses',
+                },
+            })
+            const invocation = createExampleInvocation({ team_id: team.id, id: 'function-1' })
+            invocation.id = 'invocation-1'
+            invocation.state.vmState = { stack: [] } as any
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
+
+            const result = await serviceWithoutSES.executeSendEmail(invocation)
+            expect(result.error).toBe('SES is not configured - set SES_REGION and SES credentials')
+        })
+    })
+
     describe('executeSendEmail', () => {
         let invocation: CyclotronJobInvocationHogFunction
         let sendEmailSpy: jest.SpyInstance
@@ -74,7 +101,7 @@ describe('EmailService', () => {
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
 
             // Mock SES sendEmail to avoid actual AWS calls
-            sendEmailSpy = jest.spyOn(service.ses, 'sendEmail').mockReturnValue({
+            sendEmailSpy = jest.spyOn(service.ses!, 'sendEmail').mockReturnValue({
                 promise: () => Promise.resolve({ MessageId: 'test-message-id' }),
             } as any)
         })
@@ -259,7 +286,7 @@ describe('EmailService', () => {
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1, email: 'test@posthog-test.com' },
             })
-            sendEmailSpy = jest.spyOn(service.ses, 'sendEmail').mockReturnValue({
+            sendEmailSpy = jest.spyOn(service.ses!, 'sendEmail').mockReturnValue({
                 promise: () => Promise.resolve({ MessageId: 'test-message-id' }),
             } as any)
         })
@@ -399,7 +426,7 @@ describe('EmailService', () => {
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1, email: 'test@posthog-test.com' },
             })
-            sendEmailSpy = jest.spyOn(service.sesV2Client, 'send')
+            sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send')
         })
 
         it('should send an email if verified', async () => {

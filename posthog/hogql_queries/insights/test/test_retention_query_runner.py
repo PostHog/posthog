@@ -1958,6 +1958,168 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_retention_with_properties_on_all_events_target_entity(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"$target_event_property": "value"}),
+                ("person2", _date(0), {"$target_event_property": "other"}),
+                ("person1", _date(1)),
+                ("person2", _date(1)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "targetEntity": {
+                        "id": None,
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                        "properties": [
+                            {
+                                "key": "$target_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    },
+                    "returningEntity": {"id": None, "type": TREND_FILTER_TYPE_EVENTS},
+                },
+            }
+        )
+
+        self.assertEqual(result[0]["values"][0]["count"], 1)
+
+    def test_retention_with_properties_on_all_events_returning_entity(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person2", _date(0)),
+                ("person1", _date(1), {"$return_event_property": "value"}),
+                ("person2", _date(1), {"$return_event_property": "other"}),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": None, "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {
+                        "id": None,
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                        "properties": [
+                            {
+                                "key": "$return_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(result[0]["values"][0]["count"], 2)
+        self.assertEqual(result[0]["values"][1]["count"], 1)
+
+    def test_retention_with_properties_on_action_target_entity(self):
+        action = Action.objects.create(team=self.team, name="pageview_action", steps_json=[{"event": "$pageview"}])
+
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"$target_event_property": "value"}),
+                ("person2", _date(0), {"$target_event_property": "other"}),
+                ("person1", _date(1)),
+                ("person2", _date(1)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "targetEntity": {
+                        "id": action.pk,
+                        "type": TREND_FILTER_TYPE_ACTIONS,
+                        "properties": [
+                            {
+                                "key": "$target_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    },
+                    "returningEntity": {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS},
+                },
+            }
+        )
+
+        self.assertEqual(result[0]["values"][0]["count"], 1)
+
+    def test_retention_with_properties_on_action_returning_entity(self):
+        action = Action.objects.create(team=self.team, name="pageview_action", steps_json=[{"event": "$pageview"}])
+
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person2", _date(0)),
+                ("person1", _date(1), {"$return_event_property": "value"}),
+                ("person2", _date(1), {"$return_event_property": "other"}),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "targetEntity": {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {
+                        "id": action.pk,
+                        "type": TREND_FILTER_TYPE_ACTIONS,
+                        "properties": [
+                            {
+                                "key": "$return_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(result[0]["values"][0]["count"], 2)
+        self.assertEqual(result[0]["values"][1]["count"], 1)
+
     def test_retention_with_properties_on_return_event_with_first_time(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])

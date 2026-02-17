@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
+import { Hub, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
@@ -10,17 +11,32 @@ import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
-import { OkResultWithContext } from '../pipelines/filter-ok-batch-pipeline'
+import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
-import { PerEventProcessingConfig, PerEventProcessingInput } from './per-event-processing-subpipeline'
-import { createPerEventProcessingSubpipeline } from './per-event-processing-subpipeline'
-import { PostTeamPreprocessingSubpipelineInput } from './post-team-preprocessing-subpipeline'
-import { PreprocessingHub, PreprocessingPipelineConfig, createPreprocessingPipeline } from './preprocessing-pipeline'
+import {
+    PerDistinctIdPipelineConfig,
+    PerDistinctIdPipelineInput,
+    createPerDistinctIdPipeline,
+} from './per-distinct-id-pipeline'
+import {
+    PostTeamPreprocessingSubpipelineConfig,
+    PostTeamPreprocessingSubpipelineInput,
+    createPostTeamPreprocessingSubpipeline,
+} from './post-team-preprocessing-subpipeline'
+import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-subpipeline'
+
+export type PreprocessingHub = Pick<
+    Hub,
+    | 'teamManager'
+    | 'cookielessManager'
+    | 'INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY'
+    | 'PERSONS_PREFETCH_ENABLED'
+    | 'CDP_HOG_WATCHER_SAMPLE_RATE'
+>
 
 export interface JoinedIngestionPipelineConfig {
-    // Preprocessing config
     hub: PreprocessingHub
     kafkaProducer: KafkaProducerWrapper
     personsStore: PersonsStore
@@ -52,19 +68,31 @@ export interface JoinedIngestionPipelineContext {
     message: Message
 }
 
-type PreprocessedEventWithGroupStore = PostTeamPreprocessingSubpipelineInput & {
+type PreprocessingOutput = PostTeamPreprocessingSubpipelineInput & {
     groupStoreForBatch: GroupStoreForBatch
 }
 
-function getTokenAndDistinctId(input: PerEventProcessingInput): string {
+function addTeamToContext<T extends { team: Team }, C>(
+    element: OkResultWithContext<T, C>
+): OkResultWithContext<T, C & { team: Team }> {
+    return {
+        result: element.result,
+        context: {
+            ...element.context,
+            team: element.result.value.team,
+        },
+    }
+}
+
+function getTokenAndDistinctId(input: PerDistinctIdPipelineInput): string {
     const token = input.headers.token ?? ''
     const distinctId = input.event.distinct_id ?? ''
     return `${token}:${distinctId}`
 }
 
 function mapToPerEventInput<C>(
-    element: OkResultWithContext<PreprocessedEventWithGroupStore, C>
-): OkResultWithContext<PerEventProcessingInput, C> {
+    element: OkResultWithContext<PreprocessingOutput, C>
+): OkResultWithContext<PerDistinctIdPipelineInput, C> {
     const input = element.result.value
     return {
         result: ok({
@@ -100,27 +128,26 @@ export function createJoinedIngestionPipeline<
         groupId,
     } = config
 
-    const preprocessingConfig: PreprocessingPipelineConfig = {
-        hub,
-        kafkaProducer,
-        personsStore,
-        hogTransformer,
-        eventIngestionRestrictionManager,
-        overflowEnabled,
-        overflowTopic,
-        dlqTopic,
-        promiseScheduler,
-        overflowRedirectService,
-        overflowLaneTTLRefreshService,
-    }
-
     const pipelineConfig: PipelineConfig = {
         kafkaProducer,
         dlqTopic,
         promiseScheduler,
     }
 
-    const perEventConfig: PerEventProcessingConfig = {
+    const postTeamConfig: PostTeamPreprocessingSubpipelineConfig = {
+        eventIngestionRestrictionManager,
+        cookielessManager: hub.cookielessManager,
+        overflowTopic,
+        preservePartitionLocality: hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+        overflowRedirectService,
+        overflowLaneTTLRefreshService,
+        personsStore,
+        personsPrefetchEnabled: hub.PERSONS_PREFETCH_ENABLED,
+        hogTransformer,
+        cdpHogWatcherSampleRate: hub.CDP_HOG_WATCHER_SAMPLE_RATE,
+    }
+
+    const perEventConfig: PerDistinctIdPipelineConfig = {
         options: perDistinctIdOptions,
         teamManager,
         groupTypeManager,
@@ -130,29 +157,37 @@ export function createJoinedIngestionPipeline<
         groupId,
     }
 
-    return (
-        createPreprocessingPipeline(builder, preprocessingConfig)
-            // Filter to OK results only - preprocessing already handled DLQ, REDIRECT, etc.
-            .filterOk()
-            .map(mapToPerEventInput)
-            .messageAware((b) =>
-                b
-                    .teamAware((b) =>
-                        b
-                            // Group by token:distinctId and process each group concurrently
-                            // Events within each group are processed sequentially
-                            .groupBy(getTokenAndDistinctId)
-                            .concurrently((eventsForDistinctId) =>
-                                eventsForDistinctId.sequentially((event) =>
-                                    createPerEventProcessingSubpipeline(event, perEventConfig)
+    return builder
+        .messageAware((b) =>
+            b
+                .sequentially((b) =>
+                    createPreTeamPreprocessingSubpipeline(b, {
+                        teamManager: hub.teamManager,
+                        eventIngestionRestrictionManager,
+                        overflowEnabled,
+                        overflowTopic,
+                        preservePartitionLocality: hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+                    })
+                )
+                .filterMap(addTeamToContext, (b) =>
+                    b
+                        .teamAware((b) =>
+                            createPostTeamPreprocessingSubpipeline(b, postTeamConfig)
+                                // Group by token:distinctId and process each group concurrently
+                                // Events within each group are processed sequentially
+                                .filterMap(mapToPerEventInput, (b) =>
+                                    b
+                                        .groupBy(getTokenAndDistinctId)
+                                        .concurrently((eventsForDistinctId) =>
+                                            eventsForDistinctId.sequentially((event) =>
+                                                createPerDistinctIdPipeline(event, perEventConfig)
+                                            )
+                                        )
                                 )
-                            )
-                            .gather()
-                    )
-                    .handleIngestionWarnings(kafkaProducer)
-            )
-            .handleResults(pipelineConfig)
-            .handleSideEffects(promiseScheduler, { await: false })
-            .gather()
-    )
+                        )
+                        .handleIngestionWarnings(kafkaProducer)
+                )
+        )
+        .handleResults(pipelineConfig)
+        .handleSideEffects(promiseScheduler, { await: false })
 }

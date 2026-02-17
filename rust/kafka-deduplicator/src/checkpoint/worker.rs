@@ -12,6 +12,7 @@ use crate::metrics_const::{
     CHECKPOINT_WORKER_STATUS_COUNTER,
 };
 use crate::store::{DeduplicationStore, LocalCheckpointInfo};
+use crate::utils::async_helpers::unwrap_blocking_task;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -214,41 +215,50 @@ impl CheckpointWorker {
         let local_attempt_path = self.get_local_attempt_path();
 
         // TODO: this should accept CheckpointMode argument to implement incremental local checkpoint step
-        match store.create_checkpoint_with_metadata(&local_attempt_path) {
-            Ok(rocks_metadata) => {
-                let checkpoint_duration = start_time.elapsed();
-                metrics::histogram!(CHECKPOINT_DURATION_HISTOGRAM)
-                    .record(checkpoint_duration.as_secs_f64());
-
-                metrics::histogram!(CHECKPOINT_FILE_COUNT_HISTOGRAM)
-                    .record(rocks_metadata.sst_files.len() as f64);
-                if let Ok(checkpoint_size) = Self::get_directory_size(&local_attempt_path).await {
-                    metrics::histogram!(CHECKPOINT_SIZE_HISTOGRAM).record(checkpoint_size as f64);
-                }
-
-                info!(
-                    self.worker_id,
-                    local_attempt_path = local_attempt_path.to_string_lossy().to_string(),
-                    sst_file_count = rocks_metadata.sst_files.len(),
-                    sequence = rocks_metadata.sequence,
-                    "Checkpoint worker: created local checkpoint",
-                );
-
-                Ok(rocks_metadata)
-            }
-
+        // RocksDB checkpoint (flush_wal, flush, create_checkpoint) is sync and can block for tens of seconds; run on blocking pool to avoid starving tokio workers.
+        let store = store.clone();
+        let checkpoint_path = local_attempt_path.clone();
+        let rocks_metadata = match unwrap_blocking_task(
+            tokio::task::spawn_blocking(move || {
+                store.create_checkpoint_with_metadata(&checkpoint_path)
+            }),
+            "checkpoint task panicked",
+        )
+        .await
+        {
+            Ok(metadata) => metadata,
             Err(e) => {
                 let tags = [("result", "error"), ("cause", "local_checkpoint")];
                 metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                 error!(
                     self.worker_id,
                     local_attempt_path = local_attempt_path.to_string_lossy().to_string(),
-                    "Checkpoint worker: local attempt failed: {e:#}"
+                    error = %e,
+                    "Checkpoint worker: local attempt failed"
                 );
-
-                Err(e.context("local checkpoint attempt failed"))
+                return Err(e.context("local checkpoint attempt failed"));
             }
+        };
+
+        let checkpoint_duration = start_time.elapsed();
+        metrics::histogram!(CHECKPOINT_DURATION_HISTOGRAM)
+            .record(checkpoint_duration.as_secs_f64());
+
+        metrics::histogram!(CHECKPOINT_FILE_COUNT_HISTOGRAM)
+            .record(rocks_metadata.sst_files.len() as f64);
+        if let Ok(checkpoint_size) = Self::get_directory_size(&local_attempt_path).await {
+            metrics::histogram!(CHECKPOINT_SIZE_HISTOGRAM).record(checkpoint_size as f64);
         }
+
+        info!(
+            self.worker_id,
+            local_attempt_path = local_attempt_path.to_string_lossy().to_string(),
+            sst_file_count = rocks_metadata.sst_files.len(),
+            sequence = rocks_metadata.sequence,
+            "Checkpoint worker: created local checkpoint",
+        );
+
+        Ok(rocks_metadata)
     }
 
     async fn export_checkpoint_cancellable(
@@ -289,17 +299,35 @@ impl CheckpointWorker {
 
         match self.exporter.as_ref() {
             Some(exporter) => {
-                // Create checkpoint plan
-                let plan = plan_checkpoint(
-                    &self.get_local_attempt_path(),
-                    self.remote_namespace.clone(),
-                    self.partition.clone(),
-                    self.attempt_timestamp,
-                    rocks_metadata.sequence,
-                    consumer_offset,
-                    producer_offset,
-                    previous_metadata,
-                )?;
+                // Create checkpoint plan (sync fs I/O + hashing; run on blocking pool)
+                let local_attempt_path = self.get_local_attempt_path();
+                let remote_namespace = self.remote_namespace.clone();
+                let partition = self.partition.clone();
+                let attempt_timestamp = self.attempt_timestamp;
+                let sequence = rocks_metadata.sequence;
+                let prev_metadata_owned = previous_metadata.cloned();
+                let plan = unwrap_blocking_task(
+                    tokio::task::spawn_blocking(move || {
+                        plan_checkpoint(
+                            &local_attempt_path,
+                            remote_namespace,
+                            partition,
+                            attempt_timestamp,
+                            sequence,
+                            consumer_offset,
+                            producer_offset,
+                            prev_metadata_owned.as_ref(),
+                        )
+                    }),
+                    "plan_checkpoint task panicked",
+                )
+                .await
+                .with_context(|| {
+                    format!(
+                        "checkpoint planning failed for {} at {}",
+                        attempt_type, local_attempt_path_tag
+                    )
+                })?;
 
                 info!(
                     self.worker_id,

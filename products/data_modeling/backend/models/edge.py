@@ -59,6 +59,8 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     target = models.ForeignKey(Node, related_name="incoming_edges", on_delete=models.CASCADE, editable=False)
     # the name of the DAG this edge belongs to
     dag_id = models.TextField(max_length=256, default="posthog", db_index=True, editable=False)
+    # duplicate of dag_id, will replace it after code refs are migrated
+    dag_id_text = models.TextField(max_length=256, default="posthog", editable=False)
     properties = models.JSONField(default=dict)
 
     class Meta:
@@ -68,6 +70,7 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         ]
 
     def save(self, *args, skip_validation: bool = False, **kwargs):
+        self.dag_id_text = self.dag_id
         if skip_validation:
             super().save(*args, **kwargs)
             return

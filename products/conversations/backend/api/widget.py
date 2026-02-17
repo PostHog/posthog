@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.auth import WidgetAuthentication
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
@@ -37,6 +38,7 @@ from products.conversations.backend.api.serializers import (
 from products.conversations.backend.cache import (
     get_cached_messages,
     get_cached_tickets,
+    invalidate_tickets_cache,
     invalidate_unread_count_cache,
     set_cached_messages,
     set_cached_tickets,
@@ -135,8 +137,6 @@ class WidgetMessageView(APIView):
                     ]
                 )
                 ticket.refresh_from_db()
-                # Invalidate unread count cache - customer message increases count
-                invalidate_unread_count_cache(team.id)
 
             except Ticket.DoesNotExist:
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -153,9 +153,16 @@ class WidgetMessageView(APIView):
                 session_id=session_id,
                 session_context=session_context,
             )
-            # Invalidate unread count cache - new ticket with unread message
-            invalidate_unread_count_cache(team.id)
-            capture_ticket_created(ticket)
+
+            try:
+                capture_ticket_created(ticket)
+            except Exception as e:
+                # Don't let analytics failures break the widget
+                capture_exception(e, {"ticket_id": str(ticket.id)})
+
+        # Invalidate caches
+        invalidate_unread_count_cache(team.id)
+        invalidate_tickets_cache(team.id, widget_session_id)
 
         # Create message
         comment = Comment.objects.create(
