@@ -19,6 +19,8 @@ export interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'descripti
     onMaxOpen?: () => void
     className?: string
     position?: 'top-right' | 'bottom-right' | 'top-left' | 'bottom-left'
+    /** Whether MaxTool functionality is disabled. When true, just renders children without MaxTool wrapper. */
+    disabled?: boolean
 }
 
 /**
@@ -38,6 +40,7 @@ export function MaxTool({
     onMaxOpen,
     className,
     position = 'top-right',
+    disabled = false,
 }: MaxToolProps): JSX.Element {
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
@@ -54,7 +57,7 @@ export function MaxTool({
     })
 
     let content: JSX.Element
-    if (!definition) {
+    if (!definition || disabled) {
         content = <>{typeof Children === 'function' ? <Children toolAvailable={false} /> : Children}</>
     } else {
         content = (
