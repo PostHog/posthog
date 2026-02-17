@@ -246,10 +246,10 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                         actions.setTestError('Test succeeded but no response data was returned.')
                     }
                 } catch (e: any) {
-                    if (e.data) {
+                    if (e?.data) {
                         actions.setTestError(JSON.stringify(e.data, null, 2))
                     } else {
-                        actions.setTestError(e.detail || e.message || 'Failed to run test')
+                        actions.setTestError(e?.detail || e?.message || 'Failed to run test')
                     }
                 } finally {
                     actions.setTestLoading(false)
