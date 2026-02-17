@@ -15,7 +15,6 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 import jwt
@@ -33,6 +32,7 @@ from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
@@ -81,7 +81,7 @@ from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
-from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
+from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
@@ -863,6 +863,7 @@ def toolbar_oauth_start(request):
     except ToolbarOAuthError as exc:
         return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
 
+    logger.info("toolbar_oauth_start_success", team_id=team.id, user_id=request.user.id, app_url=app_url)
     return JsonResponse({"authorization_url": authorization_url, "expires_at": expires_at.isoformat()})
 
 
@@ -904,7 +905,7 @@ def toolbar_oauth_exchange(request):
             code=serializer.validated_data["code"],
             code_verifier=serializer.validated_data["code_verifier"],
         )
-        # keep response minimal and explicit
+        logger.info("toolbar_oauth_exchange_success", team_id=team.id, user_id=request.user.id)
         return JsonResponse(
             {
                 "access_token": token_payload["access_token"],
@@ -916,10 +917,11 @@ def toolbar_oauth_exchange(request):
             }
         )
     except ToolbarOAuthError as exc:
+        logger.warning("toolbar_oauth_exchange_failed", code=exc.code, user_id=request.user.id)
         return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
 
 
-@session_auth_required
+@require_http_methods(["GET"])
 def toolbar_oauth_callback(request):
     """
     OAuth popup bridge endpoint.
@@ -942,39 +944,48 @@ def toolbar_oauth_callback(request):
     )
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
-def toolbar_oauth_refresh(request):
+class ToolbarOAuthRefreshView(APIView):
     """
     Refresh toolbar OAuth tokens.
 
     No session auth — the refresh_token itself is the credential.
-    csrf_exempt because cross-origin toolbar calls cannot provide the CSRF cookie.
+    CSRF exempt via DRF's SessionAuthentication not being listed.
     """
-    try:
-        body = json.loads(request.body or "{}")
-    except json.JSONDecodeError:
-        return JsonResponse({"code": "invalid_json", "detail": "Request body must be valid JSON"}, status=400)
 
-    refresh_token = body.get("refresh_token")
-    client_id = body.get("client_id")
-    if not refresh_token or not client_id:
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ToolbarOAuthRefreshThrottle]
+
+    def post(self, request):
+        try:
+            body = json.loads(request.body or "{}")
+        except json.JSONDecodeError:
+            return JsonResponse({"code": "invalid_json", "detail": "Request body must be valid JSON"}, status=400)
+
+        refresh_token = body.get("refresh_token")
+        client_id = body.get("client_id")
+        if not refresh_token or not client_id:
+            return JsonResponse(
+                {"code": "invalid_request", "detail": "refresh_token and client_id are required"}, status=400
+            )
+
+        try:
+            token_payload = refresh_tokens(client_id=client_id, refresh_token=refresh_token)
+        except ToolbarOAuthError as exc:
+            logger.warning("toolbar_oauth_refresh_failed", code=exc.code)
+            return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
+
+        logger.info("toolbar_oauth_refresh_success")
         return JsonResponse(
-            {"code": "invalid_request", "detail": "refresh_token and client_id are required"}, status=400
+            {
+                "access_token": token_payload["access_token"],
+                "refresh_token": token_payload["refresh_token"],
+                "expires_in": token_payload["expires_in"],
+            }
         )
 
-    try:
-        token_payload = refresh_tokens(client_id=client_id, refresh_token=refresh_token)
-    except ToolbarOAuthError as exc:
-        return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
 
-    return JsonResponse(
-        {
-            "access_token": token_payload["access_token"],
-            "refresh_token": token_payload["refresh_token"],
-            "expires_in": token_payload["expires_in"],
-        }
-    )
+toolbar_oauth_refresh = ToolbarOAuthRefreshView.as_view()
 
 
 @session_auth_required
