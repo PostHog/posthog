@@ -1,3 +1,4 @@
+import re
 import json
 from urllib.parse import parse_qs, urlparse
 
@@ -69,10 +70,12 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         )
         assert response.status_code == 401
 
-    def test_callback_requires_authentication(self):
+    def test_callback_anonymous_user_gets_relay_not_exchange(self):
         self.client.logout()
         response = self.client.get("/toolbar_oauth/callback?code=c&state=s")
-        assert response.status_code == 401
+        # Anonymous users hit the relay path (no code_verifier in session), not the exchange path
+        assert response.status_code == 200
+        assert b'"type": "toolbar_oauth_result"' in response.content
 
     def test_start_returns_authorization_url(self):
         data = self._start()
@@ -512,7 +515,7 @@ class TestToolbarOAuthRefresh(APIBaseTest):
     def test_refresh_rejects_invalid_json(self):
         response = self.client.post(
             "/api/user/toolbar_oauth_refresh/",
-            data=json.dumps({"refresh_token": "phr_old", "client_id": "test_client_id"}),
+            data="{not-json",
             content_type="application/json",
         )
         assert response.status_code == 400
@@ -616,8 +619,6 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
         assert response.status_code == 200
 
         content = response.content.decode()
-        import re
-
         match = re.search(r'href="([^"]*oauth/authorize/[^"]*)"', content)
         if not match:
             match = re.search(r'"authorization_url":\s*"([^"]*)"', content)

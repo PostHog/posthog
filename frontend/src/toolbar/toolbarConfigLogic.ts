@@ -9,8 +9,41 @@ import { ToolbarProps } from '~/types'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 import { LOCALSTORAGE_KEY, OAUTH_LOCALSTORAGE_KEY } from './utils'
 
-// Singleton refresh promise to prevent concurrent refresh races
+// Singleton refresh promise shared across toolbarFetch/toolbarUploadMedia to prevent concurrent races
 let refreshPromise: Promise<{ access_token: string; refresh_token: string; expires_in: number }> | null = null
+
+/**
+ * Attempt a token refresh and retry on 401. Shared by toolbarFetch and toolbarUploadMedia.
+ * Returns the original response if no retry is needed, or the retried response.
+ */
+async function withTokenRefresh(
+    response: Response,
+    retryRequest: (newAccessToken: string) => Promise<Response>
+): Promise<Response> {
+    const logic = toolbarConfigLogic.findMounted()
+    const accessToken = logic?.values.accessToken
+    const refreshToken = logic?.values.refreshToken
+    const clientId = logic?.values.clientId
+    const uiHost = logic?.values.uiHost
+
+    if (response.status !== 401 || !accessToken || !refreshToken || !clientId || !uiHost) {
+        return response
+    }
+
+    try {
+        const tokens = await refreshOAuthTokens(uiHost, clientId, refreshToken)
+        toolbarConfigLogic.actions.setOAuthTokens(
+            tokens.access_token,
+            tokens.refresh_token,
+            tokens.expires_in,
+            clientId
+        )
+        return await retryRequest(tokens.access_token)
+    } catch {
+        toolbarConfigLogic.actions.tokenExpired()
+        return response
+    }
+}
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
@@ -292,8 +325,6 @@ export async function toolbarFetch(
     const logic = toolbarConfigLogic.findMounted()
     const temporaryToken = logic?.values.temporaryToken
     const accessToken = logic?.values.accessToken
-    const refreshToken = logic?.values.refreshToken
-    const clientId = logic?.values.clientId
     const host = logic?.values.uiHost
 
     if (!temporaryToken && !accessToken) {
@@ -323,25 +354,15 @@ export async function toolbarFetch(
         headers['Content-Type'] = 'application/json'
     }
 
-    const response = await fetch(fullUrl, {
+    let response = await fetch(fullUrl, {
         method,
         headers,
         ...(payload ? { body: JSON.stringify(payload) } : {}),
     })
 
-    if (response.status === 401 && useBearer && refreshToken && clientId && host) {
-        // Attempt token refresh
-        try {
-            const tokens = await refreshOAuthTokens(host, clientId, refreshToken)
-            toolbarConfigLogic.actions.setOAuthTokens(
-                tokens.access_token,
-                tokens.refresh_token,
-                tokens.expires_in,
-                clientId
-            )
-
-            // Retry with new token
-            const retryHeaders: Record<string, string> = { Authorization: `Bearer ${tokens.access_token}` }
+    if (useBearer) {
+        response = await withTokenRefresh(response, async (newAccessToken) => {
+            const retryHeaders: Record<string, string> = { Authorization: `Bearer ${newAccessToken}` }
             if (payload) {
                 retryHeaders['Content-Type'] = 'application/json'
             }
@@ -350,10 +371,7 @@ export async function toolbarFetch(
                 headers: retryHeaders,
                 ...(payload ? { body: JSON.stringify(payload) } : {}),
             })
-        } catch {
-            toolbarConfigLogic.actions.tokenExpired()
-            return response
-        }
+        })
     }
 
     if (response.status === 403) {
@@ -382,10 +400,7 @@ export async function toolbarUploadMedia(file: File): Promise<{ id: string; url:
     const logic = toolbarConfigLogic.findMounted()
     const temporaryToken = logic?.values.temporaryToken
     const accessToken = logic?.values.accessToken
-    const refreshToken = logic?.values.refreshToken
-    const clientId = logic?.values.clientId
     const apiHost = logic?.values.apiHost
-    const uiHost = logic?.values.uiHost
 
     if ((!temporaryToken && !accessToken) || !apiHost) {
         throw new Error('Toolbar not authenticated')
@@ -407,24 +422,14 @@ export async function toolbarUploadMedia(file: File): Promise<{ id: string; url:
 
     let response = await fetch(url, { method: 'POST', body: formData, headers })
 
-    if (response.status === 401 && useBearer && refreshToken && clientId && uiHost) {
-        try {
-            const tokens = await refreshOAuthTokens(uiHost, clientId, refreshToken)
-            toolbarConfigLogic.actions.setOAuthTokens(
-                tokens.access_token,
-                tokens.refresh_token,
-                tokens.expires_in,
-                clientId
-            )
-            response = await fetch(url, {
+    if (useBearer) {
+        response = await withTokenRefresh(response, async (newAccessToken) => {
+            return await fetch(url, {
                 method: 'POST',
                 body: formData,
-                headers: { Authorization: `Bearer ${tokens.access_token}` },
+                headers: { Authorization: `Bearer ${newAccessToken}` },
             })
-        } catch {
-            toolbarConfigLogic.actions.tokenExpired()
-            throw new Error('Authentication expired')
-        }
+        })
     }
 
     if (response.status === 401) {
