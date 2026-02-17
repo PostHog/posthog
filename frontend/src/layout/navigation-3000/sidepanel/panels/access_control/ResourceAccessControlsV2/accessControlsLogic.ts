@@ -174,13 +174,94 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             (accessControlDefault): AccessControlLevel => accessControlDefault?.access_level ?? AccessControlLevel.None,
         ],
 
+        effectiveProjectAccessByMemberId: [
+            (s) => [
+                s.canUseRoles,
+                s.allMembers,
+                s.projectDefaultLevel,
+                s.accessControlMembers,
+                s.accessControlRoles,
+                s.roles,
+            ],
+            (
+                canUseRoles,
+                allMembers,
+                projectDefaultLevel,
+                accessControlMembers,
+                accessControlRoles,
+                roles
+            ): Record<string, { effectiveProjectLevel: AccessControlLevel; hasAdminAccessViaRoles: boolean }> => {
+                const mappedAccessControlRoles = accessControlRoles.reduce(
+                    (acc, accessControlRole) => {
+                        if (!accessControlRole.role) {
+                            return acc
+                        }
+                        if (accessControlRole.access_level === null || accessControlRole.access_level === undefined) {
+                            return acc
+                        }
+                        return Object.assign(acc, {
+                            [accessControlRole.role]: accessControlRole.access_level as AccessControlLevel,
+                        })
+                    },
+                    {} as Record<string, AccessControlLevel>
+                )
+
+                const roleIdsByMemberUuid = new Map<string, string[]>()
+                if (canUseRoles) {
+                    for (const role of roles ?? []) {
+                        for (const roleMember of role.members) {
+                            const existingRoleIds = roleIdsByMemberUuid.get(roleMember.user_uuid)
+                            if (existingRoleIds) {
+                                existingRoleIds.push(role.id)
+                            } else {
+                                roleIdsByMemberUuid.set(roleMember.user_uuid, [role.id])
+                            }
+                        }
+                    }
+                }
+
+                const mappedAccessControlMembers = accessControlMembers.reduce(
+                    (acc, accessControlMember) => {
+                        if (!accessControlMember.organization_member) {
+                            return acc
+                        }
+                        return Object.assign(acc, { [accessControlMember.organization_member]: accessControlMember })
+                    },
+                    {} as Record<string, AccessControlTypeMember | AccessControlTypeOrganizationAdmins>
+                )
+
+                return allMembers.reduce(
+                    (acc, member) => {
+                        const isOrgAdmin = member.level >= OrganizationMembershipLevel.Admin
+                        const projectOverride = mappedAccessControlMembers[member.id]
+                        const roleOverrideLevels = (roleIdsByMemberUuid.get(member.user.uuid) ?? [])
+                            .map((roleId) => mappedAccessControlRoles[roleId])
+                            .filter((level): level is AccessControlLevel => level !== null && level !== undefined)
+
+                        return Object.assign(acc, {
+                            [member.id]: getEffectiveProjectAccessForMember({
+                                projectDefaultLevel,
+                                memberOverrideLevel: projectOverride?.access_level as
+                                    | AccessControlLevel
+                                    | null
+                                    | undefined,
+                                roleOverrideLevels,
+                                isOrganizationAdmin: isOrgAdmin,
+                            }),
+                        })
+                    },
+                    {} as Record<string, { effectiveProjectLevel: AccessControlLevel; hasAdminAccessViaRoles: boolean }>
+                )
+            },
+        ],
+
         allRows: [
             (s) => [
                 s.canUseRoles,
                 s.defaultResourceAccessControls,
                 s.allMembers,
                 s.projectDefaultLevel,
-                s.accessControlMembers,
+                s.effectiveProjectAccessByMemberId,
                 s.accessControlRoles,
                 s.memberResourceAccessControls,
                 s.roleResourceAccessControls,
@@ -191,7 +272,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 defaultResourceAccessControls,
                 allMembers,
                 projectDefaultLevel,
-                accessControlMembers,
+                effectiveProjectAccessByMemberId,
                 accessControlRoles,
                 memberResourceAccessControls,
                 roleResourceAccessControls,
@@ -250,42 +331,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 }
 
                 // Member scope rows
-                const mappedAccessControlRoles = accessControlRoles.reduce(
-                    (acc, accessControlRole) => {
-                        if (!accessControlRole.role) {
-                            return acc
-                        }
-                        if (accessControlRole.access_level === null || accessControlRole.access_level === undefined) {
-                            return acc
-                        }
-                        return Object.assign(acc, {
-                            [accessControlRole.role]: accessControlRole.access_level as AccessControlLevel,
-                        })
-                    },
-                    {} as Record<string, AccessControlLevel>
-                )
-                const roleIdsByMemberUuid = new Map<string, string[]>()
-                if (canUseRoles) {
-                    for (const role of roles ?? []) {
-                        for (const roleMember of role.members) {
-                            const existingRoleIds = roleIdsByMemberUuid.get(roleMember.user_uuid)
-                            if (existingRoleIds) {
-                                existingRoleIds.push(role.id)
-                            } else {
-                                roleIdsByMemberUuid.set(roleMember.user_uuid, [role.id])
-                            }
-                        }
-                    }
-                }
-                const mappedAccessControlMembers = accessControlMembers.reduce(
-                    (acc, accessControlMember) => {
-                        if (!accessControlMember.organization_member) {
-                            return acc
-                        }
-                        return Object.assign(acc, { [accessControlMember.organization_member]: accessControlMember })
-                    },
-                    {} as Record<string, AccessControlTypeMember | AccessControlTypeOrganizationAdmins>
-                )
                 const mappedMemberResourceEntries = memberResourceAccessControls.reduce(
                     (acc, memberAccessControl) => {
                         if (!memberAccessControl.organization_member) {
@@ -300,20 +345,10 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
 
                 for (const member of allMembers) {
                     const levels: AccessControlLevelMapping[] = []
-                    const projectOverride = mappedAccessControlMembers[member.id]
-                    const isOrgAdmin = member.level >= OrganizationMembershipLevel.Admin
-                    const roleOverrideLevels = (roleIdsByMemberUuid.get(member.user.uuid) ?? [])
-                        .map((roleId) => mappedAccessControlRoles[roleId])
-                        .filter((level): level is AccessControlLevel => level !== null && level !== undefined)
-                    const { effectiveProjectLevel, hasAdminAccessViaRoles } = getEffectiveProjectAccessForMember({
-                        projectDefaultLevel,
-                        memberOverrideLevel: projectOverride?.access_level as AccessControlLevel | null | undefined,
-                        roleOverrideLevels,
-                        isOrganizationAdmin: isOrgAdmin,
-                    })
+                    const effectiveProjectAccess = effectiveProjectAccessByMemberId[member.id]
                     levels.push({
                         resourceKey: 'project',
-                        level: effectiveProjectLevel,
+                        level: effectiveProjectAccess?.effectiveProjectLevel ?? projectDefaultLevel,
                     })
 
                     const memberResourceEntry = mappedMemberResourceEntries[member.id]
@@ -333,7 +368,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                         id: getIdForMemberRow(member.id),
                         role: { id: member.id, name: fullName(member.user) },
                         member,
-                        memberHasAdminAccessViaRoles: hasAdminAccessViaRoles,
                         levels,
                     })
                 }
@@ -480,8 +514,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ],
 
         ruleModalMemberHasAdminAccess: [
-            (s) => [s.ruleModalState, s.ruleModalMemberIsOrgAdmin],
-            (ruleModalState, ruleModalMemberIsOrgAdmin): boolean => {
+            (s) => [s.ruleModalState, s.ruleModalMemberIsOrgAdmin, s.effectiveProjectAccessByMemberId],
+            (ruleModalState, ruleModalMemberIsOrgAdmin, effectiveProjectAccessByMemberId): boolean => {
                 if (!ruleModalState) {
                     return false
                 }
@@ -495,19 +529,15 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     return false
                 }
 
-                // Check if member has project admin access
-                const projectLevel = row.levels.find((l) => l.resourceKey === 'project')
-                if (projectLevel?.level === AccessControlLevel.Admin) {
-                    return true
-                }
-
-                return false
+                return (
+                    effectiveProjectAccessByMemberId[row.member.id]?.effectiveProjectLevel === AccessControlLevel.Admin
+                )
             },
         ],
 
         ruleModalMemberHasAdminAccessViaRoles: [
-            (s) => [s.ruleModalState],
-            (ruleModalState): boolean => {
+            (s) => [s.ruleModalState, s.effectiveProjectAccessByMemberId],
+            (ruleModalState, effectiveProjectAccessByMemberId): boolean => {
                 if (!ruleModalState) {
                     return false
                 }
@@ -517,7 +547,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     return false
                 }
 
-                return !!row.memberHasAdminAccessViaRoles
+                return !!effectiveProjectAccessByMemberId[row.member.id]?.hasAdminAccessViaRoles
             },
         ],
 
