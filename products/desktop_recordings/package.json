@@ -1,7 +1,5 @@
 {
     "name": "@posthog/products-desktop_recordings",
-    "version": "0.0.0",
-    "private": true,
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
     }
