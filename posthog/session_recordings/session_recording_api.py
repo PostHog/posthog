@@ -4,6 +4,7 @@ import os
 import re
 import json
 import asyncio
+import builtins
 from collections.abc import Generator
 from contextlib import contextmanager
 from json import JSONDecodeError
@@ -1369,7 +1370,7 @@ class SessionRecordingViewSet(
             )
         )
 
-    def _bulk_delete_via_recording_api(self, session_ids: list[str]) -> list[str]:
+    def _bulk_delete_via_recording_api(self, session_ids: builtins.list[str]) -> builtins.list[str]:
         """Delete multiple recordings via recording-api bulk endpoint.
 
         Returns list of session IDs that failed to delete.

@@ -206,19 +206,6 @@ describe('RecordingService', () => {
             })
         })
 
-        it('reports not_found as failed', async () => {
-            mockKeyStore.deleteKey
-                .mockResolvedValueOnce({ deleted: true, deletedAt: 1700000000 })
-                .mockResolvedValueOnce({ deleted: false, reason: 'not_found' })
-
-            const result = await service.bulkDeleteRecordings(['session-1', 'session-2'], 1)
-
-            expect(result).toEqual({
-                deleted: ['session-1'],
-                failed: [{ session_id: 'session-2', error: 'not_found' }],
-            })
-        })
-
         it('reports promise rejections as unexpected_error', async () => {
             mockKeyStore.deleteKey
                 .mockResolvedValueOnce({ deleted: true, deletedAt: 1700000000 })
@@ -232,16 +219,16 @@ describe('RecordingService', () => {
             })
         })
 
-        it('returns all as failed when all fail', async () => {
-            mockKeyStore.deleteKey.mockResolvedValue({ deleted: false, reason: 'not_found' })
+        it('returns all as failed when all reject', async () => {
+            mockKeyStore.deleteKey.mockRejectedValue(new Error('Database error'))
 
             const result = await service.bulkDeleteRecordings(['session-1', 'session-2'], 1)
 
             expect(result).toEqual({
                 deleted: [],
                 failed: [
-                    { session_id: 'session-1', error: 'not_found' },
-                    { session_id: 'session-2', error: 'not_found' },
+                    { session_id: 'session-1', error: 'unexpected_error' },
+                    { session_id: 'session-2', error: 'unexpected_error' },
                 ],
             })
         })
@@ -269,16 +256,6 @@ describe('RecordingService', () => {
                 [1, 'session-123'],
                 'deleteSessionSummary'
             )
-        })
-
-        it('does not emit deletion event or delete postgres records when key is not found', async () => {
-            mockKeyStore.deleteKey.mockResolvedValue({ deleted: false, reason: 'not_found' })
-
-            const result = await service.deleteRecording('session-123', 1)
-
-            expect(result).toEqual({ ok: false, error: 'not_found' })
-            expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
-            expect(mockPostgres.query).not.toHaveBeenCalled()
         })
 
         it('returns ok without cleanup when key was already deleted', async () => {

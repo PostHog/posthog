@@ -23,7 +23,6 @@ export type GetBlockResult =
 
 export type DeleteRecordingResult =
     | { ok: true; deletedAt: number }
-    | { ok: false; error: 'not_found' }
     | { ok: false; error: 'cleanup_failed'; metadataError?: unknown; postgresError?: unknown }
 
 export type BulkDeleteRecordingsResult = {
@@ -146,18 +145,14 @@ export class RecordingService {
             return { ok: true, deletedAt }
         }
 
-        if (result.reason === 'already_deleted') {
-            logger.info('[RecordingService] Recording already deleted', {
-                teamId,
-                sessionId,
-                deleted_at: result.deletedAt,
-            })
-            RecordingApiMetrics.observeDeleteRecording('success', (performance.now() - startTime) / 1000)
-            return { ok: true, deletedAt: result.deletedAt }
-        }
-
-        RecordingApiMetrics.observeDeleteRecording('not_found', (performance.now() - startTime) / 1000)
-        return { ok: false, error: 'not_found' }
+        // already_deleted
+        logger.info('[RecordingService] Recording already deleted', {
+            teamId,
+            sessionId,
+            deleted_at: result.deletedAt,
+        })
+        RecordingApiMetrics.observeDeleteRecording('success', (performance.now() - startTime) / 1000)
+        return { ok: true, deletedAt: result.deletedAt }
     }
 
     async bulkDeleteRecordings(sessionIds: string[], teamId: number): Promise<BulkDeleteRecordingsResult> {

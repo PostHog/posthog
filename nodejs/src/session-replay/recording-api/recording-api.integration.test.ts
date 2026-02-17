@@ -278,11 +278,12 @@ describe('Recording API encryption integration', () => {
                 )
             })
 
-            it('should return not_found when deleting non-existent key', async () => {
+            it('should create tombstone when deleting non-existent key', async () => {
                 const keyStore = getKeyStore()
 
                 const result = await keyStore.deleteKey(`non-existent-${Date.now()}`, 999)
-                expect(result).toEqual({ deleted: false, reason: 'not_found' })
+                expect(result.deleted).toBe(true)
+                expect(result.deletedAt).toBeDefined()
             })
 
             it('should handle multiple sessions with selective deletion', async () => {
@@ -884,11 +885,12 @@ describe('Recording API encryption integration', () => {
                 })
             })
 
-            it('should return 404 for non-existent key', async () => {
+            it('should create tombstone for non-existent key', async () => {
                 const res = await supertest(app).delete('/api/projects/1/recordings/non-existent')
 
-                expect(res.status).toBe(404)
-                expect(res.body.error).toBe('Recording key not found')
+                expect(res.status).toBe(200)
+                expect(res.body.status).toBe('deleted')
+                expect(res.body.deleted_at).toBeDefined()
             })
 
             it('should return 200 for already deleted key (idempotent)', async () => {

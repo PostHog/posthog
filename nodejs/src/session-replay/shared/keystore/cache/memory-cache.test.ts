@@ -134,16 +134,20 @@ describe('MemoryCachedKeyStore', () => {
             expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
         })
 
-        it('should clear cache even if delegate returns false', async () => {
+        it('should clear cache even if delegate returns already_deleted', async () => {
             // First, populate the cache
             await cachedKeyStore.getKey('session-123', 1)
             mockDelegate.getKey.mockClear()
 
-            mockDelegate.deleteKey.mockResolvedValue({ deleted: false, reason: 'not_found' })
+            mockDelegate.deleteKey.mockResolvedValue({
+                deleted: false,
+                reason: 'already_deleted',
+                deletedAt: 1700000000,
+            })
 
             const result = await cachedKeyStore.deleteKey('session-123', 1)
 
-            expect(result).toEqual({ deleted: false, reason: 'not_found' })
+            expect(result).toEqual({ deleted: false, reason: 'already_deleted', deletedAt: 1700000000 })
 
             // Cache should still be cleared
             await cachedKeyStore.getKey('session-123', 1)

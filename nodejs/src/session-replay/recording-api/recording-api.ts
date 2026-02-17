@@ -296,11 +296,7 @@ export class RecordingApi {
 
             // Serialize response
             if (!result.ok) {
-                if (result.error === 'cleanup_failed') {
-                    res.status(500).json({ error: 'Recording key deleted but post-deletion cleanup failed' })
-                    return
-                }
-                res.status(404).json({ error: 'Recording key not found' })
+                res.status(500).json({ error: 'Recording key deleted but post-deletion cleanup failed' })
                 return
             }
 

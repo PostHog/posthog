@@ -162,13 +162,17 @@ describe('RedisCachedKeyStore', () => {
             expect(result).toEqual({ deleted: true, deletedAt: 1700000000 })
         })
 
-        it('should clear cache even if delegate returns not_found', async () => {
-            mockDelegate.deleteKey.mockResolvedValue({ deleted: false, reason: 'not_found' })
+        it('should clear cache even if delegate returns already_deleted', async () => {
+            mockDelegate.deleteKey.mockResolvedValue({
+                deleted: false,
+                reason: 'already_deleted',
+                deletedAt: 1700000000,
+            })
 
             const result = await cachedKeyStore.deleteKey('session-123', 1)
 
             expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
-            expect(result).toEqual({ deleted: false, reason: 'not_found' })
+            expect(result).toEqual({ deleted: false, reason: 'already_deleted', deletedAt: 1700000000 })
         })
 
         it('should propagate delegate deleteKey error', async () => {

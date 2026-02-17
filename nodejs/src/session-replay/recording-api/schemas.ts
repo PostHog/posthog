@@ -27,7 +27,7 @@ export const TeamParamsSchema = z.object({
     team_id: positiveIntString('team_id'),
 })
 
-const MAX_BULK_DELETE_SESSION_IDS = 250
+const MAX_BULK_DELETE_SESSION_IDS = 100
 
 // Body schema for bulk delete requests
 export const BulkDeleteBodySchema = z.object({

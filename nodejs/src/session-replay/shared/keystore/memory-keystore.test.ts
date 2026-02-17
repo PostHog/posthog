@@ -111,10 +111,14 @@ describe('MemoryKeyStore', () => {
             expect(result).toEqual({ deleted: true, deletedAt: expect.any(Number) })
         })
 
-        it('should return not_found if key did not exist', async () => {
+        it('should create tombstone if key did not exist', async () => {
             const result = await keyStore.deleteKey('non-existent', 999)
 
-            expect(result).toEqual({ deleted: false, reason: 'not_found' })
+            expect(result).toEqual({ deleted: true, deletedAt: expect.any(Number) })
+
+            // Subsequent getKey should return deleted state
+            const key = await keyStore.getKey('non-existent', 999)
+            expect(key.sessionState).toBe('deleted')
         })
 
         it('should return already_deleted with timestamp if key was already deleted', async () => {

@@ -212,12 +212,10 @@ class TestTeam(BaseTest):
             ("self_hosted", False, "session_recording_retention_period", SessionRecordingRetentionPeriod.FIVE_YEARS),
             ("cloud", True, "session_recording_retention_period", SessionRecordingRetentionPeriod.THIRTY_DAYS),
             ("self_hosted", False, "session_recording_encryption", False),
-            ("cloud", True, "session_recording_encryption", None),
+            ("cloud", True, "session_recording_encryption", False),
         ]
     )
     def test_create_team_session_recording_defaults(self, _label, is_cloud, field, expected):
-        if expected is None:
-            expected = Team._meta.get_field(field).default
         with self.is_cloud(is_cloud):
             team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
             assert getattr(team, field) == expected
