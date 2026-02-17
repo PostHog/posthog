@@ -6,7 +6,6 @@ Supports single-trace and batched multi-trace classification.
 """
 
 import json
-from dataclasses import dataclass
 from datetime import UTC, timedelta
 from typing import Any
 
@@ -15,49 +14,14 @@ import temporalio
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.llm_analytics.sentiment.schema import (
+    ClassifySentimentBatchInput,
+    ClassifySentimentInput,
+    PendingClassification,
+    empty_trace_result,
+)
 
 logger = structlog.get_logger(__name__)
-
-
-@dataclass
-class ClassifySentimentInput:
-    team_id: int
-    trace_id: str
-    date_from: str | None = None
-    date_to: str | None = None
-
-
-@dataclass
-class ClassifySentimentBatchInput:
-    team_id: int
-    trace_ids: list[str]
-    date_from: str | None = None
-    date_to: str | None = None
-
-
-@dataclass
-class _PendingClassification:
-    trace_id: str
-    gen_uuid: str
-    msg_index: int
-    text: str
-
-
-_EMPTY_RESULT: dict[str, Any] = {
-    "label": "neutral",
-    "score": 0.0,
-    "scores": {"positive": 0.0, "neutral": 0.0, "negative": 0.0},
-}
-
-
-def _empty_trace_result(trace_id: str) -> dict[str, Any]:
-    return {
-        "trace_id": trace_id,
-        **_EMPTY_RESULT,
-        "generations": {},
-        "generation_count": 0,
-        "message_count": 0,
-    }
 
 
 _GENERATIONS_QUERY = """
@@ -122,14 +86,14 @@ def _collect_pending(
     generations: list[tuple[str, dict]],
     trace_id: str,
     cap: int,
-) -> tuple[list[_PendingClassification], list[str]]:
+) -> tuple[list[PendingClassification], list[str]]:
     """Parse generation rows and collect user messages for classification."""
     from posthog.temporal.llm_analytics.sentiment.extraction import (
         extract_user_messages_individually,
         truncate_to_token_limit,
     )
 
-    pending: list[_PendingClassification] = []
+    pending: list[PendingClassification] = []
     gen_uuids_seen: list[str] = []
 
     for event_uuid, props in generations:
@@ -143,7 +107,7 @@ def _collect_pending(
             if len(pending) >= cap:
                 break
             pending.append(
-                _PendingClassification(
+                PendingClassification(
                     trace_id=trace_id,
                     gen_uuid=event_uuid,
                     msg_index=original_index,
@@ -191,7 +155,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     result = await database_sync_to_async(_fetch_generations, thread_sensitive=False)()
 
     if not result.results:
-        return _empty_trace_result(input.trace_id)
+        return empty_trace_result(input.trace_id)
 
     generations: list[tuple[str, dict]] = []
     for row in result.results:
@@ -203,7 +167,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     pending, gen_uuids_seen = _collect_pending(generations, input.trace_id, MAX_TOTAL_CLASSIFICATIONS)
 
     if not pending:
-        return _empty_trace_result(input.trace_id)
+        return empty_trace_result(input.trace_id)
 
     if len(pending) >= MAX_TOTAL_CLASSIFICATIONS:
         logger.warning(
@@ -242,7 +206,7 @@ def _average_score_dicts(score_dicts: list[dict[str, float]]) -> dict[str, float
 
 def _build_trace_result(
     trace_id: str,
-    pending: list[_PendingClassification],
+    pending: list[PendingClassification],
     gen_uuids_seen: list[str],
     classification_results: list,
     pending_offset: int,
@@ -257,7 +221,7 @@ def _build_trace_result(
     trace_results = classification_results[pending_offset : pending_offset + len(trace_pending)]
 
     if not trace_pending:
-        return _empty_trace_result(trace_id), 0
+        return empty_trace_result(trace_id), 0
 
     gen_messages: dict[str, dict[int, dict[str, Any]]] = {}
     all_scores: list[dict[str, float]] = []
@@ -342,7 +306,7 @@ async def classify_sentiment_batch_activity(input: ClassifySentimentBatchInput) 
             trace_rows.append((str(row[0]), props))
 
     # Collect all texts to classify across all traces
-    pending: list[_PendingClassification] = []
+    pending: list[PendingClassification] = []
     gen_uuids_seen: list[str] = []
 
     for trace_id in input.trace_ids:

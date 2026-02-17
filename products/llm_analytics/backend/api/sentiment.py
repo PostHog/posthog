@@ -28,7 +28,7 @@ from posthog.rate_limit import (
     LLMAnalyticsSentimentSustainedThrottle,
 )
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.llm_analytics.sentiment.classify import ClassifySentimentBatchInput, ClassifySentimentInput
+from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentBatchInput, ClassifySentimentInput
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
 

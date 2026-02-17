@@ -4,12 +4,11 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.temporal.llm_analytics.sentiment.classify import (
-    ClassifySentimentBatchInput,
-    ClassifySentimentInput,
     classify_sentiment_activity,
     classify_sentiment_batch_activity,
 )
 from posthog.temporal.llm_analytics.sentiment.model import SentimentResult
+from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentBatchInput, ClassifySentimentInput
 
 
 def _make_generation_row(uuid: str, messages: list[dict], trace_id: str = "trace-1") -> tuple:
